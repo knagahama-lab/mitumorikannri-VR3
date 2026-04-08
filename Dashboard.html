@@ -1,0 +1,1272 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>見積・注文 管理システム</title>
+<style>
+:root{
+  --bg:#f0f2f5;--card:#fff;--border:#e0e0e0;
+  --primary:#1a73e8;--primary-light:#e8f0fe;
+  --text:#202124;--text-sub:#5f6368;
+  --success:#34a853;--danger:#ea4335;--warning:#fbbc04;--info:#4285f4;
+  --s-planned-bg:#f1f3f4;--s-planned-fg:#5f6368;
+  --s-sent-bg:#e8f0fe;--s-sent-fg:#1a73e8;
+  --s-received-bg:#fce8e6;--s-received-fg:#c5221f;
+  --s-done-bg:#e6f4ea;--s-done-fg:#137333;
+  --trial-bg:#fff8e1;--trial-fg:#e65100;
+  --mass-bg:#e8f5e9;--mass-fg:#1b5e20;
+  --radius:8px;--shadow:0 1px 4px rgba(0,0,0,.1);
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Google Sans','Noto Sans JP',sans-serif;background:var(--bg);color:var(--text);font-size:14px;}
+
+/* ナビ */
+header{background:var(--primary);color:white;padding:0 20px;height:52px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:200;}
+.logo{font-weight:600;font-size:16px;display:flex;align-items:center;gap:8px;}
+.nav-tabs{display:flex;gap:4px;}
+.nav-tab{padding:6px 14px;border-radius:20px;cursor:pointer;font-size:13px;color:rgba(255,255,255,.8);border:none;background:none;transition:all .15s;}
+.nav-tab.active,.nav-tab:hover{background:rgba(255,255,255,.2);color:white;}
+
+/* ページ */
+.page{display:none;padding:20px;max-width:1500px;margin:0 auto;}
+.page.active{display:block;}
+
+/* サマリーカード */
+.summary-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;}
+.summary-card{background:var(--card);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow);}
+.summary-card .lbl{font-size:11px;color:var(--text-sub);margin-bottom:4px;}
+.summary-card .val{font-size:26px;font-weight:600;}
+.summary-card .sub{font-size:11px;color:var(--text-sub);margin-top:3px;}
+.c-blue{color:var(--info);} .c-red{color:var(--danger);} .c-green{color:var(--success);}
+
+/* フィルター */
+.filter-bar{background:var(--card);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;box-shadow:var(--shadow);}
+.search-box{flex:1;min-width:220px;position:relative;}
+.search-box input{width:100%;padding:8px 12px 8px 34px;border:1px solid var(--border);border-radius:20px;font-size:13px;background:#f8f9fa;outline:none;}
+.search-box input:focus{border-color:var(--primary);background:white;}
+.search-box::before{content:'🔍';position:absolute;left:10px;top:50%;transform:translateY(-50%);font-size:13px;}
+select{padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:white;cursor:pointer;outline:none;}
+
+/* テーブル */
+.table-wrap{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;}
+.table-toolbar{padding:10px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
+.table-toolbar h2{font-size:14px;font-weight:600;}
+table{width:100%;border-collapse:collapse;}
+thead{background:#f8f9fa;}
+th{padding:8px 10px;text-align:left;font-size:11px;font-weight:600;color:var(--text-sub);border-bottom:1px solid var(--border);white-space:nowrap;}
+td{padding:8px 10px;border-bottom:1px solid var(--border);font-size:13px;vertical-align:middle;}
+tbody tr:last-child td{border-bottom:none;}
+tbody tr:hover{background:#f8f9fa;cursor:pointer;}
+.pagination{display:flex;align-items:center;justify-content:flex-end;gap:6px;padding:10px 16px;border-top:1px solid var(--border);}
+.page-btn{padding:5px 11px;border:1px solid var(--border);border-radius:6px;background:white;cursor:pointer;font-size:12px;}
+.page-btn.active{background:var(--primary);color:white;border-color:var(--primary);}
+.pg-info{font-size:12px;color:var(--text-sub);}
+
+/* バッジ */
+.badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500;white-space:nowrap;}
+.badge-planned{background:var(--s-planned-bg);color:var(--s-planned-fg);}
+.badge-sent{background:var(--s-sent-bg);color:var(--s-sent-fg);}
+.badge-received{background:var(--s-received-bg);color:var(--s-received-fg);}
+.badge-done{background:var(--s-done-bg);color:var(--s-done-fg);}
+.badge-trial{background:var(--trial-bg);color:var(--trial-fg);}
+.badge-mass{background:var(--mass-bg);color:var(--mass-fg);}
+.badge-linked{background:var(--s-done-bg);color:var(--s-done-fg);}
+.badge-high{background:#fce8e6;color:#c5221f;}
+.badge-mid{background:#fff8e1;color:#e65100;}
+.badge-low{background:#e8f5e9;color:#137333;}
+.text-sub{color:var(--text-sub);font-size:11px;}
+.pdf-link{color:var(--primary);font-size:12px;text-decoration:none;}.pdf-link:hover{text-decoration:underline;}
+
+/* ボタン */
+.btn{padding:8px 16px;border-radius:var(--radius);border:none;cursor:pointer;font-size:13px;font-weight:500;transition:all .15s;display:inline-flex;align-items:center;gap:6px;}
+.btn-primary{background:var(--primary);color:white;}.btn-primary:hover{background:#1557b0;}
+.btn-outline{background:white;color:var(--primary);border:1px solid var(--border);}.btn-outline:hover{background:var(--primary-light);}
+.btn-danger{background:#fce8e6;color:#c5221f;border:1px solid #f5c6c6;}.btn-danger:hover{background:#f5c6c6;}
+.btn-sm{padding:4px 10px;font-size:12px;}
+
+/* モーダル */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:300;align-items:center;justify-content:center;}
+.modal-overlay.open{display:flex;}
+.modal{background:white;border-radius:12px;width:92%;max-width:780px;max-height:88vh;overflow-y:auto;box-shadow:0 12px 40px rgba(0,0,0,.25);}
+.modal-head{padding:18px 24px 12px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;}
+.modal-head h3{font-size:15px;font-weight:600;}
+.modal-close{background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-sub);}
+.modal-body{padding:20px 24px;}
+
+/* アップロード */
+.upload-area{border:2px dashed var(--border);border-radius:var(--radius);padding:28px;text-align:center;cursor:pointer;transition:all .2s;}
+.upload-area.dragover{border-color:var(--primary);background:var(--primary-light);}
+.upload-area .icon{font-size:30px;margin-bottom:6px;}
+.type-toggle,.order-type-row{display:flex;gap:8px;margin-bottom:10px;}
+.type-btn,.order-type-btn{flex:1;padding:9px;border:1px solid var(--border);border-radius:var(--radius);background:white;cursor:pointer;text-align:center;font-size:13px;font-weight:500;transition:all .15s;}
+.type-btn.active{border-color:var(--primary);background:var(--primary-light);color:var(--primary);}
+.order-type-btn.active-trial{border-color:#e65100;background:var(--trial-bg);color:#e65100;}
+.order-type-btn.active-mass{border-color:#1b5e20;background:var(--mass-bg);color:#1b5e20;}
+#order-type-section{display:none;}
+
+/* 明細テーブル */
+.detail-section{margin-top:16px;}
+.detail-section h4{font-size:12px;font-weight:600;margin-bottom:6px;color:var(--text-sub);text-transform:uppercase;letter-spacing:.04em;}
+.dtable{width:100%;border-collapse:collapse;font-size:12px;}
+.dtable th,.dtable td{padding:5px 7px;border:1px solid var(--border);}
+.dtable th{background:#f8f9fa;font-weight:600;white-space:nowrap;}
+.dtable td.r{text-align:right;}
+.dtable tr.cancelled td{color:#bbb;text-decoration:line-through;}
+
+/* ローディング */
+.loading{text-align:center;padding:48px;color:var(--text-sub);}
+.spinner{display:inline-block;width:28px;height:28px;border:3px solid var(--border);border-top-color:var(--primary);border-radius:50%;animation:spin .8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+/* Toast */
+#toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:#323232;color:white;padding:10px 20px;border-radius:24px;font-size:13px;z-index:999;transition:transform .3s;pointer-events:none;}
+#toast.show{transform:translateX(-50%) translateY(0);}
+
+/* ===== Todo ===== */
+.todo-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+.todo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;}
+.todo-card{background:var(--card);border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow);border-left:4px solid var(--border);}
+.todo-card.p-high{border-left-color:var(--danger);}
+.todo-card.p-mid{border-left-color:var(--warning);}
+.todo-card.p-low{border-left-color:var(--success);}
+.todo-card.done{opacity:.5;}
+.todo-card .tc-title{font-weight:600;margin-bottom:4px;font-size:14px;}
+.todo-card .tc-meta{font-size:12px;color:var(--text-sub);}
+.todo-card .tc-actions{display:flex;gap:6px;margin-top:10px;}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;}
+.form-field{display:flex;flex-direction:column;gap:4px;}
+.form-field label{font-size:12px;font-weight:600;color:var(--text-sub);}
+.form-field input,.form-field select,.form-field textarea{padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;outline:none;}
+.form-field input:focus,.form-field select:focus,.form-field textarea:focus{border-color:var(--primary);}
+
+/* ===== カレンダー ===== */
+.cal-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+.cal-nav{display:flex;align-items:center;gap:12px;}
+.cal-title{font-size:18px;font-weight:600;}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:var(--border);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;}
+.cal-dow{background:#f8f9fa;padding:8px;text-align:center;font-size:12px;font-weight:600;color:var(--text-sub);}
+.cal-cell{background:var(--card);min-height:96px;padding:6px;position:relative;}
+.cal-cell.other-month{background:#fafafa;}
+.cal-cell.today{background:#fff8e1;}
+.cal-date{font-size:12px;font-weight:600;margin-bottom:4px;color:var(--text-sub);}
+.cal-cell.today .cal-date{color:var(--primary);background:var(--primary);color:white;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:11px;}
+.cal-event{font-size:11px;padding:2px 5px;border-radius:3px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;}
+.ev-quote{background:#e8f0fe;color:#1a73e8;}
+.ev-order{background:#fce8e6;color:#c5221f;}
+.ev-delivery{background:#e6f4ea;color:#137333;}
+.ev-todo{background:#f3e8fd;color:#6a1b9a;}
+.cal-legend{display:flex;gap:12px;margin-top:12px;flex-wrap:wrap;}
+.leg-item{display:flex;align-items:center;gap:5px;font-size:12px;}
+.leg-dot{width:10px;height:10px;border-radius:2px;}
+
+@media(max-width:768px){
+  .summary-grid{grid-template-columns:repeat(2,1fr);}
+  .filter-bar{flex-direction:column;}
+  .form-row{grid-template-columns:1fr;}
+  .cal-event{display:none;}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;}
+.form-field{display:flex;flex-direction:column;gap:4px;}
+.form-field label{font-size:12px;font-weight:600;color:var(--text-sub);}
+.form-field input,.form-field select,.form-field textarea{padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;outline:none;font-family:inherit;}
+.form-field input:focus,.form-field select:focus{border-color:var(--primary);}
+.cal-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+.cal-nav{display:flex;align-items:center;gap:12px;}
+.cal-title{font-size:18px;font-weight:600;min-width:160px;text-align:center;}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;}
+.cal-dow{text-align:center;font-size:11px;font-weight:600;color:var(--text-sub);padding:4px;}
+.cal-cell{background:var(--card);border-radius:6px;padding:6px;min-height:80px;border:1px solid var(--border);}
+.cal-cell.today{background:#e8f0fe;border-color:var(--primary);}
+.cal-cell.other-month{background:transparent;border:none;}
+.cal-date{font-size:12px;font-weight:600;margin-bottom:3px;}
+.cal-event{font-size:11px;padding:2px 5px;border-radius:3px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;}
+.ev-order{background:#fce8e6;color:#c5221f;}
+.ev-delivery{background:#e6f4ea;color:#137333;}
+.ev-quote{background:#e8f0fe;color:#1a73e8;}
+.ev-todo{background:#fff8e1;color:#e65100;}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">📋 見積・注文 管理システム</div>
+  <div class="nav-tabs">
+    <button class="nav-tab active" onclick="showPage('list')">📋 案件一覧</button>
+    <button class="nav-tab" onclick="showPage('ledger')">📝 見積台帳</button>
+    <button class="nav-tab" onclick="showPage('drivesearch')">🔍 過去の見積書</button>
+    <button class="nav-tab" onclick="showPage('calendar')">📅 カレンダー</button>
+    <!-- 紐づけタブ非表示 -->
+    <button class="nav-tab" onclick="showPage('board')">🔬 基板管理</button>
+    <button class="nav-tab" onclick="showPage('analysis')">📊 機種別分析</button>
+    <button class="nav-tab" onclick="showPage('parts')">💴 原価管理</button>
+    <button class="nav-tab" onclick="openUploadModal()">＋ PDF登録</button>
+  </div>
+</header>
+
+<!-- ===== 案件一覧ページ ===== -->
+<div id="page-list" class="page active">
+
+  <!-- サブタブ -->
+  <div style="display:flex;gap:8px;margin-bottom:16px;border-bottom:2px solid var(--border);padding-bottom:0;">
+    <button id="subtab-order" onclick="switchSubTab('order')"
+      style="padding:8px 20px;border:none;background:none;font-size:14px;font-weight:600;
+             color:var(--primary);border-bottom:2px solid var(--primary);margin-bottom:-2px;cursor:pointer;">
+      📦 注文書一覧
+    </button>
+    <button id="subtab-quote" onclick="switchSubTab('quote')"
+      style="padding:8px 20px;border:none;background:none;font-size:14px;font-weight:500;
+             color:var(--text-sub);border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;">
+      📄 見積書一覧
+    </button>
+  </div>
+
+  <!-- ===== 注文書エリア ===== -->
+  <div id="area-order">
+    <div class="summary-grid">
+      <div class="summary-card"><div class="lbl">送信済み（未受領）</div><div class="val c-blue" id="sum-sent">—</div><div class="sub">件</div></div>
+      <div class="summary-card"><div class="lbl">注文受領</div><div class="val c-red" id="sum-received">—</div><div class="sub">件</div></div>
+      <div class="summary-card"><div class="lbl">納品済み</div><div class="val c-green" id="sum-done">—</div><div class="sub">件</div></div>
+      <div class="summary-card"><div class="lbl">今月の注文合計</div><div class="val" id="sum-amount">—</div><div class="sub">円（税抜）</div></div>
+    </div>
+    <div class="filter-bar">
+      <div class="search-box"><input type="text" id="search-input" placeholder="発注番号・機種・顧客・件名で検索..." oninput="debounceSearch()"></div>
+      <select id="filter-status" onchange="applyFilters()">
+        <option value="">すべてのステータス</option>
+        <option value="作成予定">作成予定</option><option value="送信済み">送信済み</option>
+        <option value="受領">受領</option><option value="納品済み">納品済み</option>
+      </select>
+      <select id="filter-order-type" onchange="applyFilters()">
+        <option value="">すべての種別</option>
+        <option value="試作">試作</option><option value="量産">量産</option>
+      </select>
+      <select id="filter-month" onchange="applyFilters()"><option value="">すべての月</option></select>
+      <button class="btn btn-outline btn-sm" onclick="clearFilters()">クリア</button>
+      <button class="btn btn-outline btn-sm" onclick="loadData()">🔄</button>
+    </div>
+    <div class="table-wrap">
+      <div class="table-toolbar">
+        <h2>案件一覧</h2>
+        <span class="pg-info" id="result-count"></span>
+      </div>
+      <div id="table-container"><div class="loading"><div class="spinner"></div><br>読み込み中...</div></div>
+      <div class="pagination" id="pagination"></div>
+    </div>
+  </div><!-- /area-order -->
+
+  <!-- ===== 見積書エリア ===== -->
+  <div id="area-quote" style="display:none;">
+    <div class="summary-grid" style="grid-template-columns:repeat(3,1fr);">
+      <div class="summary-card"><div class="lbl">見積書総件数</div><div class="val c-blue" id="qs-total">—</div><div class="sub">件</div></div>
+      <div class="summary-card"><div class="lbl">注文書紐づけ済み</div><div class="val c-green" id="qs-linked">—</div><div class="sub">件</div></div>
+      <div class="summary-card"><div class="lbl">見積合計金額</div><div class="val" id="qs-amount" style="font-size:18px;">—</div><div class="sub">円（税抜）</div></div>
+    </div>
+    <div class="filter-bar">
+      <div class="search-box">
+        <input type="text" id="qs-search" placeholder="見積番号・宛先・担当者で検索..." oninput="applyQuoteFilter()">
+      </div>
+      <select id="qs-filter-status" onchange="applyQuoteFilter()">
+        <option value="">すべてのステータス</option>
+        <option value="送信済み">送信済み</option>
+        <option value="受領">受領</option>
+        <option value="作成予定">作成予定</option>
+        <option value="納品済み">納品済み</option>
+      </select>
+      <select id="qs-filter-linked" onchange="applyQuoteFilter()">
+        <option value="">紐づき状況</option>
+        <option value="linked">注文書あり</option>
+        <option value="unlinked">注文書なし</option>
+      </select>
+      <button class="btn btn-outline btn-sm" onclick="clearQuoteFilter()">クリア</button>
+      <button class="btn btn-outline btn-sm" onclick="loadQuoteList()">🔄</button>
+      <button class="btn btn-outline btn-sm" onclick="openDriveFolder()" style="white-space:nowrap;">📁 過去の見積書</button>
+    </div>
+    <div class="table-wrap">
+      <div class="table-toolbar">
+        <h2>見積書一覧</h2>
+        <span class="pg-info" id="qs-count"></span>
+      </div>
+      <div id="quotelist-container"><div class="loading" style="color:var(--text-sub);">「見積書一覧」タブをクリックして読み込んでください</div></div>
+      <div class="pagination" id="qs-pagination"></div>
+    </div>
+  </div><!-- /area-quote -->
+
+</div>
+
+<!-- ===== フローティングチャットボタン ===== -->
+<button id="chat-fab" onclick="toggleChatPanel()"
+  style="position:fixed;bottom:24px;right:24px;width:56px;height:56px;border-radius:50%;
+         background:var(--primary);color:white;border:none;font-size:24px;cursor:pointer;
+         box-shadow:0 4px 16px rgba(0,0,0,0.3);z-index:1000;transition:transform 0.2s;"
+  title="AIアシスタントに質問する">
+  💬
+</button>
+<!-- ===== 見積台帳ページ ===== -->
+<div id="page-ledger" class="page">
+
+  <!-- ヘッダー操作バー -->
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+    <div>
+      <h2 style="font-size:18px;font-weight:600;">📝 見積台帳</h2>
+      <p style="font-size:12px;color:var(--text-sub);">機種 › 基板名 › 型番 の3階層で見積書を管理</p>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-outline btn-sm" onclick="loadLedger()">🔄 更新</button>
+      <button class="btn btn-outline btn-sm" style="color:#6a1b9a;border-color:#ce93d8;" onclick="openCreateMachineModal()">🗂️ 機種を追加</button>
+      <button class="btn btn-primary btn-sm" onclick="openLedgerModal()">＋ 見積登録</button>
+    </div>
+  </div>
+
+  <!-- 検索・フィルタバー -->
+  <div style="background:var(--card);border-radius:var(--radius);padding:12px 16px;margin-bottom:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;box-shadow:var(--shadow);">
+    <div class="search-box" style="flex:2;min-width:200px;">
+      <input type="text" id="ledger-search" placeholder="見積No・型番・基板名・件名・宛先で検索..." oninput="applyLedgerFilter()">
+    </div>
+    <select id="ledger-filter-machine" onchange="applyLedgerFilter()" style="padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;min-width:110px;">
+      <option value="">すべての機種</option>
+    </select>
+    <select id="ledger-filter-status" onchange="applyLedgerFilter()" style="padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;">
+      <option value="">すべてのステータス</option>
+      <option value="作成予定">作成予定</option>
+      <option value="作成中">作成中</option>
+      <option value="送信済み">送信済み</option>
+      <option value="キャンセル">キャンセル</option>
+    </select>
+    <button class="btn btn-outline btn-sm" onclick="_clearLedgerFilter()">クリア</button>
+  </div>
+
+  <!-- サマリー -->
+  <div class="summary-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px;">
+    <div class="summary-card"><div class="lbl">総見積件数</div><div class="val c-blue" id="ledger-count">—</div><div class="sub">件</div></div>
+    <div class="summary-card"><div class="lbl">機種数</div><div class="val c-green" id="ledger-machine-count">—</div><div class="sub">機種</div></div>
+    <div class="summary-card"><div class="lbl">送信済み</div><div class="val" id="ledger-sent-count">—</div><div class="sub">件</div></div>
+    <div class="summary-card"><div class="lbl">作成予定</div><div class="val" id="ledger-pending-count">—</div><div class="sub">件</div></div>
+  </div>
+
+  <!-- 機種別ツリー表示エリア -->
+  <div id="ledger-tree-container">
+    <div class="loading"><div class="spinner"></div><br>読み込み中...</div>
+  </div>
+
+</div>
+
+
+<!-- ===== Todoページ ===== -->
+<div id="page-todo" class="page">
+  <div class="todo-header">
+    <h2 style="font-size:18px;font-weight:600;">✅ 見積作成 Todoリスト</h2>
+    <button class="btn btn-primary" onclick="openTodoModal()">＋ Todo追加</button>
+  </div>
+  <div id="todo-container"><div class="loading"><div class="spinner"></div></div></div>
+</div>
+
+<!-- ===== カレンダーページ ===== -->
+<div id="page-calendar" class="page">
+  <div class="cal-header">
+    <div class="cal-nav">
+      <button class="btn btn-outline btn-sm" onclick="calPrev()">◀</button>
+      <span class="cal-title" id="cal-title"></span>
+      <button class="btn btn-outline btn-sm" onclick="calNext()">▶</button>
+    </div>
+    <button class="btn btn-outline btn-sm" onclick="calToday()">今月</button>
+  </div>
+  <div id="cal-container"><div class="loading"><div class="spinner"></div></div></div>
+  <div class="cal-legend">
+    <div class="leg-item"><div class="leg-dot ev-quote"></div>見積日</div>
+    <div class="leg-item"><div class="leg-dot ev-order"></div>発注日</div>
+    <div class="leg-item"><div class="leg-dot ev-delivery"></div>納期</div>
+    <div class="leg-item"><div class="leg-dot ev-todo"></div>Todo期限</div>
+  </div>
+</div>
+
+<!-- ===== 紐づけ候補ページ ===== -->
+<div id="page-matching" class="page">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
+    <h2 style="font-size:18px;font-weight:600;">🔗 紐づけ候補 一覧</h2>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <div class="search-box" style="min-width:200px;">
+        <input type="text" id="matching-search" placeholder="注文番号・顧客名で検索..." oninput="filterMatchingCandidates()">
+      </div>
+      <button class="btn btn-outline" onclick="loadMatchingCandidates()">🔄 更新</button>
+      <button class="btn btn-primary" onclick="runBatchMatching()">⚡ 全件マッチング実行</button>
+    </div>
+  </div>
+  <div style="background:var(--primary-light);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;font-size:13px;color:var(--primary);">
+    💡 スコア80点以上は自動紐づけ済みです。ここには60〜79点の「要確認」案件が表示されます。候補を確認して「確定」ボタンで紐づけしてください。
+  </div>
+  <div id="matching-container"><div class="loading"><div class="spinner"></div></div></div>
+</div>
+
+<!-- ===== 基板管理ページ ===== -->
+<div id="page-board" class="page">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+    <h2 style="font-size:18px;font-weight:600;">🔬 基板管理</h2>
+    <div style="display:flex;gap:8px;">
+      <div class="search-box" style="min-width:240px;">
+        <input type="text" id="board-search" placeholder="基板名・IDで検索..." oninput="filterBoards()">
+      </div>
+      <button class="btn btn-outline btn-sm" onclick="loadBoardList()">🔄</button>
+    </div>
+  </div>
+  <div id="board-container"><div class="loading"><div class="spinner"></div></div></div>
+</div>
+
+<!-- ===== 編集モーダル ===== -->
+<div class="modal-overlay" id="edit-modal" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="modal" style="max-width:640px;">
+    <div class="modal-head">
+      <h3 id="edit-modal-title">✏️ 案件編集</h3>
+      <button class="modal-close" onclick="document.getElementById('edit-modal').classList.remove('open')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="edit-mgmt-id">
+      <div class="form-row">
+        <div class="form-field"><label>見積No.</label><input type="text" id="edit-quote-no" placeholder="例: 2026-001"></div>
+        <div class="form-field"><label>発注書番号</label><input type="text" id="edit-order-no" placeholder="例: 56619"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-field"><label>件名</label><input type="text" id="edit-subject"></div>
+        <div class="form-field"><label>顧客名</label><input type="text" id="edit-client"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-field"><label>ステータス</label>
+          <select id="edit-status">
+            <option value="作成予定">作成予定</option><option value="送信済み">送信済み</option>
+            <option value="受領">受領</option><option value="納品済み">納品済み</option>
+          </select>
+        </div>
+        <div class="form-field"><label>注文種別</label>
+          <select id="edit-order-type"><option value="">—</option><option value="試作">試作</option><option value="量産">量産</option></select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-field"><label>機種コード</label><input type="text" id="edit-model-code" placeholder="例: A77"></div>
+        <div class="form-field"><label>発注伝票番号</label><input type="text" id="edit-order-slip-no"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-field"><label>見積日</label><input type="date" id="edit-quote-date"></div>
+        <div class="form-field"><label>発注日</label><input type="date" id="edit-order-date"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-field"><label>見積金額</label><input type="number" id="edit-quote-amount"></div>
+        <div class="form-field"><label>注文金額</label><input type="number" id="edit-order-amount"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-field"><label>納期</label><input type="date" id="edit-delivery-date"></div>
+        <div class="form-field"><label>担当者</label><input type="text" id="edit-assignee"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-field"><label>メモ</label><input type="text" id="edit-memo"></div>
+      </div>
+      <!-- 紐づけ -->
+      <div style="background:var(--primary-light);border-radius:8px;padding:12px;margin-top:8px;">
+        <div style="font-size:12px;font-weight:600;color:var(--primary);margin-bottom:8px;">🔗 紐づけ設定</div>
+        <div class="form-row">
+          <div class="form-field">
+            <label>紐づける見積No.（注文書→見積書）</label>
+            <input type="text" id="edit-linked-quote-no" placeholder="見積No.を入力">
+          </div>
+          <div class="form-field">
+            <label>紐づける発注書番号（見積書→注文書）</label>
+            <input type="text" id="edit-linked-order-no" placeholder="発注書番号を入力">
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--text-sub);">入力すると管理シートで相互に紐づけされます</div>
+      </div>
+      <div style="text-align:right;margin-top:16px;">
+        <button class="btn btn-outline" onclick="document.getElementById('edit-modal').classList.remove('open')">キャンセル</button>
+        <button class="btn btn-primary" onclick="saveMgmtEdit()" style="margin-left:8px;">💾 保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 機種情報管理モーダル ===== -->
+<div class="modal-overlay" id="model-info-modal">
+  <div class="modal" style="max-width:860px;">
+    <div class="modal-head">
+      <h3 id="model-info-title">機種情報管理</h3>
+      <button class="modal-close" onclick="closeModelInfoModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="mi-model-code">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div class="form-field"><label>基板ID（主キー）</label><input type="text" id="mi-board-id" placeholder="例: M2003A" style="font-weight:600;"></div>
+        <div class="form-field"><label>機種コード（参照）</label><input type="text" id="mi-model-code-display" placeholder="例: A77"></div>
+      </div>
+      <div style="margin-bottom:16px;">
+        <div style="font-size:12px;font-weight:600;color:var(--text-sub);margin-bottom:8px;">📄 自社見積書・注文書</div>
+        <div class="form-row">
+          <div class="form-field">
+            <label>関連見積書URL</label>
+            <div style="display:flex;gap:6px;">
+              <input type="text" id="mi-quote-url" placeholder="DriveURL または 任意のURL" style="flex:1;">
+              <button class="btn btn-outline btn-sm" onclick="uploadModelInfoPdf('quote')">📎</button>
+            </div>
+          </div>
+          <div class="form-field">
+            <label>関連注文書URL</label>
+            <div style="display:flex;gap:6px;">
+              <input type="text" id="mi-order-url" placeholder="DriveURL または 任意のURL" style="flex:1;">
+              <button class="btn btn-outline btn-sm" onclick="uploadModelInfoPdf('order')">📎</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="margin-bottom:16px;">
+        <div style="font-size:12px;font-weight:600;color:var(--text-sub);margin-bottom:8px;">🛒 仕入れ見積（サン電子が買う側）</div>
+        <div class="form-field" style="margin-bottom:8px;">
+          <label>仕入れ見積URL 1</label>
+          <div style="display:flex;gap:6px;">
+            <input type="text" id="mi-purchase-url1" placeholder="PCB・組立・部品などの見積URL" style="flex:1;">
+            <button class="btn btn-outline btn-sm" onclick="uploadModelInfoPdf('purchase1')">📎</button>
+          </div>
+        </div>
+        <div class="form-field" style="margin-bottom:8px;">
+          <label>仕入れ見積URL 2</label>
+          <div style="display:flex;gap:6px;">
+            <input type="text" id="mi-purchase-url2" style="flex:1;">
+            <button class="btn btn-outline btn-sm" onclick="uploadModelInfoPdf('purchase2')">📎</button>
+          </div>
+        </div>
+        <div class="form-field" style="margin-bottom:8px;">
+          <label>仕入れ見積URL 3</label>
+          <div style="display:flex;gap:6px;">
+            <input type="text" id="mi-purchase-url3" style="flex:1;">
+            <button class="btn btn-outline btn-sm" onclick="uploadModelInfoPdf('purchase3')">📎</button>
+          </div>
+        </div>
+      </div>
+      <div style="margin-bottom:16px;">
+        <div style="font-size:12px;font-weight:600;color:var(--text-sub);margin-bottom:8px;">🖥 その他</div>
+        <div class="form-field" style="margin-bottom:8px;">
+          <label>ローカルサーバーURL</label>
+          <input type="text" id="mi-local-server-url" placeholder="\\server\share\folder など">
+        </div>
+        <div class="form-field">
+          <label>コメント・メモ</label>
+          <textarea id="mi-comment" rows="3" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;resize:vertical;"></textarea>
+        </div>
+      </div>
+      <input type="file" id="mi-file-input" accept=".pdf" style="display:none" onchange="handleModelInfoFile(event)">
+      <div id="mi-upload-status" style="font-size:12px;color:var(--success);min-height:20px;"></div>
+      <div style="text-align:right;margin-top:12px;">
+        <button class="btn btn-outline" onclick="closeModelInfoModal()">キャンセル</button>
+        <button class="btn btn-primary" onclick="saveModelInfo()" style="margin-left:8px;">💾 保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 管理データ編集モーダル ===== -->
+<div class="modal-overlay" id="edit-mgmt-modal" onclick="if(event.target===this)this.classList.remove('open');">
+  <div class="modal" style="max-width:700px;">
+    <div class="modal-head">
+      <h3 id="edit-mgmt-title">✏️ 案件を編集</h3>
+      <button class="modal-close" onclick="document.getElementById('edit-mgmt-modal').classList.remove('open')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="edit-mgmt-id">
+      <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div class="form-field"><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">見積番号</label><input type="text" id="edit-quote-no" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
+        <div class="form-field"><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">発注書番号</label><input type="text" id="edit-order-no" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
+      </div>
+      <div style="background:var(--primary-light);border-radius:8px;padding:12px;margin-bottom:12px;">
+        <div style="font-size:12px;font-weight:600;color:var(--primary);margin-bottom:8px;">🔗 紐づけ設定</div>
+        <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="form-field"><label style="font-size:12px;color:var(--text-sub);display:block;margin-bottom:4px;">紐づく見積No.（注文書側から入力）</label><input type="text" id="edit-linked-quote-no" placeholder="例: 2026-001" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
+          <div class="form-field"><label style="font-size:12px;color:var(--text-sub);display:block;margin-bottom:4px;">紐づく発注書番号（見積書側から入力）</label><input type="text" id="edit-linked-order-no" placeholder="例: 56619" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
+        </div>
+      </div>
+      <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div class="form-field"><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">顧客名</label><input type="text" id="edit-client" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
+        <div class="form-field"><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">機種コード</label><input type="text" id="edit-model-code" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
+      </div>
+      <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div class="form-field"><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">ステータス</label>
+          <select id="edit-status" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;">
+            <option value="作成予定">作成予定</option><option value="送信済み">送信済み</option><option value="受領">受領</option><option value="納品済み">納品済み</option>
+          </select>
+        </div>
+        <div class="form-field"><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">注文種別</label>
+          <select id="edit-order-type" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;">
+            <option value="">（未設定）</option><option value="試作">試作</option><option value="量産">量産</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div class="form-field"><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">発注日</label><input type="date" id="edit-order-date" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
+        <div class="form-field"><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">納期</label><input type="date" id="edit-delivery-date" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">件名</label>
+        <input type="text" id="edit-subject" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;">
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">メモ</label>
+        <textarea id="edit-memo" rows="2" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;resize:vertical;"></textarea>
+      </div>
+      <div style="text-align:right;margin-top:8px;">
+        <button class="btn btn-outline" onclick="document.getElementById('edit-mgmt-modal').classList.remove('open')">キャンセル</button>
+        <button class="btn btn-primary" onclick="saveEditMgmt()" style="margin-left:8px;">💾 保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 基板新規登録モーダル ===== -->
+<div class="modal-overlay" id="new-board-modal" onclick="if(event.target===this)this.classList.remove('open');">
+  <div class="modal" style="max-width:540px;">
+    <div class="modal-head">
+      <h3>🔬 基板を新規登録</h3>
+      <button class="modal-close" onclick="document.getElementById('new-board-modal').classList.remove('open')">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:12px;color:var(--text-sub);margin-bottom:16px;">※基板マスタ（基板管理スプレッドシート）に新しい行を追加します。</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">基板ID *</label><input type="text" id="nb-id" placeholder="例: M2601A" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
+        <div><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">基板名 *</label><input type="text" id="nb-name" placeholder="例: M2601A" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">基板分類</label>
+          <select id="nb-category" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;">
+            <option>M基板</option><option>E基板</option><option>D基板</option><option>DE基板</option><option>S基板</option><option>C基板</option><option>仕掛基板</option><option>PCB</option><option>その他</option>
+          </select>
+        </div>
+        <div><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">バージョン</label><input type="text" id="nb-version" placeholder="例: 1.0" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
+      </div>
+      <div style="margin-bottom:12px;"><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">備考</label><textarea id="nb-remarks" rows="2" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;resize:vertical;"></textarea></div>
+      <div style="text-align:right;"><button class="btn btn-outline" onclick="document.getElementById('new-board-modal').classList.remove('open')">キャンセル</button><button class="btn btn-primary" onclick="saveNewBoard()" style="margin-left:8px;">登録する</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 機種新規登録モーダル ===== -->
+<div class="modal-overlay" id="new-machine-modal" onclick="if(event.target===this)this.classList.remove('open');">
+  <div class="modal" style="max-width:600px;">
+    <div class="modal-head">
+      <h3>📱 機種を新規登録</h3>
+      <button class="modal-close" onclick="document.getElementById('new-machine-modal').classList.remove('open')">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:12px;color:var(--text-sub);margin-bottom:16px;">※機種マスタ（基板管理スプレッドシート）に新しい行を追加します。</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">機種コード *</label><input type="text" id="nm-code" placeholder="例: A77" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
+        <div><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">機種名</label><input type="text" id="nm-name" placeholder="例: A77型テスト装置" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">種類</label><input type="text" id="nm-type" placeholder="例: 検査装置" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
+        <div><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">ブランド</label><input type="text" id="nm-brand" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:6px;">使用基板（各基板IDを入力）</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+          <div><label style="font-size:11px;color:var(--text-sub);">M基板</label><input type="text" id="nm-m" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;font-size:12px;"></div>
+          <div><label style="font-size:11px;color:var(--text-sub);">D基板</label><input type="text" id="nm-d" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;font-size:12px;"></div>
+          <div><label style="font-size:11px;color:var(--text-sub);">DE基板</label><input type="text" id="nm-de" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;font-size:12px;"></div>
+          <div><label style="font-size:11px;color:var(--text-sub);">E基板</label><input type="text" id="nm-e" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;font-size:12px;"></div>
+          <div><label style="font-size:11px;color:var(--text-sub);">C基板</label><input type="text" id="nm-c" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;font-size:12px;"></div>
+          <div><label style="font-size:11px;color:var(--text-sub);">S基板</label><input type="text" id="nm-s" style="width:100%;padding:6px;border:1px solid var(--border);border-radius:6px;font-size:12px;"></div>
+        </div>
+      </div>
+      <div style="margin-bottom:12px;"><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">特徴・備考</label><textarea id="nm-remarks" rows="2" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;resize:vertical;"></textarea></div>
+      <div style="text-align:right;"><button class="btn btn-outline" onclick="document.getElementById('new-machine-modal').classList.remove('open')">キャンセル</button><button class="btn btn-primary" onclick="saveNewMachine()" style="margin-left:8px;">登録する</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== AIチャットパネル ===== -->
+<div id="chat-panel" style="
+  position:fixed;bottom:90px;right:24px;width:420px;height:560px;
+  background:var(--card);border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,0.2);
+  display:none;flex-direction:column;z-index:999;border:1px solid var(--border);overflow:hidden;">
+
+  <!-- ヘッダー -->
+  <div style="background:var(--primary);color:white;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;">
+    <div>
+      <div style="font-weight:700;font-size:15px;">🤖 AIアシスタント</div>
+      <div style="font-size:11px;opacity:0.85;">見積書・注文書・DriveのPDFを検索できます</div>
+    </div>
+    <button onclick="toggleChatPanel()" style="background:none;border:none;color:white;font-size:20px;cursor:pointer;padding:4px;">✕</button>
+  </div>
+
+  <!-- メッセージエリア -->
+  <div id="chat-messages" style="flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:8px;">
+    <div class="chat-msg-ai">
+      <div class="chat-bubble-ai">
+        こんにちは！見積書・注文書・DriveのPDFについて質問してください。<br>
+        例:「サン電子の最新見積書を教えて」「A77基板の注文書を探して」「2026年3月の見積書一覧」
+      </div>
+    </div>
+  </div>
+
+  <!-- 入力エリア -->
+  <div style="padding:10px;border-top:1px solid var(--border);background:#f8f9fa;">
+    <div id="chat-cost-info" style="font-size:10px;color:var(--text-sub);margin-bottom:6px;"></div>
+    <div style="display:flex;gap:6px;">
+      <textarea id="chat-input" placeholder="質問を入力... (Shift+Enterで改行)"
+        style="flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:8px;
+               font-size:13px;resize:none;height:40px;font-family:inherit;line-height:1.4;"
+        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendChatMessage();}"></textarea>
+      <button onclick="sendChatMessage()" id="chat-send-btn"
+        style="padding:8px 14px;background:var(--primary);color:white;border:none;
+               border-radius:8px;font-size:13px;cursor:pointer;white-space:nowrap;">
+        送信
+      </button>
+    </div>
+    <div style="font-size:10px;color:var(--text-sub);margin-top:4px;text-align:right;">
+      PDF読込: 最大5件 / 検索コスト: 約5〜15円/回
+    </div>
+  </div>
+</div>
+
+<!-- チャットパネル用CSS -->
+<style>
+.chat-msg-user { display:flex; justify-content:flex-end; }
+.chat-msg-ai   { display:flex; justify-content:flex-start; }
+.chat-bubble-user {
+  background:var(--primary); color:white;
+  padding:8px 12px; border-radius:12px 12px 2px 12px;
+  max-width:85%; font-size:13px; line-height:1.5; word-break:break-word;
+}
+.chat-bubble-ai {
+  background:#f0f4ff; color:var(--text);
+  padding:8px 12px; border-radius:12px 12px 12px 2px;
+  max-width:85%; font-size:13px; line-height:1.6; word-break:break-word;
+}
+.chat-bubble-ai a { color:var(--primary); }
+.chat-thinking {
+  background:#f8f9fa; color:var(--text-sub);
+  padding:8px 12px; border-radius:12px; font-size:12px;
+  display:flex; align-items:center; gap:6px;
+}
+</style>
+
+<!-- ===== 基板新規登録モーダル ===== -->
+<div class="modal-overlay" id="board-new-modal" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-head">
+      <h3>🔬 基板 新規登録</h3>
+      <button class="modal-close" onclick="document.getElementById('board-new-modal').classList.remove('open')">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:12px;color:var(--text-sub);margin-bottom:12px;">
+        ※基板マスタ（基板管理SS）に新しい基板を追加します
+      </p>
+      <div class="form-row">
+        <div class="form-field"><label>基板ID *</label><input type="text" id="new-board-id" placeholder="例: M2505A" style="font-weight:600;"></div>
+        <div class="form-field"><label>基板名 *</label><input type="text" id="new-board-name" placeholder="例: M2505A"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-field"><label>基板分類</label>
+          <select id="new-board-category">
+            <option value="M基板">M基板</option><option value="D基板">D基板</option>
+            <option value="DE基板">DE基板</option><option value="E基板">E基板</option>
+            <option value="C基板">C基板</option><option value="S基板">S基板</option>
+            <option value="PCB">PCB</option><option value="その他">その他</option>
+          </select>
+        </div>
+        <div class="form-field"><label>バージョン</label><input type="text" id="new-board-version" placeholder="例: 1.0"></div>
+      </div>
+      <div class="form-field"><label>備考</label><textarea id="new-board-remarks" rows="2" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;resize:vertical;"></textarea></div>
+      <div style="text-align:right;margin-top:12px;">
+        <button class="btn btn-outline" onclick="document.getElementById('board-new-modal').classList.remove('open')">キャンセル</button>
+        <button class="btn btn-primary" onclick="saveNewBoard()" style="margin-left:8px;">➕ 登録</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 機種新規登録モーダル ===== -->
+<div class="modal-overlay" id="machine-new-modal" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="modal" style="max-width:600px;">
+    <div class="modal-head">
+      <h3>📱 機種 新規登録</h3>
+      <button class="modal-close" onclick="document.getElementById('machine-new-modal').classList.remove('open')">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:12px;color:var(--text-sub);margin-bottom:12px;">
+        ※機種マスタ（基板管理SS）に新しい機種を追加します
+      </p>
+      <div class="form-row">
+        <div class="form-field"><label>機種コード *</label><input type="text" id="new-machine-code" placeholder="例: A88" style="font-weight:600;"></div>
+        <div class="form-field"><label>機種名 *</label><input type="text" id="new-machine-name" placeholder="例: A88型液晶パネル検査装置"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-field"><label>種類</label><input type="text" id="new-machine-type" placeholder="例: 検査装置"></div>
+        <div class="form-field"><label>ブランド</label><input type="text" id="new-machine-brand" placeholder="例: サン電子"></div>
+      </div>
+      <div style="margin-bottom:10px;"><div style="font-size:12px;font-weight:600;color:var(--text-sub);margin-bottom:8px;">使用基板（基板IDを入力）</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+          <div class="form-field"><label>M基板</label><input type="text" id="new-machine-m" placeholder="例: M2505A"></div>
+          <div class="form-field"><label>D基板</label><input type="text" id="new-machine-d" placeholder="例: D2501A"></div>
+          <div class="form-field"><label>DE基板</label><input type="text" id="new-machine-de" placeholder="例: DE2501A"></div>
+          <div class="form-field"><label>E基板</label><input type="text" id="new-machine-e" placeholder="例: E2501A"></div>
+          <div class="form-field"><label>C基板</label><input type="text" id="new-machine-c" placeholder="例: C2501A"></div>
+          <div class="form-field"><label>S基板</label><input type="text" id="new-machine-s" placeholder="例: S2501A"></div>
+        </div>
+      </div>
+      <div class="form-field"><label>備考・特徴</label><textarea id="new-machine-remarks" rows="2" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;resize:vertical;"></textarea></div>
+      <div style="text-align:right;margin-top:12px;">
+        <button class="btn btn-outline" onclick="document.getElementById('machine-new-modal').classList.remove('open')">キャンセル</button>
+        <button class="btn btn-primary" onclick="saveNewMachine()" style="margin-left:8px;">➕ 登録</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 基板詳細モーダル ===== -->
+<div class="modal-overlay" id="board-detail-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="board-detail-title">基板詳細</h3>
+      <button class="modal-close" onclick="closeBoardDetail()">✕</button>
+    </div>
+    <div class="modal-body" id="board-detail-body">
+      <div class="loading"><div class="spinner"></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 見積書詳細モーダル ===== -->
+<div class="modal-overlay" id="quote-detail-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="quote-detail-title">見積書詳細</h3>
+      <button class="modal-close" onclick="closeQuoteDetail()">✕</button>
+    </div>
+    <div class="modal-body" id="quote-detail-body">
+      <div class="loading"><div class="spinner"></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 機種別分析ページ ===== -->
+<div id="page-analysis" class="page">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+    <h2 style="font-size:18px;font-weight:600;">📊 機種別 受注分析</h2>
+    <button class="btn btn-outline btn-sm" onclick="loadBoardAnalysis()">🔄 更新</button>
+  </div>
+  <div style="background:var(--primary-light);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;font-size:13px;color:var(--primary);">
+    💡 発注書の機種コードと基板管理システムの機種マスタを照合して集計しています。BOMコストが登録済みの機種は粗利率も表示されます。
+  </div>
+  <div id="analysis-container"><div class="loading"><div class="spinner"></div></div></div>
+</div>
+
+<!-- ===== Drive検索ページ ===== -->
+<div id="page-drivesearch" class="page">
+  <div style="margin-bottom:16px;">
+    <h2 style="font-size:18px;font-weight:600;margin-bottom:4px;">🔍 過去の見積書を検索</h2>
+    <p style="font-size:13px;color:var(--text-sub);">Driveフォルダ内のPDFをキーワード・日付で検索します。空欄で「全件表示」を押すと全PDFが一覧されます。</p>
+  </div>
+
+  <div style="background:var(--card);border-radius:var(--radius);padding:16px 20px;box-shadow:var(--shadow);margin-bottom:16px;">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <div class="search-box" style="flex:2;min-width:200px;">
+        <input type="text" id="drive-search-input"
+          placeholder="ファイル名でキーワード検索（空欄=全件）"
+          onkeydown="if(event.key==='Enter')runDriveSearch()">
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;font-size:13px;">
+        <span style="color:var(--text-sub);white-space:nowrap;">期間:</span>
+        <input type="date" id="drive-date-from" style="padding:7px 8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;">
+        <span style="color:var(--text-sub);">〜</span>
+        <input type="date" id="drive-date-to" style="padding:7px 8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;">
+      </div>
+      <button class="btn btn-primary" onclick="runDriveSearch()" id="drive-search-btn">🔍 検索</button>
+      <button class="btn btn-outline" onclick="clearDriveSearch()">クリア</button>
+    </div>
+    <div style="margin-top:10px;font-size:12px;color:var(--text-sub);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+      <span>💡 ファイル名が不明な場合は期間だけ指定して「検索」→更新日の新しい順で表示されます。初回のみ時間がかかります（以降はキャッシュから高速検索）</span>
+      <button class="btn btn-outline btn-sm" onclick="refreshDriveCache()" id="cache-refresh-btn" style="white-space:nowrap;">🔄 インデックス更新</button>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <div class="table-toolbar">
+      <h2>検索結果</h2>
+      <span class="pg-info" id="drive-result-count"></span>
+    </div>
+    <div id="drive-search-container">
+      <div class="loading" style="color:var(--text-sub);">「全件表示」または条件を入力して「検索」を押してください</div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ===== 原価管理ページ ===== -->
+<div id="page-parts" class="page">
+  <div style="display:flex;gap:4px;margin-bottom:18px;border-bottom:2px solid var(--border);padding-bottom:0;">
+    <button id="ptab-parts" onclick="switchPartsTab('parts')"
+      style="padding:8px 22px;border:none;background:none;font-size:14px;font-weight:600;color:var(--primary);border-bottom:2px solid var(--primary);margin-bottom:-2px;cursor:pointer;">
+      🔩 部品マスタ
+    </button>
+    <button id="ptab-pcb" onclick="switchPartsTab('pcb')"
+      style="padding:8px 22px;border:none;background:none;font-size:14px;font-weight:500;color:var(--text-sub);border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;">
+      🟦 PCBマスタ
+    </button>
+  </div>
+  <div id="parts-area">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
+      <div class="search-box" style="flex:2;min-width:220px;"><input type="text" id="parts-search" placeholder="部品コード・部品名・メーカーで検索..." oninput="applyPartsFilter()"></div>
+      <button class="btn btn-outline btn-sm" onclick="loadPartsData()">🔄 更新</button>
+      <button class="btn btn-outline btn-sm" onclick="openPartsImport('parts')">📥 CSVインポート</button>
+      <button class="btn btn-outline btn-sm" onclick="exportCSV('parts')">📤 CSVエクスポート</button>
+      <button class="btn btn-primary btn-sm" onclick="openPartsModal()">＋ 部品を追加</button>
+    </div>
+    <div class="summary-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px;">
+      <div class="summary-card"><div class="lbl">登録部品数</div><div class="val c-blue" id="parts-count-val">—</div><div class="sub">件</div></div>
+      <div class="summary-card"><div class="lbl">平均原価</div><div class="val" id="parts-avg-cost" style="font-size:20px;">—</div><div class="sub">円</div></div>
+      <div class="summary-card"><div class="lbl">平均公表単価</div><div class="val" id="parts-avg-price" style="font-size:20px;">—</div><div class="sub">円</div></div>
+      <div class="summary-card"><div class="lbl">平均粗利率</div><div class="val c-green" id="parts-avg-margin" style="font-size:22px;">—</div><div class="sub">%</div></div>
+    </div>
+    <div class="table-wrap">
+      <div class="table-toolbar"><h2>部品一覧</h2><span class="pg-info" id="parts-list-count"></span></div>
+      <div id="parts-table-container"><div class="loading"><div class="spinner"></div><br>読み込み中...</div></div>
+      <div class="pagination" id="parts-pagination"></div>
+    </div>
+  </div>
+  <div id="pcb-area" style="display:none;">
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
+      <div class="search-box" style="flex:2;min-width:220px;"><input type="text" id="pcb-search" placeholder="PCB品番・PCB名・基板IDで検索..." oninput="applyPcbFilter()"></div>
+      <button class="btn btn-outline btn-sm" onclick="loadPcbData()">🔄 更新</button>
+      <button class="btn btn-outline btn-sm" onclick="openPartsImport('pcb')">📥 CSVインポート</button>
+      <button class="btn btn-outline btn-sm" onclick="exportCSV('pcb')">📤 CSVエクスポート</button>
+      <button class="btn btn-primary btn-sm" onclick="openPcbModal()">＋ PCBを追加</button>
+    </div>
+    <div class="summary-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px;">
+      <div class="summary-card"><div class="lbl">登録PCB数</div><div class="val c-blue" id="pcb-count-val">—</div><div class="sub">件</div></div>
+      <div class="summary-card"><div class="lbl">平均原価</div><div class="val" id="pcb-avg-cost" style="font-size:20px;">—</div><div class="sub">円</div></div>
+      <div class="summary-card"><div class="lbl">平均公表単価</div><div class="val" id="pcb-avg-price" style="font-size:20px;">—</div><div class="sub">円</div></div>
+      <div class="summary-card"><div class="lbl">平均粗利率</div><div class="val c-green" id="pcb-avg-margin" style="font-size:22px;">—</div><div class="sub">%</div></div>
+    </div>
+    <div class="table-wrap">
+      <div class="table-toolbar"><h2>PCB一覧</h2><span class="pg-info" id="pcb-list-count"></span></div>
+      <div id="pcb-table-container"><div class="loading" style="color:var(--text-sub);">「PCBマスタ」タブをクリックして読み込んでください</div></div>
+      <div class="pagination" id="pcb-pagination"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 部品編集モーダル ===== -->
+<div class="modal-overlay" id="parts-modal" onclick="if(event.target===this)this.classList.remove('open');">
+  <div class="modal" style="max-width:580px;">
+    <div class="modal-head"><h3 id="parts-modal-title">🔩 部品を登録</h3><button class="modal-close" onclick="document.getElementById('parts-modal').classList.remove('open')">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="pm-orig-code">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">部品コード *</label><input type="text" id="pm-code" placeholder="例: SN74LVC1G00DBV" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
+        <div><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">部品名 *</label><input type="text" id="pm-name" placeholder="例: 1入力ANDゲート" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">メーカー名</label><input type="text" id="pm-maker" placeholder="例: Texas Instruments" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
+        <div><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">単位</label><input type="text" id="pm-unit" placeholder="例: 個" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
+      </div>
+      <div style="background:linear-gradient(135deg,#fff3e0,#fce8e6);border-radius:10px;padding:16px;margin-bottom:12px;border:1px solid #ffcc80;">
+        <div style="font-size:12px;font-weight:700;color:#e65100;margin-bottom:10px;">💰 価格情報</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;align-items:end;">
+          <div><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">原価（仕入単価）円</label><input type="number" id="pm-cost" min="0" step="0.01" placeholder="0" oninput="_calcPartsMargin()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:14px;font-weight:600;"></div>
+          <div><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">公表単価（売値）円</label><input type="number" id="pm-list-price" min="0" step="0.01" placeholder="0" oninput="_calcPartsMargin()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:14px;font-weight:600;color:var(--primary);"></div>
+          <div style="text-align:center;background:white;border-radius:8px;padding:8px;border:1px solid var(--border);"><div style="font-size:11px;color:var(--text-sub);">粗利率</div><div id="pm-margin-display" style="font-size:24px;font-weight:700;color:var(--success);">—</div><div style="font-size:10px;color:var(--text-sub);">%</div></div>
+        </div>
+      </div>
+      <div><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">備考</label><textarea id="pm-remarks" rows="2" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;resize:vertical;"></textarea></div>
+      <div style="text-align:right;margin-top:16px;"><button class="btn btn-outline" onclick="document.getElementById('parts-modal').classList.remove('open')">キャンセル</button><button class="btn btn-primary" onclick="saveParts()" style="margin-left:8px;">💾 保存</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== PCB編集モーダル ===== -->
+<div class="modal-overlay" id="pcb-modal" onclick="if(event.target===this)this.classList.remove('open');">
+  <div class="modal" style="max-width:580px;">
+    <div class="modal-head"><h3 id="pcb-modal-title">🟦 PCBを登録</h3><button class="modal-close" onclick="document.getElementById('pcb-modal').classList.remove('open')">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="pcbm-orig-code">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">PCB品番 *</label><input type="text" id="pcbm-code" placeholder="例: PCB-M2601A-R1" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
+        <div><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">PCB名</label><input type="text" id="pcbm-name" placeholder="例: M2601A メイン基板" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">対応基板ID</label><input type="text" id="pcbm-board-id" placeholder="例: M2601A" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
+        <div><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">製造メーカー</label><input type="text" id="pcbm-maker" placeholder="例: ○○電子" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
+      </div>
+      <div style="background:linear-gradient(135deg,#e8f5e9,#e3f2fd);border-radius:10px;padding:16px;margin-bottom:12px;border:1px solid #a5d6a7;">
+        <div style="font-size:12px;font-weight:700;color:#2e7d32;margin-bottom:10px;">💰 価格情報</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;align-items:end;">
+          <div><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">原価（仕入単価）円</label><input type="number" id="pcbm-cost" min="0" placeholder="0" oninput="_calcPcbMargin()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:14px;font-weight:600;"></div>
+          <div><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">公表単価（売値）円</label><input type="number" id="pcbm-list-price" min="0" placeholder="0" oninput="_calcPcbMargin()" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:14px;font-weight:600;color:var(--primary);"></div>
+          <div style="text-align:center;background:white;border-radius:8px;padding:8px;border:1px solid var(--border);"><div style="font-size:11px;color:var(--text-sub);">粗利率</div><div id="pcbm-margin-display" style="font-size:24px;font-weight:700;color:var(--success);">—</div><div style="font-size:10px;color:var(--text-sub);">%</div></div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 2fr;gap:12px;margin-bottom:12px;">
+        <div><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">単位</label><input type="text" id="pcbm-unit" placeholder="枚" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
+        <div><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">備考</label><input type="text" id="pcbm-remarks" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
+      </div>
+      <div style="text-align:right;margin-top:16px;"><button class="btn btn-outline" onclick="document.getElementById('pcb-modal').classList.remove('open')">キャンセル</button><button class="btn btn-primary" onclick="savePcb()" style="margin-left:8px;">💾 保存</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== CSVインポートモーダル ===== -->
+<div class="modal-overlay" id="parts-import-modal" onclick="if(event.target===this)this.classList.remove('open');">
+  <div class="modal" style="max-width:600px;">
+    <div class="modal-head"><h3 id="parts-import-title">📥 CSVインポート</h3><button class="modal-close" onclick="document.getElementById('parts-import-modal').classList.remove('open')">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="parts-import-type">
+      <div id="parts-csv-format" style="background:#f8f9fa;border-radius:8px;padding:12px;margin-bottom:14px;font-size:12px;"></div>
+      <div id="csv-drop-zone"
+        style="border:2px dashed var(--border);border-radius:var(--radius);padding:28px;text-align:center;cursor:pointer;transition:all .2s;margin-bottom:14px;"
+        onclick="document.getElementById('csv-file-input').click()"
+        ondragover="event.preventDefault();this.style.borderColor='var(--primary)';this.style.background='var(--primary-light)';"
+        ondragleave="this.style.borderColor='var(--border)';this.style.background='';"
+        ondrop="_handleCsvDrop(event)">
+        <div style="font-size:28px;margin-bottom:6px;">📂</div>
+        <p style="font-size:13px;color:var(--text-sub);">CSVファイルをドラッグ or クリックして選択</p>
+        <p id="csv-drop-filename" style="font-size:12px;color:var(--primary);margin-top:4px;"></p>
+      </div>
+      <input type="file" id="csv-file-input" accept=".csv,.txt" style="display:none" onchange="_handleCsvFile(event)">
+      <div style="margin-bottom:14px;">
+        <label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:6px;">または CSVテキストを直接貼り付け：</label>
+        <textarea id="csv-paste-area" rows="5" placeholder="部品コード,部品名,メーカー名,原価,公表単価,単位,備考"
+          style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:12px;font-family:monospace;resize:vertical;"></textarea>
+      </div>
+      <div id="parts-import-status" style="min-height:20px;font-size:13px;margin-bottom:10px;"></div>
+      <div style="text-align:right;">
+        <button class="btn btn-outline" onclick="document.getElementById('parts-import-modal').classList.remove('open')">キャンセル</button>
+        <button class="btn btn-primary" onclick="executeImportCSV()" style="margin-left:8px;">📥 インポート実行</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== PDFアップロードモーダル ===== -->
+<div class="modal-overlay" id="upload-modal">
+  <div class="modal">
+    <div class="modal-head"><h3>📎 PDF アップロード</h3><button class="modal-close" onclick="closeUploadModal()">✕</button></div>
+    <div class="modal-body">
+      <div class="type-toggle">
+        <button class="type-btn active" id="type-quote" onclick="setDocType('quote')">📄 見積書</button>
+        <button class="type-btn" id="type-order" onclick="setDocType('order')">📦 注文書・発注書</button>
+      </div>
+      <div id="order-type-section">
+        <p style="font-size:12px;color:var(--text-sub);margin-bottom:6px;">注文種別（保存フォルダが変わります）</p>
+        <div class="order-type-row">
+          <button class="order-type-btn" id="ot-trial" onclick="setOrderType('試作')">🔬 試作</button>
+          <button class="order-type-btn" id="ot-mass" onclick="setOrderType('量産')">🏭 量産</button>
+        </div>
+        <p id="folder-hint" style="font-size:11px;color:var(--text-sub);margin-bottom:10px;"></p>
+      </div>
+      <div class="upload-area" id="drop-zone" ondragover="dragOver(event)" ondragleave="dragLeave(event)" ondrop="dropFile(event)" onclick="document.getElementById('file-input').click()">
+        <div class="icon">📂</div>
+        <p><strong>クリック</strong>またはここにドラッグ</p>
+        <p style="margin-top:4px;font-size:12px;color:var(--text-sub)">PDF ファイルのみ対応</p>
+      </div>
+      <input type="file" id="file-input" accept=".pdf" style="display:none" onchange="handleFileSelect(event)">
+      <div id="upload-status" style="margin-top:12px;"></div>
+      <div style="margin-top:16px;text-align:right;">
+        <button class="btn btn-outline" onclick="closeUploadModal()">キャンセル</button>
+        <button class="btn btn-primary" id="upload-btn" onclick="uploadFile()" disabled style="margin-left:8px;">解析・登録</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 詳細モーダル ===== -->
+<div class="modal-overlay" id="detail-modal">
+  <div class="modal">
+    <div class="modal-head"><h3 id="detail-title">案件詳細</h3><button class="modal-close" onclick="closeDetailModal()">✕</button></div>
+    <div class="modal-body" id="detail-body"><div class="loading"><div class="spinner"></div></div></div>
+  </div>
+</div>
+
+<!-- ===== Todo編集モーダル ===== -->
+<div class="modal-overlay" id="todo-modal">
+  <div class="modal">
+    <div class="modal-head"><h3 id="todo-modal-title">Todo 追加</h3><button class="modal-close" onclick="closeTodoModal()">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="todo-id">
+      <div class="form-row">
+        <div class="form-field" style="grid-column:1/-1;"><label>タイトル *</label><input type="text" id="todo-title" placeholder="見積作成: ○○株式会社"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-field"><label>顧客名</label><input type="text" id="todo-client"></div>
+        <div class="form-field"><label>期限日</label><input type="date" id="todo-due"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-field"><label>優先度</label>
+          <select id="todo-priority"><option value="高">高</option><option value="中" selected>中</option><option value="低">低</option></select>
+        </div>
+        <div class="form-field"><label>ステータス</label>
+          <select id="todo-status"><option value="未着手">未着手</option><option value="進行中">進行中</option><option value="完了">完了</option></select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-field" style="grid-column:1/-1;"><label>関連管理ID</label><input type="text" id="todo-linked" placeholder="QM-20260101-1234（任意）"></div>
+      </div>
+      <div class="form-field" style="margin-bottom:16px;"><label>メモ</label><textarea id="todo-memo" rows="2" style="resize:vertical;"></textarea></div>
+      <div style="text-align:right;">
+        <button class="btn btn-outline" onclick="closeTodoModal()">キャンセル</button>
+        <button class="btn btn-primary" onclick="saveTodo()" style="margin-left:8px;">保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<?!= include("Dashboard js") ?>
+<?!= include("Dashboard js2") ?>
+</body>
+</html><div class="modal-overlay" id="ledger-modal" onclick="if(event.target===this)this.classList.remove('open');">
+  <div class="modal" style="max-width:700px;">
+    <div class="modal-head">
+      <h3 id="ledger-modal-title">見積登録</h3>
+      <button class="modal-close" onclick="closeLedgerModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="ledger-id">
+
+      <!-- 機種・基板・型番（階層キー） -->
+      <div style="background:var(--primary-light);border-radius:8px;padding:12px;margin-bottom:14px;">
+        <div style="font-size:12px;font-weight:700;color:var(--primary);margin-bottom:8px;">📁 分類階層（機種 › 基板名 › 型番）</div>
+        <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+          <div class="form-field">
+            <label>機種コード <span style="color:var(--danger);">*</span></label>
+            <input type="text" id="ledger-machine-code" list="ledger-machine-list" placeholder="例: A84, A89">
+            <datalist id="ledger-machine-list"></datalist>
+          </div>
+          <div class="form-field">
+            <label>基板名</label>
+            <input type="text" id="ledger-board-name" placeholder="例: 液晶演出基板, 主基板（完）">
+          </div>
+          <div class="form-field">
+            <label>型番</label>
+            <input type="text" id="ledger-model-no" placeholder="例: E2503B, PCB, M2003A5">
+          </div>
+        </div>
+      </div>
+
+      <!-- 見積基本情報 -->
+      <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div class="form-field">
+          <label>見積No.</label>
+          <input type="text" id="ledger-quote-no" placeholder="例: No.2025-001">
+        </div>
+        <div class="form-field">
+          <label>発行日（提出日）</label>
+          <input type="date" id="ledger-issue-date">
+        </div>
+      </div>
+      <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div class="form-field">
+          <label>宛先（企業名）</label>
+          <input type="text" id="ledger-dest" placeholder="例: 藤商事">
+        </div>
+        <div class="form-field">
+          <label>分類</label>
+          <select id="ledger-category">
+            <option value="試作">試作</option>
+            <option value="量産">量産</option>
+            <option value="仕掛">仕掛</option>
+            <option value="PCB">PCB</option>
+            <option value="修理">修理</option>
+            <option value="その他">その他</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-bottom:12px;">
+        <div class="form-field" style="margin:0;">
+          <label>件名 *</label>
+          <input type="text" id="ledger-subject" placeholder="例: A84 液晶演出基板 E2503B 修理見積">
+        </div>
+      </div>
+      <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div class="form-field">
+          <label>金額（円）</label>
+          <input type="number" id="ledger-amount" min="0" placeholder="0">
+        </div>
+        <div class="form-field">
+          <label>提出先担当者</label>
+          <input type="text" id="ledger-submit-to" placeholder="例: 大山さん">
+        </div>
+      </div>
+      <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div class="form-field">
+          <label>ステータス</label>
+          <select id="ledger-status">
+            <option value="作成予定">作成予定</option>
+            <option value="作成中">作成中</option>
+            <option value="送信済み">送信済み</option>
+            <option value="キャンセル">キャンセル</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label>フォーマット</label>
+          <select id="ledger-format">
+            <option value="">（未設定）</option>
+            <option value="新提案">新提案</option>
+            <option value="旧">旧</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- ファイル添付 -->
+      <div style="background:#f8f9fa;border-radius:8px;padding:12px;margin-bottom:12px;border:1px solid var(--border);">
+        <div style="font-size:12px;font-weight:600;color:var(--text-sub);margin-bottom:8px;">📎 見積書ファイル（PDF / Excel）</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <input type="text" id="ledger-save-url" placeholder="ファイルURL（添付後に自動入力）"
+            style="flex:1;min-width:200px;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:12px;">
+          <button class="btn btn-outline btn-sm" onclick="_ledgerPickFile()">📤 アップロード</button>
+        </div>
+        <input type="file" id="ledger-file-input" accept=".pdf,.xlsx,.xls,.doc,.docx" style="display:none" onchange="_ledgerHandleFile(event)">
+        <div id="ledger-file-status" style="font-size:12px;color:var(--success);min-height:18px;margin-top:6px;"></div>
+        <div id="ledger-existing-file" style="display:none;margin-top:6px;">
+          <a id="ledger-existing-link" href="#" target="_blank" class="pdf-link">📄 添付済みファイルを開く</a>
+        </div>
+      </div>
+
+      <!-- 備考 -->
+      <div style="margin-bottom:12px;">
+        <label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">備考</label>
+        <textarea id="ledger-remarks" rows="2" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;resize:vertical;"></textarea>
+      </div>
+
+      <div style="text-align:right;margin-top:8px;">
+        <button class="btn btn-outline" onclick="closeLedgerModal()">キャンセル</button>
+        <button class="btn btn-primary" onclick="saveLedger()" style="margin-left:8px;">💾 保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 機種新規作成モーダル ===== -->
+<div class="modal-overlay" id="create-machine-modal" onclick="if(event.target===this)this.classList.remove('open');">
+  <div class="modal" style="max-width:440px;">
+    <div class="modal-head">
+      <h3>🗂️ 機種フォルダを新規作成</h3>
+      <button class="modal-close" onclick="closeCreateMachineModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--text-sub);margin-bottom:16px;">
+        機種コードを登録すると、ツリーに機種フォルダが作成されます。<br>
+        見積がなくても機種単体で追加できます。
+      </p>
+      <div class="form-field" style="margin-bottom:14px;">
+        <label>機種コード <span style="color:var(--danger);">*</span></label>
+        <input type="text" id="create-machine-code" placeholder="例: A84, A89, D56, E63"
+          style="padding:10px;border:1px solid var(--border);border-radius:var(--radius);font-size:15px;font-weight:600;letter-spacing:0.05em;width:100%;"
+          onkeydown="if(event.key==='Enter')saveCreateMachine()">
+      </div>
+      <div class="form-field" style="margin-bottom:16px;">
+        <label>備考（任意）</label>
+        <input type="text" id="create-machine-remarks" placeholder="例: パチスロ機、2025年モデル"
+          style="padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;width:100%;">
+      </div>
+      <div id="create-machine-status" style="font-size:13px;min-height:20px;margin-bottom:10px;"></div>
+      <div style="text-align:right;">
+        <button class="btn btn-outline" onclick="closeCreateMachineModal()">キャンセル</button>
+        <button class="btn btn-primary" onclick="saveCreateMachine()" style="margin-left:8px;background:#6a1b9a;border-color:#6a1b9a;">🗂️ 作成</button>
+      </div>
+    </div>
+  </div>
+</div>
