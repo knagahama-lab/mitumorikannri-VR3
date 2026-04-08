@@ -7,8 +7,8 @@ var CONFIG = {
   SPREADSHEET_ID: PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID') || '',
   GEMINI_API_KEY: PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || '',
 
-  GEMINI_PRIMARY_MODEL:  'gemini-2.0-flash',
-  GEMINI_FALLBACK_MODEL: 'gemini-2.0-flash-lite',
+　GEMINI_PRIMARY_MODEL:  'gemini-2.5-flash',
+  GEMINI_FALLBACK_MODEL: 'gemini-2.5-pro',
   GEMINI_API_ENDPOINT:   'https://generativelanguage.googleapis.com/v1beta/models/',
 
   // ===== 保存先フォルダ =====
