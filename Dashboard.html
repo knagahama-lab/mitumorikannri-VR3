@@ -895,6 +895,11 @@ tbody tr:hover{background:#f8f9fa;cursor:pointer;}
 
 
 <!-- ===== 原価管理ページ ===== -->
+<a href="<?= ScriptApp.getService().getUrl() ?>?page=bom" target="_blank" style="text-decoration:none;">
+  <div class="nav-item">
+    <span>🔧 BOM管理を開く</span>
+  </div>
+</a>
 <div id="page-parts" class="page">
   <div style="display:flex;gap:4px;margin-bottom:18px;border-bottom:2px solid var(--border);padding-bottom:0;">
     <button id="ptab-parts" onclick="switchPartsTab('parts')"

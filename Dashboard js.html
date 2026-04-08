@@ -457,8 +457,7 @@ function _showOrderUploadResult(res){
 
 // ★ 手動紐づけ確定
 function _confirmOrderLink(orderMgmtId, quoteMgmtId, quoteNo){
-  if(!confirm('見積書「' + quoteNo + '」と紐づけを確定しますか？
-ステータスが「受注済み」に変更されます。')){return;}
+  if(!confirm('見積書「' + quoteNo + '」と紐づけを確定しますか？\nステータスが「受注済み」に変更されます。')){return;}
   google.script.run
     .withSuccessHandler(res=>{
       if(res.success){
