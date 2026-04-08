@@ -92,12 +92,14 @@ function _watchFolder(importFolderId, saveFolderId, docType, orderType) {
           continue;
         }
 
-        // 保存先フォルダへコピー（ファイル名に日時プレフィックスを付与）
+        // 保存先フォルダへコピー（自動で顧客ごとのサブ階層を生成）
         var newName  = 'DRIVE_' + nowJST().replace(/[\/: ]/g,'') + '_' + file.getName();
-        var saveFolder = DriveApp.getFolderById(saveFolderId);
+        var clientName = ocr.clientName || ocr.destCompany || ocr.dest || "未分類顧客";
+        var finalFolderId = _getOrCreateSubFolder(saveFolderId, clientName);
+        var saveFolder = DriveApp.getFolderById(finalFolderId);
         var savedFile  = file.makeCopy(newName, saveFolder);
         var pdfUrl     = savedFile.getUrl();
-        var folderUrl  = getFolderUrl(saveFolderId);
+        var folderUrl  = getFolderUrl(finalFolderId);
 
         Logger.log('[DRIVE WATCH] 保存先へコピー完了: ' + newName);
 
@@ -273,4 +275,24 @@ function checkImportFolders() {
       Logger.log('[ERROR] ' + f.label + ': ' + e.message);
     }
   });
+}
+
+/**
+ * 顧客名と年月からサブフォルダを自動生成または取得
+ */
+function _getOrCreateSubFolder(parentFolderId, clientName) {
+  var parent = DriveApp.getFolderById(parentFolderId);
+  var now = new Date();
+  var monthStr = now.getFullYear() + "-" + ("0" + (now.getMonth() + 1)).slice(-2);
+  
+  // 1. 月フォルダの確認・作成
+  var monthFolders = parent.getFoldersByName(monthStr);
+  var monthFolder = monthFolders.hasNext() ? monthFolders.next() : parent.createFolder(monthStr);
+
+  // 2. 顧客フォルダの確認・作成
+  var safeClientName = String(clientName).replace(/[\/:*?"<>|]/g, "_");
+  var clientFolders = monthFolder.getFoldersByName(safeClientName);
+  var clientFolder = clientFolders.hasNext() ? clientFolders.next() : monthFolder.createFolder(safeClientName);
+  
+  return clientFolder.getId();
 }

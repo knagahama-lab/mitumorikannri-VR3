@@ -4,9 +4,21 @@
 // ============================================================
 
 function doGet(e) {
+  var userEmail = Session.getActiveUser().getEmail() || '';
+  var adminEmailsStr = PropertiesService.getScriptProperties().getProperty('ADMIN_EMAILS') || '';
+  var isAdmin = false;
+  if (!adminEmailsStr || adminEmailsStr.trim() === '') {
+    isAdmin = true; // 未設定時は全員を管理者扱いとする
+  } else {
+    var adminEmails = adminEmailsStr.split(',').map(function(s){return s.trim();});
+    isAdmin = (adminEmails.indexOf(userEmail) >= 0);
+  }
+
   // URLの末尾に「?page=bom」がついている場合はBOM管理画面を開く
   if (e && e.parameter && e.parameter.page === 'bom') {
-    return HtmlService.createTemplateFromFile('BomDashboard').evaluate()
+    var bomTmpl = HtmlService.createTemplateFromFile('BomDashboard');
+    bomTmpl.isAdmin = isAdmin;
+    return bomTmpl.evaluate()
       .setTitle('BOM・部品管理システム')
       .addMetaTag('viewport', 'width=device-width, initial-scale=1')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
@@ -25,7 +37,11 @@ function doGet(e) {
   }
 
   // 通常のアクセス（パラメータなし）の場合は、これまでの見積・注文管理システムを開く
-  return HtmlService.createTemplateFromFile('Dashboard').evaluate()
+  var dashboardTmpl = HtmlService.createTemplateFromFile('Dashboard');
+  dashboardTmpl.isAdmin = isAdmin;
+  dashboardTmpl.userEmail = userEmail;
+
+  return dashboardTmpl.evaluate()
     .setTitle('見積・注文 管理システム')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
@@ -1200,4 +1216,27 @@ function _apiTestWebhook(p) {
 // ============================================================
 function _apiSendAnnouncement() {
   return { success: false, error: '周知メール送信は無効化されています。' };
+}
+
+// ============================================================
+// ★システム設定 (GUIから)
+// ============================================================
+function _apiLoadSettings() {
+  var props = PropertiesService.getScriptProperties();
+  return {
+    success: true,
+    adminEmails: props.getProperty('ADMIN_EMAILS') || '',
+    chatWebhook: props.getProperty('GOOGLE_CHAT_WEBHOOK_URL') || ''
+  };
+}
+
+function _apiSaveSettings(p) {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    if (p.adminEmails !== undefined) props.setProperty('ADMIN_EMAILS', p.adminEmails);
+    if (p.chatWebhook !== undefined) props.setProperty('GOOGLE_CHAT_WEBHOOK_URL', p.chatWebhook);
+    return { success: true };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
 }

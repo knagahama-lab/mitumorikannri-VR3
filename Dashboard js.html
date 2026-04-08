@@ -1408,4 +1408,49 @@ function _renderMatchingCandidates(items) {
 }
 
 let _allMatchingItems = [];
+
+// ===== システム設定用関数 =====
+function loadSystemSettings() {
+  google.script.run.withSuccessHandler(function(res) {
+    if(!res.success) { alert('設定の読み込みに失敗: ' + res.error); return; }
+    const adminInput = document.getElementById('sysconf-admin-emails');
+    const webhookInput = document.getElementById('sysconf-chat-webhook');
+    if (adminInput) adminInput.value = res.adminEmails || '';
+    if (webhookInput) webhookInput.value = res.chatWebhook || '';
+  }).handleApiRequest('loadSettings');
+}
+
+function saveSystemSettings() {
+  const adminInput = document.getElementById('sysconf-admin-emails');
+  const webhookInput = document.getElementById('sysconf-chat-webhook');
+  if (!adminInput || !webhookInput) return;
+
+  const payload = {
+    adminEmails: adminInput.value,
+    chatWebhook: webhookInput.value,
+  };
+
+  const btn = event.target;
+  btn.disabled = true;
+  btn.innerText = '保存中...';
+
+  google.script.run.withSuccessHandler(function(res) {
+    if(!res.success) { 
+      alert('設定の保存に失敗: ' + res.error); 
+      btn.disabled = false;
+      btn.innerText = '💾 上書きして設定を保存';
+      return; 
+    }
+    alert('設定を保存しました。新しい権限が適用されるため画面を再読み込みします。');
+    location.reload();
+  }).handleApiRequest('saveSettings', payload);
+}
+
+document.addEventListener("DOMContentLoaded", function() {
+  setTimeout(function() {
+    if (document.getElementById('sysconf-admin-emails')) {
+      loadSystemSettings();
+    }
+  }, 1000);
+});
 </script>

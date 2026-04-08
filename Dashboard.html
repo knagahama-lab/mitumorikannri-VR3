@@ -210,6 +210,7 @@ tbody tr:hover{background:#f8f9fa;cursor:pointer;}
         <a onclick="showPage('calendar')">📅 スケジュール・タイムライン</a>
       </div>
     </div>
+    <? if (isAdmin) { ?>
     <div class="dropdown">
       <button class="nav-btn">🏭 製造・原価管理 ▼</button>
       <div class="dropdown-content">
@@ -218,9 +219,13 @@ tbody tr:hover{background:#f8f9fa;cursor:pointer;}
         <a onclick="showPage('analysis')">📊 機種別 分析レポート</a>
       </div>
     </div>
-    <button class="nav-btn" onclick="showPage('admin')">⚙️ 運用・システムヘルプ</button>
+    <button class="nav-btn" onclick="showPage('admin')">⚙️ 管理コンソール・システム設定</button>
+    <? } ?>
   </div>
   <div class="nav-right" style="display:flex;gap:12px;align-items:center;">
+     <? if (userEmail) { ?>
+       <span style="color:var(--text-sub);font-size:12px;margin-right:8px;"><?= userEmail ?></span>
+     <? } ?>
      <button class="btn btn-outline" style="background:transparent;border-color:rgba(255,255,255,0.4);color:white;padding:6px 12px;" onclick="showPage('drivesearch')">🔍 全文検索</button>
      <button class="btn btn-outline" style="background:white;color:var(--primary);border:none;padding:6px 12px;font-weight:600;" onclick="openUploadModal()">＋ PDF登録</button>
   </div>
@@ -230,35 +235,58 @@ tbody tr:hover{background:#f8f9fa;cursor:pointer;}
 <!-- ===== システム運用・ヘルプページ (属人化排除用) ===== -->
 <div id="page-admin" class="page">
   <div style="margin-bottom:20px;">
-    <h2 style="font-size:22px;font-weight:700;margin-bottom:4px;">⚙️ システム設計・運用ディクショナリ</h2>
-    <p style="color:var(--text-sub);">このシステムがどのように動き、データがどこに保存されているかを示す構成図です。担当者が変わっても運用できるよう記載しています。</p>
+    <h2 style="font-size:22px;font-weight:700;margin-bottom:4px;">⚙️ システム管理コンソール (Admin Console)</h2>
+    <p style="color:var(--text-sub);">システム全体の設定値や、権限の付与、各種自動化ルーチンの仕様が確認・編集できます。</p>
   </div>
+
+  <!-- [NEW] 動的・GUI設定フォーム -->
+  <div class="card" style="background:white;padding:20px;border-radius:12px;box-shadow:var(--shadow);margin-bottom:20px;border-left:4px solid var(--primary);">
+    <h3 style="font-size:16px;font-weight:600;margin-bottom:12px;color:var(--primary);">🔧 デプロイシステム環境設定 (Settings)</h3>
+    <p style="font-size:12px;color:var(--text-sub);margin-bottom:16px;">
+      システム全体の振る舞いや、管理者権限、通知先を指定します。これらはGASのスクリプトプロパティに直接保存・適用されます。
+    </p>
+
+    <div class="form-row">
+      <div class="form-field">
+        <label>管理者アカウント (Admin Emails)</label>
+        <input type="text" id="sysconf-admin-emails" placeholder="カンマ区切りで入力 (例: admin@example.com, test@example.com)">
+        <span style="font-size:11px;color:var(--text-sub);">※ 未入力の場合は全員に管理者権限（設定メニューや原価マスタ等）が開放されます。</span>
+      </div>
+    </div>
+
+    <div class="form-row">
+      <div class="form-field">
+        <label>Google Chat Webhook URL (自動アラート送信先)</label>
+        <input type="text" id="sysconf-chat-webhook" placeholder="https://chat.googleapis.com/...">
+      </div>
+    </div>
+    
+    <div style="text-align:right;margin-top:12px;">
+      <button class="btn btn-outline" onclick="loadSystemSettings()">🔄 最新設定を読み込む</button>
+      <button class="btn btn-primary" onclick="saveSystemSettings()" style="margin-left:8px;">💾 上書きして設定を保存</button>
+    </div>
+  </div>
+
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+    //... そのままマニュアル ...
     <div class="card" style="background:white;padding:20px;border-radius:12px;box-shadow:var(--shadow);">
       <h3 style="font-size:16px;font-weight:600;margin-bottom:12px;color:var(--primary);border-bottom:2px solid var(--primary-light);padding-bottom:6px;">📂 データベースの実体 (Spreadsheets)</h3>
       <ul style="list-style:none;padding:0;line-height:2;">
         <li>・<b>見積・注文履歴</b>: <code>管理スプレッドシート &gt; 「見積提出管理」タブ</code></li>
         <li>・<b>基板BOM情報</b>: <code>マスタスプレッドシート &gt; 「BOM」タブ</code></li>
-        <li>・<b>自動仕入価格の変動</b>: <code>マスタスプレッドシート &gt; 「原価改定履歴」タブ</code></li>
+        <li>・<b>自動仕分け機能</b>: <code>04 drive watcher.gs</code> によりDrive内に「年-月 / 顧客名」のフォルダが全自動生成されて保存されます。</li>
       </ul>
-      <p style="font-size:12px;color:var(--text-sub);margin-top:12px;">💡 スプレッドシート側で直接セルを削除・編集してもシステムにリアルタイム反映されます。万が一画面から操作できなくなった場合はスプレッドシートを直接修復してください。</p>
+      <p style="font-size:12px;color:var(--text-sub);margin-top:12px;">💡 スプレッドシート側で直接セルを削除・編集してもシステムにリアルタイム反映されます。</p>
     </div>
     <div class="card" style="background:white;padding:20px;border-radius:12px;box-shadow:var(--shadow);">
       <h3 style="font-size:16px;font-weight:600;margin-bottom:12px;color:var(--danger);border-bottom:2px solid #fce8e6;padding-bottom:6px;">⏰ 自動アラート・Cronの仕様 (10_alert_cron.gs)</h3>
       <ul style="list-style:none;padding:0;line-height:2;">
         <li>・<b>実行時間</b>: 毎日朝9時台にGoogle Apps Script (GAS) サーバーで自動実行</li>
-        <li>・<b>注文未着アラート</b>: 発行から<span style="color:var(--danger);font-weight:600;">7日経過</span>してもステータスが変わらないもの。</li>
-        <li>・<b>納期待ちアラート</b>: 納期設定日の<span style="color:var(--danger);font-weight:600;">7日前 および 前日</span>。</li>
-        <li>・<b>原価変動リスク</b>: 部品の仕入価格が前回から<span style="color:var(--danger);font-weight:600;">20%以上</span>値上がりした場合。</li>
+        <li>・<b>注文未着アラート</b>: 発行から<span style="color:var(--danger);font-weight:600;">7日経過</span></li>
+        <li>・<b>停滞警告</b>: 発行から<span style="color:var(--danger);font-weight:600;">14日経過</span>しても未発注のもの</li>
+        <li>・<b>納期待ちアラート</b>: 納期設定日の<span style="color:var(--danger);font-weight:600;">7日前 および 前日</span>、および<span style="color:var(--danger);font-weight:600;">超過日</span>。</li>
       </ul>
-      <p style="font-size:12px;color:var(--text-sub);margin-top:12px;">🚨 通知先はソースコード内の <code>CHAT_WEBHOOK_URL</code> で定義されています。</p>
     </div>
-  </div>
-  <div class="card" style="background:white;padding:20px;border-radius:12px;box-shadow:var(--shadow);margin-top:20px;">
-     <h3 style="font-size:16px;font-weight:600;margin-bottom:12px;color:var(--success);border-bottom:2px solid var(--s-done-bg);padding-bottom:6px;">🛠️ システムの改修・ソースコードについて</h3>
-     <p style="font-size:13px;line-height:1.6;">本システムは完全な**閉域網（CDN・外部サーバー非依存）**で構築されています。UIパーツ（Tabler, DataTables, jQuery）はすべて <code>css.html</code> と <code>js.html</code> 内にオフラインで存在しているため、ライブラリのリンク切れなどによるサービス停止の心配はありません。<br><br>
-     【版管理ロジックについて】<br>
-     `09 quote submit ap.gs` にて、見積書を新しく提出（登録）すると、必ず「親ID」に紐づく過去の履歴を論理削除（最新フラグ=FALSEに変更）するようプログラミングされています。</p>
   </div>
 </div>
 
