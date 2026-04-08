@@ -12,6 +12,18 @@ function doGet(e) {
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
   }
 
+  if (e && e.parameter && e.parameter.action === 'viewBom') {
+    var fileId = e.parameter.fileId;
+    if (!fileId) return HtmlService.createHtmlOutput('Error: No file ID provided');
+    try {
+      var file = DriveApp.getFileById(fileId);
+      var content = file.getBlob().getDataAsString('utf-8');
+      return HtmlService.createHtmlOutput(content);
+    } catch(err) {
+      return HtmlService.createHtmlOutput('Error: ' + err.message);
+    }
+  }
+
   // 通常のアクセス（パラメータなし）の場合は、これまでの見積・注文管理システムを開く
   return HtmlService.createTemplateFromFile('Dashboard').evaluate()
     .setTitle('見積・注文 管理システム')

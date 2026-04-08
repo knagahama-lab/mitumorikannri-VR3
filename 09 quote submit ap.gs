@@ -24,11 +24,15 @@ var QS_COL = {
   SUBMIT_DATE: 10,
   FILE_URL:    11,
   UPDATED_AT:  12,
+  PARENT_ID:   13,
+  IS_LATEST:   14,
+  STATUS:      15
 };
 
 var QS_HEADERS = [
   'ID','機種コード','ブランド','基板名','フォーマット',
-  '金額','備考','見積No','提出先','提出日','ファイルURL','最終更新日'
+  '金額','備考','見積No','提出先','提出日','ファイルURL','最終更新日',
+  '親ID','最新フラグ','ステータス'
 ];
 
 // ============================================================
@@ -62,6 +66,9 @@ function initQuoteSubmitSheet() {
   sheet.setColumnWidth(10, 110);
   sheet.setColumnWidth(11, 300);
   sheet.setColumnWidth(12, 140);
+  sheet.setColumnWidth(13, 140);
+  sheet.setColumnWidth(14, 100);
+  sheet.setColumnWidth(15, 100);
 
   Logger.log('[QS] シート初期化完了');
   return sheet;
@@ -161,6 +168,20 @@ function _apiQsSave(p) {
     var id    = isNew ? _generateQsId(p.machineCode) : p.id;
     var now   = nowJST();
 
+    var parentId = p.parentId || id; // 新規の場合は自分自身を親とする
+    
+    // 【版管理: 旧リビジョンをFALSEにする】
+    var currentData = sheet.getDataRange().getValues();
+    if (currentData.length > 1) {
+      for (var i = 1; i < currentData.length; i++) {
+        var existingParent = String(currentData[i][QS_COL.PARENT_ID - 1] || currentData[i][QS_COL.ID - 1]);
+        if (existingParent === parentId && currentData[i][QS_COL.IS_LATEST - 1] === true) {
+          sheet.getRange(i + 1, QS_COL.IS_LATEST).setValue(false);
+          sheet.getRange(i + 1, QS_COL.STATUS).setValue('改定');
+        }
+      }
+    }
+
     var rowData = [
       id,
       p.machineCode  || '',
@@ -174,6 +195,9 @@ function _apiQsSave(p) {
       p.submitDate   || '',
       p.fileUrl      || '',
       now,
+      parentId,
+      true,
+      p.status || '有効'
     ];
 
     if (isNew) {
@@ -254,6 +278,9 @@ function _qsRowToObj(row) {
     submitDate:  String(row[9]  || ''),
     fileUrl:     String(row[10] || ''),
     updatedAt:   String(row[11] || ''),
+    parentId:    String(row[12] || ''),
+    isLatest:    row[13] !== undefined ? row[13] : true,
+    status:      String(row[14] || '')
   };
 }
 

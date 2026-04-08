@@ -28,8 +28,7 @@
   --shadow: 0 1px 3px rgba(0,0,0,0.08);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: 'Noto Sans JP', 'Hiragino Sans', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.6; }
-@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap');
+body { font-family: 'Hiragino Sans', 'Meiryo', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.6; }
 
 /* Layout */
 #app { display: flex; min-height: 100vh; }
@@ -146,6 +145,7 @@ textarea.csv-input { width: 100%; min-height: 120px; font-family: monospace; fon
 input[type=file] { font-size: 13px; }
 .section-title { font-size: 13px; font-weight: 700; color: var(--text2); margin: 16px 0 8px; text-transform: uppercase; letter-spacing: 0.5px; }
 </style>
+<?!= include('css'); ?>
 </head>
 <body>
 <div id="app">
@@ -1736,5 +1736,6 @@ if (!loaded) {
 }
 showPage('dashboard');
 </script>
+<?!= include('js'); ?>
 </body>
 </html>
