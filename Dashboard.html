@@ -190,6 +190,7 @@ tbody tr:hover{background:#f8f9fa;cursor:pointer;}
         <a onclick="showPage('list')">📋 自動進行ダッシュボード (案件一覧)</a>
         <a onclick="showPage('ledger')">📝 見積台帳 (ツリー管理)</a>
         <a onclick="showPage('calendar')">📅 スケジュール・タイムライン</a>
+        <a onclick="showPage('ocr')">🔍 簡易OCR (NDL OCR)</a>
       </div>
     </div>
     <? if (isAdmin) { ?>
@@ -497,6 +498,36 @@ tbody tr:hover{background:#f8f9fa;cursor:pointer;}
     </div>
     <div id="drive-search-container">
       <div class="loading" style="color:var(--text-sub);">「全件表示」または条件を入力して「検索」を押してください</div>
+    </div>
+  </div>
+</div>
+
+<div id="page-ocr" class="page">
+  <div style="max-width:800px;margin:0 auto;text-align:center;padding:40px 20px;">
+    <div style="font-size:48px;margin-bottom:20px;">🔍</div>
+    <h2 style="font-size:24px;font-weight:700;margin-bottom:12px;">簡易OCRシステム (NDLOR-Lite)</h2>
+    <p style="color:var(--text-sub);line-height:1.6;margin-bottom:30px;">
+      国立国会図書館（NDL）が開発・公開している、プライバシーと安全性に配慮したOCRツールです。<br>
+      ブラウザ上で完結して動作するため、外部サーバーにデータを送信することなく安全に利用できます。
+    </p>
+    
+    <div style="background:var(--card);border-radius:12px;padding:30px;box-shadow:var(--shadow);border:1px solid var(--border);margin-bottom:30px;">
+      <h3 style="font-size:16px;font-weight:600;margin-bottom:14px;">ブラウザ版 (NDLOCR-Lite Web) を起動</h3>
+      <p style="font-size:13px;color:var(--text-sub);margin-bottom:20px;">
+        画像やPDFをドラッグ＆ドロップするだけで、テキスト抽出が可能です。
+      </p>
+      <button class="btn btn-primary" style="padding:12px 30px;font-size:15px;" onclick="window.open('https://ndlocr-liteweb.netlify.app/','_blank')">
+        🚀 別ウィンドウでOCRを起動する
+      </button>
+    </div>
+    
+    <div style="text-align:left;background:#f8f9fa;border-radius:8px;padding:20px;font-size:13px;color:var(--text-sub);">
+      <p style="font-weight:600;margin-bottom:8px;color:var(--text);">💡 安全性のポイント</p>
+      <ul style="margin-left:20px;display:flex;flex-direction:column;gap:6px;">
+        <li>データの処理はすべてご利用のブラウザ内で行われます（Edge/Chrome推奨）。</li>
+        <li>国立国会図書館（NDL）の技術基盤に基づいた、歴史的資料から一般文書まで対応する高性能なOCRです。</li>
+        <li>外部リポジトリ: <a href="https://github.com/ndl-lab/ndlocr-lite" target="_blank" style="color:var(--primary);">ndl-lab/ndlocr-lite</a></li>
+      </ul>
     </div>
   </div>
 </div>
