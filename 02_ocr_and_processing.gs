@@ -120,6 +120,14 @@ function _processQuotePdf(attachment, gmailMsg, msgId) {
     Logger.log('[LEDGER UPDATE SKIP] ' + ledgerErr.message);
   }
 
+  // ★チャット通知の送信
+  _sendChatNotification({
+    id: mgmtId, 
+    subject: row[MGMT_COLS.SUBJECT - 1], 
+    client: row[MGMT_COLS.CLIENT - 1], 
+    quoteAmount: row[MGMT_COLS.QUOTE_AMOUNT - 1]
+  }, 'quote');
+
   Logger.log('[QUOTE OK] ' + mgmtId);
 }
 
@@ -216,6 +224,14 @@ function _saveOrderData(ocr, orderType, pdfUrl, folderUrl, msgId, fallbackSubjec
   }
 
   _writeOrderLines(ss, mgmtSheet, updateRow, finalMgmtId, ocr, orderType, pdfUrl, folderUrl);
+
+  // ★チャット通知の送信（AI紐づけを含む）
+  _sendChatNotification({
+    id: finalMgmtId, 
+    subject: ocr.subject || fallbackSubject, 
+    client: ocr.clientName, 
+    orderAmount: ocr.subtotal
+  }, 'order');
 }
 
 function _writeOrderLines(ss, mgmtSheet, mgmtRow, mgmtId, ocr, orderType, pdfUrl, folderUrl) {
@@ -400,5 +416,66 @@ function _processQuotePdfFromFile(pdfUrl, folderUrl, ocr, msgId) {
   row[MGMT_COLS.UPDATED_AT - 1]       = nowJST();
   row[MGMT_COLS.GMAIL_MSG_ID - 1]     = msgId;
   mgmtSheet.getRange(newRow, 1, 1, 27).setValues([row]);
+  
   _writeQuoteLines(ss, mgmtSheet, newRow, mgmtId, ocr, pdfUrl, folderUrl);
+
+  // ★チャット通知の送信
+  _sendChatNotification({
+    id: mgmtId, 
+    subject: row[MGMT_COLS.SUBJECT - 1], 
+    client: row[MGMT_COLS.CLIENT - 1], 
+    quoteAmount: row[MGMT_COLS.QUOTE_AMOUNT - 1]
+  }, 'quote');
+}
+
+// ============================================================
+// 通知・設定・手動紐づけ（API用拡張）
+// ============================================================
+
+/**
+ * Google Chatへの通知を送信する（見積情報付き）
+ */
+function _sendChatNotification(mgmtObj, docType) {
+  var webhookUrl = _getChatWebhookUrl();
+  if (!webhookUrl) return;
+
+  var title = docType === 'quote' ? "📄 見積書を登録しました" : "📦 注文書を受領しました";
+  
+  var text = "【" + title + "】\n";
+  text += "案件名: " + (mgmtObj.subject || "なし") + "\n";
+  text += "顧客名: " + (mgmtObj.client || "不明") + "\n";
+  text += "金額: ¥" + (Number(mgmtObj.orderAmount || mgmtObj.quoteAmount || 0).toLocaleString()) + "\n";
+
+  // 注文書の場合、紐づいた見積情報を探す（アグレッシブに）
+  if (docType === 'order') {
+    var matchRes = matchOrderToQuote(mgmtObj.id, true); // とりあえず一番近いものに強制紐づけ
+    if (matchRes.autoLinked && matchRes.match) {
+      var q = matchRes.match;
+      text += "\n🔗 *紐づけ済み見積情報 (AI自動)*\n";
+      text += "・見積No: " + (q.quoteNo || "不明") + "\n";
+      text += "・件名: " + (q.subject || "不明") + "\n";
+      text += "・金額: ¥" + (Number(q.amount || 0).toLocaleString()) + "\n";
+      text += "・見積PDF: " + (q.quotePdfUrl || "URLなし") + "\n";
+    } else {
+      text += "\n⚠️ 該当する見積書が見つかりませんでした\n";
+    }
+  }
+
+  text += "\n🌐 システムで確認:\n" + ScriptApp.getService().getUrl();
+
+  var payload = { "text": text };
+  try {
+    UrlFetchApp.fetch(webhookUrl, {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    });
+  } catch(e) {
+    Logger.log('[CHAT NOTIFY ERROR] ' + e.message);
+  }
+}
+
+function _getChatWebhookUrl() {
+  return CONFIG.GOOGLE_CHAT_WEBHOOK_URL || PropertiesService.getScriptProperties().getProperty('GOOGLE_CHAT_WEBHOOK_URL') || '';
 }
