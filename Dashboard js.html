@@ -1,1324 +1,644 @@
 <script>
 
-// ===== 状態 =====
-const S = {
-  all:[], filtered:[], page:1, limit:30,
-  docType:'quote', orderType:'', selectedFile:null,
-  calYear: new Date().getFullYear(), calMonth: new Date().getMonth()+1,
-  calEvents:[],
-};
-let searchTimer=null;
-
-// ===== 初期化 =====
-window.onload = () => {
-  _populateMonthFilter();
-  loadData();
-};
-
-function showPage(name) {
-  document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('active'); });
-  document.querySelectorAll('.nav-tab').forEach(function(t) { t.classList.remove('active'); });
-  var target = document.getElementById('page-'+name);
-  if (!target) { console.error('ページが見つかりません: page-'+name); return; }
-  target.classList.add('active');
-  // nav-tab active 更新
-  document.querySelectorAll('.nav-tab').forEach(function(t) {
-    var onclick = t.getAttribute('onclick') || '';
-    if (onclick.indexOf("'" + name + "'") >= 0) t.classList.add('active');
-  });
-  // 案件一覧に戻ったとき area-order を確実に表示
-  if (name === 'list') {
-    var ao = document.getElementById('area-order');
-    var aq = document.getElementById('area-quote');
-    if (ao) ao.style.display = '';
-    if (aq) aq.style.display = 'none';
-  }
-  if (name==='parts') {
-    if (_allParts.length === 0) loadPartsData();
-    switchPartsTab('parts');
-  }
-  if (name==='ledger')   loadLedger();
-  if (name==='todo')     loadTodos();
-  if (name==='calendar') loadCalendar();
-  if (name==='matching') loadMatchingCandidates();
-  if (name==='quotesubmit') { if (_allQs.length === 0) loadQsData(); }
-  if (name==='board')    loadBoardList();
-  if (name==='analysis')    loadBoardAnalysis();
-  if (name==='drivesearch') { /* 手動検索のため自動ロードしない */ }
+function filterMatchingCandidates() {
+  const kw = document.getElementById('matching-search').value.toLowerCase();
+  if (!kw) { _renderMatchingCandidates(_allMatchingItems); return; }
+  const filtered = _allMatchingItems.filter(item =>
+    String(item.orderNo||'').toLowerCase().includes(kw) ||
+    String(item.orderMgmtId||'').toLowerCase().includes(kw) ||
+    String(item.orderClient||'').toLowerCase().includes(kw)
+  );
+  _renderMatchingCandidates(filtered);
 }
 
-// ===== 案件データ =====
-function loadData() {
-  document.getElementById('table-container').innerHTML =
-    '<div class="loading"><div class="spinner"></div><br>データ読み込み中...</div>';
+// ===== 基板管理 =====
+let _allBoards = [];
 
-  google.script.run
-    .withSuccessHandler(function(res) {
-      if (!res || !res.success) {
-        document.getElementById('table-container').innerHTML =
-          '<div class="loading" style="color:var(--danger);">⚠️ データ取得失敗: ' + (res ? res.error : '不明') + '</div>';
-        return;
-      }
-      try {
-        S.all = res.items || [];
-        S.filtered = S.all.slice();
-        S.page = 1;
-        _updateSummary();
-        _renderTable();
-      } catch(e) {
-        document.getElementById('table-container').innerHTML =
-          '<div class="loading" style="color:var(--danger);">⚠️ 描画エラー: ' + e.message + '<br><small>' + e.stack + '</small></div>';
-      }
-    })
-    .withFailureHandler(function(err) {
-      document.getElementById('table-container').innerHTML =
-        '<div class="loading" style="color:var(--danger);">⚠️ 通信エラー: ' + err.message + '</div>';
-    })
-    .handleApiRequest('getAll', null);
-}
-
-function switchSubTab(tab) {
-  var isOrder   = tab === 'order';
-  var areaOrder = document.getElementById('area-order');
-  var areaQuote = document.getElementById('area-quote');
-  var orderBtn  = document.getElementById('subtab-order');
-  var quoteBtn  = document.getElementById('subtab-quote');
-
-  // null チェック（要素が見つからない場合はスキップ）
-  if (!areaOrder || !areaQuote || !orderBtn || !quoteBtn) {
-    console.warn('[switchSubTab] 要素が見つかりません。page-listが表示されていない可能性があります。');
-    // page-list を先に表示してから再試行
-    document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('active'); });
-    document.getElementById('page-list').classList.add('active');
-    document.querySelectorAll('.nav-tab').forEach(function(t) { t.classList.remove('active'); });
-    setTimeout(function() { switchSubTab(tab); }, 50);
-    return;
-  }
-
-  areaOrder.style.display = isOrder ? '' : 'none';
-  areaQuote.style.display = isOrder ? 'none' : '';
-
-  orderBtn.style.color        = isOrder ? 'var(--primary)'  : 'var(--text-sub)';
-  orderBtn.style.borderBottom = isOrder ? '2px solid var(--primary)' : '2px solid transparent';
-  orderBtn.style.fontWeight   = isOrder ? '600' : '500';
-  quoteBtn.style.color        = isOrder ? 'var(--text-sub)'  : 'var(--primary)';
-  quoteBtn.style.borderBottom = isOrder ? '2px solid transparent' : '2px solid var(--primary)';
-  quoteBtn.style.fontWeight   = isOrder ? '500' : '600';
-
-  if (!isOrder && _allQuotes.length === 0) loadQuoteList();
-}
-
-function _updateSummary() {
-  const now = new Date();
-  const ym  = now.getFullYear() + '/' + String(now.getMonth()+1).padStart(2,'0');
-  document.getElementById('sum-sent').textContent     = S.all.filter(r=>r.status==='送信済み').length;
-  document.getElementById('sum-received').textContent = S.all.filter(r=>r.status==='受領').length;
-  document.getElementById('sum-done').textContent     = S.all.filter(r=>r.status==='納品済み').length;
-  const tot = S.all.filter(r=>String(r.orderDate).startsWith(ym))
-    .reduce((s,r)=>s+(Number(r.orderAmount)||0), 0);
-  document.getElementById('sum-amount').textContent = tot.toLocaleString();
-}
-
-// ★ 注文書一覧テーブルの描画（削除ボタン追加）
-function _renderTable() {
-  const start = (S.page-1)*S.limit;
-  const data  = S.filtered.slice(start, start+S.limit);
-  const total = S.filtered.length;
-
-  document.getElementById('result-count').textContent =
-    total+'件中 '+(total>0?start+1:0)+'–'+Math.min(start+S.limit,total)+'件';
-
-  if (total===0) {
-    document.getElementById('table-container').innerHTML =
-      '<div class="loading" style="color:var(--text-sub);">該当する案件がありません</div>';
-    document.getElementById('pagination').innerHTML='';
-    return;
-  }
-
-  const rows = data.map(r=>`
-    <tr onclick="openDetail('${r.id}')">
-      <td><span class="text-sub">${r.id||''}</span></td>
-      <td><strong>${r.orderNo||r.quoteNo||'—'}</strong></td>
-      <td>${r.orderSlipNo||'—'}</td>
-      <td>${r.modelCode||'—'}</td>
-      <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.client||''}</td>
-      <td>${_sBadge(r.status)}</td>
-      <td>${r.orderType?_otBadge(r.orderType):''}</td>
-      <td class="text-sub">${r.orderDate||r.quoteDate||''}</td>
-      <td class="text-sub">${r.deliveryDate||''}</td>
-      <td style="text-align:right;white-space:nowrap;">${r.orderAmount?Number(r.orderAmount).toLocaleString()+' 円':'—'}</td>
-      <td>
-        ${r.quotePdfUrl?`<a class="pdf-link" href="${r.quotePdfUrl}" target="_blank" onclick="event.stopPropagation()">見積</a> `:''}
-        ${r.orderPdfUrl?`<a class="pdf-link" href="${r.orderPdfUrl}" target="_blank" onclick="event.stopPropagation()">発注</a>`:''}
-        ${r.driveFolderUrl?`<br><a class="pdf-link" href="${r.driveFolderUrl}" target="_blank" onclick="event.stopPropagation()">📁</a>`:''}
-      </td>
-      <td style="text-align:center; white-space:nowrap;">
-        <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteMgmt('${r.id}', '${(r.orderNo||r.quoteNo||'').replace(/'/g,'')}')">🗑️ 削除</button>
-      </td>
-    </tr>`).join('');
-
-  document.getElementById('table-container').innerHTML = `
-    <table>
-      <thead><tr>
-        <th>管理ID</th><th>発注書番号</th><th>発注伝票No</th><th>機種</th><th>顧客名</th>
-        <th>ステータス</th><th>種別</th><th>発注日</th><th>納期</th><th>注文金額</th><th>PDF/フォルダ</th><th>操作</th>
-      </tr></thead>
-      <tbody>${rows}</tbody>
-    </table>`;
-  _renderPagination(total);
-}
-
-function _sBadge(s){const m={'作成予定':'planned','送信済み':'sent','受領':'received','納品済み':'done'};return`<span class="badge badge-${m[s]||'planned'}">${s||'—'}</span>`;}
-function _otBadge(t){if(t==='試作')return'<span class="badge badge-trial">試作</span>';if(t==='量産')return'<span class="badge badge-mass">量産</span>';return'';}
-function _prioBadge(p){if(p==='高')return'<span class="badge badge-high">高</span>';if(p==='低')return'<span class="badge badge-low">低</span>';return'<span class="badge badge-mid">中</span>';}
-
-function _renderPagination(total) {
-  const pages=Math.ceil(total/S.limit);
-  if(pages<=1){document.getElementById('pagination').innerHTML='';return;}
-  let h='';
-  for(let i=1;i<=Math.min(pages,10);i++)
-    h+=`<button class="page-btn ${i===S.page?'active':''}" onclick="goPage(${i})">${i}</button>`;
-  document.getElementById('pagination').innerHTML=h;
-}
-function goPage(n){S.page=n;_renderTable();}
-
-function debounceSearch(){clearTimeout(searchTimer);searchTimer=setTimeout(applyFilters,300);}
-function applyFilters(){
-  const kw=document.getElementById('search-input').value.toLowerCase();
-  const st=document.getElementById('filter-status').value;
-  const ot=document.getElementById('filter-order-type').value;
-  const mo=document.getElementById('filter-month').value;
-  S.filtered=S.all.filter(r=>{
-    const mk=!kw||[r.quoteNo,r.orderNo,r.orderSlipNo,r.modelCode,r.subject,r.client].some(v=>String(v).toLowerCase().includes(kw));
-    const ms=!st||r.status===st;
-    const mo2=!ot||r.orderType===ot;
-    const mm=!mo||(String(r.orderDate).startsWith(mo)||String(r.quoteDate).startsWith(mo));
-    return mk&&ms&&mo2&&mm;
-  });
-  S.page=1;_renderTable();
-}
-function clearFilters(){
-  document.getElementById('search-input').value='';
-  ['filter-status','filter-order-type','filter-month'].forEach(id=>document.getElementById(id).value='');
-  S.filtered=S.all.slice();S.page=1;_renderTable();
-}
-function _populateMonthFilter(){
-  const sel=document.getElementById('filter-month');
-  const now=new Date();
-  for(let i=0;i<12;i++){
-    const d=new Date(now.getFullYear(),now.getMonth()-i,1);
-    const ym=d.getFullYear()+'/'+String(d.getMonth()+1).padStart(2,'0');
-    const o=document.createElement('option');o.value=ym;o.textContent=ym;sel.appendChild(o);
-  }
-}
-
-// ===== 詳細モーダル =====
-function openDetail(mgmtId){
-  const item=S.all.find(r=>r.id===mgmtId);if(!item)return;
-  document.getElementById('detail-title').textContent='📋 '+(item.client||item.orderNo||mgmtId);
-  document.getElementById('detail-modal').classList.add('open');
-  document.getElementById('detail-body').innerHTML='<div class="loading"><div class="spinner"></div></div>';
-  google.script.run
-    .withSuccessHandler(res=>{
-      if(!res.success){document.getElementById('detail-body').innerHTML='エラー: '+res.error;return;}
-      document.getElementById('detail-body').innerHTML=_buildDetailHtml(item,res);
-    })
-    .withFailureHandler(err=>{document.getElementById('detail-body').innerHTML='エラー: '+err.message;})
-    .handleApiRequest('getDetail',{mgmtId});
-}
-function closeDetailModal(){document.getElementById('detail-modal').classList.remove('open');}
-
-function _buildDetailHtml(item,detail){
-  const rows=[
-    ['管理ID',item.id],['発注書番号',item.orderNo||'—'],['発注伝票番号',item.orderSlipNo||'—'],
-    ['機種コード',item.modelCode||'—'],['顧客名',item.client||'—'],
-    ['ステータス',_sBadge(item.status)],['注文種別',item.orderType?_otBadge(item.orderType):'—'],
-    ['発注日',item.orderDate||'—'],['見積日',item.quoteDate||'—'],
-    ['注文金額',item.orderAmount?Number(item.orderAmount).toLocaleString()+' 円':'—'],
-    ['合計金額',item.total?Number(item.total).toLocaleString()+' 円':'—'],
-    ['納期',item.deliveryDate||'—'],['担当者',item.assignee||'—'],['メモ',item.memo||'—'],
-  ];
-  const infoHtml='<table style="width:100%;font-size:13px;border-collapse:collapse;">'+
-    rows.map(([k,v])=>`<tr><td style="padding:5px 8px;font-weight:600;width:36%;color:var(--text-sub);border-bottom:1px solid var(--border);">${k}</td><td style="padding:5px 8px;border-bottom:1px solid var(--border);">${v}</td></tr>`).join('')+
-    '</table>';
-  const links=[
-    item.quotePdfUrl?`<a href="${item.quotePdfUrl}" target="_blank" class="pdf-link">📄 見積書PDF</a>`:'',
-    item.orderPdfUrl?`<a href="${item.orderPdfUrl}" target="_blank" class="pdf-link">📦 発注書PDF</a>`:'',
-    item.driveFolderUrl?`<a href="${item.driveFolderUrl}" target="_blank" class="pdf-link">📁 フォルダ</a>`:'',
-  ].filter(Boolean).join('　');
-  const statusOpts=['作成予定','送信済み','受領','納品済み'].map(s=>`<option value="${s}"${s===item.status?' selected':''}>${s}</option>`).join('');
-
-  // 注文明細
-  const oTable=detail.orderLines&&detail.orderLines.length?`
-    <div class="detail-section"><h4>発注書 明細</h4>
-    <table class="dtable"><thead><tr><th>#</th><th>品名</th><th>仕様</th><th>初回納品日</th><th>納品先</th><th>数量</th><th>単位</th><th>単価</th><th>金額</th><th>備考</th></tr></thead>
-    <tbody>${detail.orderLines.map(l=>`<tr class="${(l.remarks||'').includes('キャンセル')?'cancelled':''}">
-      <td>${l.lineNo}</td><td>${l.itemName||''}</td><td style="font-size:11px;">${l.spec||''}</td>
-      <td>${l.firstDelivery||''}</td><td>${l.deliveryDest||''}</td>
-      <td class="r">${l.qty||''}</td><td>${l.unit||''}</td>
-      <td class="r">${l.unitPrice?Number(l.unitPrice).toLocaleString():''}</td>
-      <td class="r">${l.amount?Number(l.amount).toLocaleString():''}</td>
-      <td>${l.remarks||''}</td>
-    </tr>`).join('')}</tbody></table></div>`:''  ;
-
-  // 見積明細
-  const qTable=detail.quoteLines&&detail.quoteLines.length?`
-    <div class="detail-section"><h4>見積書 明細</h4>
-    <p style="font-size:12px;color:var(--text-sub);margin-bottom:6px;">
-      発行日: ${detail.quoteLines[0].issueDate||'—'} &nbsp;
-      送り先: ${detail.quoteLines[0].destCompany||'—'} &nbsp;
-      担当者: ${detail.quoteLines[0].destPerson||'—'}
-    </p>
-    <table class="dtable"><thead><tr><th>#</th><th>品名</th><th>仕様</th><th>数量</th><th>単位</th><th>単価</th><th>金額</th></tr></thead>
-    <tbody>${detail.quoteLines.map(l=>`<tr>
-      <td>${l.lineNo}</td><td>${l.itemName||''}</td><td>${l.spec||''}</td>
-      <td class="r">${l.qty||''}</td><td>${l.unit||''}</td>
-      <td class="r">${l.unitPrice?Number(l.unitPrice).toLocaleString():''}</td>
-      <td class="r">${l.amount?Number(l.amount).toLocaleString():''}</td>
-    </tr>`).join('')}</tbody></table></div>`:'' ;
-
-  return `${infoHtml}
-    <div style="margin:12px 0;">${links}</div>
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;">
-      <span style="font-size:12px;color:var(--text-sub);">ステータス変更:</span>
-      <select id="status-sel" style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">${statusOpts}</select>
-      <button class="btn btn-primary btn-sm" onclick="updateStatus('${item.id}')">更新</button>
-      <button class="btn btn-outline btn-sm" onclick="openEditMgmtModal('${item.id}')" style="margin-left:8px;">✏️ 編集</button>
-      <button class="btn btn-danger btn-sm" onclick="deleteMgmt('${item.id}','${(item.orderNo||item.quoteNo||'').replace(/'/g,'')}')">🗑️ 削除</button>
-    </div>
-    ${oTable}${qTable}`;
-}
-
-function updateStatus(mgmtId){
-  const ns=document.getElementById('status-sel').value;
-  google.script.run
-    .withSuccessHandler(res=>{
-      if(res.success){
-        showToast('ステータスを「'+ns+'」に変更しました');
-        const it=S.all.find(r=>r.id===mgmtId);if(it)it.status=ns;
-        S.filtered=S.filtered.map(r=>r.id===mgmtId?{...r,status:ns}:r);
-        _renderTable();_updateSummary();closeDetailModal();
-      }else showToast('更新失敗: '+res.error,true);
-    })
-    .handleApiRequest('updateStatus',{mgmtId,newStatus:ns});
-}
-
-// ===== アップロード =====
-function openUploadModal(){
-  S.selectedFile=null;S.orderType='';
-  document.getElementById('upload-status').innerHTML='';
-  document.getElementById('upload-btn').disabled=true;
-  document.getElementById('file-input').value='';
-  document.getElementById('order-type-section').style.display='none';
-  document.getElementById('upload-modal').classList.add('open');
-}
-function closeUploadModal(){document.getElementById('upload-modal').classList.remove('open');}
-function setDocType(t){
-  S.docType=t;S.orderType='';
-  document.getElementById('type-quote').classList.toggle('active',t==='quote');
-  document.getElementById('type-order').classList.toggle('active',t==='order');
-  document.getElementById('order-type-section').style.display=t==='order'?'block':'none';
-  document.getElementById('ot-trial').className='order-type-btn';
-  document.getElementById('ot-mass').className='order-type-btn';
-  document.getElementById('folder-hint').textContent='';
-}
-function setOrderType(t){
-  S.orderType=t;
-  document.getElementById('ot-trial').className='order-type-btn'+(t==='試作'?' active-trial':'');
-  document.getElementById('ot-mass').className='order-type-btn'+(t==='量産'?' active-mass':'');
-  document.getElementById('folder-hint').textContent='保存先: 注文書（'+t+'）フォルダ';
-}
-function dragOver(e){e.preventDefault();document.getElementById('drop-zone').classList.add('dragover');}
-function dragLeave(e){document.getElementById('drop-zone').classList.remove('dragover');}
-function dropFile(e){e.preventDefault();dragLeave(e);const f=e.dataTransfer.files[0];if(f)_setFile(f);}
-function handleFileSelect(e){const f=e.target.files[0];if(f)_setFile(f);}
-function _setFile(file){
-  if(!file.name.toLowerCase().endsWith('.pdf')){showToast('PDFのみ対応',true);return;}
-  S.selectedFile=file;
-  document.getElementById('upload-status').innerHTML=`<p style="color:var(--success);font-size:13px;">✓ ${file.name} (${(file.size/1024).toFixed(1)} KB)</p>`;
-  document.getElementById('upload-btn').disabled=false;
-}
-function uploadFile(){
-  if(!S.selectedFile)return;
-  if(S.docType==='order'&&!S.orderType){showToast('注文種別を選択してください',true);return;}
-  const btn=document.getElementById('upload-btn');
-  btn.disabled=true;btn.textContent='解析中...';
-  document.getElementById('upload-status').innerHTML='<div class="loading" style="padding:16px;"><div class="spinner"></div> Gemini OCR 解析中...</div>';
-  const reader=new FileReader();
-  reader.onload=e=>{
-    const b64=e.target.result.split(',')[1];
-
-    // ★ 注文書の場合はAI紐づけ＋Chat通知付きのAPIを使用
-    const action = S.docType==='order' ? 'uploadOrderWithLink' : 'uploadPdf';
-
-    google.script.run
-      .withSuccessHandler(res=>{
-        btn.textContent='解析・登録';btn.disabled=false;
-        if(res.success){
-          // ★ 注文書の場合：紐づけ結果を表示
-          if(S.docType==='order'){
-            _showOrderUploadResult(res);
-          } else {
-            document.getElementById('upload-status').innerHTML=`
-              <div style="background:#e6f4ea;border-radius:8px;padding:12px;font-size:13px;">
-                <strong style="color:var(--success);">✓ 登録完了</strong><br>
-                発行日: ${res.issueDate||'—'}<br>
-                送り先: ${res.destCompany||'—'}<br>
-                合計金額: ${res.totalAmount?Number(res.totalAmount).toLocaleString()+' 円':'—'}<br>
-                明細: ${res.lineCount}行 &nbsp;
-                <a href="${res.savedFolder}" target="_blank" style="color:var(--primary);">📁 フォルダ</a>
-              </div>`;
-            showToast('登録完了しました');
-          }
-          loadData();
-        }else{
-          document.getElementById('upload-status').innerHTML=`<p style="color:var(--danger);font-size:13px;">✗ ${res.error}</p>`;
-        }
-      })
-      .withFailureHandler(err=>{
-        document.getElementById('upload-status').innerHTML=`<p style="color:var(--danger);font-size:13px;">✗ 通信エラー: ${err.message}</p>`;
-        btn.textContent='解析・登録';btn.disabled=false;
-      })
-      .handleApiRequest(action,{base64Data:b64,fileName:S.selectedFile.name,docType:S.docType,orderType:S.orderType});
-  };
-  reader.readAsDataURL(S.selectedFile);
-}
-
-// ★ 注文書アップロード結果の表示（AI紐づけ候補含む）
-function _showOrderUploadResult(res){
-  const lr = res.linkResult || {};
-  const statusMap = {
-    'auto_linked':      {icon:'✅', label:'AI自動紐づけ完了', color:'var(--success)'},
-    'candidates_found': {icon:'⚠️', label:'手動紐づけが必要です', color:'var(--warning)'},
-    'forced_candidate': {icon:'⚠️', label:'候補を選択してください（スコアが低い）', color:'var(--warning)'},
-    'no_quotes':        {icon:'❌', label:'紐づけ可能な見積書なし', color:'var(--danger)'},
-    'already_linked':   {icon:'✅', label:'既に紐づけ済み', color:'var(--success)'},
-  };
-  const st = statusMap[lr.status] || {icon:'ℹ️', label:lr.status||'不明', color:'var(--text-sub)'};
-
-  let candidateHtml = '';
-  if((lr.status==='candidates_found'||lr.status==='forced_candidate') && lr.candidates && lr.candidates.length){
-    const rows = lr.candidates.map(c=>`
-      <tr style="border-bottom:1px solid var(--border);">
-        <td style="padding:6px 8px;font-size:12px;">${c.quoteNo||'—'}</td>
-        <td style="padding:6px 8px;font-size:12px;text-align:center;">
-          <span style="background:${c.score>=60?'#34a853':'#fbbc04'};color:#fff;border-radius:4px;padding:2px 6px;font-size:11px;">${c.score}点</span>
-        </td>
-        <td style="padding:6px 8px;font-size:11px;color:var(--text-sub);">${(c.keywords||'').substring(0,30)}</td>
-        <td style="padding:6px 8px;">
-          ${c.quoteUrl?`<a href="${c.quoteUrl}" target="_blank" style="font-size:11px;">📄</a>`:''}
-        </td>
-        <td style="padding:6px 8px;">
-          <button onclick="_confirmOrderLink('${res.mgmtId}','${c.quoteMgmtId}','${c.quoteNo}')"
-            style="font-size:11px;padding:3px 8px;background:var(--primary);color:#fff;border:none;border-radius:4px;cursor:pointer;">
-            この見積書で確定
-          </button>
-        </td>
-      </tr>`).join('');
-    candidateHtml = `
-      <div style="margin-top:10px;">
-        <p style="font-size:12px;font-weight:600;margin-bottom:6px;">📋 類似見積書 候補一覧</p>
-        <table style="width:100%;border-collapse:collapse;">
-          <thead>
-            <tr style="background:var(--bg-subtle);font-size:11px;">
-              <th style="padding:5px 8px;text-align:left;">見積番号</th>
-              <th style="padding:5px 8px;">スコア</th>
-              <th style="padding:5px 8px;text-align:left;">品名（抜粋）</th>
-              <th style="padding:5px 8px;">PDF</th>
-              <th style="padding:5px 8px;">操作</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
-        <p style="font-size:11px;color:var(--text-sub);margin-top:6px;">
-          ※ 「この見積書で確定」を押すと紐づけが確定され、ステータスが「受注済み」になります。
-        </p>
-      </div>`;
-  }
-
-  let autoHtml = '';
-  if(lr.status==='auto_linked'){
-    autoHtml = `
-      <div style="margin-top:8px;font-size:12px;">
-        見積書No.: <strong>${lr.quoteNo||'—'}</strong> &nbsp;
-        類似スコア: <strong>${lr.score||''}点</strong> &nbsp;
-        ${lr.quoteUrl?`<a href="${lr.quoteUrl}" target="_blank" style="color:var(--primary);">📄 見積書を開く</a>`:''}
-      </div>`;
-  }
-
-  document.getElementById('upload-status').innerHTML=`
-    <div style="background:#e6f4ea;border-radius:8px;padding:12px;font-size:13px;">
-      <strong style="color:var(--success);">✓ 注文書 登録完了</strong><br>
-      件名: ${res.orderNo||'—'}<br>
-      保存先: <a href="${res.folderUrl||res.pdfUrl||'#'}" target="_blank" style="color:var(--primary);">📁 フォルダ</a><br>
-      <br>
-      <strong style="color:${st.color};">${st.icon} ${st.label}</strong>
-      ${autoHtml}
-      ${candidateHtml}
-    </div>`;
-  showToast('注文書を登録しました');
-}
-
-// ★ 手動紐づけ確定
-function _confirmOrderLink(orderMgmtId, quoteMgmtId, quoteNo){
-  if(!confirm('見積書「' + quoteNo + '」と紐づけを確定しますか？\nステータスが「受注済み」に変更されます。')){return;}
-  google.script.run
-    .withSuccessHandler(res=>{
-      if(res.success){
-        showToast('✅ 紐づけを確定しました（' + quoteNo + '）');
-        loadData();
-        // 確定後、ボタン類をリセット
-        const statusEl = document.getElementById('upload-status');
-        if(statusEl){
-          const btns = statusEl.querySelectorAll('button');
-          btns.forEach(b=>{b.disabled=true;b.textContent='確定済み';b.style.background='var(--text-sub)';});
-          statusEl.insertAdjacentHTML('beforeend',
-            '<p style="color:var(--success);font-size:12px;margin-top:6px;">✓ 受注済みに変更しました</p>');
-        }
-      } else {
-        showToast('エラー: ' + (res.error||'不明'), true);
-      }
-    })
-    .withFailureHandler(err=>showToast('通信エラー: '+err.message, true))
-    .handleApiRequest('confirmOrderLink',{orderMgmtId, quoteMgmtId});
-}
-
-// ===== 見積書一覧 =====
-let _allQuotes = [];
-let _filteredQuotes = [];
-let _quotePage = 1;
-const _quoteLimit = 30;
-
-// ===== 見積書詳細モーダル =====
-function openQuoteDetail(mgmtId, quoteNo) {
-  document.getElementById('quote-detail-title').textContent = '📄 見積書 ' + (quoteNo || mgmtId);
-  document.getElementById('quote-detail-modal').classList.add('open');
-  document.getElementById('quote-detail-body').innerHTML =
-    '<div class="loading"><div class="spinner"></div></div>';
+function loadBoardList() {
+  document.getElementById('board-container').innerHTML =
+    '<div class="loading"><div class="spinner"></div><br>基板データ読み込み中...</div>';
   google.script.run
     .withSuccessHandler(res => {
-      if (!res.success) {
-        document.getElementById('quote-detail-body').innerHTML =
-          '<div style="color:var(--danger);">エラー: ' + res.error + '</div>';
-        return;
-      }
-      document.getElementById('quote-detail-body').innerHTML = _buildQuoteDetailHtml(res);
+      if (!res.success) { document.getElementById('board-container').innerHTML = 'エラー: '+res.error; return; }
+      _allBoards = res.items || [];
+      _renderBoardList(_allBoards);
     })
-    .withFailureHandler(err => {
-      document.getElementById('quote-detail-body').innerHTML =
-        '<div style="color:var(--danger);">通信エラー: ' + err.message + '</div>';
-    })
-    .handleApiRequest('getQuoteDetail', { mgmtId });
-}
-function closeQuoteDetail() {
-  document.getElementById('quote-detail-modal').classList.remove('open');
+    .withFailureHandler(err => { document.getElementById('board-container').innerHTML = 'エラー: '+err.message; })
+    .handleApiRequest('boardGetAll', null);
 }
 
-function _buildQuoteDetailHtml(res) {
-  const m = res.mgmt || {};
-  const lines = res.quoteLines || [];
-  const issueDate   = lines.length ? (lines[0].issueDate   || m.quoteDate || '—') : (m.quoteDate || '—');
-  const destCompany = lines.length ? (lines[0].destCompany || m.client    || '—') : (m.client    || '—');
-  const destPerson  = lines.length ? (lines[0].destPerson  || '—')                : '—';
-  const pdfUrl      = lines.length ? lines[0].pdfUrl : m.quotePdfUrl;
+function filterBoards() {
+  const q = document.getElementById('board-search').value.toLowerCase();
+  const filtered = _allBoards.filter(b =>
+    String(b['基板名']||'').toLowerCase().includes(q) ||
+    String(b['基板ID']||'').toLowerCase().includes(q) ||
+    String(b['基板分類']||'').toLowerCase().includes(q)
+  );
+  _renderBoardList(filtered);
+}
 
-  const infoRows = [
-    ['見積番号',     m.quoteNo    || '—'],
-    ['発行日',       issueDate],
-    ['送り先会社名', destCompany],
-    ['送り先担当者', destPerson],
-    ['見積金額',     m.quoteAmount ? Number(m.quoteAmount).toLocaleString() + ' 円' : '—'],
-    ['ステータス',   _sBadge(m.status)],
-    ['紐づけ状況',   m.linked ? '<span class="badge badge-linked">✓ 注文書あり（No.' + (m.orderNo||'') + '）</span>' : '<span style="color:var(--text-sub);">未受注</span>'],
-    ['機種コード',   m.modelCode  || '—'],
-  ].map(([k,v]) => `
-    <tr>
-      <td style="padding:6px 8px;font-weight:600;width:36%;color:var(--text-sub);border-bottom:1px solid var(--border);font-size:13px;">${k}</td>
-      <td style="padding:6px 8px;border-bottom:1px solid var(--border);font-size:13px;">${v}</td>
-    </tr>`).join('');
+function _renderBoardList(boards) {
+  if (boards.length === 0) {
+    document.getElementById('board-container').innerHTML =
+      '<div class="loading" style="color:var(--text-sub);">基板データがありません</div>';
+    return;
+  }
+  const catColors = {
+    'M基板':'var(--info)','C基板':'var(--success)','DE基板':'var(--warning)',
+    'E基板':'var(--danger)','S基板':'#9c27b0','その他':'var(--text-sub)'
+  };
+  const cards = boards.map(b => {
+    const color = catColors[b['基板分類']] || catColors['その他'];
+    const fileId = b['画像URL'] ? String(b['画像URL']).match(/[-\w]{25,}/) : null;
+    const img = fileId
+      ? `<img src="https://drive.google.com/uc?export=view&id=${fileId[0]}" style="width:100%;height:100%;object-fit:cover;">`
+      : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#ccc;font-size:20px;">🔬</div>`;
+    return `
+      <div onclick="openBoardDetail('${b['基板ID']}','${(b['基板名']||'').replace(/'/g,"\'")}') "
+           style="background:var(--card);border-radius:var(--radius);padding:14px 16px;margin-bottom:10px;
+                  border:1px solid var(--border);display:flex;align-items:center;gap:14px;cursor:pointer;box-shadow:var(--shadow);">
+        <div style="width:52px;height:52px;border-radius:8px;overflow:hidden;flex-shrink:0;background:#f8f9fa;">${img}</div>
+        <div style="flex:1;">
+          <div style="font-weight:600;font-size:14px;">${b['基板名']||'—'}</div>
+          <div style="font-size:12px;color:var(--text-sub);margin-top:3px;">
+            <span style="background:${color}22;color:${color};padding:2px 7px;border-radius:8px;font-weight:500;">${b['基板分類']||''}</span>
+            &nbsp; ID: ${b['基板ID']||''}
+            ${b['バージョン'] ? '&nbsp; v' + b['バージョン'] : ''}
+          </div>
+        </div>
+        <div style="color:var(--text-sub);font-size:18px;">›</div>
+      </div>`;
+  }).join('');
+  document.getElementById('board-container').innerHTML = `<div>${cards}</div>`;
+}
 
-  const lineRows = lines.map((l, i) => `
-    <tr class="${String(l.remarks||'').includes('キャンセル') ? 'cancelled' : ''}">
-      <td>${i+1}</td>
-      <td><strong style="font-size:12px;">${l.itemName||''}</strong></td>
-      <td style="font-size:11px;color:var(--text-sub);">${l.spec||''}</td>
-      <td class="r">${l.qty||''}</td>
-      <td>${l.unit||''}</td>
-      <td class="r">${l.unitPrice ? Number(l.unitPrice).toLocaleString() : ''}</td>
-      <td class="r" style="font-weight:600;">${l.amount ? Number(l.amount).toLocaleString() : ''}</td>
-      <td style="font-size:11px;">${l.remarks||''}</td>
-    </tr>`).join('');
+function openBoardDetail(boardId, boardName) {
+  document.getElementById('board-detail-title').textContent = '🔬 ' + boardName;
+  document.getElementById('board-detail-modal').classList.add('open');
+  document.getElementById('board-detail-body').innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  google.script.run
+    .withSuccessHandler(res => {
+      if (!res.success) { document.getElementById('board-detail-body').innerHTML = 'エラー: '+res.error; return; }
+      document.getElementById('board-detail-body').innerHTML = _buildBoardDetailHtml(boardId, boardName, res);
+    })
+    .withFailureHandler(err => { document.getElementById('board-detail-body').innerHTML = 'エラー: '+err.message; })
+    .handleApiRequest('boardGetDetail', { boardId, boardName });
+}
+function closeBoardDetail() { document.getElementById('board-detail-modal').classList.remove('open'); }
+
+function _buildBoardDetailHtml(boardId, boardName, res) {
+  const cost = `<div style="font-size:28px;font-weight:700;color:var(--danger);">¥${Math.floor(res.totalCost||0).toLocaleString()}</div>
+    <div style="font-size:12px;color:var(--text-sub);">BOM 公表単価合計</div>`;
+
+  const machine = res.machine
+    ? `<div style="padding:12px;background:var(--primary-light);border-radius:8px;border-left:4px solid var(--primary);">
+        <strong>${res.machine['機種名']||''}</strong>
+        <span style="font-size:12px;color:var(--text-sub);margin-left:8px;">${res.machine['機種コード']||''}</span><br>
+        <span style="font-size:12px;color:var(--text-sub);">ブランド: ${res.machine['ブランド']||'—'}</span>
+      </div>`
+    : '<div style="font-size:13px;color:var(--text-sub);">機種マスタに登録なし</div>';
+
+  const bomRows = (res.bom||[]).map(b => `<tr>
+    <td><strong style="font-size:12px;">${b['部品名']||''}</strong><br>
+      <span style="font-size:11px;color:var(--text-sub);font-family:monospace;">${b['部品コード']||''}</span></td>
+    <td class="r">${b['使用数量']||0}</td>
+    <td class="r">¥${Math.floor(b['公表単価']||0).toLocaleString()}</td>
+    <td class="r" style="font-weight:600;color:var(--danger);">¥${Math.floor(b['小計']||0).toLocaleString()}</td>
+  </tr>`).join('');
+
+  const estRows = (res.estimates||[]).map(e => `
+    <div style="background:#f8f9fa;padding:10px;border-radius:8px;margin-bottom:8px;border:1px solid var(--border);">
+      <strong style="color:var(--danger);">¥${Number(e['見積金額']||0).toLocaleString()}</strong>
+      <span style="font-size:12px;color:var(--text-sub);margin-left:8px;">${e['見積No']||''} / ${e['見積種別']||''}</span><br>
+      <span style="font-size:12px;">${e['備考']||''}</span>
+    </div>`).join('') || '<div style="font-size:13px;color:var(--text-sub);">見積履歴なし</div>';
 
   return `
-    <table style="width:100%;font-size:13px;border-collapse:collapse;margin-bottom:16px;">
-      <tbody>${infoRows}</tbody>
-    </table>
-    ${pdfUrl ? `<div style="margin-bottom:16px;">
-      <a href="${pdfUrl}" target="_blank" class="btn btn-outline btn-sm">📄 見積書PDFを開く</a>
-    </div>` : ''}
+    <div style="margin-bottom:16px;">${cost}</div>
     <div class="detail-section">
-      <h4>見積書 明細</h4>
-      ${lineRows ? `
-        <table class="dtable">
-          <thead><tr><th>#</th><th>品名</th><th>仕様</th><th>数量</th><th>単位</th><th>単価</th><th>金額</th><th>備考</th></tr></thead>
-          <tbody>${lineRows}</tbody>
-        </table>` : '<div style="font-size:13px;color:var(--text-sub);">明細データなし</div>'}
-    </div>`;
+      <h4 style="display:flex;align-items:center;justify-content:space-between;">
+        採用機種
+        <button class="btn btn-outline btn-sm" onclick="openModelInfoModal('${boardId}','')">✏️ 基板情報を編集</button>
+      </h4>
+      ${machine}
+    </div>
+    <div class="detail-section"><h4>部品表（BOM）</h4>
+      ${bomRows ? `<table class="dtable"><thead><tr><th>部品名 / コード</th><th>数量</th><th>単価</th><th>小計</th></tr></thead><tbody>${bomRows}</tbody></table>` : '<div style="font-size:13px;color:var(--text-sub);">BOMデータなし</div>'}
+    </div>
+    <div class="detail-section"><h4>見積履歴</h4>${estRows}</div>`;
 }
 
-// ===== Drive フォルダ =====
-function openDriveFolder() {
-  // 見積書保存先フォルダを開く
-  window.open('https://drive.google.com/drive/folders/1sB42xntGKL31GeT9OjOKTxVJwj9IQz-h', '_blank');
-}
-
-function loadQuoteList() {
-  document.getElementById('quotelist-container').innerHTML =
-    '<div class="loading"><div class="spinner"></div><br>読み込み中...</div>';
+// ===== 機種別分析 =====
+function loadBoardAnalysis() {
+  document.getElementById('analysis-container').innerHTML =
+    '<div class="loading"><div class="spinner"></div><br>分析データ集計中...</div>';
   google.script.run
     .withSuccessHandler(res => {
-      if (!res.success) {
-        document.getElementById('quotelist-container').innerHTML =
-          '<div class="loading" style="color:var(--danger);">⚠️ ' + res.error + '</div>';
-        return;
-      }
-      _allQuotes      = res.items || [];
-      _filteredQuotes = _allQuotes.slice();
-      _quotePage      = 1;
-      _updateQuoteSummary();
-      _renderQuoteTable();
+      if (!res.success) { document.getElementById('analysis-container').innerHTML = 'エラー: '+res.error; return; }
+      // 基板情報データも取得して統合（基板IDで紐づけ）
+      google.script.run
+        .withSuccessHandler(infoRes => {
+          const boardInfoMap = {};
+          if (infoRes.success && infoRes.items) {
+            infoRes.items.forEach(info => { boardInfoMap[info.boardId] = info; });
+          }
+          const items = (res.items || []).map(item => {
+            // この機種に紐づく基板の情報をまとめる
+            const boardInfoList = (item.boards || [])
+              .map(bid => boardInfoMap[bid])
+              .filter(Boolean);
+            return { ...item, boardInfoList };
+          });
+          _renderAnalysis(items);
+        })
+        .handleApiRequest('modelInfoGet', {});
     })
-    .withFailureHandler(err => {
-      document.getElementById('quotelist-container').innerHTML =
-        '<div class="loading" style="color:var(--danger);">通信エラー: ' + err.message + '</div>';
-    })
-    .handleApiRequest('quoteListGetAll', null);
+    .withFailureHandler(err => { document.getElementById('analysis-container').innerHTML = 'エラー: '+err.message; })
+    .handleApiRequest('boardGetAnalysis', null);
 }
 
-function _updateQuoteSummary() {
-  document.getElementById('qs-total').textContent  = _allQuotes.length;
-  document.getElementById('qs-linked').textContent = _allQuotes.filter(r => r.linked).length;
-  const total = _allQuotes.reduce((s, r) => s + (Number(r.quoteAmount) || 0), 0);
-  document.getElementById('qs-amount').textContent = total.toLocaleString();
-}
-
-function applyQuoteFilter() {
-  const kw     = document.getElementById('qs-search').value.toLowerCase();
-  const st     = document.getElementById('qs-filter-status').value;
-  const linked = document.getElementById('qs-filter-linked').value;
-  _filteredQuotes = _allQuotes.filter(r => {
-    const mk = !kw || [r.quoteNo, r.destCompany, r.destPerson, r.modelCode].some(
-      v => String(v||'').toLowerCase().includes(kw));
-    const ms = !st || r.status === st;
-    const ml = !linked ||
-      (linked === 'linked'   &&  r.linked) ||
-      (linked === 'unlinked' && !r.linked);
-    return mk && ms && ml;
-  });
-  // 発行日降順（新しい順）
-  _filteredQuotes.sort((a, b) => String(b.issueDate||'').localeCompare(String(a.issueDate||'')));
-  _quotePage = 1;
-  _renderQuoteTable();
-}
-
-function clearQuoteFilter() {
-  document.getElementById('qs-search').value = '';
-  document.getElementById('qs-filter-status').value = '';
-  document.getElementById('qs-filter-linked').value = '';
-  _filteredQuotes = _allQuotes.slice();
-  _quotePage = 1;
-  _renderQuoteTable();
-}
-
-// ★ 見積書一覧テーブルの描画（削除ボタン追加）
-function _renderQuoteTable() {
-  const start = (_quotePage - 1) * _quoteLimit;
-  const data  = _filteredQuotes.slice(start, start + _quoteLimit);
-  const total = _filteredQuotes.length;
-
-  document.getElementById('qs-count').textContent =
-    total + '件中 ' + (total > 0 ? start + 1 : 0) + '–' + Math.min(start + _quoteLimit, total) + '件';
-
-  if (total === 0) {
-    document.getElementById('quotelist-container').innerHTML =
-      '<div class="loading" style="color:var(--text-sub);">該当する見積書がありません</div>';
-    document.getElementById('qs-pagination').innerHTML = '';
+function _renderAnalysis(items) {
+  if (items.length === 0) {
+    document.getElementById('analysis-container').innerHTML =
+      '<div class="loading" style="color:var(--text-sub);">発注書の機種コードと機種マスタが一致するデータがありません</div>';
     return;
   }
 
-  const rows = data.map(r => `
-    <tr onclick="openQuoteDetail('${r.id}')" style="cursor:pointer;">
-      <td><strong>${r.quoteNo || '—'}</strong></td>
-      <td style="font-size:12px;color:var(--text-sub);">${r.issueDate || '—'}</td>
-      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.destCompany || ''}</td>
-      <td style="font-size:12px;color:var(--text-sub);">${r.destPerson || ''}</td>
-      <td style="text-align:right;white-space:nowrap;">
-        ${r.quoteAmount ? Number(r.quoteAmount).toLocaleString() + ' 円' : '—'}
-      </td>
-      <td>${_sBadge(r.status)}</td>
+  const rows = items.map(item => {
+    const latestOrder = item.orders && item.orders.length
+      ? item.orders.sort((a,b) => String(b.orderDate).localeCompare(String(a.orderDate)))[0]
+      : null;
+    // 複数基板の情報をまとめて表示
+    const boardInfoList = item.boardInfoList || [];
+    const links = boardInfoList.flatMap(info => [
+      info.quoteUrl       ? '<a href="'+info.quoteUrl+'" target="_blank" class="pdf-link" title="'+info.boardId+'">📄 見積('+info.boardId+')</a>' : '',
+      info.orderUrl       ? '<a href="'+info.orderUrl+'" target="_blank" class="pdf-link" title="'+info.boardId+'">📦 注文('+info.boardId+')</a>' : '',
+      info.purchaseUrl1   ? '<a href="'+info.purchaseUrl1+'" target="_blank" class="pdf-link">🛒 仕入1('+info.boardId+')</a>' : '',
+      info.purchaseUrl2   ? '<a href="'+info.purchaseUrl2+'" target="_blank" class="pdf-link">🛒 仕入2('+info.boardId+')</a>' : '',
+      info.purchaseUrl3   ? '<a href="'+info.purchaseUrl3+'" target="_blank" class="pdf-link">🛒 仕入3('+info.boardId+')</a>' : '',
+      info.localServerUrl ? '<a href="'+info.localServerUrl+'" target="_blank" class="pdf-link">🖥 サーバー('+info.boardId+')</a>' : '',
+    ]).filter(Boolean).join(' ');
+    const comments = boardInfoList.map(info => info.boardId + ': ' + info.comment).filter(c => c.includes(': ') && c.split(': ')[1]).join(' / ');
+
+    return `<tr>
       <td>
-        ${r.linked
-          ? '<span class="badge badge-linked">✓ 注文書あり</span>'
-          : '<span style="font-size:11px;color:var(--text-sub);">未受注</span>'}
-        ${r.orderNo ? '<br><span style="font-size:11px;color:var(--text-sub);">No.' + r.orderNo + '</span>' : ''}
+        <strong style="font-size:14px;">${item.modelCode}</strong><br>
+        <span style="font-size:12px;color:var(--text-sub);">${item.machineName||'—'}</span>
       </td>
+      <td style="font-size:12px;color:var(--text-sub);">${latestOrder ? String(latestOrder.orderDate).substring(0,10) : '—'}</td>
+      <td>${links || '<span style="font-size:12px;color:var(--text-sub);">未登録</span>'}</td>
+      <td style="font-size:12px;max-width:200px;">${comments||''}</td>
       <td>
-        ${r.quotePdfUrl
-          ? '<a class="pdf-link" href="' + r.quotePdfUrl + '" target="_blank" onclick="event.stopPropagation()">📄 PDF</a>'
-          : ''}
+        <button class="btn btn-outline btn-sm" onclick="openModelBoardList('${item.modelCode}','${(item.machineName||'').replace(/'/g,'')}','${(item.boards||[]).join(',')}')">
+          🔬 基板情報
+        </button>
       </td>
-      <td style="text-align:center; white-space:nowrap;">
-        <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteMgmt('${r.id}', '${(r.quoteNo||'').replace(/'/g,'')}')">🗑️ 削除</button>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('analysis-container').innerHTML = `
+    <div style="margin-bottom:12px;font-size:13px;color:var(--text-sub);">
+      発注書データと紐づいた機種: ${items.length}機種 ／ 「✏️ 編集」で見積書・注文書・仕入れ見積のURLやコメントを登録できます
+    </div>
+    <div class="table-wrap">
+      <div class="table-toolbar"><h2>機種別 関連ドキュメント</h2></div>
+      <table>
+        <thead><tr>
+          <th>機種コード / 機種名</th><th>最終受注日</th><th>関連ドキュメント</th><th>コメント</th><th>操作</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+// ===== Drive検索 =====
+function runDriveSearch() {
+  const keyword  = document.getElementById('drive-search-input').value.trim();
+  const dateFrom = document.getElementById('drive-date-from').value.replace(/-/g,'/');
+  const dateTo   = document.getElementById('drive-date-to').value.replace(/-/g,'/');
+  const btn      = document.getElementById('drive-search-btn');
+  btn.disabled   = true;
+  btn.textContent = '検索中...';
+  document.getElementById('drive-search-container').innerHTML =
+    '<div class="loading"><div class="spinner"></div><br>Driveを検索中... しばらくお待ちください</div>';
+  document.getElementById('drive-result-count').textContent = '';
+
+  google.script.run
+    .withSuccessHandler(res => {
+      btn.disabled = false;
+      btn.textContent = '🔍 検索';
+      if (!res.success) {
+        document.getElementById('drive-search-container').innerHTML =
+          '<div class="loading" style="color:var(--danger);">エラー: ' + res.error + '</div>';
+        return;
+      }
+      _renderDriveResults(res.items || [], res.total || 0, keyword);
+    })
+    .withFailureHandler(err => {
+      btn.disabled = false;
+      btn.textContent = '🔍 検索';
+      document.getElementById('drive-search-container').innerHTML =
+        '<div class="loading" style="color:var(--danger);">通信エラー: ' + err.message + '</div>';
+    })
+    .handleApiRequest('driveSearch', { keyword, dateFrom, dateTo });
+}
+
+function refreshDriveCache() {
+  const btn = document.getElementById('cache-refresh-btn');
+  btn.disabled = true;
+  btn.textContent = '更新中...（数分かかります）';
+  showToast('インデックスを更新中です。完了まで数分かかります。');
+  google.script.run
+    .withSuccessHandler(res => {
+      btn.disabled = false;
+      btn.textContent = '🔄 インデックス更新';
+      if (res.success) {
+        showToast('インデックス更新完了: ' + (res.count || 0) + '件');
+      } else {
+        showToast('更新失敗: ' + res.error, true);
+      }
+    })
+    .withFailureHandler(err => {
+      btn.disabled = false;
+      btn.textContent = '🔄 インデックス更新';
+      showToast('通信エラー: ' + err.message, true);
+    })
+    .handleApiRequest('driveRefreshCache', null);
+}
+
+function deleteDriveFile(fileId, fileName) {
+  if (!confirm('「' + fileName + '」をゴミ箱に移動しますか？\nDrive側のファイルも削除されます。')) return;
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res.success) {
+        showToast('削除しました: ' + fileName);
+        // テーブルから行を削除
+        var row = document.getElementById('drive-row-' + fileId);
+        if (row) row.remove();
+        // 件数更新
+        var countEl = document.getElementById('drive-result-count');
+        if (countEl) {
+          var current = parseInt(countEl.textContent) || 0;
+          countEl.textContent = (current - 1) + '件';
+        }
+      } else {
+        showToast('削除失敗: ' + res.error, true);
+      }
+    })
+    .withFailureHandler(err => showToast('通信エラー: ' + err.message, true))
+    .handleApiRequest('driveDeleteFile', { fileId: fileId });
+}
+
+
+function clearDriveSearch() {
+  document.getElementById('drive-search-input').value = '';
+  document.getElementById('drive-date-from').value = '';
+  document.getElementById('drive-date-to').value = '';
+  document.getElementById('drive-search-container').innerHTML =
+    '<div class="loading" style="color:var(--text-sub);">「全件表示」または条件を入力して「検索」を押してください</div>';
+  document.getElementById('drive-result-count').textContent = '';
+}
+
+function _renderDriveResults(items, total, keyword) {
+  const label = total > 200 ? '（上位200件表示）' : '';
+  document.getElementById('drive-result-count').textContent = total + '件' + label;
+
+  if (items.length === 0) {
+    document.getElementById('drive-search-container').innerHTML =
+      '<div class="loading" style="color:var(--text-sub);">条件に一致するPDFが見つかりませんでした</div>';
+    return;
+  }
+
+  const rows = items.map(item => `
+    <tr id="drive-row-${item.id}">
+      <td>
+        <a href="${item.url}" target="_blank" class="pdf-link" style="font-size:13px;font-weight:500;">
+          📄 ${item.name}
+        </a>
+      </td>
+      <td style="font-size:12px;color:var(--text-sub);white-space:nowrap;">${item.createdAt || ''}</td>
+      <td style="font-size:12px;color:var(--text-sub);white-space:nowrap;">${item.updatedAt || ''}</td>
+      <td style="font-size:12px;color:var(--text-sub);text-align:right;white-space:nowrap;">${item.size ? item.size.toLocaleString() + ' KB' : ''}</td>
+      <td style="white-space:nowrap;">
+        <a href="${item.url}" target="_blank" class="btn btn-outline btn-sm">開く</a>
+        <button class="btn btn-danger btn-sm" onclick="deleteDriveFile('${item.id}','${item.name.replace(/'/g, '').replace(/"/g,'')}')">削除</button>
       </td>
     </tr>`).join('');
 
-  document.getElementById('quotelist-container').innerHTML = `
+  document.getElementById('drive-search-container').innerHTML = `
     <table>
       <thead><tr>
-        <th>見積番号</th>
-        <th>発行日</th>
-        <th>送り先会社名</th>
-        <th>送り先担当者名</th>
-        <th>見積金額</th>
-        <th>ステータス</th>
-        <th>紐づけ状況</th>
-        <th>PDF</th>
+        <th>ファイル名</th>
+        <th>作成日</th>
+        <th>更新日</th>
+        <th>サイズ</th>
         <th>操作</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
-
-  // ページネーション
-  const pages = Math.ceil(total / _quoteLimit);
-  if (pages <= 1) { document.getElementById('qs-pagination').innerHTML = ''; return; }
-  let pHtml = '';
-  for (let i = 1; i <= Math.min(pages, 10); i++)
-    pHtml += `<button class="page-btn ${i === _quotePage ? 'active' : ''}" onclick="goQuotePage(${i})">${i}</button>`;
-  document.getElementById('qs-pagination').innerHTML = pHtml;
 }
 
-function goQuotePage(n) { _quotePage = n; _renderQuoteTable(); }
+// ===== 機種情報管理 =====
+let _miCurrentField = ''; // アップロード対象フィールド
 
-// ===== 見積台帳（機種別 > 基板別 ツリー表示） =====
+// boardId: 基板ID（主キー）, modelCode: 機種コード（参照）
+function openModelInfoModal(boardId, modelCode) {
+  document.getElementById('mi-model-code').value        = boardId;  // hidden に boardId を保存
+  document.getElementById('mi-board-id').value          = boardId;
+  document.getElementById('mi-model-code-display').value = modelCode || '';
+  document.getElementById('model-info-title').textContent =
+    boardId ? '✏️ 基板情報管理 — ' + boardId : '✏️ 基板情報管理（新規）';
+  ['mi-quote-url','mi-order-url','mi-purchase-url1','mi-purchase-url2','mi-purchase-url3','mi-local-server-url','mi-comment']
+    .forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
+  document.getElementById('mi-upload-status').textContent = '';
+  document.getElementById('model-info-modal').classList.add('open');
 
-let _allLedger   = [];  // 全件キャッシュ
-let _ledgerMachines = [];  // 機種リスト
-const LEDGER_STATUS_BADGE = {
-  '作成予定': 'planned', '作成中': 'sent', '送信済み': 'received', 'キャンセル': 'done'
-};
-
-// ---------- ロード ----------
-function loadLedger() {
-  document.getElementById('ledger-tree-container').innerHTML =
-    '<div class="loading"><div class="spinner"></div><br>読み込み中...</div>';
-  google.script.run
-    .withSuccessHandler(res => {
-      if (!res.success) { showToast(res.error, true); return; }
-      _allLedger = res.items || [];
-      _ledgerMachines = _extractMachines(_allLedger);
-      _populateLedgerMachineFilter();
-      applyLedgerFilter();
-    })
-    .withFailureHandler(err => {
-      document.getElementById('ledger-tree-container').innerHTML =
-        '<div class="loading" style="color:var(--danger);">エラー: ' + err.message + '</div>';
-    })
-    .handleApiRequest('ledgerGetAll', null);
-}
-
-function _extractMachines(items) {
-  const seen = {}, list = [];
-  items.forEach(r => {
-    const m = (r.machineCode || '（機種未設定）').trim();
-    if (!seen[m]) { seen[m] = true; list.push(m); }
-  });
-  return list.sort();
-}
-
-function _populateLedgerMachineFilter() {
-  const sel = document.getElementById('ledger-filter-machine');
-  if (!sel) return;
-  while (sel.options.length > 1) sel.remove(1);
-  _ledgerMachines.forEach(m => {
-    const o = document.createElement('option');
-    o.value = m; o.textContent = m; sel.appendChild(o);
-  });
-  // datalist for modal
-  const dl = document.getElementById('ledger-machine-list');
-  if (dl) {
-    dl.innerHTML = '';
-    _ledgerMachines.forEach(m => {
-      const o = document.createElement('option'); o.value = m; dl.appendChild(o);
-    });
+  if (boardId) {
+    google.script.run
+      .withSuccessHandler(res => {
+        if (res.success && res.item) {
+          const d = res.item;
+          document.getElementById('mi-model-code-display').value = d.modelCode      || modelCode || '';
+          document.getElementById('mi-quote-url').value          = d.quoteUrl       || '';
+          document.getElementById('mi-order-url').value          = d.orderUrl       || '';
+          document.getElementById('mi-purchase-url1').value      = d.purchaseUrl1   || '';
+          document.getElementById('mi-purchase-url2').value      = d.purchaseUrl2   || '';
+          document.getElementById('mi-purchase-url3').value      = d.purchaseUrl3   || '';
+          document.getElementById('mi-local-server-url').value   = d.localServerUrl || '';
+          document.getElementById('mi-comment').value            = d.comment        || '';
+        }
+      })
+      .handleApiRequest('modelInfoGet', { boardId });
   }
 }
 
-// ---------- フィルタ ----------
-function applyLedgerFilter() {
-  const kw      = (document.getElementById('ledger-search')?.value || '').toLowerCase();
-  const machine = document.getElementById('ledger-filter-machine')?.value || '';
-  const st      = document.getElementById('ledger-filter-status')?.value || '';
-
-  let filtered = _allLedger.filter(r => {
-    // __MACHINE_FOLDER__（機種フォルダ行）は機種フィルターのみ適用し、他は常に通過
-    if (r.status === '__MACHINE_FOLDER__') {
-      const mm = !machine || (r.machineCode||'（機種未設定）') === machine;
-      return mm;
-    }
-    // 通常の見積行：キーワード・機種・ステータスすべてでフィルタ
-    const mk = !kw || [r.quoteNo, r.boardName, r.modelNo, r.subject, r.dest, r.machineCode, r.remarks]
-      .some(v => String(v||'').toLowerCase().includes(kw));
-    const mm = !machine || (r.machineCode||'（機種未設定）') === machine;
-    const ms = !st || r.status === st;
-    return mk && mm && ms;
-  });
-
-  _updateLedgerSummary(filtered);
-  _renderLedgerTree(filtered);
+function closeModelInfoModal() {
+  document.getElementById('model-info-modal').classList.remove('open');
 }
 
-function _clearLedgerFilter() {
-  if (document.getElementById('ledger-search'))         document.getElementById('ledger-search').value = '';
-  if (document.getElementById('ledger-filter-machine')) document.getElementById('ledger-filter-machine').value = '';
-  if (document.getElementById('ledger-filter-status'))  document.getElementById('ledger-filter-status').value = '';
-  applyLedgerFilter();
-}
-
-// ---------- サマリー ----------
-function _updateLedgerSummary(items) {
-  const real = items.filter(r => r.status !== '__MACHINE_FOLDER__');
-  document.getElementById('ledger-count').textContent         = real.length;
-  document.getElementById('ledger-machine-count').textContent = _extractMachines(items).length;
-  document.getElementById('ledger-sent-count').textContent    = real.filter(r => r.status === '送信済み').length;
-  document.getElementById('ledger-pending-count').textContent = real.filter(r => r.status === '作成予定').length;
-}
-
-// ---------- ツリー描画 ----------
-function _renderLedgerTree(items) {
-  const container = document.getElementById('ledger-tree-container');
-
-  // プレースホルダー行（__MACHINE_FOLDER__）を除いた実見積リスト
-  const realItems = items.filter(r => r.status !== '__MACHINE_FOLDER__');
-
-  // 機種ごとのグループを構築（プレースホルダー含む全itemsから機種キーを収集）
-  const machineSet = {};
-  items.forEach(r => {
-    const m = (r.machineCode || '（機種未設定）').trim();
-    if (!machineSet[m]) machineSet[m] = [];
-    if (r.status !== '__MACHINE_FOLDER__') machineSet[m].push(r);
-  });
-
-  if (Object.keys(machineSet).length === 0) {
-    container.innerHTML = '<div class="loading" style="color:var(--text-sub);">該当する見積がありません。「🗂️ 機種を追加」または「＋ 見積登録」から追加してください。</div>';
-    return;
-  }
-
-  const machineKeys = Object.keys(machineSet).sort((a, b) => {
-    if (a === '（機種未設定）') return 1;
-    if (b === '（機種未設定）') return -1;
-    return a.localeCompare(b, 'ja');
-  });
-
-  const CAT_BADGE = {
-    '試作':'badge-trial','量産':'badge-mass','仕掛':'badge-sent',
-    'PCB':'badge-planned','修理':'badge-received','その他':'badge-planned'
-  };
-
-  let html = '';
-
-  machineKeys.forEach(machine => {
-    const machineItems = machineSet[machine]; // プレースホルダー除き済み
-    const machineId = 'machine-' + machine.replace(/[^a-zA-Z0-9]/g, '_');
-
-    // 集計
-    const totalAmt  = machineItems.reduce((s, r) => s + (Number(r.amount) || 0), 0);
-    const sentCnt   = machineItems.filter(r => r.status === '送信済み').length;
-    const quoteCnt  = machineItems.length;
-
-    // ── 機種ヘッダー ──────────────────────────────────────────────
-    html += `
-    <div style="background:var(--card);border-radius:8px;margin-bottom:6px;box-shadow:0 1px 3px rgba(0,0,0,.08);overflow:hidden;">
-      <div class="ledger-machine-hd" onclick="_toggleMachineSection('${machineId}')"
-           style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;cursor:pointer;user-select:none;border-left:4px solid var(--primary);">
-        <span style="display:flex;align-items:center;gap:10px;">
-          <span style="font-size:15px;" id="${machineId}-arrow">▼</span>
-          <span style="font-weight:700;font-size:15px;letter-spacing:.03em;">📁 ${machine}</span>
-          <span style="font-size:12px;color:var(--text-sub);">${quoteCnt}件</span>
-          ${sentCnt > 0 ? `<span class="badge badge-received" style="font-size:10px;">送信済み ${sentCnt}件</span>` : ''}
-        </span>
-        <span style="display:flex;gap:8px;align-items:center;">
-          ${totalAmt > 0 ? `<span style="font-size:13px;font-weight:700;color:var(--danger);">¥${totalAmt.toLocaleString()}</span>` : ''}
-          <button class="btn btn-outline btn-sm"
-            onclick="event.stopPropagation();_openLedgerModalWithMachine('${machine}')"
-            style="font-size:11px;padding:3px 8px;">＋ 見積登録</button>
-        </span>
-      </div>
-
-      <div id="${machineId}" style="display:block;">`;
-
-    // ── 基板グループ ──────────────────────────────────────────────
-    const boardGroups = {};
-    machineItems.forEach(r => {
-      const bKey = (r.boardName || '（基板未設定）').trim();
-      if (!boardGroups[bKey]) boardGroups[bKey] = [];
-      boardGroups[bKey].push(r);
-    });
-    const boardKeys = Object.keys(boardGroups).sort((a, b) => {
-      if (a === '（基板未設定）') return 1;
-      if (b === '（基板未設定）') return -1;
-      return a.localeCompare(b, 'ja');
-    });
-
-    if (boardKeys.length === 0) {
-      html += `<div style="padding:14px 20px;color:var(--text-sub);font-size:13px;">まだ見積がありません。「＋ 見積登録」から追加してください。</div>`;
-    }
-
-    boardKeys.forEach(board => {
-      const boardItems = boardGroups[board].sort((a, b) =>
-        String(b.issueDate || '').localeCompare(String(a.issueDate || '')));
-      const boardAmt = boardItems.reduce((s, r) => s + (Number(r.amount) || 0), 0);
-      const safeBoard = board.replace(/'/g, "\\'");
-      const boardId   = machineId + '_' + board.replace(/[^a-zA-Z0-9]/g, '_');
-
-      // ── 基板ヘッダー ────────────────────────────────────────────
-      html += `
-        <div style="border-top:1px solid var(--border);">
-          <div class="ledger-board-hd" onclick="_toggleBoardSection('${boardId}')"
-               style="display:flex;align-items:center;justify-content:space-between;
-                      padding:7px 16px 7px 28px;background:#f4f6f9;cursor:pointer;user-select:none;">
-            <span style="display:flex;align-items:center;gap:8px;">
-              <span style="font-size:12px;" id="${boardId}-arrow">▼</span>
-              <span style="font-size:13px;font-weight:600;">🔬 ${board}</span>
-              <span style="font-size:12px;color:var(--text-sub);">${boardItems.length}件</span>
-              ${boardAmt > 0 ? `<span style="font-size:12px;color:var(--danger);font-weight:600;">¥${boardAmt.toLocaleString()}</span>` : ''}
-            </span>
-            <button class="btn btn-outline btn-sm"
-              onclick="event.stopPropagation();_openLedgerModalWithBoard('${machine}','${safeBoard}')"
-              style="font-size:11px;padding:2px 8px;">＋ 見積追加</button>
-          </div>
-
-          <div id="${boardId}">`;
-
-      // ── 型番グループ ──────────────────────────────────────────────
-      const modelGroups = {};
-      boardItems.forEach(r => {
-        const mKey = (r.modelNo || '（型番未設定）').trim();
-        if (!modelGroups[mKey]) modelGroups[mKey] = [];
-        modelGroups[mKey].push(r);
-      });
-      const modelKeys = Object.keys(modelGroups).sort((a, b) => {
-        if (a === '（型番未設定）') return 1;
-        if (b === '（型番未設定）') return -1;
-        return a.localeCompare(b, 'ja');
-      });
-
-      modelKeys.forEach(modelNo => {
-        const modelItems = modelGroups[modelNo].sort((a, b) =>
-          String(b.issueDate || '').localeCompare(String(a.issueDate || '')));
-        const modelAmt  = modelItems.reduce((s, r) => s + (Number(r.amount) || 0), 0);
-        const safeModel = modelNo.replace(/'/g, "\\'");
-
-        // ── 型番ヘッダー ──────────────────────────────────────────
-        html += `
-            <div style="border-top:1px dashed var(--border);">
-              <div style="display:flex;align-items:center;justify-content:space-between;
-                          padding:5px 16px 5px 44px;background:#fafbfc;">
-                <span style="display:flex;align-items:center;gap:8px;">
-                  <span style="font-size:11px;color:#aaa;">└</span>
-                  <span style="font-size:12px;font-weight:700;color:#444;font-family:monospace;letter-spacing:.04em;">
-                    ${modelNo === '（型番未設定）'
-                      ? '<span style="color:var(--text-sub);font-weight:400;font-family:inherit;">型番未設定</span>'
-                      : modelNo}
-                  </span>
-                  <span style="font-size:11px;color:var(--text-sub);">${modelItems.length}件</span>
-                  ${modelAmt > 0 ? `<span style="font-size:12px;color:var(--danger);font-weight:600;">¥${modelAmt.toLocaleString()}</span>` : ''}
-                </span>
-                <button class="btn btn-outline btn-sm"
-                  onclick="event.stopPropagation();_openLedgerModalWithBoard('${machine}','${safeBoard}','${safeModel}')"
-                  style="font-size:10px;padding:1px 7px;">＋</button>
-              </div>
-
-              <table style="width:100%;border-collapse:collapse;">
-                <thead>
-                  <tr style="background:#f0f2f5;">
-                    <th style="padding:5px 10px 5px 50px;text-align:left;font-size:11px;font-weight:600;color:var(--text-sub);border-bottom:1px solid var(--border);white-space:nowrap;">見積No.</th>
-                    <th style="padding:5px 8px;text-align:left;font-size:11px;font-weight:600;color:var(--text-sub);border-bottom:1px solid var(--border);">件名</th>
-                    <th style="padding:5px 8px;text-align:left;font-size:11px;font-weight:600;color:var(--text-sub);border-bottom:1px solid var(--border);white-space:nowrap;">宛先</th>
-                    <th style="padding:5px 8px;text-align:left;font-size:11px;font-weight:600;color:var(--text-sub);border-bottom:1px solid var(--border);white-space:nowrap;">提出日</th>
-                    <th style="padding:5px 8px;text-align:right;font-size:11px;font-weight:600;color:var(--text-sub);border-bottom:1px solid var(--border);white-space:nowrap;">金額</th>
-                    <th style="padding:5px 8px;text-align:left;font-size:11px;font-weight:600;color:var(--text-sub);border-bottom:1px solid var(--border);">分類</th>
-                    <th style="padding:5px 8px;text-align:left;font-size:11px;font-weight:600;color:var(--text-sub);border-bottom:1px solid var(--border);">ステータス</th>
-                    <th style="padding:5px 8px;text-align:left;font-size:11px;font-weight:600;color:var(--text-sub);border-bottom:1px solid var(--border);">ファイル</th>
-                    <th style="padding:5px 8px;font-size:11px;color:var(--text-sub);border-bottom:1px solid var(--border);">操作</th>
-                  </tr>
-                </thead>
-                <tbody>`;
-modelItems.forEach(r => {
-          const safeId  = r.ledgerId.replace(/'/g, "\\'");
-          const amtStr  = r.amount != null && r.amount !== '' ? '¥' + Number(r.amount).toLocaleString() : '—';
-          const fileCell = r.saveUrl
-            ? `<a href="${r.saveUrl}" target="_blank" class="pdf-link" onclick="event.stopPropagation()">📎 開く</a>`
-            : '<span style="color:var(--text-sub);font-size:11px;">なし</span>';
-          html += `
-                  <tr style="border-bottom:1px solid #f0f0f0; cursor:pointer;"
-                      onclick="openLedgerModal('${safeId}')"
-                      onmouseenter="this.style.background='#f8f9fa'" onmouseleave="this.style.background=''">
-                    <td style="padding:7px 10px 7px 50px;font-family:monospace;font-size:12px;color:var(--primary);white-space:nowrap;">${r.quoteNo || '—'}</td>
-                    <td style="padding:7px 8px;font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.subject || ''}">${r.subject || '—'}</td>
-                    <td style="padding:7px 8px;font-size:12px;color:var(--text-sub);white-space:nowrap;">${r.dest || '—'}${r.submitTo ? '<br><span style="font-size:10px;">担当: ' + r.submitTo + '</span>' : ''}</td>
-                    <td style="padding:7px 8px;font-size:12px;color:var(--text-sub);white-space:nowrap;">${r.issueDate || '—'}</td>
-                    <td style="padding:7px 8px;text-align:right;font-weight:700;font-size:13px;color:var(--danger);white-space:nowrap;">${amtStr}</td>
-                    <td style="padding:7px 8px;"><span class="badge ${CAT_BADGE[r.category] || 'badge-planned'}" style="font-size:10px;">${r.category || '—'}</span></td>
-                    <td style="padding:7px 8px;"><span class="badge badge-${LEDGER_STATUS_BADGE[r.status] || 'planned'}" style="font-size:10px;">${r.status || '—'}</span></td>
-                    <td style="padding:7px 8px;">${fileCell}</td>
-                    <td style="padding:7px 8px;white-space:nowrap;">
-                      <button class="btn btn-outline btn-sm" onclick="event.stopPropagation(); openLedgerModal('${safeId}')" style="padding:3px 7px;">✏️</button>
-                      <button class="btn btn-danger btn-sm"  onclick="event.stopPropagation(); deleteLedger('${safeId}')"   style="padding:3px 7px;margin-left:2px;">🗑️</button>
-                    </td>
-                  </tr>`;
-        });
-
-        html += `</tbody></table></div>`;  // end model block
-      });
-
-      html += `</div></div>`;  // end boardId + board block
-    });
-
-    html += `</div></div>`;  // end machineId + machine card
-  });
-
-  container.innerHTML = html;
-}
-
-function _toggleMachineSection(id) {
-  const el    = document.getElementById(id);
-  const arrow = document.getElementById(id + '-arrow');
-  if (!el) return;
-  const isHidden = el.style.display === 'none';
-  el.style.display = isHidden ? 'block' : 'none';
-  if (arrow) arrow.textContent = isHidden ? '▼' : '▶';
-}
-
-function _toggleBoardSection(id) {
-  const el    = document.getElementById(id);
-  const arrow = document.getElementById(id + '-arrow');
-  if (!el) return;
-  const isHidden = el.style.display === 'none';
-  el.style.display = isHidden ? 'block' : 'none';
-  if (arrow) arrow.textContent = isHidden ? '▼' : '▶';
-}
-
-// ===== 機種フォルダ新規作成 =====
-function openCreateMachineModal() {
-  document.getElementById('create-machine-code').value   = '';
-  document.getElementById('create-machine-remarks').value = '';
-  document.getElementById('create-machine-status').textContent = '';
-  document.getElementById('create-machine-modal').classList.add('open');
-  setTimeout(() => document.getElementById('create-machine-code').focus(), 100);
-}
-
-function closeCreateMachineModal() {
-  document.getElementById('create-machine-modal').classList.remove('open');
-}
-
-function saveCreateMachine() {
-  const code = document.getElementById('create-machine-code').value.trim();
-  if (!code) { showToast('機種コードを入力してください', true); return; }
-  const statusEl = document.getElementById('create-machine-status');
-  statusEl.innerHTML = '<span style="color:var(--primary);">⏳ 作成中...</span>';
-  google.script.run
-    .withSuccessHandler(res => {
-      if (res.success) {
-        statusEl.innerHTML = '<span style="color:var(--success);">✓ 機種「' + res.machineCode + '」を作成しました</span>';
-        setTimeout(() => {
-          closeCreateMachineModal();
-          loadLedger();
-        }, 800);
-      } else {
-        statusEl.innerHTML = '<span style="color:var(--danger);">✗ ' + res.error + '</span>';
-      }
-    })
-    .withFailureHandler(err => {
-      statusEl.innerHTML = '<span style="color:var(--danger);">✗ 通信エラー: ' + err.message + '</span>';
-    })
-    .handleApiRequest('ledgerCreateMachine', {
-      machineCode: code,
-      remarks:     document.getElementById('create-machine-remarks').value.trim(),
-    });
-}
-
-// ---------- モーダル ----------
-function _renderLedger(items) { /* 後方互換ダミー */ }
-
-
-function openLedgerModal(id) {
-  const item = id ? _allLedger.find(r => r.ledgerId === id) : null;
-  document.getElementById('ledger-modal-title').textContent = item ? '見積編集' : '見積登録';
-  document.getElementById('ledger-id').value           = item ? item.ledgerId   : '';
-  document.getElementById('ledger-machine-code').value = item ? (item.machineCode || '') : '';
-  document.getElementById('ledger-board-name').value   = item ? (item.boardName  || '') : '';
-  document.getElementById('ledger-model-no').value     = item ? (item.modelNo    || '') : '';
-  document.getElementById('ledger-quote-no').value     = item ? item.quoteNo     : '';
-  document.getElementById('ledger-issue-date').value   = item ? (item.issueDate || '').replace(/\//g, '-') : '';
-  document.getElementById('ledger-dest').value         = item ? item.dest        : '';
-  document.getElementById('ledger-category').value     = item ? (item.category || '試作') : '試作';
-  document.getElementById('ledger-subject').value      = item ? item.subject     : '';
-  document.getElementById('ledger-status').value       = item ? (item.status || '作成予定') : '作成予定';
-  document.getElementById('ledger-save-url').value     = item ? (item.saveUrl || '') : '';
-  const amountEl = document.getElementById('ledger-amount');
-  if (amountEl) amountEl.value = item ? (item.amount != null ? item.amount : '') : '';
-  const submitToEl = document.getElementById('ledger-submit-to');
-  if (submitToEl) submitToEl.value = item ? (item.submitTo || '') : '';
-  const formatEl = document.getElementById('ledger-format');
-  if (formatEl) formatEl.value = item ? (item.format || '') : '';
-  const remarksEl = document.getElementById('ledger-remarks');
-  if (remarksEl) remarksEl.value = item ? (item.remarks || '') : '';
-
-  // ファイル状態
-  const existEl = document.getElementById('ledger-existing-file');
-  const linkEl  = document.getElementById('ledger-existing-link');
-  if (existEl && linkEl) {
-    if (item && item.saveUrl) {
-      existEl.style.display = '';
-      linkEl.href = item.saveUrl;
-    } else {
-      existEl.style.display = 'none';
-    }
-  }
-  const statusEl = document.getElementById('ledger-file-status');
-  if (statusEl) statusEl.textContent = '';
-
-  _populateLedgerMachineFilter();
-  document.getElementById('ledger-modal').classList.add('open');
-}
-
-function _openLedgerModalWithMachine(machine) {
-  openLedgerModal(null);
-  document.getElementById('ledger-machine-code').value = machine;
-}
-
-function _openLedgerModalWithBoard(machine, board, modelNo) {
-  openLedgerModal(null);
-  document.getElementById('ledger-machine-code').value = machine;
-  document.getElementById('ledger-board-name').value   = board;
-  if (modelNo) document.getElementById('ledger-model-no').value = modelNo;
-}
-
-function closeLedgerModal() {
-  document.getElementById('ledger-modal').classList.remove('open');
-}
-
-function saveLedger() {
-  const subject = document.getElementById('ledger-subject').value.trim();
-  if (!subject) { showToast('件名は必須です', true); return; }
-
-  const dateVal = document.getElementById('ledger-issue-date').value;
+function saveModelInfo() {
+  const boardId   = document.getElementById('mi-board-id').value.trim();
+  const modelCode = document.getElementById('mi-model-code-display').value.trim();
+  if (!boardId) { showToast('基板IDは必須です', true); return; }
   const payload = {
-    ledgerId:    document.getElementById('ledger-id').value || null,
-    machineCode: document.getElementById('ledger-machine-code').value.trim(),
-    boardName:   document.getElementById('ledger-board-name').value.trim(),
-    modelNo:     document.getElementById('ledger-model-no').value.trim(),
-    quoteNo:     document.getElementById('ledger-quote-no').value,
-    issueDate:   dateVal ? dateVal.replace(/-/g, '/') : '',
-    dest:        document.getElementById('ledger-dest').value,
-    category:    document.getElementById('ledger-category').value,
-    subject,
-    status:      document.getElementById('ledger-status').value,
-    saveUrl:     document.getElementById('ledger-save-url').value,
-    amount:      document.getElementById('ledger-amount')?.value || '',
-    submitTo:    document.getElementById('ledger-submit-to')?.value || '',
-    format:      document.getElementById('ledger-format')?.value || '',
-    remarks:     document.getElementById('ledger-remarks')?.value || '',
+    boardId,
+    modelCode,
+    quoteUrl:       document.getElementById('mi-quote-url').value,
+    orderUrl:       document.getElementById('mi-order-url').value,
+    purchaseUrl1:   document.getElementById('mi-purchase-url1').value,
+    purchaseUrl2:   document.getElementById('mi-purchase-url2').value,
+    purchaseUrl3:   document.getElementById('mi-purchase-url3').value,
+    localServerUrl: document.getElementById('mi-local-server-url').value,
+    comment:        document.getElementById('mi-comment').value,
   };
   google.script.run
     .withSuccessHandler(res => {
       if (res.success) {
         showToast('保存しました');
-        closeLedgerModal();
-        loadLedger();
-      } else showToast('保存失敗: ' + res.error, true);
+        closeModelInfoModal();
+        // 分析・基板ページを再読み込み
+        if (document.getElementById('page-analysis').classList.contains('active')) loadBoardAnalysis();
+        if (document.getElementById('page-board').classList.contains('active')) loadBoardList();
+      } else {
+        showToast('保存失敗: ' + res.error, true);
+      }
     })
-    .handleApiRequest('ledgerSave', payload);
+    .handleApiRequest('modelInfoSave', payload);
 }
 
-function deleteLedger(id) {
-  const item = _allLedger.find(r => r.ledgerId === id);
-  if (!confirm('「' + (item ? item.subject : id) + '」を削除しますか？')) return;
-  google.script.run
-    .withSuccessHandler(res => {
-      if (res.success) { showToast('削除しました'); loadLedger(); }
-      else showToast('削除失敗: ' + res.error, true);
-    })
-    .handleApiRequest('ledgerDelete', { ledgerId: id });
+function uploadModelInfoPdf(fieldType) {
+  _miCurrentField = fieldType;
+  document.getElementById('mi-file-input').click();
 }
 
-// ファイルアップロード
-function _ledgerPickFile() {
-  document.getElementById('ledger-file-input').click();
-}
-
-function _ledgerHandleFile(event) {
+function handleModelInfoFile(event) {
   const file = event.target.files[0];
   if (!file) return;
-  const machine = document.getElementById('ledger-machine-code').value || '';
-  const board   = document.getElementById('ledger-board-name').value   || '';
-  document.getElementById('ledger-file-status').innerHTML =
-    '<span style="color:var(--primary);">📤 アップロード中: ' + file.name + '</span>';
+  document.getElementById('mi-upload-status').textContent = '📤 アップロード中: ' + file.name;
   const reader = new FileReader();
   reader.onload = e => {
     const b64 = e.target.result.split(',')[1];
     google.script.run
       .withSuccessHandler(res => {
-        event.target.value = '';
         if (res.success) {
-          document.getElementById('ledger-save-url').value = res.url;
-          document.getElementById('ledger-file-status').innerHTML =
-            '<span style="color:var(--success);">✓ アップロード完了: ' + res.fileName + '</span>';
-          const existEl = document.getElementById('ledger-existing-file');
-          const linkEl  = document.getElementById('ledger-existing-link');
-          if (existEl && linkEl) {
-            existEl.style.display = '';
-            linkEl.href = res.url;
-            linkEl.textContent = '📎 ' + res.fileName;
-          }
+          const fieldMap = {
+            'quote':'mi-quote-url', 'order':'mi-order-url',
+            'purchase1':'mi-purchase-url1', 'purchase2':'mi-purchase-url2', 'purchase3':'mi-purchase-url3'
+          };
+          const targetId = fieldMap[_miCurrentField];
+          if (targetId) document.getElementById(targetId).value = res.url;
+          document.getElementById('mi-upload-status').textContent = '✓ アップロード完了: ' + res.fileName;
         } else {
-          document.getElementById('ledger-file-status').innerHTML =
-            '<span style="color:var(--danger);">✗ ' + res.error + '</span>';
+          document.getElementById('mi-upload-status').textContent = '✗ 失敗: ' + res.error;
         }
-      })
-      .withFailureHandler(err => {
         event.target.value = '';
-        document.getElementById('ledger-file-status').innerHTML =
-          '<span style="color:var(--danger);">✗ 通信エラー: ' + err.message + '</span>';
       })
-      .handleApiRequest('ledgerUploadFile', {
-        base64Data:  b64,
-        fileName:    file.name,
-        mimeType:    file.type || 'application/octet-stream',
-        machineCode: machine,
-        boardName:   board,
-      });
+      .handleApiRequest('modelInfoUpload', { base64Data: b64, fileName: file.name });
   };
   reader.readAsDataURL(file);
 }
 
-// ===== Todo =====
-function loadTodos(){
-  document.getElementById('todo-container').innerHTML='<div class="loading"><div class="spinner"></div></div>';
-  google.script.run
-    .withSuccessHandler(res=>{
-      if(!res.success){document.getElementById('todo-container').innerHTML='エラー: '+res.error;return;}
-      _renderTodos(res.items||[]);
-    })
-    .withFailureHandler(err=>{document.getElementById('todo-container').innerHTML='エラー: '+err.message;})
-    .handleApiRequest('getTodos',null);
-}
-function _renderTodos(todos){
-  if(todos.length===0){
-    document.getElementById('todo-container').innerHTML='<p style="color:var(--text-sub);text-align:center;padding:40px;">Todoがありません。「＋ Todo追加」から登録してください。</p>';
+// 基板管理の詳細に機種情報ボタンを追加する拡張
+// 機種別分析から基板一覧を開く
+function openModelBoardList(modelCode, machineName, boardsStr) {
+  const boards = boardsStr ? boardsStr.split(',').filter(Boolean) : [];
+  if (boards.length === 0) {
+    showToast('この機種に紐づく基板が登録されていません', true);
     return;
   }
-  const priMap={'高':'p-high','中':'p-mid','低':'p-low'};
-  const cards=todos.map(t=>`
-    <div class="todo-card ${priMap[t.priority]||'p-mid'} ${t.status==='完了'?'done':''}">
-      <div class="tc-title">${t.title||'（無題）'}</div>
-      <div class="tc-meta">
-        ${t.client?'👤 '+t.client+'　':''}
-        ${t.dueDate?'📅 '+t.dueDate+'　':''}
-        ${_prioBadge(t.priority)} &nbsp;
-        <span class="badge" style="background:#f1f3f4;color:#5f6368;">${t.status||''}</span>
-      </div>
-      ${t.memo?`<div style="font-size:12px;color:var(--text-sub);margin-top:6px;">${t.memo}</div>`:''}
-      <div class="tc-actions">
-        <button class="btn btn-outline btn-sm" onclick="openTodoModal('${t.id}')">編集</button>
-        ${t.status!=='完了'?`<button class="btn btn-outline btn-sm" onclick="completeTodo('${t.id}')">完了</button>`:''}
-        <button class="btn btn-danger btn-sm" onclick="deleteTodo('${t.id}')">削除</button>
-      </div>
-    </div>`).join('');
-  document.getElementById('todo-container').innerHTML=`<div class="todo-grid">${cards}</div>`;
-}
-
-let _todoCache=[];
-function openTodoModal(id){
-  document.getElementById('todo-id').value=id||'';
-  document.getElementById('todo-title').value='';
-  document.getElementById('todo-client').value='';
-  document.getElementById('todo-due').value='';
-  document.getElementById('todo-priority').value='中';
-  document.getElementById('todo-status').value='未着手';
-  document.getElementById('todo-linked').value='';
-  document.getElementById('todo-memo').value='';
-  document.getElementById('todo-modal-title').textContent=id?'Todo 編集':'Todo 追加';
-
-  if(id){
-    google.script.run
-      .withSuccessHandler(res=>{
-        if(!res.success)return;
-        const t=res.items.find(x=>x.id===id);
-        if(!t)return;
-        document.getElementById('todo-title').value=t.title||'';
-        document.getElementById('todo-client').value=t.client||'';
-        document.getElementById('todo-due').value=t.dueDate||'';
-        document.getElementById('todo-priority').value=t.priority||'中';
-        document.getElementById('todo-status').value=t.status||'未着手';
-        document.getElementById('todo-linked').value=t.linkedMgmt||'';
-        document.getElementById('todo-memo').value=t.memo||'';
-      })
-      .handleApiRequest('getTodos',null);
+  if (boards.length === 1) {
+    // 基板が1つならそのまま開く
+    openModelInfoModal(boards[0], modelCode);
+    return;
   }
-  document.getElementById('todo-modal').classList.add('open');
+  // 複数の場合は先頭基板を開く（後で選択UIを追加予定）
+  openModelInfoModal(boards[0], modelCode);
+  if (boards.length > 1) showToast('この機種には' + boards.length + '個の基板があります。基板管理から他の基板を編集できます。');
 }
 
-function closeTodoModal(){document.getElementById('todo-modal').classList.remove('open');}
-function saveTodo(){
-  const payload={
-    id:document.getElementById('todo-id').value||null,
-    title:document.getElementById('todo-title').value,
-    client:document.getElementById('todo-client').value,
-    dueDate:document.getElementById('todo-due').value,
-    priority:document.getElementById('todo-priority').value,
-    status:document.getElementById('todo-status').value,
-    linkedMgmt:document.getElementById('todo-linked').value,
-    memo:document.getElementById('todo-memo').value,
+function openModelInfoFromBoard(boardId) {
+  // 基板IDから機種コードを検索して開く
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res.success && res.items) {
+        const found = res.items.find(r => r.boardId === boardId);
+        if (found) {
+          openModelInfoModal(found.modelCode, '');
+        } else {
+          // 新規作成モード
+          openModelInfoModal('', '');
+          document.getElementById('mi-board-id').value = boardId;
+        }
+      }
+    })
+    .handleApiRequest('modelInfoGet', {});
+}
+
+// ===== ① 編集・削除・新規登録 =====
+
+function openEditMgmtModal(mgmtId) {
+  const item = S.all.find(r => r.id === mgmtId)
+    || _allQuotes.find(r => r.id === mgmtId);
+  if (!item) { showToast('データが見つかりません', true); return; }
+
+  document.getElementById('edit-mgmt-id').value      = mgmtId;
+  document.getElementById('edit-quote-no').value      = item.quoteNo      || '';
+  document.getElementById('edit-order-no').value      = item.orderNo      || '';
+  document.getElementById('edit-client').value        = item.client       || item.destCompany || '';
+  document.getElementById('edit-model-code').value    = item.modelCode    || '';
+  document.getElementById('edit-status').value        = item.status       || '作成予定';
+  document.getElementById('edit-order-type').value    = item.orderType    || '';
+  document.getElementById('edit-subject').value       = item.subject      || '';
+  document.getElementById('edit-memo').value          = item.memo         || '';
+  document.getElementById('edit-linked-quote-no').value  = '';
+  document.getElementById('edit-linked-order-no').value  = '';
+  // 日付フォーマット変換 (yyyy/MM/dd → yyyy-MM-dd)
+  const toInputDate = s => s ? String(s).replace(/\//g, '-') : '';
+  document.getElementById('edit-order-date').value    = toInputDate(item.orderDate);
+  document.getElementById('edit-delivery-date').value = toInputDate(item.deliveryDate);
+
+  document.getElementById('edit-mgmt-title').textContent =
+    '✏️ 編集: ' + (item.orderNo || item.quoteNo || mgmtId);
+  document.getElementById('edit-mgmt-modal').classList.add('open');
+}
+
+function saveEditMgmt() {
+  const mgmtId = document.getElementById('edit-mgmt-id').value;
+  if (!mgmtId) { showToast('IDが取得できません', true); return; }
+
+  const toSlashDate = s => s ? s.replace(/-/g, '/') : '';
+  const payload = {
+    mgmtId,
+    quoteNo:       document.getElementById('edit-quote-no').value,
+    orderNo:       document.getElementById('edit-order-no').value,
+    client:        document.getElementById('edit-client').value,
+    modelCode:     document.getElementById('edit-model-code').value,
+    status:        document.getElementById('edit-status').value,
+    orderType:     document.getElementById('edit-order-type').value,
+    orderDate:     toSlashDate(document.getElementById('edit-order-date').value),
+    deliveryDate:  toSlashDate(document.getElementById('edit-delivery-date').value),
+    subject:       document.getElementById('edit-subject').value,
+    memo:          document.getElementById('edit-memo').value,
+    linkedQuoteNo: document.getElementById('edit-linked-quote-no').value || undefined,
+    linkedOrderNo: document.getElementById('edit-linked-order-no').value || undefined,
   };
-  if(!payload.title){showToast('タイトルを入力してください',true);return;}
+
   google.script.run
-    .withSuccessHandler(res=>{
-      if(res.success){showToast('Todoを保存しました');closeTodoModal();loadTodos();}
-      else showToast('保存失敗: '+res.error,true);
+    .withSuccessHandler(res => {
+      if (res.success) {
+        showToast('保存しました');
+        document.getElementById('edit-mgmt-modal').classList.remove('open');
+        document.getElementById('detail-modal').classList.remove('open');
+        document.getElementById('quote-detail-modal').classList.remove('open');
+        loadData();
+        loadQuoteList();
+      } else {
+        showToast('保存失敗: ' + res.error, true);
+      }
     })
-    .handleApiRequest('saveTodo',payload);
-}
-function completeTodo(id){
-  google.script.run
-    .withSuccessHandler(res=>{if(res.success){showToast('完了にしました');loadTodos();}})
-    .handleApiRequest('saveTodo',{id,status:'完了'});
-}
-function deleteTodo(id){
-  if(!confirm('このTodoを削除しますか？'))return;
-  google.script.run
-    .withSuccessHandler(res=>{if(res.success){showToast('削除しました');loadTodos();}})
-    .handleApiRequest('deleteTodo',{id});
+    .handleApiRequest('updateMgmt', payload);
 }
 
-// ===== カレンダー =====
-function loadCalendar(){
-  document.getElementById('cal-title').textContent=S.calYear+'年 '+S.calMonth+'月';
-  document.getElementById('cal-container').innerHTML='<div class="loading"><div class="spinner"></div></div>';
-  google.script.run
-    .withSuccessHandler(res=>{
-      if(!res.success){document.getElementById('cal-container').innerHTML='エラー: '+res.error;return;}
-      S.calEvents=res.events||[];
-      _renderCalendar(res.year,res.month,res.events);
-    })
-    .withFailureHandler(err=>{document.getElementById('cal-container').innerHTML='エラー: '+err.message;})
-    .handleApiRequest('getCalendar',{year:S.calYear,month:S.calMonth});
+// ===== ⑤ 基板・機種の新規登録 =====
+
+// ===== ④ カレンダー (FullCalendar版) =====
+let _calendarInstance = null;
+
+function loadCalendar() {
+  const container = document.getElementById('cal-container');
+  
+  // すでにカレンダーが作られている場合は、サイズを再計算するだけ
+  if (_calendarInstance) {
+    _calendarInstance.render();
+    return;
+  }
+
+  // FullCalendarの初期化
+  _calendarInstance = new FullCalendar.Calendar(container, {
+    initialView: 'dayGridMonth',
+    locale: 'ja', // 日本語化
+    headerToolbar: {
+      left: 'prev,next today',
+      center: 'title',
+      right: 'dayGridMonth,listMonth' // 月表示とリスト表示の切り替えボタン
+    },
+    buttonText: {
+      today: '今日',
+      month: '月',
+      list: '予定リスト'
+    },
+    height: 'auto',
+    // カレンダーの月が切り替わるたびに、GASからデータを自動取得する処理
+    events: function(info, successCallback, failureCallback) {
+      // 表示されているカレンダーの中央の日付から、対象の「年・月」を計算
+      const midDate = new Date((info.start.getTime() + info.end.getTime()) / 2);
+      const y = midDate.getFullYear();
+      const m = midDate.getMonth() + 1;
+
+      google.script.run
+        .withSuccessHandler(res => {
+          if (!res.success) {
+            showToast('カレンダー取得エラー: ' + res.error, true);
+            failureCallback(res.error);
+            return;
+          }
+          
+          // GASのデータをFullCalendarの形式に変換
+          const fcEvents = (res.events || []).map(ev => {
+            // 色の振り分け
+            let bgColor = '#3498db'; // デフォルト青（注文書）
+            if (ev.type === 'delivery') bgColor = '#e74c3c'; // 赤（納期）
+            if (ev.type === 'quote')    bgColor = '#2ecc71'; // 緑（見積書）
+            if (ev.type === 'todo')     bgColor = '#f39c12'; // オレンジ（Todo）
+
+            return {
+              title: ev.label,
+              start: String(ev.date).replace(/\//g, '-'),
+              backgroundColor: bgColor,
+              borderColor: bgColor,
+              extendedProps: { mgmtId: ev.mgmtId, todoId: ev.todoId, label: ev.label }
+            };
+          });
+          successCallback(fcEvents);
+        })
+        .withFailureHandler(err => {
+          showToast('通信エラー: ' + err.message, true);
+          failureCallback(err);
+        })
+        .handleApiRequest('getCalendar', { year: y, month: m });
+    },
+    // イベント（予定）をクリックしたときの処理
+    eventClick: function(info) {
+      openCalEventDetail(info.event.extendedProps);
+    }
+  });
+
+  _calendarInstance.render();
 }
-function calPrev(){S.calMonth--;if(S.calMonth<1){S.calMonth=12;S.calYear--;}loadCalendar();}
-function calNext(){S.calMonth++;if(S.calMonth>12){S.calMonth=1;S.calYear++;}loadCalendar();}
-function calToday(){const n=new Date();S.calYear=n.getFullYear();S.calMonth=n.getMonth()+1;loadCalendar();}
+
+// カレンダーのイベントをクリックしたときの詳細表示
+function openCalEventDetail(evProps) {
+  if (!evProps) return;
+  if (evProps.mgmtId) {
+    // 案件の詳細モーダルを開く
+    openDetail(evProps.mgmtId);
+  } else if (evProps.todoId) {
+    // Todoを開く
+    openTodoModal(evProps.todoId);
+  } else {
+    showToast(evProps.label || '詳細データがありません');
+  }
+}
 
 // ===== Toast =====
+function showToast(msg,isError=false){
+  const t=document.getElementById('toast');
+  t.textContent=(isError?'✗ ':'✓ ')+msg;
+  t.style.background=isError?'var(--danger)':'#323232';
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),3500);
+}
+
 // ===== 紐づけ =====
 function loadMatchingCandidates() {
   document.getElementById('matching-container').innerHTML =

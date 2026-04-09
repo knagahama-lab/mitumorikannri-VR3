@@ -393,6 +393,7 @@ function processUploadedPdf(base64Data, fileName, docType, orderType) {
   }
 }
 
+
 function _processQuotePdfFromFile(pdfUrl, folderUrl, ocr, msgId) {
   var mgmtId    = generateMgmtId();
   var ss        = getSpreadsheet();
