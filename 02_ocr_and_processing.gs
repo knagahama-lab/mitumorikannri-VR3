@@ -106,7 +106,6 @@ function _processQuotePdf(attachment, gmailMsg, msgId) {
   _writeQuoteLines(ss, mgmtSheet, newRow, mgmtId, ocr, pdfUrl, folderUrl);
 
   // ===== 見積台帳の自動更新 =====
-  // OCRで取得した宛先・件名で台帳の対象行を特定し、保存先URLとステータスを更新
   try {
     _apiLedgerUpdateUrl({
       quoteNo:   ocr.documentNo  || '',
@@ -115,18 +114,19 @@ function _processQuotePdf(attachment, gmailMsg, msgId) {
       issueDate: ocr.issueDate   || ocr.documentDate || nowJST().substring(0, 10),
       saveUrl:   pdfUrl,
     });
-    Logger.log('[LEDGER UPDATE] 台帳自動更新試行完了');
   } catch(ledgerErr) {
     Logger.log('[LEDGER UPDATE SKIP] ' + ledgerErr.message);
   }
 
-  // ★チャット通知の送信
-  _sendChatNotification({
-    id: mgmtId, 
-    subject: row[MGMT_COLS.SUBJECT - 1], 
-    client: row[MGMT_COLS.CLIENT - 1], 
-    quoteAmount: row[MGMT_COLS.QUOTE_AMOUNT - 1]
-  }, 'quote');
+  // ★AI紐付け試行（未紐付けの注文書を探す）
+  try {
+    aiLinkQuoteToOrder(mgmtId);
+  } catch(e) {
+    Logger.log('[AI LINK ERROR] ' + e.message);
+  }
+
+  // ★チャット通知の送信（紐付け結果を含む最新情報を取得して送信）
+  _sendChatNotification(mgmtId, 'quote');
 
   Logger.log('[QUOTE OK] ' + mgmtId);
 }
@@ -224,15 +224,18 @@ function _saveOrderData(ocr, orderType, pdfUrl, folderUrl, msgId, fallbackSubjec
   }
 
   _writeOrderLines(ss, mgmtSheet, updateRow, finalMgmtId, ocr, orderType, pdfUrl, folderUrl);
-  return finalMgmtId;
+  
+  // ★AI紐付け試行
+  try {
+    aiLinkOrderToQuote(finalMgmtId);
+  } catch(e) {
+    Logger.log('[AI LINK ERROR] ' + e.message);
+  }
 
-  // ★チャット通知の送信（AI紐づけを含む）
-  _sendChatNotification({
-    id: finalMgmtId, 
-    subject: ocr.subject || fallbackSubject, 
-    client: ocr.clientName, 
-    orderAmount: ocr.subtotal
-  }, 'order');
+  // ★チャット通知の送信
+  _sendChatNotification(finalMgmtId, 'order');
+
+  return finalMgmtId;
 }
 
 function _writeOrderLines(ss, mgmtSheet, mgmtRow, mgmtId, ocr, orderType, pdfUrl, folderUrl) {
@@ -421,15 +424,18 @@ function _processQuotePdfFromFile(pdfUrl, folderUrl, ocr, msgId) {
   mgmtSheet.getRange(newRow, 1, 1, 27).setValues([row]);
   
   _writeQuoteLines(ss, mgmtSheet, newRow, mgmtId, ocr, pdfUrl, folderUrl);
-  return mgmtId;
+
+  // ★AI紐付け試行
+  try {
+    aiLinkQuoteToOrder(mgmtId);
+  } catch(e) {
+    Logger.log('[AI LINK ERROR] ' + e.message);
+  }
 
   // ★チャット通知の送信
-  _sendChatNotification({
-    id: mgmtId, 
-    subject: row[MGMT_COLS.SUBJECT - 1], 
-    client: row[MGMT_COLS.CLIENT - 1], 
-    quoteAmount: row[MGMT_COLS.QUOTE_AMOUNT - 1]
-  }, 'quote');
+  _sendChatNotification(mgmtId, 'quote');
+
+  return mgmtId;
 }
 
 // ============================================================
@@ -439,46 +445,7 @@ function _processQuotePdfFromFile(pdfUrl, folderUrl, ocr, msgId) {
 /**
  * Google Chatへの通知を送信する（見積情報付き）
  */
-function _sendChatNotification(mgmtObj, docType) {
-  var webhookUrl = _getChatWebhookUrl();
-  if (!webhookUrl) return;
-
-  var title = docType === 'quote' ? "📄 見積書を登録しました" : "📦 注文書を受領しました";
-  
-  var text = "【" + title + "】\n";
-  text += "案件名: " + (mgmtObj.subject || "なし") + "\n";
-  text += "顧客名: " + (mgmtObj.client || "不明") + "\n";
-  text += "金額: ¥" + (Number(mgmtObj.orderAmount || mgmtObj.quoteAmount || 0).toLocaleString()) + "\n";
-
-  // 注文書の場合、紐づいた見積情報を探す（アグレッシブに）
-  if (docType === 'order') {
-    var matchRes = matchOrderToQuote(mgmtObj.id, true); // とりあえず一番近いものに強制紐づけ
-    if (matchRes.autoLinked && matchRes.match) {
-      var q = matchRes.match;
-      text += "\n🔗 *紐づけ済み見積情報 (AI自動)*\n";
-      text += "・見積No: " + (q.quoteNo || "不明") + "\n";
-      text += "・件名: " + (q.subject || "不明") + "\n";
-      text += "・金額: ¥" + (Number(q.amount || 0).toLocaleString()) + "\n";
-      text += "・見積PDF: " + (q.quotePdfUrl || "URLなし") + "\n";
-    } else {
-      text += "\n⚠️ 該当する見積書が見つかりませんでした\n";
-    }
-  }
-
-  text += "\n🌐 システムで確認:\n" + ScriptApp.getService().getUrl();
-
-  var payload = { "text": text };
-  try {
-    UrlFetchApp.fetch(webhookUrl, {
-      method: "post",
-      contentType: "application/json",
-      payload: JSON.stringify(payload),
-      muteHttpExceptions: true
-    });
-  } catch(e) {
-    Logger.log('[CHAT NOTIFY ERROR] ' + e.message);
-  }
-}
+// 10 order upload and notify.gs に定義を統合
 
 function _getChatWebhookUrl() {
   return CONFIG.GOOGLE_CHAT_WEBHOOK_URL || PropertiesService.getScriptProperties().getProperty('GOOGLE_CHAT_WEBHOOK_URL') || '';

@@ -111,9 +111,19 @@ function handleApiRequest(action, payload) {
       case 'pcbImportCSV':     return _apiPcbImportCSV(payload);
       case 'pcbExportCSV':     return _apiPcbExportCSV(payload);
       case 'ensurePartsSheets': return ensurePartsSheets() || { success: true };
-      // ===== 基板管理API =====
+      // ===== 基板管理API (BOM・部品) =====
       case 'boardGetAll':       return apiBoardGetAll();
+      case 'boardGetParts':     return apiBoardGetParts();
+      case 'boardGetMachines':  return apiBoardGetMachines();
       case 'boardAddNew':       return _apiBoardAddNew(payload);
+      case 'boardSavePart':     return apiBoardSavePart(payload);
+      case 'boardDeletePart':   return apiBoardDeletePart(payload.id);
+      case 'boardSaveMachine':  return apiBoardSaveMachine(payload);
+      case 'boardDeleteMachine': return apiBoardDeleteMachine(payload.id);
+      case 'boardSaveBoard':    return apiBoardSaveBoard(payload);
+      case 'boardDeleteBoard':  return apiBoardDeleteBoard(payload.id);
+      case 'boardSaveBOM':      return apiBoardSaveBOM(payload.boardId, payload.lines);
+      case 'boardImportBOMCSV': return apiBoardImportBOMCSV(payload.csvText);
       case 'machineAddNew':     return _apiMachineAddNew(payload);
       case 'boardGetDetail':    return apiBoardGetDetail(payload.boardId, payload.boardName);
       case 'boardGetAnalysis':  return apiGetBoardAnalysis();
@@ -470,6 +480,8 @@ function _apiModelInfoSave(p) {
       p.purchaseUrl1 || '', p.purchaseUrl2 || '', p.purchaseUrl3 || '',
       p.localServerUrl || '', p.comment || '', nowJST(),
     ];
+
+
     if (existingRow > 0) {
       sheet.getRange(existingRow, 1, 1, 10).setValues([rowData]);
     } else {

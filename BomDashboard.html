@@ -3,9 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BOM管理システム</title>
+<title>BOM管理システム (Server-Synced)</title>
 <style>
-/* ④ CSS変数のスコープ修正（Artifact環境対応） */
 :root, body, #app {
   --bg: #f5f4f0;
   --surface: #ffffff;
@@ -20,380 +19,275 @@
   --accent-hover: #155830;
   --danger: #c0392b;
   --danger-bg: #fdf0ee;
-  --warn: #d4701a;
-  --warn-bg: #fef5ec;
-  --info: #185fa5;
-  --info-bg: #e6f1fb;
   --radius: 8px;
   --radius-lg: 12px;
   --shadow: 0 1px 3px rgba(0,0,0,0.08);
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'Hiragino Sans', 'Meiryo', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.6; }
-
-/* ① Layout & Modal の表示バグ修正（position: relative/absolute に変更） */
-#app { display: flex; min-height: 100vh; position: relative; } /* ←重要: relativeを追加 */
+#app { display: flex; min-height: 100vh; position: relative; }
 #sidebar { width: 220px; min-width: 220px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; z-index: 10; }
 #sidebar-header { padding: 20px 16px 16px; border-bottom: 1px solid var(--border); }
-#sidebar-header h1 { font-size: 15px; font-weight: 700; color: var(--text); letter-spacing: -0.3px; }
-#sidebar-header p { font-size: 11px; color: var(--text3); margin-top: 2px; }
+#sidebar-header h1 { font-size: 15px; font-weight: 700; color: var(--text); }
+#sidebar-header p { font-size: 11px; color: var(--text3); }
 #nav { padding: 12px 8px; flex: 1; }
-.nav-item { display: flex; align-items: center; gap: 8px; padding: 9px 10px; border-radius: var(--radius); cursor: pointer; font-size: 13px; color: var(--text2); transition: all 0.15s; margin-bottom: 2px; }
-.nav-item:hover { background: var(--surface2); color: var(--text); }
+.nav-item { display: flex; align-items: center; gap: 8px; padding: 9px 10px; border-radius: var(--radius); cursor: pointer; font-size: 13px; color: var(--text2); margin-bottom: 2px; }
+.nav-item:hover { background: var(--surface2); }
 .nav-item.active { background: var(--accent-bg); color: var(--accent); font-weight: 500; }
-.nav-icon { width: 18px; height: 18px; opacity: 0.7; }
-.nav-item.active .nav-icon { opacity: 1; }
-
+.nav-icon { width: 18px; height: 18px; }
 #main { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
 #topbar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; height: 52px; display: flex; align-items: center; justify-content: space-between; }
-#topbar h2 { font-size: 16px; font-weight: 700; }
 #content { flex: 1; padding: 24px; overflow-y: auto; }
-
-/* Cards & Buttons */
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 16px; box-shadow: var(--shadow); }
-.card-title { font-size: 14px; font-weight: 700; margin-bottom: 16px; color: var(--text); display: flex; align-items: center; gap: 8px; }
-.btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: var(--radius); border: none; cursor: pointer; font-size: 13px; font-weight: 500; font-family: inherit; transition: all 0.15s; }
+.card-title { font-size: 14px; font-weight: 700; margin-bottom: 16px; }
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: var(--radius); border: none; cursor: pointer; font-size: 13px; font-weight: 500; font-family: inherit; }
 .btn-primary { background: var(--accent); color: white; }
-.btn-primary:hover { background: var(--accent-hover); }
-.btn-danger { background: var(--danger-bg); color: var(--danger); border: 1px solid #f5c8c4; }
-.btn-danger:hover { background: #f9d5d1; }
 .btn-outline { background: var(--surface); color: var(--text2); border: 1px solid var(--border2); }
-.btn-outline:hover { background: var(--surface2); }
-.btn-warn { background: var(--warn-bg); color: var(--warn); border: 1px solid #f5d9b8; }
-.btn-warn:hover { background: #fdecd6; }
-.btn-info { background: var(--info-bg); color: var(--info); border: 1px solid #b5d4f4; }
-.btn-info:hover { background: #d0e7f9; }
-.btn-sm { padding: 4px 10px; font-size: 12px; }
-.btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
-
-/* Tables & Forms */
+.btn-danger { background: var(--danger-bg); color: var(--danger); border: 1px solid #f5c8c4; }
+.btn-group { display: flex; gap: 8px; }
 .tbl-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
-thead th { background: var(--surface2); padding: 9px 12px; text-align: left; font-weight: 500; color: var(--text2); border-bottom: 1px solid var(--border); white-space: nowrap; font-size: 12px; }
-tbody td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
-tbody tr:hover { background: var(--surface2); }
-tbody tr:last-child td { border-bottom: none; }
-.form-row { display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
-.form-group { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 140px; }
+thead th { background: var(--surface2); padding: 9px 12px; text-align: left; font-weight: 500; border-bottom: 1px solid var(--border); font-size: 12px; }
+tbody td { padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.form-group { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
 .form-group label { font-size: 12px; font-weight: 500; color: var(--text2); }
-.form-group input, .form-group select, .form-group textarea {
-  padding: 8px 10px; border: 1px solid var(--border2); border-radius: var(--radius); font-family: inherit; font-size: 13px; background: var(--surface); color: var(--text); outline: none; transition: border 0.15s;
-}
-.form-group input:focus, .form-group select:focus { border-color: var(--accent); }
-
-/* Badges & Stats */
-.badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 500; }
-.badge-green { background: #e8f5ed; color: #1a6b3a; }
-.badge-blue { background: #e6f1fb; color: #185fa5; }
-.badge-orange { background: #fef5ec; color: #d4701a; }
-.badge-gray { background: #f1efe8; color: #5f5e5a; }
-.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
-.stat-card { background: var(--surface2); border-radius: var(--radius); padding: 14px 16px; border: 1px solid var(--border); }
-.stat-label { font-size: 12px; color: var(--text3); margin-bottom: 4px; }
-.stat-value { font-size: 22px; font-weight: 700; color: var(--text); }
-.stat-sub { font-size: 11px; color: var(--text3); margin-top: 2px; }
-
-/* Tabs */
-.tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
-.tab { padding: 10px 18px; cursor: pointer; font-size: 13px; color: var(--text3); border-bottom: 2px solid transparent; transition: all 0.15s; font-weight: 500; }
-.tab:hover { color: var(--text2); }
-.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
-
-/* ① Modal (Artifact環境で確実に表示させるための position: absolute) */
-.modal-overlay { 
-  position: absolute; /* fixedから変更 */
-  top: 0; left: 0; width: 100%; height: 100%;
-  background: rgba(0,0,0,0.5); z-index: 9999; 
-  display: flex; align-items: center; justify-content: center; padding: 20px; 
-}
-.modal { 
-  background: var(--surface); border-radius: var(--radius-lg); width: 100%; 
-  max-width: 640px; max-height: 90vh; overflow-y: auto; 
-  box-shadow: 0 8px 32px rgba(0,0,0,0.25); 
-}
-.modal-header { padding: 20px 24px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
-.modal-header h3 { font-size: 16px; font-weight: 700; }
-.modal-body { padding: 20px 24px; }
-.modal-footer { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
-.close-btn { background: none; border: none; cursor: pointer; font-size: 20px; color: var(--text3); line-height: 1; padding: 0 4px; }
-
-/* Misc */
-.csv-area { background: var(--surface2); border: 1px dashed var(--border2); border-radius: var(--radius); padding: 16px; font-family: monospace; font-size: 12px; color: var(--text2); min-height: 100px; white-space: pre; overflow: auto; }
-textarea.csv-input { width: 100%; min-height: 120px; font-family: monospace; font-size: 12px; }
-.price-diff-pos { color: var(--danger); font-weight: 600; }
-.price-diff-neg { color: var(--accent); font-weight: 600; }
-.price-diff-zero { color: var(--text3); }
-.breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text3); margin-bottom: 16px; }
-.breadcrumb span { cursor: pointer; }
-.breadcrumb span:hover { color: var(--accent); }
-.breadcrumb .sep { color: var(--border2); }
-.empty-state { text-align: center; padding: 40px 20px; color: var(--text3); }
-.empty-state p { font-size: 14px; margin-top: 8px; }
-.tag { display: inline-block; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; font-size: 11px; color: var(--text2); margin-right: 4px; }
-.num { font-variant-numeric: tabular-nums; }
-.hidden { display: none !important; }
-.profit-high { color: #1a6b3a; font-weight: 600; }
-.profit-mid { color: #d4701a; font-weight: 600; }
-.profit-low { color: #c0392b; font-weight: 600; }
-.alert { padding: 10px 14px; border-radius: var(--radius); font-size: 13px; margin-bottom: 12px; }
-.alert-info { background: var(--info-bg); color: var(--info); border: 1px solid #b5d4f4; }
-.alert-success { background: var(--accent-bg); color: var(--accent); border: 1px solid #9fe1cb; }
-.alert-warn { background: var(--warn-bg); color: var(--warn); border: 1px solid #f5d9b8; }
-.section-title { font-size: 13px; font-weight: 700; color: var(--text2); margin: 16px 0 8px; text-transform: uppercase; letter-spacing: 0.5px; }
-
-/* ローディング */
-.loading { text-align: center; padding: 20px; color: var(--text3); font-size: 12px; }
-.spinner { display: inline-block; width: 24px; height: 24px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+.form-group input, .form-group select, .form-group textarea { padding: 8px 10px; border: 1px solid var(--border2); border-radius: var(--radius); outline: none; }
+.modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 100; display: flex; align-items: center; justify-content: center; }
+.modal { background: var(--surface); border-radius: var(--radius-lg); width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto; padding: 24px; position: relative; }
+.modal-close { position: absolute; top: 16px; right: 16px; font-size: 20px; cursor: pointer; color: var(--text3); }
+.loading { text-align: center; padding: 40px; color: var(--text3); }
+.spinner { width: 30px; height: 30px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; display: inline-block; animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+.num { font-variant-numeric: tabular-nums; }
 </style>
 </head>
 <body>
 <div id="app">
   <div id="sidebar">
     <div id="sidebar-header">
-      <h1>🔧 BOM管理</h1>
-      <p>部品表管理システム</p>
+      <h1>🔧 BOM管理 (Pro)</h1>
+      <p>サーバー同期型システム</p>
     </div>
     <div id="nav">
-      <div class="nav-item active" onclick="showPage('dashboard')" id="nav-dashboard">
-        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
-        ダッシュボード
-      </div>
-      <div class="nav-item" onclick="showPage('parts')" id="nav-parts">
-        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93l-1.41 1.41M4.93 19.07l-1.41 1.41M19.07 19.07l-1.41-1.41M4.93 4.93l1.41 1.41"/><circle cx="12" cy="12" r="9"/></svg>
-        部品マスタ
-      </div>
-      <div class="nav-item" onclick="showPage('products')" id="nav-products">
-        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
-        機種・基板
-      </div>
-      <div class="nav-item" onclick="showPage('bom')" id="nav-bom">
-        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
-        部品構成表
-      </div>
-      <div class="nav-item" onclick="showPage('pricing')" id="nav-pricing">
-        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
-        価格管理
-      </div>
-      <div class="nav-item" onclick="showPage('csv')" id="nav-csv">
-        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-        CSV入出力
-      </div>
-      
-      <div class="nav-item" onclick="openBomImportModal()" style="color:var(--info); font-weight:600; margin-top: 8px;">
-        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
-        一括BOM取込 (CSV)
-      </div>
-
-      <div style="margin-top:auto;padding:8px 0;border-top:1px solid var(--border);margin-top:16px">
-        <div style="padding:6px 10px;font-size:11px;color:var(--text3)">データは自動保存</div>
-        <div class="nav-item" onclick="resetToSample()" style="color:var(--danger);font-size:12px">
-          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.15"/></svg>
-          サンプルに戻す
-        </div>
-      </div>
+      <div class="nav-item active" onclick="showPage('dashboard')" id="nav-dashboard">📊 ダッシュボード</div>
+      <div class="nav-item" onclick="showPage('parts')" id="nav-parts">📦 部品マスタ</div>
+      <div class="nav-item" onclick="showPage('products')" id="nav-products">💻 機種・基板</div>
+      <div class="nav-item" onclick="showPage('bom')" id="nav-bom">📝 BOM編集</div>
+      <div class="nav-item" onclick="openBomImportModal()" style="color:var(--accent); font-weight:600; margin-top:20px;">📥 一括インポート</div>
     </div>
   </div>
-
   <div id="main">
-    <div id="topbar">
-      <h2 id="page-title">ダッシュボード</h2>
-      <div class="btn-group" id="topbar-actions"></div>
-    </div>
+    <div id="topbar"><h2 id="page-title">ダッシュボード</h2><div id="topbar-actions"></div></div>
     <div id="content"></div>
   </div>
-
   <div id="modal-container"></div>
 </div>
 
 <script>
-// ============================
-// DATA STORE + ③ Artifact環境対応 (localStorage制限回避)
-// ============================
 const STORAGE_KEY = 'bom_manager_v1';
+let db = { parts: [], products: [], boards: [], bom: [] };
 
-const SAMPLE_DATA = {
-  parts: [
-    { id: 'P001', name: 'コンデンサ 100μF/25V', category: 'コンデンサ', maker: '日本ケミコン', cost: 45, price: 90, unit: '個', spec: '電解、径8mm', stock: 1000 },
-    { id: 'P002', name: 'コンデンサ 10μF/50V', category: 'コンデンサ', maker: 'ELNA', cost: 38, price: 76, unit: '個', spec: '電解、径6.3mm', stock: 800 },
-    { id: 'P003', name: 'LED 赤 3mm', category: 'LED', maker: '豊田合成', cost: 12, price: 25, unit: '個', spec: '標準輝度', stock: 5000 },
-  ],
-  products: [
-    { id: 'M001', name: 'パチンコ機 A-100シリーズ', code: 'A100', desc: '最新液晶演出搭載モデル' },
-  ],
-  boards: [
-    { id: 'B001', productId: 'M001', name: '液晶演出基板 A', code: 'A100-LCD-01', desc: 'メイン液晶制御', version: 'v2.1' },
-  ],
-  bom: [
-    { id: 'BOM001', boardId: 'B001', partId: 'P001', qty: 4, note: '電源デカップリング' },
-  ],
-  priceHistory: []
-};
+document.addEventListener('DOMContentLoaded', initApp);
 
-let db = { parts: [], products: [], boards: [], bom: [], priceHistory: [] };
-
-function saveDB() {
-  try { 
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); 
-  } catch(e) { 
-    console.warn('Artifact環境のためlocalStorageに保存できません。メモリ上で動作します。'); 
-  }
-}
-function loadDB() {
+async function initApp() {
+  setLoading(true);
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const saved = JSON.parse(raw);
-      db.parts        = saved.parts        || [];
-      db.products     = saved.products     || [];
-      db.boards       = saved.boards       || [];
-      db.bom          = saved.bom          || [];
-      db.priceHistory = saved.priceHistory || [];
-      return true;
+    const localData = loadLocalStorage();
+    await refreshData();
+    if (localData && db.parts.length === 0 && db.products.length === 0) {
+      if (confirm('ローカルデータをサーバーに移行しますか？')) {
+        await migrateLocalToServer(localData);
+        await refreshData();
+      }
     }
-  } catch(e) { 
-    console.warn('Artifact環境のためlocalStorageを読み込めません。'); 
-  }
-  return false;
-}
-function resetToSample() {
-  if (!confirm('全データをサンプルデータにリセットしますか？\n現在のデータはすべて失われます。')) return;
-  db = JSON.parse(JSON.stringify(SAMPLE_DATA));
-  saveDB();
-  showPage('dashboard');
+    showPage('dashboard');
+  } catch (e) { alert('読み込み失敗: ' + e.message); }
+  finally { setLoading(false); }
 }
 
-function genId(prefix) { return prefix + Date.now().toString(36).toUpperCase(); }
+async function refreshData() {
+  const [pRes, mRes, bRes] = await Promise.all([
+    callApi('boardGetParts'), callApi('boardGetMachines'), callApi('boardGetAll')
+  ]);
+  db.parts = pRes.items || [];
+  db.products = mRes.items || [];
+  db.boards = bRes.items || [];
+}
 
-// ============================
-// NAVIGATION
-// ============================
-const pageTitles = {
-  dashboard: 'ダッシュボード',
-  parts: '部品マスタ',
-  products: '機種・基板管理',
-  bom: '部品構成表（BOM）',
-  pricing: '価格管理',
-  csv: 'CSV入出力'
-};
+function loadLocalStorage() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch(e) { return null; }
+}
+
+async function migrateLocalToServer(local) {
+  setLoading(true, '移行中...');
+  if (local.parts) for (let p of local.parts) await callApi('boardSavePart', p);
+  if (local.products) for (let m of local.products) await callApi('boardSaveMachine', m);
+  if (local.boards) for (let b of local.boards) await callApi('boardSaveBoard', b);
+  localStorage.removeItem(STORAGE_KEY);
+  alert('完了');
+}
+
+function setLoading(show, text = '読み込み中...') {
+  if (!show) return;
+  document.getElementById('content').innerHTML = `<div class="loading"><div class="spinner"></div><div>${text}</div></div>`;
+}
+
+function callApi(action, payload = {}) {
+  return new Promise((resolve, reject) => {
+    google.script.run
+      .withSuccessHandler(res => res && res.success ? resolve(res) : reject(new Error(res ? res.error : 'APIエラー')))
+      .withFailureHandler(err => reject(err))
+      .handleApiRequest({ action, payload });
+  });
+}
 
 function showPage(page) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  const navEl = document.getElementById('nav-' + page);
-  if (navEl) navEl.classList.add('active');
-  document.getElementById('page-title').textContent = pageTitles[page] || page;
+  document.getElementById('nav-' + page)?.classList.add('active');
+  document.getElementById('page-title').textContent = page;
+  const content = document.getElementById('content');
   const tb = document.getElementById('topbar-actions');
   tb.innerHTML = '';
-  const content = document.getElementById('content');
-  if (page === 'dashboard') renderDashboard(content, tb);
+  
+  if (page === 'dashboard') renderDashboard(content);
   else if (page === 'parts') renderParts(content, tb);
   else if (page === 'products') renderProducts(content, tb);
   else if (page === 'bom') renderBOM(content, tb);
-  else if (page === 'pricing') renderPricing(content, tb);
-  else if (page === 'csv') renderCSV(content, tb);
 }
 
-// ============================
-// MODAL SYSTEM (表示バグ修正済)
-// ============================
-function showModal(html) {
-  const c = document.getElementById('modal-container');
-  // クラスの付け外しによる表示エラーを防ぐため、直接HTMLを生成して表示
-  c.innerHTML = `<div class="modal-overlay" onclick="if(event.target===this)closeModal()"><div class="modal">${html}</div></div>`;
+function renderDashboard(container) {
+  container.innerHTML = `
+    <div class="stats-grid" style="display:flex; gap:16px;">
+      <div class="card" style="flex:1"><h3>部品数</h3><p style="font-size:24px; font-weight:700">${db.parts.length}</p></div>
+      <div class="card" style="flex:1"><h3>機種数</h3><p style="font-size:24px; font-weight:700">${db.products.length}</p></div>
+      <div class="card" style="flex:1"><h3>基板数</h3><p style="font-size:24px; font-weight:700">${db.boards.length}</p></div>
+    </div>
+    <div class="card"><h3>クイック操作</h3><button class="btn btn-primary" onclick="showPage('bom')">BOMを編集する</button></div>
+  `;
 }
-function closeModal() { document.getElementById('modal-container').innerHTML = ''; }
 
+function renderParts(container, tb) {
+  tb.innerHTML = `<button class="btn btn-primary" onclick="editPart()">＋ 新規部品</button>`;
+  container.innerHTML = `
+    <div class="card">
+      <table>
+        <thead><tr><th>コード</th><th>名称</th><th>単価</th><th>操作</th></tr></thead>
+        <tbody>
+          ${db.parts.map(p => `<tr><td>${p['部品コード']}</td><td><b>${p['部品名']}</b></td><td>¥${Number(p['公表単価']||0).toLocaleString()}</td>
+          <td><button class="btn btn-outline" onclick="editPart('${p['部品コード']}')">編集</button></td></tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
 
-// ============================
-// ★ BOM 一括インポートロジック (CSV自動分解) ★
-// ② プレビュー＆文字コード対応
-// ============================
-let _bomCsvText = '';
-
-function openBomImportModal() {
-  _bomCsvText = '';
+async function editPart(code = null) {
+  const p = code ? db.parts.find(x => x['部品コード'] === code) : {};
   showModal(`
-    <div class="modal-header">
-      <h3>📥 一括BOMインポート</h3>
-      <button class="close-btn" onclick="closeModal()">×</button>
-    </div>
-    <div class="modal-body">
-      <p style="font-size:13px;color:var(--text2);margin-bottom:16px;">
-        最終リスト形式のCSVファイルを選択すると、「機種」「基板」「部品」「BOM（構成）」の各マスタに自動でデータを分解して一括登録します。<br>
-        <span style="color:var(--danger);">※未登録のものは新規作成、登録済みのものは数量を上書きします。</span>
-      </p>
-      
-      <div style="margin-bottom:12px; text-align:right;">
-        <label style="font-size:12px; color:var(--text2);">文字コード: </label>
-        <select id="csv-encoding" style="padding:4px; border-radius:4px; border:1px solid var(--border2); font-size:12px; font-family:inherit;">
-          <option value="UTF-8">UTF-8</option>
-          <option value="Shift_JIS" selected>Shift_JIS (Excel等)</option>
-        </select>
-      </div>
-
-      <div style="border:2px dashed var(--border2);border-radius:8px;padding:30px;text-align:center;background:var(--surface2);margin-bottom:16px;cursor:pointer;"
-           onclick="document.getElementById('bom-csv-file').click()"
-           ondragover="event.preventDefault();this.style.borderColor='var(--accent)';"
-           ondragleave="this.style.borderColor='var(--border2)';"
-           ondrop="handleBomCsvDrop(event)">
-        <input type="file" id="bom-csv-file" accept=".csv" style="display:none;" onchange="handleBomCsvFile(event)">
-        <div style="font-size:24px; margin-bottom:8px;">📂</div>
-        <button class="btn btn-outline" style="pointer-events:none;">CSVファイルを選択 または ドラッグ＆ドロップ</button>
-        <div id="bom-csv-filename" style="margin-top:12px;font-size:12px;color:var(--accent);font-weight:600;"></div>
-      </div>
-
-      <div id="bom-import-preview" style="display:none; margin-bottom:16px;">
-        <div style="font-size:12px; font-weight:bold; color:var(--text2); margin-bottom:4px;">データプレビュー（先頭5行）:</div>
-        <pre id="bom-import-preview-text" style="font-size:11px; background:var(--surface2); padding:10px; border:1px solid var(--border2); border-radius:4px; overflow-x:auto; white-space:pre-wrap; max-height:120px; overflow-y:auto;"></pre>
-      </div>
-
-      <div id="bom-import-status" style="font-size:13px;min-height:40px;margin-bottom:10px;"></div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-outline" onclick="closeModal()">キャンセル</button>
-      <button class="btn btn-primary" onclick="executeBomImport()" id="bom-import-exec-btn" disabled>🚀 インポート実行</button>
-    </div>
+    <h3>部品編集</h3>
+    <div class="form-group"><label>コード</label><input id="p-code" value="${p['部品コード']||''}" ${code?'readonly':''}></div>
+    <div class="form-group"><label>名称</label><input id="p-name" value="${p['部品名']||''}"></div>
+    <div class="form-group"><label>単価</label><input type="number" id="p-cost" value="${p['公表単価']||0}"></div>
+    <div style="margin-top:20px"><button class="btn btn-primary" onclick="savePart()">保存</button>
+    <button class="btn btn-outline" onclick="closeModal()">閉じる</button></div>
   `);
 }
-
-function handleBomCsvDrop(event) {
-  event.preventDefault();
-  event.currentTarget.style.borderColor='var(--border2)';
-  const file = event.dataTransfer.files[0];
-  if (file) _processBomCsvFile(file);
+async function savePart() {
+  const data = { '部品コード':document.getElementById('p-code').value, '部品名':document.getElementById('p-name').value, '公表単価':parseFloat(document.getElementById('p-cost').value)||0 };
+  await callApi('boardSavePart', data); closeModal(); await refreshData(); showPage('parts');
 }
 
-function handleBomCsvFile(event) {
-  const file = event.target.files[0];
-  if (file) _processBomCsvFile(file);
+function renderProducts(container, tb) {
+  tb.innerHTML = `<button class="btn btn-primary" onclick="editMachine()">＋ 新規機種</button>`;
+  container.innerHTML = `
+    <div class="card">
+      <table style="width:100%">
+        <thead><tr><th>コード</th><th>機種名</th><th>基板構成</th><th>操作</th></tr></thead>
+        <tbody>
+          ${db.products.map(m => `<tr><td>${m['機種コード']}</td><td><b>${m['機種名']}</b></td>
+          <td><span style="font-size:11px">${['M基板','D基板','DE基板','E基板','C基板','S基板'].map(k => m[k] ? `<span title="${k}">${m[k]} </span>` : '').join('')}</span></td>
+          <td><button class="btn btn-outline" onclick="editMachine('${m['機種コード']}')">編集</button></td></tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
 }
 
-function _processBomCsvFile(file) {
-  document.getElementById('bom-csv-filename').textContent = '選択中: ' + file.name;
-  const encoding = document.getElementById('csv-encoding').value;
+async function editMachine(code = null) {
+  const m = code ? db.products.find(x => x['機種コード'] === code) : {};
+  showModal(`
+    <h3>機種編集</h3>
+    <div class="form-group"><label>機種コード</label><input id="m-code" value="${m['機種コード']||''}" ${code?'readonly':''}></div>
+    <div class="form-group"><label>機種名</label><input id="m-name" value="${m['機種名']||''}"></div>
+    ${['M基板','D基板','DE基板','E基板','C基板','S基板'].map(k => `<div class="form-group"><label>${k}</label><input id="m-${k}" value="${m[k]||''}"></div>`).join('')}
+    <div style="margin-top:20px"><button class="btn btn-primary" onclick="saveMachine()">保存</button></div>
+  `);
+}
+async function saveMachine() {
+  const data = { '機種コード':document.getElementById('m-code').value, '機種名':document.getElementById('m-name').value };
+  ['M基板','D基板','DE基板','E基板','C基板','S基板'].forEach(k => data[k] = document.getElementById('m-'+k).value);
+  await callApi('boardSaveMachine', data); closeModal(); await refreshData(); showPage('products');
+}
+
+async function renderBOM(container, tb) {
+  container.innerHTML = `
+    <div class="card">
+      <h3>基板選択</h3>
+      <select id="board-select" onchange="loadBOM(this.value)">
+        <option value="">-- 基板を選択 --</option>
+        ${db.boards.map(b => `<option value="${b['基板ID']}">${b['基板名']} (${b['基板ID']})</option>`).join('')}
+      </select>
+    </div>
+    <div id="bom-editor"></div>
+  `;
+}
+
+async function loadBOM(boardId) {
+  if (!boardId) return;
+  const editor = document.getElementById('bom-editor');
+  editor.innerHTML = '<div class="loading">BOM読込中...</div>';
+  const res = await callApi('boardGetDetail', { boardId: boardId });
+  const bom = res.bom || [];
+  editor.innerHTML = `
+    <div class="card">
+      <h3>BOM編集: ${boardId}</h3>
+      <table>
+        <thead><tr><th>部品コード</th><th>部品名</th><th>数量</th><th>操作</th></tr></thead>
+        <tbody id="bom-tbody">
+          ${bom.map((b, i) => `<tr><td>${b['部品コード']}</td><td>${b['部品名']}</td>
+          <td><input type="number" value="${b['使用数量']}" style="width:60px" onchange="updateBomLine(${i}, 'qty', this.value)"></td>
+          <td><button onclick="removeBomLine(${i})">✖</button></td></tr>`).join('')}
+        </tbody>
+      </table>
+      <button class="btn btn-outline" onclick="addBomLine('${boardId}')">＋ 部品追加</button>
+      <button class="btn btn-primary" onclick="saveBOM('${boardId}')">BOMを保存</button>
+    </div>
+  `;
+  window.currentBOM = bom;
+}
+
+function openBomImportModal() {
+  showModal(`
+    <h3>CSV一括インポート</h3>
+    <p style="font-size:12px">形式: 機種名,機種コード,基板ID,基板名,部品コード,部品名,単価,数量</p>
+    <input type="file" id="csv-file" accept=".csv">
+    <button class="btn btn-primary" onclick="executeImport()">実行</button>
+  `);
+}
+async function executeImport() {
+  const file = document.getElementById('csv-file').files[0]; if(!file) return;
   const reader = new FileReader();
-  
-  reader.onload = function(e) {
-    _bomCsvText = e.target.result;
-    
-    // プレビューの表示
-    const lines = _bomCsvText.split(/\r\n|\n/).filter(l => l.trim() !== '');
-    const previewText = lines.slice(0, 5).join('\n') + (lines.length > 5 ? '\n...' : '');
-    document.getElementById('bom-import-preview-text').textContent = previewText;
-    document.getElementById('bom-import-preview').style.display = 'block';
-
-    document.getElementById('bom-import-status').innerHTML = '<div class="alert alert-info">✓ 読み込み完了。文字化けしていなければインポートを実行してください。<br>（※文字化けする場合は文字コードを変更して再度選択してください）</div>';
-    document.getElementById('bom-import-exec-btn').disabled = false;
+  reader.onload = async (e) => {
+    await callApi('boardImportBOMCSV', { csvText: e.target.result });
+    alert('完了'); closeModal(); initApp();
   };
-  
-  reader.readAsText(file, encoding); 
+  reader.readAsText(file, 'Shift_JIS');
 }
 
-// 引用符の中のカンマを無視する安全なCSVパーサー
-function parseCSVLine(line) {
-  const result = [];
-  let current = '';
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i];
-    if (char === '"' && line[i
+function showModal(html) {
+  document.getElementById('modal-container').innerHTML = `<div class="modal-overlay" onclick="if(event.target===this)closeModal()"><div class="modal"><span class="modal-close" onclick="closeModal()">×</span>${html}</div></div>`;
+}
+function closeModal() { document.getElementById('modal-container').innerHTML = ''; }
+</script>
+</body>
+</html>

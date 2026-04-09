@@ -231,3 +231,104 @@ function apiComparePriceToBOM(mgmtId) {
     return { success: false, error: e.message };
   }
 }
+
+// ============================================================
+// BOM・部品管理 API (CRUD)
+// ============================================================
+
+function _saveRowToBoardSS(sheetName, headers, uniqueCol, dataObj) {
+  try {
+    const ss = _getBoardSS();
+    let sheet = ss.getSheetByName(sheetName);
+    if (!sheet) sheet = ss.insertSheet(sheetName);
+    if (sheet.getLastRow() === 0) sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    const values = sheet.getDataRange().getValues();
+    const colIdx = headers.indexOf(uniqueCol);
+    const uniqueVal = String(dataObj[uniqueCol] || '');
+    let rowIdx = -1;
+    for (let i = 1; i < values.length; i++) {
+      if (String(values[i][colIdx]) === uniqueVal) { rowIdx = i + 1; break; }
+    }
+    const row = headers.map(h => dataObj[h] !== undefined ? dataObj[h] : '');
+    if (rowIdx !== -1) sheet.getRange(rowIdx, 1, 1, headers.length).setValues([row]);
+    else sheet.appendRow(row);
+    return { success: true };
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+function _deleteRowFromBoardSS(sheetName, headers, uniqueCol, uniqueVal) {
+  try {
+    const ss = _getBoardSS();
+    const sheet = ss.getSheetByName(sheetName);
+    if (!sheet) return { success: true };
+    const values = sheet.getDataRange().getValues();
+    const colIdx = headers.indexOf(uniqueCol);
+    for (let i = values.length - 1; i >= 1; i--) {
+      if (String(values[i][colIdx]) === String(uniqueVal)) sheet.deleteRow(i + 1);
+    }
+    return { success: true };
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+function apiBoardSavePart(p) { return _saveRowToBoardSS(BOARD_CONFIG.SHEET_COMPONENTS, BOARD_HEADERS.COMPONENTS, '部品コード', p); }
+function apiBoardDeletePart(id) { return _deleteRowFromBoardSS(BOARD_CONFIG.SHEET_COMPONENTS, BOARD_HEADERS.COMPONENTS, '部品コード', id); }
+function apiBoardGetParts() { return { success: true, items: _getBoardSheetData(BOARD_CONFIG.SHEET_COMPONENTS, BOARD_HEADERS.COMPONENTS) }; }
+
+function apiBoardSaveMachine(m) { return _saveRowToBoardSS(BOARD_CONFIG.SHEET_MACHINE, BOARD_HEADERS.MACHINE, '機種コード', m); }
+function apiBoardDeleteMachine(id) { return _deleteRowFromBoardSS(BOARD_CONFIG.SHEET_MACHINE, BOARD_HEADERS.MACHINE, '機種コード', id); }
+function apiBoardGetMachines() { return { success: true, items: _getBoardSheetData(BOARD_CONFIG.SHEET_MACHINE, BOARD_HEADERS.MACHINE) }; }
+
+function apiBoardSaveBoard(b) { return _saveRowToBoardSS(BOARD_CONFIG.SHEET_BOARD, BOARD_HEADERS.BOARD, '基板ID', b); }
+function apiBoardDeleteBoard(id) { return _deleteRowFromBoardSS(BOARD_CONFIG.SHEET_BOARD, BOARD_HEADERS.BOARD, '基板ID', id); }
+
+function apiBoardSaveBOM(boardId, lines) {
+  try {
+    const ss = _getBoardSS();
+    const sheet = ss.getSheetByName(BOARD_CONFIG.SHEET_BOM);
+    const values = sheet.getDataRange().getValues();
+    for (let i = values.length - 1; i >= 1; i--) {
+      if (String(values[i][0]) === String(boardId)) sheet.deleteRow(i + 1);
+    }
+    if (lines.length > 0) {
+      const headers = BOARD_HEADERS.BOM;
+      const data = lines.map(line => headers.map(h => line[h] !== undefined ? line[h] : ''));
+      sheet.getRange(sheet.getLastRow() + 1, 1, data.length, headers.length).setValues(data);
+    }
+    return { success: true };
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+function apiBoardImportBOMCSV(csvText) {
+  try {
+    const lines = csvText.split(/\r\n|\n/).filter(l => l.trim() !== '');
+    if (lines.length < 2) throw new Error('データがありません');
+    const data = lines.map(l => {
+      const row = []; let cur = '', inQ = false;
+      for (let i = 0; i < l.length; i++) {
+        const c = l[i];
+        if (c === '"') inQ = !inQ;
+        else if (c === ',' && !inQ) { row.push(cur.trim()); cur = ''; }
+        else cur += c;
+      }
+      row.push(cur.trim()); return row;
+    });
+    const machines = [], boards = [], parts = [], boms = [];
+    data.slice(1).forEach(row => {
+      const [mName, mCode, bId, bName, pCode, pName, price, qty] = row;
+      if (!mCode || !bId || !pCode) return;
+      machines.push({ '機種コード': mCode, '機種名': mName });
+      boards.push({ '基板ID': bId, '基板名': bName });
+      parts.push({ '部品コード': pCode, '部品名': pName, '公表単価': parseFloat(price)||0 });
+      boms.push({ '基板ID': bId, '部品コード': pCode, '使用数量': parseFloat(qty)||0 });
+    });
+    machines.forEach(apiBoardSaveMachine);
+    boards.forEach(apiBoardSaveBoard);
+    parts.forEach(apiBoardSavePart);
+    const ss = _getBoardSS();
+    const bSheet = ss.getSheetByName(BOARD_CONFIG.SHEET_BOM);
+    const headers = BOARD_HEADERS.BOM;
+    const bomRows = boms.map(b => headers.map(h => b[h] !== undefined ? b[h] : ''));
+    bSheet.getRange(bSheet.getLastRow() + 1, 1, bomRows.length, headers.length).setValues(bomRows);
+    return { success: true, count: data.length - 1 };
+  } catch(e) { return { success: false, error: e.message }; }
+}

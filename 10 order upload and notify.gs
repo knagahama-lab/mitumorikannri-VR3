@@ -56,6 +56,124 @@ function aiLinkOrderToQuote(orderMgmtId) {
 }
 
 /**
+ * 見積書を受け取り、最適な注文書を1件紐付ける（AI判定）
+ * @param {string} quoteMgmtId 見積書の管理ID
+ * @returns {Object} 判定結果
+ */
+function aiLinkQuoteToOrder(quoteMgmtId) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const mgmtSheet = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT);
+  const mgmtData = mgmtSheet.getDataRange().getValues();
+  const headers = mgmtData[0];
+  
+  const quoteIdx = mgmtData.findIndex(r => r[0] === quoteMgmtId);
+  if (quoteIdx === -1) return { success: false, error: '見積データが見つかりません' };
+  
+  const quoteRow = mgmtData[quoteIdx];
+  const quoteData = {};
+  headers.forEach((h, i) => quoteData[h] = quoteRow[i]);
+  
+  // マッチング候補の注文書を抽出
+  const orderGroups = _buildOrderGroups(mgmtData, headers);
+  
+  // Gemini APIによるマッチング推論
+  const aiResult = matchQuoteToOrderWithGemini(quoteData, orderGroups);
+  
+  if (!aiResult || !aiResult.matches) {
+    return { success: false, error: 'AI解析に失敗しました' };
+  }
+  
+  const matches = aiResult.matches.sort((a, b) => b.score - a.score);
+  const bestMatch = matches[0];
+  
+  let status = 'no_match';
+  if (bestMatch && bestMatch.score >= MATCHING_THRESHOLD_AUTO) {
+    _applyOrderLink(bestMatch.orderMgmtId, quoteMgmtId);
+    status = 'auto_linked';
+  } else if (bestMatch && bestMatch.score >= MATCHING_THRESHOLD_CANDIDATE) {
+    status = 'candidates_found';
+  }
+  
+  return {
+    success: true,
+    status: status,
+    bestMatch: bestMatch,
+    candidates: matches.filter(m => m.score >= MATCHING_THRESHOLD_CANDIDATE)
+  };
+}
+
+/**
+ * Gemini APIを使用して見積書に最適な注文書を選択する
+ */
+function matchQuoteToOrderWithGemini(quoteData, orderGroups) {
+  const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!apiKey) return null;
+  
+  const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + apiKey;
+  const prompt = `
+あなたは優秀な営業事務アシスタントです。登録された「見積書」データと、システム内の「未紐付けの注文書候補」を比較し、最も可能性の高い紐付け先を判定してください。
+
+【見積書データ】
+番号: ${quoteData['見積書番号'] || '不明'}
+顧客: ${quoteData['顧客名'] || '不明'}
+金額: ${quoteData['見積金額'] || '不明'}
+件名: ${quoteData['件名'] || '不明'}
+
+【注文書候補リスト】
+${orderGroups.map(o => `ID:${o.mgmtId} | 番号:${o.orderNo} | 機種:${o.modelCode} | 顧客:${o.client} | 金額:${o.amount} | 件名:${o.subject}`).join('\n')}
+
+【判定ルール】
+1. 見積番号が注文書側の参照番号や件名に含まれているか。
+2. 顧客名が一致しているか（表記ゆれ考慮）。
+3. 金額が一致、または消費税による差を考慮。
+
+【返却形式】
+JSONのみで回答してください。
+{
+  "matches": [
+    {
+      "orderMgmtId": "管理ID",
+      "orderNo": "発注番号",
+      "score": 0から100の数値,
+      "reason": "選定理由"
+    }
+  ]
+}
+`;
+
+  const payload = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: "application/json" } };
+  const response = UrlFetchApp.fetch(url, { method: 'post', contentType: 'application/json', payload: JSON.stringify(payload), muteHttpExceptions: true });
+  if (response.getResponseCode() !== 200) return null;
+  try {
+    const json = JSON.parse(response.getContentText());
+    return JSON.parse(json.candidates[0].content.parts[0].text);
+  } catch (e) { return null; }
+}
+
+function _buildOrderGroups(mgmtData, headers) {
+  const orders = [];
+  const oNoIdx = headers.indexOf('注文書番号');
+  const mIdx = headers.indexOf('機種コード');
+  const cIdx = headers.indexOf('顧客名');
+  const aIdx = headers.indexOf('注文金額');
+  const sIdx = headers.indexOf('件名');
+  const lIdx = headers.indexOf('紐付け済み');
+  
+  for (let i = 1; i < mgmtData.length; i++) {
+    const row = mgmtData[i];
+    const isOrder = String(row[0]).startsWith('MO');
+    const isLinked = row[lIdx] === 'TRUE' || row[lIdx] === true;
+    if (isOrder && !isLinked) {
+      orders.push({
+        mgmtId: row[0], orderNo: row[oNoIdx], modelCode: row[mIdx],
+        client: row[cIdx], amount: row[aIdx], subject: row[sIdx]
+      });
+    }
+  }
+  return orders;
+}
+
+/**
  * Gemini APIを使用して注文書に最適な見積書を選択する
  */
 function matchWithGeminiAPI(orderData, quoteGroups) {
@@ -223,11 +341,78 @@ function _syncDocSheetLink(orderMgmtId, quoteNo) {
 }
 
 /**
- * テスト用関数（GASエディタから実行可能）
+ * Google Chatへの通知を送信する（インポートから通知までの全項目を含む）
  */
-function testAiLinkOrder() {
-  // 存在する適当な注文管理IDを指定してください
-  const testId = 'MO-20260401-001'; 
-  const result = aiLinkOrderToQuote(testId);
-  Logger.log(JSON.stringify(result, null, 2));
+function _sendChatNotification(mgmtId, docType) {
+  const webhookUrl = _getChatWebhookUrl();
+  if (!webhookUrl) return;
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT);
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const rowIdx = data.findIndex(r => String(r[0]) === String(mgmtId));
+  if (rowIdx === -1) return;
+  const row = data[rowIdx];
+  
+  const getVal = (header) => {
+    const idx = headers.indexOf(header);
+    return idx !== -1 ? row[idx] : '';
+  };
+
+  const title = docType === 'quote' ? "📄 見積書を登録しました" : "📦 注文書を受領しました";
+  const subject = getVal('件名') || 'なし';
+  const client = getVal('顧客名') || 'なし';
+  const amount = Number(getVal(docType === 'quote' ? '見積金額' : '注文金額') || 0).toLocaleString();
+  const pdfUrl = getVal(docType === 'quote' ? '見積書PDF' : '注文書PDF');
+  const folderUrl = getVal('保存先Drive');
+  const isLinked = getVal('紐付け済み') === 'TRUE' || getVal('紐付け済み') === true;
+
+  let text = "【" + title + "】\n";
+  text += "━━━━━━━━━━━━━━\n";
+  text += "🔹 案件名: " + subject + "\n";
+  text += "🔹 顧客名: " + client + "\n";
+  text += "🔹 金額: ¥" + amount + "\n";
+  text += "🔹 保存先URL: " + (pdfUrl || folderUrl || "なし") + "\n";
+
+  if (isLinked) {
+    const linkedNo = docType === 'quote' ? getVal('注文書番号') : getVal('見積書番号');
+    const linkedUrl = docType === 'quote' ? getVal('注文書PDF') : getVal('見積書PDF');
+    text += "\n✅ *AI紐付け完了*\n";
+    text += "・対象番号: " + (linkedNo || "不明") + "\n";
+    text += "・紐付け先PDF: " + (linkedUrl || "URLなし") + "\n";
+  } else {
+    text += "\n⚠️ *現在、紐付け先を探索中または未発見です*\n";
+  }
+
+  text += "\n🌐 システム全体で確認:\n" + ScriptApp.getService().getUrl();
+
+  try {
+    UrlFetchApp.fetch(webhookUrl, {
+      method: "post",
+      contentType: "application/json",
+      payload: JSON.stringify({ "text": text }),
+      muteHttpExceptions: true
+    });
+  } catch(e) {
+    Logger.log('[CHAT NOTIFY ERROR] ' + e.message);
+  }
+}
+
+function _getChatWebhookUrl() {
+  return CONFIG.GOOGLE_CHAT_WEBHOOK_URL || PropertiesService.getScriptProperties().getProperty('GOOGLE_CHAT_WEBHOOK_URL') || '';
+}
+
+/**
+ * 手動紐付け確定（Dashboard APIから呼ばれる）
+ */
+function apiConfirmOrderLink(p) {
+  try {
+    _applyOrderLink(p.orderMgmtId, p.quoteMgmtId);
+    // 紐付け後に再通知を送ることも可能
+    _sendChatNotification(p.orderMgmtId, 'order');
+    return { success: true };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
 }
