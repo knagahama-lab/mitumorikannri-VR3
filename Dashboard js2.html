@@ -351,17 +351,22 @@ function _showOrderUploadResult(res){
   const lr = res.linkResult || {};
   let candidateHtml = '';
   if((lr.status==='candidates_found'||lr.status==='forced_candidate') && lr.candidates && lr.candidates.length){
-    const rows = lr.candidates.map(c=>`
+    const rows = lr.candidates.map(c=>{
+      const color = c.score >= 80 ? '#34a853' : c.score >= 50 ? '#fbbc04' : '#ea4335';
+      return `
       <tr style="border-bottom:1px solid var(--border);">
         <td style="padding:6px 8px;font-size:12px;">${c.quoteNo||'—'}</td>
-        <td style="padding:6px 8px;font-size:12px;text-align:center;"><span style="background:#fbbc04;color:#fff;border-radius:4px;padding:2px 6px;font-size:11px;">${c.score}点</span></td>
+        <td style="padding:6px 8px;font-size:12px;text-align:center;">
+          <span style="background:${color};color:#fff;border-radius:4px;padding:2px 6px;font-size:11px;">${c.score}点</span>
+        </td>
         <td style="padding:6px 8px;"><button onclick="_confirmOrderLink('${res.mgmtId}','${c.quoteMgmtId}','${c.quoteNo}')" class="btn btn-primary btn-sm">確定</button></td>
-      </tr>`).join('');
-    candidateHtml = `<div style="margin-top:10px;"><table style="width:100%;border-collapse:collapse;"><tbody>${rows}</tbody></table></div>`;
+      </tr>`;
+    }).join('');
+    candidateHtml = `<div style="margin-top:10px;"><p style="font-size:11px;color:var(--text-sub);margin-bottom:4px;">🔗 マッチング候補:</p><table style="width:100%;border-collapse:collapse;"><tbody>${rows}</tbody></table></div>`;
   }
   document.getElementById('upload-status').innerHTML=`
     <div style="background:#e6f4ea;border-radius:8px;padding:12px;font-size:13px;">
-      <strong style="color:var(--success);">✓ 注文書 登録完了</strong><br>
+      <strong style="color:var(--success);">✓ 注文書 登録完了</strong> ${lr.status==='auto_linked' ? '<span class="badge badge-done">自動紐付け済</span>' : ''}<br>
       件名: ${res.orderNo||'—'}<br>
       ${candidateHtml}
     </div>`;
@@ -861,8 +866,98 @@ function openTodoModal(id) { document.getElementById('todo-modal').classList.add
 function closeTodoModal() { document.getElementById('todo-modal').classList.remove('open'); }
 function saveTodo() { closeTodoModal(); loadTodos(); }
 
-function loadMatchingCandidates() { document.getElementById('matching-container').innerHTML = 'データがありません'; }
-function runBatchMatching() { showToast('マッチング開始...'); }
+function loadMatchingCandidates() {
+  const container = document.getElementById('matching-container');
+  container.innerHTML = '<div class="loading"><div class="spinner"></div><br>候補を収集中...</div>';
+  
+  google.script.run
+    .withSuccessHandler(res => {
+      if (!res.success) { container.innerHTML = '<div class="loading" style="color:var(--danger);">⚠️ ' + res.error + '</div>'; return; }
+      _renderMatchingCandidates(res.items || []);
+    })
+    .handleApiRequest('getMatchingCandidates', null);
+}
+
+function _renderMatchingCandidates(items) {
+  const container = document.getElementById('matching-container');
+  if (items.length === 0) {
+    container.innerHTML = '<div class="loading" style="color:var(--text-sub);">現在、確認が必要な紐づけ候補はありません</div>';
+    return;
+  }
+
+  const cards = items.map(item => {
+    const rows = (item.candidates || []).map(c => {
+      const color = c.score >= 80 ? '#34a853' : c.score >= 50 ? '#fbbc04' : '#ea4335';
+      return `
+        <tr style="border-bottom:1px solid var(--border);">
+          <td style="padding:10px 8px;">
+            <div style="font-weight:600;font-size:13px;">${c.quoteNo}</div>
+            <div style="font-size:11px;color:var(--text-sub);">${c.reason || ''}</div>
+          </td>
+          <td style="padding:10px 8px;text-align:center;">
+            <span style="background:${color};color:#fff;border-radius:4px;padding:3px 8px;font-size:12px;font-weight:600;">${c.score}点</span>
+          </td>
+          <td style="padding:10px 8px;text-align:right;">
+            <button class="btn btn-primary btn-sm" onclick="_confirmOrderLink('${item.orderMgmtId}', '${c.quoteMgmtId}', '${c.quoteNo}')">確定</button>
+          </td>
+        </tr>`;
+    }).join('');
+
+    return `
+      <div class="summary-card" style="margin-bottom:16px;padding:0;overflow:hidden;">
+        <div style="background:#f8f9fa;padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <span class="badge badge-sent" style="margin-bottom:4px;">注文書</span>
+            <div style="font-weight:700;font-size:15px;">${item.orderNo || '番号不明'}</div>
+            <div style="font-size:12px;color:var(--text-sub);">${item.client || '顧客不明'} / ${item.modelCode || '機種不明'}</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:11px;color:var(--text-sub);">注文金額</div>
+            <div style="font-weight:600;">${item.orderAmount ? Number(item.orderAmount).toLocaleString() + ' 円' : '—'}</div>
+          </div>
+        </div>
+        <div style="padding:0 16px;">
+          <table style="width:100%;border-collapse:collapse;">
+            <thead>
+              <tr style="text-align:left;font-size:11px;color:var(--text-sub);">
+                <th style="padding:8px;font-weight:500;">マッチング候補 (見積書)</th>
+                <th style="padding:8px;text-align:center;font-weight:500;">AIスコア</th>
+                <th style="padding:8px;text-align:right;font-weight:500;">操作</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>`;
+  }).join('');
+
+  container.innerHTML = cards;
+}
+
+function runBatchMatching() {
+  if (!confirm('紐づけられていないすべての注文書に対して、AIによる再マッチングを実行しますか？\n(APIの実行に時間がかかる場合があります)')) return;
+  
+  const btn = event.target;
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⌛ 実行中...';
+  
+  showToast('バッチ処理を開始しました。少々お待ちください...');
+  
+  google.script.run
+    .withSuccessHandler(res => {
+      btn.disabled = false;
+      btn.textContent = originalText;
+      if (res.success) {
+        showToast(res.message || 'マッチング処理が完了しました');
+        loadMatchingCandidates();
+        loadData();
+      } else {
+        showToast('エラー: ' + res.error, true);
+      }
+    })
+    .handleApiRequest('runBatchMatching', null);
+}
 
 function loadBoardList() { document.getElementById('board-container').innerHTML = 'データがありません'; }
 function loadBoardAnalysis() { document.getElementById('analysis-container').innerHTML = 'データがありません'; }

@@ -130,7 +130,8 @@ function handleApiRequest(action, payload) {
       case 'sendAnnouncement':       return _apiSendAnnouncement();
       case 'uploadOrderWithLink':    return _apiUploadOrderWithLink(payload);
       case 'confirmOrderLink':       return _apiConfirmOrderLink(payload);
-      case 'getOrderLinkCandidates': return _apiGetOrderLinkCandidates(payload);
+      case 'getMatchingCandidates':  return _apiGetMatchingCandidates(payload);
+      case 'runBatchMatching':       return _apiRunBatchMatching(payload);
       default: return { success: false, error: '不明なアクション: ' + action };
     }
   } catch(e) {
@@ -1370,4 +1371,27 @@ function _postToChat(webhookUrl, text) {
   } catch(e) {
     Logger.log('[CHAT POST ERROR] ' + e.message);
   }
+}
+
+function _apiGetMatchingCandidates(p) {
+  return getMatchingCandidates();
+}
+
+function _apiConfirmOrderLink(p) {
+  if (!p.orderMgmtId || !p.quoteMgmtId) return { success: false, error: 'IDが不足しています' };
+  return confirmManualLink(p.orderMgmtId, p.quoteMgmtId);
+}
+
+function _apiRunBatchMatching(p) {
+  return runBatchMatching();
+}
+
+function _apiUploadOrderWithLink(p) {
+  // すでにあるPDFアップロード処理を流用しつつ、AIマッチングを実行
+  const res = _apiUploadPdf(p);
+  if (res.success && res.mgmtId) {
+    const aiRes = aiLinkOrderToQuote(res.mgmtId);
+    res.linkResult = aiRes;
+  }
+  return res;
 }

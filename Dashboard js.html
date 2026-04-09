@@ -60,9 +60,10 @@ function _renderBoardList(boards) {
         <div style="width:52px;height:52px;border-radius:8px;overflow:hidden;flex-shrink:0;background:#f8f9fa;">${img}</div>
         <div style="flex:1;">
           <div style="font-weight:600;font-size:14px;">${b['基板名']||'—'}</div>
-          <div style="font-size:12px;color:var(--text-sub);margin-top:3px;">
-            <span style="background:${color}22;color:${color};padding:2px 7px;border-radius:8px;font-weight:500;">${b['基板分類']||''}</span>
-            &nbsp; ID: ${b['基板ID']||''}
+          <td style="padding:6px 8px;font-size:12px;text-align:center;">
+          <span style="background:${c.score>=80?'#34a853':'#fbbc04'};color:#fff;border-radius:4px;padding:2px 6px;font-size:11px;">${c.score}点</span>
+        </td>
+    &nbsp; ID: ${b['基板ID']||''}
             ${b['バージョン'] ? '&nbsp; v' + b['バージョン'] : ''}
           </div>
         </div>
@@ -688,7 +689,7 @@ function _renderMatchingCandidates(items) {
 
   const scoreBar = (s) => {
     const w = Math.min(s, 100);
-    const c = s >= 80 ? 'var(--success)' : s >= 60 ? 'var(--warning)' : 'var(--danger)';
+    const c = s >= 80 ? 'var(--success)' : s >= 50 ? 'var(--warning)' : 'var(--danger)';
     return `<div style="display:flex;align-items:center;gap:6px;">
       <div style="flex:1;height:6px;background:var(--border);border-radius:3px;">
         <div style="width:${w}%;height:100%;background:${c};border-radius:3px;"></div>

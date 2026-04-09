@@ -224,6 +224,7 @@ function _saveOrderData(ocr, orderType, pdfUrl, folderUrl, msgId, fallbackSubjec
   }
 
   _writeOrderLines(ss, mgmtSheet, updateRow, finalMgmtId, ocr, orderType, pdfUrl, folderUrl);
+  return finalMgmtId;
 
   // ★チャット通知の送信（AI紐づけを含む）
   _sendChatNotification({
@@ -366,15 +367,16 @@ function processUploadedPdf(base64Data, fileName, docType, orderType) {
     if (!ocr) return { success: false, error: 'OCR解析失敗。PDFを確認してください。' };
 
     var mockMsgId = 'MANUAL_' + Date.now();
+    var finalMgmtId;
     if (docType === 'quote') {
-      _processQuotePdfFromFile(pdfUrl, folderUrl, ocr, mockMsgId);
+      finalMgmtId = _processQuotePdfFromFile(pdfUrl, folderUrl, ocr, mockMsgId);
     } else {
       var finalType = orderType || ocr.orderType || '';
-      _saveOrderData(ocr, finalType, pdfUrl, folderUrl, mockMsgId, fileName);
+      finalMgmtId = _saveOrderData(ocr, finalType, pdfUrl, folderUrl, mockMsgId, fileName);
     }
 
     return {
-      success:     true,
+      mgmtId:      finalMgmtId || ocr.mgmtId,
       documentNo:  ocr.documentNo,
       clientName:  ocr.destCompany || ocr.clientName,
       totalAmount: ocr.totalAmount,
@@ -419,6 +421,7 @@ function _processQuotePdfFromFile(pdfUrl, folderUrl, ocr, msgId) {
   mgmtSheet.getRange(newRow, 1, 1, 27).setValues([row]);
   
   _writeQuoteLines(ss, mgmtSheet, newRow, mgmtId, ocr, pdfUrl, folderUrl);
+  return mgmtId;
 
   // ★チャット通知の送信
   _sendChatNotification({
