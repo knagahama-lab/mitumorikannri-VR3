@@ -32,7 +32,7 @@ body { font-family: 'Hiragino Sans', 'Meiryo', sans-serif; background: var(--bg)
 
 /* Layout */
 #app { display: flex; min-height: 100vh; }
-#sidebar { width: 220px; min-width: 220px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+#sidebar { width: 220px; min-width: 220px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; z-index: 10; }
 #sidebar-header { padding: 20px 16px 16px; border-bottom: 1px solid var(--border); }
 #sidebar-header h1 { font-size: 15px; font-weight: 700; color: var(--text); letter-spacing: -0.3px; }
 #sidebar-header p { font-size: 11px; color: var(--text3); margin-top: 2px; }
@@ -43,16 +43,14 @@ body { font-family: 'Hiragino Sans', 'Meiryo', sans-serif; background: var(--bg)
 .nav-icon { width: 18px; height: 18px; opacity: 0.7; }
 .nav-item.active .nav-icon { opacity: 1; }
 
-#main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+#main { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
 #topbar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; height: 52px; display: flex; align-items: center; justify-content: space-between; }
 #topbar h2 { font-size: 16px; font-weight: 700; }
 #content { flex: 1; padding: 24px; overflow-y: auto; }
 
-/* Cards */
+/* Cards & Buttons */
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 16px; box-shadow: var(--shadow); }
 .card-title { font-size: 14px; font-weight: 700; margin-bottom: 16px; color: var(--text); display: flex; align-items: center; gap: 8px; }
-
-/* Buttons */
 .btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: var(--radius); border: none; cursor: pointer; font-size: 13px; font-weight: 500; font-family: inherit; transition: all 0.15s; }
 .btn-primary { background: var(--accent); color: white; }
 .btn-primary:hover { background: var(--accent-hover); }
@@ -67,15 +65,13 @@ body { font-family: 'Hiragino Sans', 'Meiryo', sans-serif; background: var(--bg)
 .btn-sm { padding: 4px 10px; font-size: 12px; }
 .btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
 
-/* Tables */
+/* Tables & Forms */
 .tbl-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 thead th { background: var(--surface2); padding: 9px 12px; text-align: left; font-weight: 500; color: var(--text2); border-bottom: 1px solid var(--border); white-space: nowrap; font-size: 12px; }
 tbody td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
 tbody tr:hover { background: var(--surface2); }
 tbody tr:last-child td { border-bottom: none; }
-
-/* Forms */
 .form-row { display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
 .form-group { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 140px; }
 .form-group label { font-size: 12px; font-weight: 500; color: var(--text2); }
@@ -84,15 +80,12 @@ tbody tr:last-child td { border-bottom: none; }
 }
 .form-group input:focus, .form-group select:focus { border-color: var(--accent); }
 
-/* Badges */
+/* Badges & Stats */
 .badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 500; }
 .badge-green { background: #e8f5ed; color: #1a6b3a; }
 .badge-blue { background: #e6f1fb; color: #185fa5; }
 .badge-orange { background: #fef5ec; color: #d4701a; }
-.badge-red { background: #fdf0ee; color: #c0392b; }
 .badge-gray { background: #f1efe8; color: #5f5e5a; }
-
-/* Stats */
 .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
 .stat-card { background: var(--surface2); border-radius: var(--radius); padding: 14px 16px; border: 1px solid var(--border); }
 .stat-label { font-size: 12px; color: var(--text3); margin-bottom: 4px; }
@@ -105,33 +98,23 @@ tbody tr:last-child td { border-bottom: none; }
 .tab:hover { color: var(--text2); }
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
-/* Modal */
-.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.35); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 20px; }
-.modal { background: var(--surface); border-radius: var(--radius-lg); width: 100%; max-width: 640px; max-height: 90vh; overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,0.18); }
+/* Modal (安定動作版) */
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 9999; display: flex; align-items: center; justify-content: center; padding: 20px; }
+.modal { background: var(--surface); border-radius: var(--radius-lg); width: 100%; max-width: 640px; max-height: 90vh; overflow-y: auto; box-shadow: 0 12px 40px rgba(0,0,0,0.25); }
 .modal-header { padding: 20px 24px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
 .modal-header h3 { font-size: 16px; font-weight: 700; }
 .modal-body { padding: 20px 24px; }
 .modal-footer { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
 .close-btn { background: none; border: none; cursor: pointer; font-size: 20px; color: var(--text3); line-height: 1; padding: 0 4px; }
 
-/* CSV area */
+/* Misc */
 .csv-area { background: var(--surface2); border: 1px dashed var(--border2); border-radius: var(--radius); padding: 16px; font-family: monospace; font-size: 12px; color: var(--text2); min-height: 100px; white-space: pre; overflow: auto; }
 textarea.csv-input { width: 100%; min-height: 120px; font-family: monospace; font-size: 12px; }
-
-/* Price comparison */
-.price-diff-pos { color: var(--danger); font-weight: 600; }
-.price-diff-neg { color: var(--accent); font-weight: 600; }
-.price-diff-zero { color: var(--text3); }
-
-/* Hierarchy path */
 .breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text3); margin-bottom: 16px; }
 .breadcrumb span { cursor: pointer; }
 .breadcrumb span:hover { color: var(--accent); }
 .breadcrumb .sep { color: var(--border2); }
-
-/* Misc */
 .empty-state { text-align: center; padding: 40px 20px; color: var(--text3); }
-.empty-state p { font-size: 14px; margin-top: 8px; }
 .tag { display: inline-block; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; font-size: 11px; color: var(--text2); margin-right: 4px; }
 .num { font-variant-numeric: tabular-nums; }
 .hidden { display: none !important; }
@@ -142,8 +125,12 @@ textarea.csv-input { width: 100%; min-height: 120px; font-family: monospace; fon
 .alert-info { background: var(--info-bg); color: var(--info); border: 1px solid #b5d4f4; }
 .alert-success { background: var(--accent-bg); color: var(--accent); border: 1px solid #9fe1cb; }
 .alert-warn { background: var(--warn-bg); color: var(--warn); border: 1px solid #f5d9b8; }
-input[type=file] { font-size: 13px; }
 .section-title { font-size: 13px; font-weight: 700; color: var(--text2); margin: 16px 0 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+/* ローディング */
+.loading { text-align: center; padding: 20px; color: var(--text3); font-size: 12px; }
+.spinner { display: inline-block; width: 24px; height: 24px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 </style>
 <?!= include('css'); ?>
 </head>
@@ -179,6 +166,12 @@ input[type=file] { font-size: 13px; }
         <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
         CSV入出力
       </div>
+      
+      <div class="nav-item" onclick="openBomImportModal()" style="color:var(--info); font-weight:600; margin-top: 8px;">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+        一括BOM取込 (CSV)
+      </div>
+
       <div style="margin-top:auto;padding:8px 0;border-top:1px solid var(--border);margin-top:16px">
         <div style="padding:6px 10px;font-size:11px;color:var(--text3)">データはブラウザに自動保存</div>
         <div class="nav-item" onclick="resetToSample()" style="color:var(--danger);font-size:12px">
@@ -198,7 +191,6 @@ input[type=file] { font-size: 13px; }
   </div>
 </div>
 
-<!-- Modal Container -->
 <div id="modal-container"></div>
 
 <script>
@@ -212,52 +204,21 @@ const SAMPLE_DATA = {
     { id: 'P001', name: 'コンデンサ 100μF/25V', category: 'コンデンサ', maker: '日本ケミコン', cost: 45, price: 90, unit: '個', spec: '電解、径8mm', stock: 1000 },
     { id: 'P002', name: 'コンデンサ 10μF/50V', category: 'コンデンサ', maker: 'ELNA', cost: 38, price: 76, unit: '個', spec: '電解、径6.3mm', stock: 800 },
     { id: 'P003', name: 'LED 赤 3mm', category: 'LED', maker: '豊田合成', cost: 12, price: 25, unit: '個', spec: '標準輝度', stock: 5000 },
-    { id: 'P004', name: 'LED 緑 3mm', category: 'LED', maker: '豊田合成', cost: 12, price: 25, unit: '個', spec: '標準輝度', stock: 4500 },
-    { id: 'P005', name: 'LED 青 3mm', category: 'LED', maker: '豊田合成', cost: 18, price: 36, unit: '個', spec: '高輝度', stock: 3000 },
-    { id: 'P006', name: 'トランジスタ 2SC1815', category: 'トランジスタ', maker: '東芝', cost: 20, price: 40, unit: '個', spec: 'NPN 50V 150mA', stock: 2000 },
-    { id: 'P007', name: 'IC 74HC245', category: 'IC', maker: 'TI', cost: 55, price: 110, unit: '個', spec: 'バスバッファ', stock: 500 },
-    { id: 'P008', name: '抵抗 10kΩ 1/4W', category: '抵抗', maker: '太陽誘電', cost: 3, price: 7, unit: '個', spec: 'カーボン 5%', stock: 10000 },
-    { id: 'P009', name: '抵抗 1kΩ 1/4W', category: '抵抗', maker: '太陽誘電', cost: 3, price: 7, unit: '個', spec: 'カーボン 5%', stock: 9000 },
-    { id: 'P010', name: 'FET IRF540N', category: 'FET', maker: 'Infineon', cost: 85, price: 170, unit: '個', spec: 'N-ch 100V 33A', stock: 300 },
-    { id: 'P011', name: 'コネクタ 2P', category: 'コネクタ', maker: 'JST', cost: 25, price: 50, unit: '個', spec: 'XHコネクタ 2.5mm', stock: 2000 },
-    { id: 'P012', name: 'コネクタ 6P', category: 'コネクタ', maker: 'JST', cost: 40, price: 80, unit: '個', spec: 'XHコネクタ 2.5mm', stock: 1500 },
   ],
   products: [
     { id: 'M001', name: 'パチンコ機 A-100シリーズ', code: 'A100', desc: '最新液晶演出搭載モデル' },
-    { id: 'M002', name: 'パチスロ機 B-200シリーズ', code: 'B200', desc: '7セグ+液晶ハイブリッド' },
   ],
   boards: [
     { id: 'B001', productId: 'M001', name: '液晶演出基板 A', code: 'A100-LCD-01', desc: 'メイン液晶制御', version: 'v2.1' },
-    { id: 'B002', productId: 'M001', name: 'LED制御基板', code: 'A100-LED-01', desc: 'LEDマトリクス駆動', version: 'v1.3' },
-    { id: 'B003', productId: 'M002', name: '液晶演出基板 B', code: 'B200-LCD-01', desc: 'サブ液晶制御', version: 'v1.0' },
   ],
   bom: [
     { id: 'BOM001', boardId: 'B001', partId: 'P001', qty: 4, note: '電源デカップリング' },
-    { id: 'BOM002', boardId: 'B001', partId: 'P002', qty: 8, note: 'バイパスコン' },
-    { id: 'BOM003', boardId: 'B001', partId: 'P007', qty: 2, note: 'バスバッファ' },
-    { id: 'BOM004', boardId: 'B001', partId: 'P008', qty: 20, note: 'プルアップ' },
-    { id: 'BOM005', boardId: 'B001', partId: 'P011', qty: 3, note: '電源コネクタ' },
-    { id: 'BOM006', boardId: 'B001', partId: 'P012', qty: 2, note: '信号コネクタ' },
-    { id: 'BOM007', boardId: 'B002', partId: 'P003', qty: 24, note: '赤LED' },
-    { id: 'BOM008', boardId: 'B002', partId: 'P004', qty: 24, note: '緑LED' },
-    { id: 'BOM009', boardId: 'B002', partId: 'P005', qty: 12, note: '青LED（高輝度）' },
-    { id: 'BOM010', boardId: 'B002', partId: 'P006', qty: 8, note: 'LED駆動' },
-    { id: 'BOM011', boardId: 'B002', partId: 'P009', qty: 60, note: '電流制限抵抗' },
-    { id: 'BOM012', boardId: 'B002', partId: 'P010', qty: 4, note: '大電流スイッチ' },
-    { id: 'BOM013', boardId: 'B003', partId: 'P001', qty: 2, note: '電源' },
-    { id: 'BOM014', boardId: 'B003', partId: 'P007', qty: 1, note: 'バス' },
-    { id: 'BOM015', boardId: 'B003', partId: 'P008', qty: 10, note: 'プルアップ' },
   ],
-  priceHistory: [
-    { id: 'H001', partId: 'P001', date: '2024-01-01', oldPrice: 80, newPrice: 90, reason: '原材料値上げ対応' },
-    { id: 'H002', partId: 'P005', date: '2024-03-15', oldPrice: 30, newPrice: 36, reason: '半導体不足による価格改定' },
-    { id: 'H003', partId: 'P010', date: '2024-06-01', oldPrice: 150, newPrice: 170, reason: 'Infineon価格改定' },
-  ]
+  priceHistory: []
 };
 
 let db = { parts: [], products: [], boards: [], bom: [], priceHistory: [] };
 
-// ----- 保存・読込 -----
 function saveDB() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); } catch(e) { console.warn('保存失敗', e); }
 }
@@ -283,12 +244,7 @@ function resetToSample() {
   showPage('dashboard');
 }
 
-function genId(prefix) {
-  return prefix + Date.now().toString(36).toUpperCase();
-}
-
-// saveDB()を各更新操作の後に呼ぶラッパー
-const _origSavePart = typeof savePart === 'function' ? savePart : null;
+function genId(prefix) { return prefix + Date.now().toString(36).toUpperCase(); }
 
 // ============================
 // NAVIGATION
@@ -317,6 +273,198 @@ function showPage(page) {
   else if (page === 'pricing') renderPricing(content, tb);
   else if (page === 'csv') renderCSV(content, tb);
 }
+
+// ============================
+// MODAL SYSTEM (最も安定した表示方式)
+// ============================
+function showModal(html) {
+  const c = document.getElementById('modal-container');
+  c.innerHTML = `<div class="modal-overlay" onclick="if(event.target===this)closeModal()"><div class="modal">${html}</div></div>`;
+}
+function closeModal() { document.getElementById('modal-container').innerHTML = ''; }
+
+
+// ============================
+// ★ BOM 一括インポートロジック (CSV自動分解) ★
+// ============================
+let _bomCsvText = '';
+
+function openBomImportModal() {
+  _bomCsvText = '';
+  showModal(`
+    <div class="modal-header">
+      <h3>📥 一括BOMインポート</h3>
+      <button class="close-btn" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:13px;color:var(--text2);margin-bottom:16px;">
+        最終リスト形式のCSVファイルを選択すると、「機種」「基板」「部品」「BOM（構成）」の各マスタに自動でデータを分解して一括登録します。<br>
+        <span style="color:var(--danger);">※未登録のものは新規作成、登録済みのものは数量を上書きします。</span>
+      </p>
+      
+      <div style="border:2px dashed var(--border2);border-radius:8px;padding:30px;text-align:center;background:var(--surface2);margin-bottom:16px;cursor:pointer;"
+           onclick="document.getElementById('bom-csv-file').click()"
+           ondragover="event.preventDefault();this.style.borderColor='var(--accent)';"
+           ondragleave="this.style.borderColor='var(--border2)';"
+           ondrop="handleBomCsvDrop(event)">
+        <input type="file" id="bom-csv-file" accept=".csv" style="display:none;" onchange="handleBomCsvFile(event)">
+        <div style="font-size:24px; margin-bottom:8px;">📂</div>
+        <button class="btn btn-outline" style="pointer-events:none;">CSVファイルを選択</button>
+        <div id="bom-csv-filename" style="margin-top:12px;font-size:12px;color:var(--accent);font-weight:600;"></div>
+      </div>
+
+      <div id="bom-import-status" style="font-size:13px;min-height:40px;margin-bottom:10px;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">キャンセル</button>
+      <button class="btn btn-primary" onclick="executeBomImport()" id="bom-import-exec-btn" disabled>🚀 インポート実行</button>
+    </div>
+  `);
+}
+
+function handleBomCsvDrop(event) {
+  event.preventDefault();
+  event.currentTarget.style.borderColor='var(--border2)';
+  const file = event.dataTransfer.files[0];
+  if (file) _processBomCsvFile(file);
+}
+
+function handleBomCsvFile(event) {
+  const file = event.target.files[0];
+  if (file) _processBomCsvFile(file);
+}
+
+function _processBomCsvFile(file) {
+  document.getElementById('bom-csv-filename').textContent = '選択中: ' + file.name;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    _bomCsvText = e.target.result;
+    document.getElementById('bom-import-status').innerHTML = '<div class="alert alert-success">✓ 読み込み完了。インポートを実行してください。</div>';
+    document.getElementById('bom-import-exec-btn').disabled = false;
+  };
+  // ※日本語のCSV（Excel出力）で文字化けする場合は 'Shift_JIS'
+  reader.readAsText(file, 'Shift_JIS'); 
+}
+
+// 引用符の中のカンマを無視する安全なCSVパーサー
+function parseCSVLine(line) {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"' && line[i+1] === '"') {
+      current += '"'; i++;
+    } else if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === ',' && !inQuotes) {
+      result.push(current); current = '';
+    } else {
+      current += char;
+    }
+  }
+  result.push(current);
+  return result.map(s => s.trim());
+}
+
+function executeBomImport() {
+  if (!_bomCsvText) return;
+  
+  document.getElementById('bom-import-status').innerHTML = '<div class="loading"><div class="spinner"></div><br>データを分解・登録中...</div>';
+  document.getElementById('bom-import-exec-btn').disabled = true;
+
+  setTimeout(() => {
+    try {
+      const lines = _bomCsvText.split(/\r\n|\n/);
+      let addedProducts = 0, addedBoards = 0, addedParts = 0, updatedBom = 0;
+
+      // 1行目（ヘッダー）を飛ばすため i=1 からスタート
+      for (let i = 1; i < lines.length; i++) {
+        if (!lines[i].trim()) continue;
+        const row = parseCSVLine(lines[i]);
+        if (row.length < 11) continue;
+
+        // 【CSVのカラムマッピング設定】
+        const prodCode    = row[0]; // 0: 機種コード (例: A76)
+        const prodName    = row[1]; // 1: 機種名
+        const boardCode   = row[3]; // 3: 区分コード
+        const boardName   = row[4]; // 4: 基板名
+        const partCode    = row[5]; // 5: 品目コード (部品IDとして利用)
+        const partName    = row[6]; // 6: 品名
+        const makerPartNo = row[7]; // 7: メーカー品番
+        const maker       = row[9]; // 9: メーカー
+        const qty         = Number(row[10]) || 0; // 10: 数量
+        const note        = row.length > 15 ? row[15] : ''; // 15: コメント
+
+        if (!prodCode || !boardName || (!partCode && !partName)) continue;
+
+        // 1. 機種マスタの処理
+        let prod = db.products.find(p => p.code === prodCode);
+        if (!prod) {
+          prod = { id: genId('M'), name: prodName || prodCode, code: prodCode, desc: 'CSV自動作成' };
+          db.products.push(prod);
+          addedProducts++;
+        }
+
+        // 2. 基板マスタの処理
+        let board = db.boards.find(b => b.name === boardName && b.productId === prod.id);
+        if (!board) {
+          board = { id: genId('B'), productId: prod.id, name: boardName, code: boardCode, desc: '', version: '' };
+          db.boards.push(board);
+          addedBoards++;
+        }
+
+        // 3. 部品マスタの処理
+        let pId = partCode || genId('P'); // 品目コードがあればIDに
+        let part = db.parts.find(p => p.id === pId || p.spec === makerPartNo);
+        if (!part) {
+          part = { 
+            id: pId, name: partName, category: '電子部品', maker: maker, 
+            cost: 0, price: 0, unit: '個', spec: makerPartNo, stock: 0 
+          };
+          db.parts.push(part);
+          addedParts++;
+        } else {
+          pId = part.id;
+        }
+
+        // 4. BOMの処理
+        let bomItem = db.bom.find(b => b.boardId === board.id && b.partId === part.id);
+        if (bomItem) {
+          bomItem.qty = qty;
+          if (note) bomItem.note = note;
+        } else {
+          db.bom.push({ id: genId('BOM'), boardId: board.id, partId: part.id, qty: qty, note: note });
+        }
+        updatedBom++;
+      }
+
+      saveDB();
+
+      document.getElementById('bom-import-status').innerHTML = `
+        <div class="alert alert-success">
+          <strong>✓ インポート完了！</strong><br>
+          <ul style="margin-top:8px; margin-left:20px; font-size:12px;">
+            <li>追加機種: ${addedProducts}</li>
+            <li>追加基板: ${addedBoards}</li>
+            <li>追加部品: ${addedParts}</li>
+            <li>BOM更新: ${updatedBom} 件</li>
+          </ul>
+        </div>
+      `;
+      
+      setTimeout(() => {
+        closeModal();
+        showPage('dashboard');
+      }, 3000);
+
+    } catch (e) {
+      document.getElementById('bom-import-status').innerHTML = `<div class="alert alert-warn">✗ 処理エラー: ${e.message}</div>`;
+      document.getElementById('bom-import-exec-btn').disabled = false;
+    }
+  }, 100);
+}
+
 
 // ============================
 // DASHBOARD
@@ -396,32 +544,6 @@ function renderDashboard(el, tb) {
         </table>
       </div>
     </div>
-
-    <div class="card">
-      <div class="card-title">📋 最近の価格改定</div>
-      ${db.priceHistory.length === 0 ? '<div class="empty-state"><p>価格改定履歴がありません</p></div>' : `
-      <div class="tbl-wrap">
-        <table>
-          <thead><tr><th>日付</th><th>部品</th><th>旧売値</th><th>新売値</th><th>変動</th><th>理由</th></tr></thead>
-          <tbody>
-            ${db.priceHistory.slice().reverse().map(h => {
-              const part = db.parts.find(p => p.id === h.partId);
-              const diff = h.newPrice - h.oldPrice;
-              const pct = ((diff / h.oldPrice) * 100).toFixed(1);
-              const cls = diff > 0 ? 'price-diff-pos' : diff < 0 ? 'price-diff-neg' : 'price-diff-zero';
-              return `<tr>
-                <td>${h.date}</td>
-                <td>${part ? part.name : h.partId}</td>
-                <td class="num">¥${h.oldPrice.toLocaleString()}</td>
-                <td class="num">¥${h.newPrice.toLocaleString()}</td>
-                <td class="num ${cls}">${diff > 0 ? '+' : ''}${diff} (${diff > 0 ? '+' : ''}${pct}%)</td>
-                <td style="color:var(--text2)">${h.reason}</td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table>
-      </div>`}
-    </div>
   `;
 }
 
@@ -470,7 +592,7 @@ function renderParts(el, tb) {
           <tbody>
             ${filtered.length === 0 ? `<tr><td colspan="9"><div class="empty-state"><p>部品が見つかりません</p></div></td></tr>` :
             filtered.map(p => {
-              const margin = ((p.price - p.cost) / p.price * 100).toFixed(1);
+              const margin = p.price > 0 ? ((p.price - p.cost) / p.price * 100).toFixed(1) : 0;
               const mCls = parseFloat(margin) >= 40 ? 'profit-high' : parseFloat(margin) >= 20 ? 'profit-mid' : 'profit-low';
               return `<tr>
                 <td><code style="font-size:12px;background:var(--surface2);padding:1px 5px;border-radius:4px">${p.id}</code></td>
@@ -538,7 +660,7 @@ function openPartModal(partId) {
       <div class="form-row">
         <div class="form-group">
           <label>原価 (¥)</label>
-          <input type="number" id="f-cost" value="${part ? part.cost : ''}" placeholder="45" min="0">
+          <input type="number" id="f-cost" value="${part ? part.cost : ''}" placeholder="45" min="0" oninput="calcMarginPreview()">
         </div>
         <div class="form-group">
           <label>売値 (¥)</label>
@@ -556,7 +678,6 @@ function openPartModal(partId) {
     </div>
   `);
   calcMarginPreview();
-  document.getElementById('f-cost').addEventListener('input', calcMarginPreview);
 }
 
 function calcMarginPreview() {
@@ -595,286 +716,6 @@ function savePart(partId) {
   saveDB();
   closeModal();
   renderParts(document.getElementById('content'), document.getElementById('topbar-actions'));
-}
-
-// ============================
-// 部品マスタ カスタムCSVインポート
-// ============================
-
-// 保存済みマッピング設定
-let csvMappingProfiles = JSON.parse(localStorage.getItem('bom_csv_profiles') || '[]');
-if (!csvMappingProfiles.length) {
-  csvMappingProfiles = [
-    { name: '標準フォーマット', sep: ',', encoding: 'UTF-8', skipRows: 1, mapping: { id:'id', name:'name', category:'category', maker:'maker', unit:'unit', spec:'spec', cost:'cost', price:'price' } },
-    { name: '仕入先A形式', sep: ',', encoding: 'UTF-8', skipRows: 2, mapping: { id:'品番', name:'品名', category:'種別', maker:'メーカー', unit:'単位', spec:'規格', cost:'仕入価格', price:'' } },
-  ];
-  saveMappingProfiles();
-}
-function saveMappingProfiles() {
-  localStorage.setItem('bom_csv_profiles', JSON.stringify(csvMappingProfiles));
-}
-
-const BOM_FIELDS = [
-  { key: 'id',       label: '部品ID',   required: true },
-  { key: 'name',     label: '部品名',   required: true },
-  { key: 'category', label: 'カテゴリ', required: false },
-  { key: 'maker',    label: 'メーカー', required: false },
-  { key: 'unit',     label: '単位',     required: false },
-  { key: 'spec',     label: '仕様',     required: false },
-  { key: 'cost',     label: '原価',     required: false },
-  { key: 'price',    label: '売値',     required: false },
-];
-
-let csvImportState = {
-  rawText: '',
-  headers: [],
-  preview: [],
-  profileIdx: 0,
-  step: 1  // 1=ファイル読込 2=マッピング設定 3=プレビュー・確認
-};
-
-function openPartsCSVImportModal() {
-  csvImportState = { rawText: '', headers: [], preview: [], profileIdx: 0, step: 1 };
-  renderCSVImportModal();
-}
-
-function renderCSVImportModal() {
-  const s = csvImportState;
-  const profile = csvMappingProfiles[s.profileIdx] || csvMappingProfiles[0];
-
-  const stepBar = (n, label) => {
-    const active = s.step === n;
-    const done = s.step > n;
-    const col = done ? 'var(--accent)' : active ? 'var(--info)' : 'var(--text3)';
-    return `<div style="display:flex;align-items:center;gap:6px;font-size:12px;color:${col};font-weight:${active?600:400}">
-      <div style="width:22px;height:22px;border-radius:50%;border:2px solid ${col};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700">${done?'✓':n}</div>${label}</div>`;
-  };
-
-  let body = '';
-
-  // STEP 1: ファイル読込・プロファイル選択
-  if (s.step === 1) {
-    body = `
-      <div class="form-row" style="margin-bottom:8px">
-        <div class="form-group">
-          <label>マッピングプロファイル</label>
-          <select id="ci-profile" onchange="csvImportState.profileIdx=parseInt(this.value);renderCSVImportModal()">
-            ${csvMappingProfiles.map((p,i) => `<option value="${i}" ${s.profileIdx===i?'selected':''}>${p.name}</option>`).join('')}
-          </select>
-        </div>
-        <div class="form-group" style="max-width:90px">
-          <label>区切り文字</label>
-          <select id="ci-sep">
-            <option value="," ${profile.sep===','?'selected':''}>カンマ(,)</option>
-            <option value="	" ${profile.sep==='\t'?'selected':''}>タブ</option>
-            <option value=";" ${profile.sep===';'?'selected':''}>セミコロン(;)</option>
-          </select>
-        </div>
-        <div class="form-group" style="max-width:100px">
-          <label>スキップ行数</label>
-          <input type="number" id="ci-skip" value="${profile.skipRows}" min="0" max="10" placeholder="1">
-        </div>
-      </div>
-      <div class="form-group" style="margin-bottom:12px">
-        <label>CSVファイルを選択 または テキストを貼り付け</label>
-        <input type="file" id="ci-file" accept=".csv,.txt" onchange="loadCSVImportFile()" style="margin-bottom:8px">
-        <textarea id="ci-text" style="width:100%;min-height:140px;font-family:monospace;font-size:12px;padding:8px;border:1px solid var(--border2);border-radius:var(--radius)" placeholder="CSVデータをここに貼り付け...&#10;例：&#10;P013,部品名,カテゴリ,メーカー,個,仕様,100,200">${s.rawText}</textarea>
-      </div>
-      <div class="alert alert-info" style="font-size:12px">
-        ヘッダー行がない場合はスキップ行数を0にしてください。マッピングは次のステップで設定します。
-      </div>
-    `;
-  }
-
-  // STEP 2: マッピング設定
-  if (s.step === 2) {
-    body = `
-      <div style="margin-bottom:12px">
-        <div style="font-size:12px;color:var(--text2);margin-bottom:6px">CSVの列ヘッダー: ${s.headers.map(h=>`<span class="tag">${h||'(空)'}</span>`).join(' ')}</div>
-        <div style="font-size:12px;color:var(--text3)">プレビュー(2行): ${s.preview.slice(0,2).map(r=>r.join(',')).join(' / ')}</div>
-      </div>
-      <div class="section-title">列マッピング設定</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
-        ${BOM_FIELDS.map(f => {
-          const colOpts = ['（マッピングなし）', ...s.headers, ...Array.from({length:Math.max(0,s.preview[0]?.length||0)},(_,i)=>`列${i+1}`)];
-          const curVal = profile.mapping[f.key] || '';
-          return `<div style="display:flex;align-items:center;gap:8px;padding:6px;background:var(--surface2);border-radius:var(--radius)">
-            <div style="min-width:70px;font-size:12px;font-weight:600">${f.label}${f.required?' <span style="color:var(--danger)">*</span>':''}</div>
-            <select id="map-${f.key}" style="flex:1;font-size:12px;padding:4px 6px;border:1px solid var(--border2);border-radius:4px;font-family:inherit">
-              <option value="">-- なし --</option>
-              ${s.headers.map((h,i) => `<option value="${h}" ${(curVal===h||(!curVal&&h===f.key))?'selected':''}>${h} (列${i+1})</option>`).join('')}
-            </select>
-          </div>`;
-        }).join('')}
-      </div>
-      <div style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface2);border-radius:var(--radius)">
-        <input type="text" id="ci-profile-save-name" placeholder="このマッピングをプロファイル名で保存..." style="flex:1;font-size:12px;padding:6px 8px;border:1px solid var(--border2);border-radius:4px;font-family:inherit">
-        <button class="btn btn-outline btn-sm" onclick="saveCurrentMapping()">保存</button>
-      </div>
-    `;
-  }
-
-  // STEP 3: プレビュー確認
-  if (s.step === 3) {
-    const mapped = getMappedRows();
-    body = `
-      <div class="alert ${mapped.errors.length?'alert-warn':'alert-success'}" style="margin-bottom:12px;font-size:12px">
-        変換結果: 有効 ${mapped.rows.length}件 / エラー ${mapped.errors.length}件
-        ${mapped.errors.length ? '<br>' + mapped.errors.slice(0,5).join('<br>') : ''}
-      </div>
-      <div class="tbl-wrap" style="max-height:260px;overflow-y:auto">
-        <table style="font-size:12px">
-          <thead><tr><th>部品ID</th><th>部品名</th><th>カテゴリ</th><th>メーカー</th><th>単位</th><th>原価</th><th>売値</th><th>状態</th></tr></thead>
-          <tbody>
-            ${mapped.rows.slice(0,50).map(r => {
-              const exists = db.parts.find(p => p.id === r.id);
-              return `<tr>
-                <td><code style="font-size:11px">${r.id}</code></td>
-                <td>${r.name}</td>
-                <td>${r.category||''}</td>
-                <td>${r.maker||''}</td>
-                <td>${r.unit||'個'}</td>
-                <td>¥${r.cost||0}</td>
-                <td>¥${r.price||0}</td>
-                <td>${exists ? '<span class="badge badge-orange">上書き更新</span>' : '<span class="badge badge-green">新規追加</span>'}</td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table>
-      </div>
-      ${mapped.rows.length > 50 ? `<div style="font-size:12px;color:var(--text3);margin-top:6px">... 他 ${mapped.rows.length-50}件</div>` : ''}
-    `;
-  }
-
-  showModal(`
-    <div class="modal-header">
-      <h3>部品CSVインポート</h3>
-      <button class="close-btn" onclick="closeModal()">×</button>
-    </div>
-    <div class="modal-body">
-      <div style="display:flex;gap:16px;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)">
-        ${stepBar(1,'ファイル読込')}
-        <div style="flex:1;height:1px;background:var(--border);margin-top:11px"></div>
-        ${stepBar(2,'列マッピング')}
-        <div style="flex:1;height:1px;background:var(--border);margin-top:11px"></div>
-        ${stepBar(3,'確認・実行')}
-      </div>
-      ${body}
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-outline" onclick="closeModal()">キャンセル</button>
-      ${s.step > 1 ? `<button class="btn btn-outline" onclick="csvImportState.step--;renderCSVImportModal()">← 戻る</button>` : ''}
-      ${s.step < 3 ? `<button class="btn btn-primary" onclick="csvImportNext()">次へ →</button>` : ''}
-      ${s.step === 3 ? `<button class="btn btn-primary" onclick="executeCSVImport()">✓ インポート実行</button>` : ''}
-    </div>
-  `);
-}
-
-function loadCSVImportFile() {
-  const file = document.getElementById('ci-file')?.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = e => { document.getElementById('ci-text').value = e.target.result; };
-  reader.readAsText(file, 'UTF-8');
-}
-
-function csvImportNext() {
-  const s = csvImportState;
-  if (s.step === 1) {
-    const text = document.getElementById('ci-text')?.value || '';
-    const sep = document.getElementById('ci-sep')?.value || ',';
-    const skip = parseInt(document.getElementById('ci-skip')?.value || '1');
-    if (!text.trim()) { alert('CSVデータを入力してください'); return; }
-
-    // プロファイル更新
-    const idx = s.profileIdx;
-    csvMappingProfiles[idx] = { ...csvMappingProfiles[idx], sep, skipRows: skip };
-    saveMappingProfiles();
-
-    const lines = text.trim().split('\n').map(l => l.trim()).filter(Boolean);
-    const headerLine = skip > 0 ? lines[skip - 1] : null;
-    s.headers = headerLine ? headerLine.split(sep).map(h => h.replace(/^"|"$/g,'').trim()) : Array.from({length:(lines[skip]||'').split(sep).length},(_,i)=>`列${i+1}`);
-    s.preview = lines.slice(skip, skip+3).map(l => l.split(sep).map(v=>v.replace(/^"|"$/g,'').trim()));
-    s.rawLines = lines.slice(skip);
-    s.rawText = text;
-    s.sep = sep;
-    s.step = 2;
-  } else if (s.step === 2) {
-    s.step = 3;
-    // 現在のマッピングをプロファイルに保存
-    const mapping = {};
-    BOM_FIELDS.forEach(f => { mapping[f.key] = document.getElementById('map-'+f.key)?.value || ''; });
-    csvMappingProfiles[s.profileIdx].mapping = mapping;
-    saveMappingProfiles();
-  }
-  renderCSVImportModal();
-}
-
-function saveCurrentMapping() {
-  const name = document.getElementById('ci-profile-save-name')?.value?.trim();
-  if (!name) { alert('プロファイル名を入力してください'); return; }
-  const mapping = {};
-  BOM_FIELDS.forEach(f => { mapping[f.key] = document.getElementById('map-'+f.key)?.value || ''; });
-  const sep = csvMappingProfiles[csvImportState.profileIdx]?.sep || ',';
-  const skipRows = csvMappingProfiles[csvImportState.profileIdx]?.skipRows || 1;
-  const existing = csvMappingProfiles.findIndex(p => p.name === name);
-  if (existing >= 0) {
-    csvMappingProfiles[existing] = { name, sep, skipRows, mapping };
-    csvImportState.profileIdx = existing;
-  } else {
-    csvMappingProfiles.push({ name, sep, skipRows, mapping });
-    csvImportState.profileIdx = csvMappingProfiles.length - 1;
-  }
-  saveMappingProfiles();
-  alert(`プロファイル「${name}」を保存しました`);
-}
-
-function getMappedRows() {
-  const s = csvImportState;
-  const profile = csvMappingProfiles[s.profileIdx] || csvMappingProfiles[0];
-  const mapping = profile.mapping;
-  const rows = [], errors = [];
-
-  (s.rawLines || []).forEach((line, i) => {
-    const vals = line.split(s.sep || ',').map(v => v.replace(/^"|"$/g,'').trim());
-    const get = (key) => {
-      const col = mapping[key] || '';
-      if (!col) return '';
-      const hi = s.headers.indexOf(col);
-      if (hi >= 0) return vals[hi] || '';
-      const colNum = col.match(/^列(\d+)$/);
-      if (colNum) return vals[parseInt(colNum[1])-1] || '';
-      return '';
-    };
-    const id = get('id');
-    const name = get('name');
-    if (!id || !name) { errors.push(`行${i+1}: IDまたは部品名が空`); return; }
-    rows.push({
-      id, name,
-      category: get('category'),
-      maker: get('maker'),
-      unit: get('unit') || '個',
-      spec: get('spec'),
-      cost: parseFloat(get('cost')) || 0,
-      price: parseFloat(get('price')) || 0,
-      stock: 0
-    });
-  });
-  return { rows, errors };
-}
-
-function executeCSVImport() {
-  const { rows, errors } = getMappedRows();
-  let added = 0, updated = 0;
-  rows.forEach(data => {
-    const idx = db.parts.findIndex(p => p.id === data.id);
-    if (idx >= 0) { db.parts[idx] = { ...db.parts[idx], ...data }; updated++; }
-    else { db.parts.push(data); added++; }
-  });
-  saveDB();
-  closeModal();
-  renderParts(document.getElementById('content'), document.getElementById('topbar-actions'));
-  setTimeout(() => alert(`インポート完了\n新規追加: ${added}件\n上書き更新: ${updated}件${errors.length?'\nエラー: '+errors.length+'件':''}`), 100);
 }
 
 function deletePart(id) {
@@ -1264,8 +1105,6 @@ function deleteBOM(id) {
 function renderPricing(el, tb) {
   tb.innerHTML = `<button class="btn btn-primary" onclick="openPriceUpdateModal()">💴 価格一括更新</button>`;
 
-  const partsWithBOM = db.parts.filter(p => db.bom.some(b => b.partId === p.id));
-
   el.innerHTML = `
     <div class="card" style="margin-bottom:16px">
       <div class="card-title">💴 部品売値一覧（値上げ管理）</div>
@@ -1307,7 +1146,6 @@ function renderPricing(el, tb) {
         </table>
       </div>
     </div>
-
     <div class="card">
       <div class="card-title">📋 価格改定履歴</div>
       ${db.priceHistory.length === 0 ? '<div class="empty-state"><p>価格改定履歴がありません</p></div>' : `
@@ -1510,41 +1348,6 @@ function renderCSV(el, tb) {
   el.innerHTML = `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
       <div class="card">
-        <div class="card-title">📥 CSVインポート</div>
-        <div class="tabs" id="import-tabs">
-          <div class="tab active" onclick="switchImportTab('parts')">部品マスタ</div>
-          <div class="tab" onclick="switchImportTab('bom')">BOM</div>
-        </div>
-        <div id="import-parts-area">
-          <div class="alert alert-info" style="margin-bottom:12px">1行目はヘッダー行です。既存IDは上書き更新されます。</div>
-          <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px">CSVフォーマット（部品マスタ）:</div>
-          <div class="csv-area">id,name,category,maker,unit,spec,cost,price
-P013,コンデンサ 47μF,コンデンサ,日本ケミコン,個,電解,35,70
-P014,抵抗 100Ω,抵抗,太陽誘電,個,1/4W 5%,3,7</div>
-          <div class="section-title" style="margin-top:16px">CSVを貼り付けるか、ファイルを選択</div>
-          <textarea class="csv-input form-group input" id="csv-parts-text" style="width:100%;margin-bottom:8px" placeholder="CSVデータを貼り付け..."></textarea>
-          <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
-            <input type="file" id="csv-parts-file" accept=".csv" onchange="loadCSVFile('parts')">
-          </div>
-          <button class="btn btn-primary" onclick="importCSV('parts')">インポート実行</button>
-          <div id="import-parts-result" style="margin-top:10px"></div>
-        </div>
-        <div id="import-bom-area" class="hidden">
-          <div class="alert alert-info" style="margin-bottom:12px">boardId（基板ID）とpartIdを指定します。</div>
-          <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px">CSVフォーマット（BOM）:</div>
-          <div class="csv-area">boardId,partId,qty,note
-B001,P013,6,追加デカップリング
-B002,P014,10,新規抵抗</div>
-          <textarea class="csv-input form-group input" id="csv-bom-text" style="width:100%;margin-bottom:8px;margin-top:12px" placeholder="CSVデータを貼り付け..."></textarea>
-          <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">
-            <input type="file" id="csv-bom-file" accept=".csv" onchange="loadCSVFile('bom')">
-          </div>
-          <button class="btn btn-primary" onclick="importCSV('bom')">インポート実行</button>
-          <div id="import-bom-result" style="margin-top:10px"></div>
-        </div>
-      </div>
-
-      <div class="card">
         <div class="card-title">📤 CSVエクスポート</div>
         <div style="display:flex;flex-direction:column;gap:10px">
           <div style="padding:14px;border:1px solid var(--border);border-radius:var(--radius);display:flex;justify-content:space-between;align-items:center">
@@ -1589,74 +1392,6 @@ B002,P014,10,新規抵抗</div>
     </div>
   `;
   updateCSVPreview();
-}
-
-let currentImportTab = 'parts';
-function switchImportTab(tab) {
-  currentImportTab = tab;
-  document.querySelectorAll('#import-tabs .tab').forEach((t, i) => {
-    t.classList.toggle('active', (i === 0 && tab === 'parts') || (i === 1 && tab === 'bom'));
-  });
-  document.getElementById('import-parts-area').classList.toggle('hidden', tab !== 'parts');
-  document.getElementById('import-bom-area').classList.toggle('hidden', tab !== 'bom');
-}
-
-function loadCSVFile(type) {
-  const file = document.getElementById(`csv-${type}-file`).files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = e => { document.getElementById(`csv-${type}-text`).value = e.target.result; };
-  reader.readAsText(file, 'UTF-8');
-}
-
-function parseCSV(text) {
-  const lines = text.trim().split('\n').map(l => l.trim()).filter(Boolean);
-  if (lines.length < 2) return [];
-  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
-  return lines.slice(1).map(line => {
-    const vals = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
-    const obj = {};
-    headers.forEach((h, i) => obj[h] = vals[i] || '');
-    return obj;
-  });
-}
-
-function importCSV(type) {
-  const text = document.getElementById(`csv-${type}-text`).value;
-  const rows = parseCSV(text);
-  const resultEl = document.getElementById(`import-${type}-result`);
-  if (!rows.length) { resultEl.innerHTML = '<div class="alert alert-warn">データが空です</div>'; return; }
-  let added = 0, updated = 0, errors = [];
-
-  if (type === 'parts') {
-    rows.forEach((row, i) => {
-      if (!row.id || !row.name) { errors.push(`行${i+2}: idとnameは必須`); return; }
-      const data = {
-        id: row.id, name: row.name, category: row.category || '',
-        maker: row.maker || '', unit: row.unit || '個',
-        spec: row.spec || '', cost: parseFloat(row.cost) || 0,
-        price: parseFloat(row.price) || 0, stock: 0
-      };
-      const idx = db.parts.findIndex(p => p.id === row.id);
-      if (idx >= 0) { db.parts[idx] = { ...db.parts[idx], ...data }; updated++; }
-      else { db.parts.push(data); added++; }
-    });
-  } else {
-    rows.forEach((row, i) => {
-      if (!row.boardId || !row.partId) { errors.push(`行${i+2}: boardIdとpartIdは必須`); return; }
-      if (!db.boards.find(b => b.id === row.boardId)) { errors.push(`行${i+2}: 基板ID ${row.boardId} が存在しません`); return; }
-      if (!db.parts.find(p => p.id === row.partId)) { errors.push(`行${i+2}: 部品ID ${row.partId} が存在しません`); return; }
-      const existing = db.bom.findIndex(x => x.boardId === row.boardId && x.partId === row.partId);
-      const data = { boardId: row.boardId, partId: row.partId, qty: parseInt(row.qty) || 1, note: row.note || '' };
-      if (existing >= 0) { db.bom[existing] = { ...db.bom[existing], ...data }; updated++; }
-      else { db.bom.push({ id: genId('BOM'), ...data }); added++; }
-    });
-  }
-
-  let html = `<div class="alert alert-success">追加: ${added}件 | 更新: ${updated}件</div>`;
-  if (errors.length) html += `<div class="alert alert-warn">エラー:<br>${errors.join('<br>')}</div>`;
-  resultEl.innerHTML = html;
-  saveDB();
 }
 
 function generateCSV(type) {
@@ -1716,17 +1451,6 @@ function exportCSV(type) {
 }
 
 // ============================
-// MODAL
-// ============================
-function showModal(html) {
-  const c = document.getElementById('modal-container');
-  c.innerHTML = `<div class="modal-overlay" onclick="if(event.target===this)closeModal()"><div class="modal">${html}</div></div>`;
-}
-function closeModal() {
-  document.getElementById('modal-container').innerHTML = '';
-}
-
-// ============================
 // INIT
 // ============================
 const loaded = loadDB();
@@ -1736,6 +1460,5 @@ if (!loaded) {
 }
 showPage('dashboard');
 </script>
-<?!= include('js'); ?>
 </body>
 </html>
