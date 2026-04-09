@@ -119,6 +119,7 @@ function _updateSummary() {
   document.getElementById('sum-amount').textContent = tot.toLocaleString();
 }
 
+// ★ 注文書一覧テーブルの描画（削除ボタン追加）
 function _renderTable() {
   const start = (S.page-1)*S.limit;
   const data  = S.filtered.slice(start, start+S.limit);
@@ -151,13 +152,16 @@ function _renderTable() {
         ${r.orderPdfUrl?`<a class="pdf-link" href="${r.orderPdfUrl}" target="_blank" onclick="event.stopPropagation()">発注</a>`:''}
         ${r.driveFolderUrl?`<br><a class="pdf-link" href="${r.driveFolderUrl}" target="_blank" onclick="event.stopPropagation()">📁</a>`:''}
       </td>
+      <td style="text-align:center; white-space:nowrap;">
+        <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteMgmt('${r.id}', '${(r.orderNo||r.quoteNo||'').replace(/'/g,'')}')">🗑️ 削除</button>
+      </td>
     </tr>`).join('');
 
   document.getElementById('table-container').innerHTML = `
     <table>
       <thead><tr>
         <th>管理ID</th><th>発注書番号</th><th>発注伝票No</th><th>機種</th><th>顧客名</th>
-        <th>ステータス</th><th>種別</th><th>発注日</th><th>納期</th><th>注文金額</th><th>PDF/フォルダ</th>
+        <th>ステータス</th><th>種別</th><th>発注日</th><th>納期</th><th>注文金額</th><th>PDF/フォルダ</th><th>操作</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
@@ -515,7 +519,7 @@ function _buildQuoteDetailHtml(res) {
   const lines = res.quoteLines || [];
   const issueDate   = lines.length ? (lines[0].issueDate   || m.quoteDate || '—') : (m.quoteDate || '—');
   const destCompany = lines.length ? (lines[0].destCompany || m.client    || '—') : (m.client    || '—');
-  const destPerson  = lines.length ? (lines[0].destPerson  || '—')               : '—';
+  const destPerson  = lines.length ? (lines[0].destPerson  || '—')                : '—';
   const pdfUrl      = lines.length ? lines[0].pdfUrl : m.quotePdfUrl;
 
   const infoRows = [
@@ -626,6 +630,7 @@ function clearQuoteFilter() {
   _renderQuoteTable();
 }
 
+// ★ 見積書一覧テーブルの描画（削除ボタン追加）
 function _renderQuoteTable() {
   const start = (_quotePage - 1) * _quoteLimit;
   const data  = _filteredQuotes.slice(start, start + _quoteLimit);
@@ -662,6 +667,9 @@ function _renderQuoteTable() {
           ? '<a class="pdf-link" href="' + r.quotePdfUrl + '" target="_blank" onclick="event.stopPropagation()">📄 PDF</a>'
           : ''}
       </td>
+      <td style="text-align:center; white-space:nowrap;">
+        <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteMgmt('${r.id}', '${(r.quoteNo||'').replace(/'/g,'')}')">🗑️ 削除</button>
+      </td>
     </tr>`).join('');
 
   document.getElementById('quotelist-container').innerHTML = `
@@ -675,6 +683,7 @@ function _renderQuoteTable() {
         <th>ステータス</th>
         <th>紐づけ状況</th>
         <th>PDF</th>
+        <th>操作</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
@@ -944,15 +953,15 @@ function _renderLedgerTree(items) {
                   </tr>
                 </thead>
                 <tbody>`;
-
-        modelItems.forEach(r => {
+modelItems.forEach(r => {
           const safeId  = r.ledgerId.replace(/'/g, "\\'");
           const amtStr  = r.amount != null && r.amount !== '' ? '¥' + Number(r.amount).toLocaleString() : '—';
           const fileCell = r.saveUrl
             ? `<a href="${r.saveUrl}" target="_blank" class="pdf-link" onclick="event.stopPropagation()">📎 開く</a>`
             : '<span style="color:var(--text-sub);font-size:11px;">なし</span>';
           html += `
-                  <tr style="border-bottom:1px solid #f0f0f0;"
+                  <tr style="border-bottom:1px solid #f0f0f0; cursor:pointer;"
+                      onclick="openLedgerModal('${safeId}')"
                       onmouseenter="this.style.background='#f8f9fa'" onmouseleave="this.style.background=''">
                     <td style="padding:7px 10px 7px 50px;font-family:monospace;font-size:12px;color:var(--primary);white-space:nowrap;">${r.quoteNo || '—'}</td>
                     <td style="padding:7px 8px;font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.subject || ''}">${r.subject || '—'}</td>
@@ -963,8 +972,8 @@ function _renderLedgerTree(items) {
                     <td style="padding:7px 8px;"><span class="badge badge-${LEDGER_STATUS_BADGE[r.status] || 'planned'}" style="font-size:10px;">${r.status || '—'}</span></td>
                     <td style="padding:7px 8px;">${fileCell}</td>
                     <td style="padding:7px 8px;white-space:nowrap;">
-                      <button class="btn btn-outline btn-sm" onclick="openLedgerModal('${safeId}')" style="padding:3px 7px;">✏️</button>
-                      <button class="btn btn-danger btn-sm"  onclick="deleteLedger('${safeId}')"   style="padding:3px 7px;margin-left:2px;">🗑️</button>
+                      <button class="btn btn-outline btn-sm" onclick="event.stopPropagation(); openLedgerModal('${safeId}')" style="padding:3px 7px;">✏️</button>
+                      <button class="btn btn-danger btn-sm"  onclick="event.stopPropagation(); deleteLedger('${safeId}')"   style="padding:3px 7px;margin-left:2px;">🗑️</button>
                     </td>
                   </tr>`;
         });

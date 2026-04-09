@@ -695,7 +695,77 @@ function _apiDriveDeleteFile(p) {
 }
 
 function _apiGetQuoteDetail(p) {
-  // すでに実装済み
+  try {
+    if (!p || !p.mgmtId) return { success: false, error: '管理IDが必要です' };
+
+    var ss = getSpreadsheet();
+    var mgmtData = getAllMgmtData();
+
+    // 管理シートから対象行を取得
+    var targetRow = mgmtData.find(function(r) {
+      return String(r[MGMT_COLS.ID - 1]) === String(p.mgmtId);
+    });
+    if (!targetRow) return { success: false, error: '管理IDが見つかりません: ' + p.mgmtId };
+
+    var quoteNo = String(targetRow[MGMT_COLS.QUOTE_NO - 1] || '').trim();
+
+    // 同じ見積番号を持つ全管理IDを収集
+    var relatedIds = [String(p.mgmtId)];
+    if (quoteNo) {
+      mgmtData.forEach(function(r) {
+        var id = String(r[MGMT_COLS.ID - 1] || '');
+        if (id === String(p.mgmtId)) return;
+        if (String(r[MGMT_COLS.QUOTE_NO - 1] || '').trim() === quoteNo) {
+          relatedIds.push(id);
+        }
+      });
+    }
+
+    // 管理シートの情報をオブジェクト化
+    var mgmt = _rowToObject(targetRow);
+
+    // 見積書明細シートから取得
+    var quoteSheet = ss.getSheetByName(CONFIG.SHEET_QUOTES);
+    var quoteLines = [];
+    if (quoteSheet && quoteSheet.getLastRow() > 1) {
+      var qData = quoteSheet.getRange(2, 1, quoteSheet.getLastRow() - 1, 15).getValues();
+      var seen = {};
+      qData.filter(function(r) {
+        return relatedIds.indexOf(String(r[0])) >= 0;
+      }).forEach(function(r) {
+        var key = [r[6], r[7], r[8], r[10]].join('|');
+        if (seen[key]) return;
+        seen[key] = true;
+        quoteLines.push({
+          mgmtId:     String(r[0]),
+          quoteNo:    String(r[1] || ''),
+          issueDate:  _toDateStr(r[2]),
+          destCompany:String(r[3] || ''),
+          destPerson: String(r[4] || ''),
+          lineNo:     r[5],
+          itemName:   String(r[6] || ''),
+          spec:       String(r[7] || ''),
+          qty:        r[8],
+          unit:       String(r[9] || ''),
+          unitPrice:  r[10],
+          amount:     r[11],
+          remarks:    String(r[12] || ''),
+          pdfUrl:     String(r[13] || ''),
+          folderUrl:  String(r[14] || ''),
+        });
+      });
+    }
+
+    return {
+      success:    true,
+      mgmt:       mgmt,
+      quoteLines: quoteLines,
+    };
+
+  } catch(e) {
+    Logger.log('[GET QUOTE DETAIL ERROR] ' + e.message + '\n' + e.stack);
+    return { success: false, error: e.message };
+  }
 }
 
 // ===== 紐づけ API =====

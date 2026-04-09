@@ -222,14 +222,7 @@ tbody tr:hover{background:#f8f9fa;cursor:pointer;}
       </div>
     </div>
     <? if (isAdmin) { ?>
-    <div class="dropdown">
-      <button class="nav-btn">🏭 製造・原価管理 ▼</button>
-      <div class="dropdown-content">
-        <a onclick="showPage('board')">🔬 基板構成 (DB・BOM)</a>
-        <a onclick="showPage('parts')">💴 部品原価マスタ (仕入価格設定)</a>
-        <a onclick="showPage('analysis')">📊 機種別 分析レポート</a>
-      </div>
-    </div>
+    <button class="nav-btn" onclick="window.open('https://script.google.com/a/sun-denshi.co.jp/macros/s/AKfycbxk-6hM0VDR-iWToBvOhuaEd6pZcZTXW53tXZUzHl7AucIWvRgt-S_gTpFd1foRSf5Ung/exec?page=bom','_blank')">🏭 BOM・原価管理 ↗</button>
     <button class="nav-btn" onclick="showPage('admin')">⚙️ 管理コンソール・システム設定</button>
     <? } ?>
   </div>
@@ -237,7 +230,7 @@ tbody tr:hover{background:#f8f9fa;cursor:pointer;}
      <? if (userEmail) { ?>
        <span style="color:var(--text-sub);font-size:12px;margin-right:8px;"><?= userEmail ?></span>
      <? } ?>
-     <button class="btn btn-outline" style="background:transparent;border-color:rgba(255,255,255,0.4);color:white;padding:6px 12px;" onclick="showPage('drivesearch')">🔍 検索</button>
+     <button class="btn btn-outline" style="background:transparent;border-color:rgba(255,255,255,0.4);color:white;padding:6px 12px;" onclick="showPage('drivesearch')">🔍 全文検索</button>
      <button class="btn btn-outline" style="background:white;color:var(--primary);border:none;padding:6px 12px;font-weight:600;" onclick="openUploadModal()">＋ PDF登録</button>
   </div>
 </header>
@@ -1242,6 +1235,121 @@ tbody tr:hover{background:#f8f9fa;cursor:pointer;}
 </div>
 
 <div id="toast"></div>
+
+<!-- ③ uploadFile関数の注文書アップロード修正パッチ -->
+<script>
+// ① 見積書詳細モーダルのパッチ：openQuoteDetail をラップして確実に動作させる
+document.addEventListener('DOMContentLoaded', function() {
+  setTimeout(function() {
+    if (typeof window._quoteDetailPatched === 'undefined') {
+      window._quoteDetailPatched = true;
+      var _origOpenQuoteDetail = window.openQuoteDetail;
+      window.openQuoteDetail = function(mgmtId, quoteNo) {
+        // タイトルとモーダルを開く
+        var titleEl = document.getElementById('quote-detail-title');
+        var modalEl = document.getElementById('quote-detail-modal');
+        var bodyEl  = document.getElementById('quote-detail-body');
+        if (!titleEl || !modalEl || !bodyEl) {
+          // fallback: 元の関数を呼ぶ
+          if (_origOpenQuoteDetail) _origOpenQuoteDetail(mgmtId, quoteNo);
+          return;
+        }
+        titleEl.textContent = '📄 見積書 ' + (quoteNo || mgmtId);
+        modalEl.classList.add('open');
+        bodyEl.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+        google.script.run
+          .withSuccessHandler(function(res) {
+            if (!res || !res.success) {
+              bodyEl.innerHTML =
+                '<div style="color:var(--danger);padding:20px;">エラー: ' + (res ? res.error : '不明') + '</div>';
+              return;
+            }
+            if (typeof _buildQuoteDetailHtml === 'function') {
+              bodyEl.innerHTML = _buildQuoteDetailHtml(res);
+            } else if (_origOpenQuoteDetail) {
+              // 元の関数が処理するので一旦閉じて再度開く
+              modalEl.classList.remove('open');
+              _origOpenQuoteDetail(mgmtId, quoteNo);
+            } else {
+              // フォールバック：JSON表示
+              bodyEl.innerHTML = '<pre style="font-size:11px;overflow:auto;">' +
+                JSON.stringify(res, null, 2) + '</pre>';
+            }
+          })
+          .withFailureHandler(function(err) {
+            bodyEl.innerHTML =
+              '<div style="color:var(--danger);padding:20px;">通信エラー: ' + err.message + '</div>';
+          })
+          .handleApiRequest('getQuoteDetail', { mgmtId: mgmtId });
+      };
+    }
+  }, 600);
+});
+// Dashboard js.html の uploadFile を上書きして
+// 'uploadOrderWithLink' アクションを正しく handleApiRequest 経由で呼ぶよう修正
+document.addEventListener('DOMContentLoaded', function() {
+  // uploadFile が定義された後に上書きするため少し遅延
+  setTimeout(function() {
+    if (typeof window._origUploadFileDefined === 'undefined') {
+      window._origUploadFileDefined = true;
+      var _origUploadFile = window.uploadFile;
+      window.uploadFile = function() {
+        // S は Dashboard js.html で定義されたグローバル変数
+        if (!window.S) { if (_origUploadFile) _origUploadFile(); return; }
+        if (!S.selectedFile) return;
+        if (S.docType === 'order' && !S.orderType) {
+          showToast('注文種別を選択してください', true); return;
+        }
+        var btn = document.getElementById('upload-btn');
+        btn.disabled = true; btn.textContent = '解析中...';
+        document.getElementById('upload-status').innerHTML =
+          '<div class="loading" style="padding:16px;"><div class="spinner"></div> Gemini OCR 解析中...</div>';
+        var reader = new FileReader();
+        reader.onload = function(e) {
+          var b64 = e.target.result.split(',')[1];
+          var action = S.docType === 'order' ? 'uploadOrderWithLink' : 'uploadPdf';
+          google.script.run
+            .withSuccessHandler(function(res) {
+              btn.textContent = '解析・登録'; btn.disabled = false;
+              if (res.success) {
+                if (S.docType === 'order') {
+                  if (typeof _showOrderUploadResult === 'function') _showOrderUploadResult(res);
+                } else {
+                  document.getElementById('upload-status').innerHTML =
+                    '<div style="background:#e6f4ea;border-radius:8px;padding:12px;font-size:13px;">' +
+                    '<strong style="color:var(--success);">✓ 登録完了</strong><br>' +
+                    '発行日: ' + (res.issueDate||'—') + '<br>' +
+                    '送り先: ' + (res.destCompany||'—') + '<br>' +
+                    '合計金額: ' + (res.totalAmount ? Number(res.totalAmount).toLocaleString()+' 円' : '—') + '<br>' +
+                    '明細: ' + res.lineCount + '行 &nbsp;' +
+                    '<a href="' + res.savedFolder + '" target="_blank" style="color:var(--primary);">📁 フォルダ</a>' +
+                    '</div>';
+                  showToast('登録完了しました');
+                }
+                if (typeof loadData === 'function') loadData();
+              } else {
+                document.getElementById('upload-status').innerHTML =
+                  '<p style="color:var(--danger);font-size:13px;">✗ ' + res.error + '</p>';
+              }
+            })
+            .withFailureHandler(function(err) {
+              document.getElementById('upload-status').innerHTML =
+                '<p style="color:var(--danger);font-size:13px;">✗ 通信エラー: ' + err.message + '</p>';
+              btn.textContent = '解析・登録'; btn.disabled = false;
+            })
+            .handleApiRequest(action, {
+              base64Data: b64,
+              fileName: S.selectedFile.name,
+              docType: S.docType,
+              orderType: S.orderType
+            });
+        };
+        reader.readAsDataURL(S.selectedFile);
+      };
+    }
+  }, 500);
+});
+</script>
 
 <?!= include("Dashboard js") ?>
 <?!= include("Dashboard js2") ?>

@@ -566,9 +566,9 @@ function _renderCalendar(year, month, events) {
     evs.slice(0, 3).forEach(ev => {
       const cls = 'cal-event ev-' + (ev.type === 'delivery' ? 'delivery' : ev.type);
       const clickAttr = ev.mgmtId
-        ? `onclick="event.stopPropagation();openCalEventDetail(${JSON.stringify(ev)})" style="cursor:pointer;"`
+        ? `onclick="event.stopPropagation();openCalEventDetail(${JSON.stringify(ev).replace(/"/g,"'")})" style="cursor:pointer;"`
         : ev.todoId
-          ? `onclick="event.stopPropagation();openCalEventDetail(${JSON.stringify(ev)})" style="cursor:pointer;"`
+          ? `onclick="event.stopPropagation();openCalEventDetail(${JSON.stringify(ev).replace(/"/g,"'")})" style="cursor:pointer;"`
           : '';
       html += `<div class="${cls}" ${clickAttr} title="${ev.label}">${ev.label}</div>`;
     });
@@ -583,7 +583,7 @@ function _renderCalendar(year, month, events) {
 
 function showAllCalEvents(evs) {
   const list = evs.map(ev =>
-    `<div style="padding:8px;border-bottom:1px solid var(--border);cursor:pointer;" onclick="openCalEventDetail(${JSON.stringify(ev)})">
+    `<div style="padding:8px;border-bottom:1px solid var(--border);cursor:pointer;" onclick="openCalEventDetail(${JSON.stringify(ev).replace(/"/g,"'")})">
       <span class="badge badge-${ev.type === 'order' ? 'received' : ev.type === 'delivery' ? 'done' : 'sent'}">${ev.type}</span>
       <span style="margin-left:8px;font-size:13px;">${ev.label}</span>
     </div>`
