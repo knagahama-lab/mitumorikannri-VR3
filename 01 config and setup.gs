@@ -11,16 +11,16 @@ var CONFIG = {
   GEMINI_FALLBACK_MODEL: 'gemini-2.5-pro',
   GEMINI_API_ENDPOINT:   'https://generativelanguage.googleapis.com/v1beta/models/',
 
-  // ===== 保存先フォルダ =====
+// ===== 保存先フォルダ =====
   WEB_UPLOAD_FOLDER_ID:  '1sB42xntGKL31GeT9OjOKTxVJwj9IQz-h',
-  ORDER_TRIAL_FOLDER_ID: '1wVeYlt-9GsortfOsUggBsWta8GtXIRvS',
-  ORDER_MASS_FOLDER_ID:  '1ASyV7PmhYQVH-72rVD3evToYJWxGhMbA',
+  ORDER_TRIAL_FOLDER_ID: '1wVeYlt-9GsortfOsUggBsWta8GtXIRvS', // 注文書（試作）の保存先
+  ORDER_MASS_FOLDER_ID:  '1ASyV7PmhYQVH-72rVD3evToYJWxGhMbA', // 注文書（量産）の保存先
   QUOTE_FOLDER_ID:       '1sB42xntGKL31GeT9OjOKTxVJwj9IQz-h',
 
   // ===== Drive自動監視：インポート用フォルダ =====
-  IMPORT_QUOTE_FOLDER_ID:       '1Y66PDSi35ScuIyS0Jgm0l3p2l7MEM2Jk',
-  IMPORT_ORDER_TRIAL_FOLDER_ID: '1Ufq4xMjOmZvUQLC_Zp0EAWlHF0mYAGDM',
-  IMPORT_ORDER_MASS_FOLDER_ID:  '1ujzCtYzOqU9_a6tiEXOHhDWRv15a0p0k',
+  IMPORT_QUOTE_FOLDER_ID:       '1Y66PDSi35ScuIyS0Jgm0l3p2l7MEM2Jk',  
+  IMPORT_ORDER_TRIAL_FOLDER_ID: '1Ufq4xMjOmZvUQLC_Zp0EAWlHF0mYAGDM', // 注文書（試作）のインポート用
+  IMPORT_ORDER_MASS_FOLDER_ID:  '1ujzCtYzOqU9_a6tiEXOHhDWRv15a0p0k', // 注文書（量産）のインポート用
 
   SHEET_MANAGEMENT: '管理シート',
   SHEET_QUOTES:     '見積書シート',
