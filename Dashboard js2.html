@@ -52,6 +52,17 @@ function showToast(msg,isError=false){
   setTimeout(()=>t.classList.remove('show'),3500);
 }
 
+// --- ▼ 検索用の文字列正規化関数 ▼ ---
+function normalizeSearchText(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .toLowerCase() // 小文字に統一
+    .replace(/[Ａ-Ｚａ-ｚ０-９]/g, function(s) {
+      return String.fromCharCode(s.charCodeAt(0) - 0xFEE0); // 全角英数字を半角に変換
+    })
+    .replace(/[\u3000]/g, ' '); // 全角スペースを半角スペースに統一
+}
+
 // ============================================================
 // 案件データ（注文書一覧）
 // ============================================================
@@ -166,25 +177,45 @@ function _renderPagination(total) {
 function goPage(n){S.page=n;_renderTable();}
 
 function debounceSearch(){clearTimeout(searchTimer);searchTimer=setTimeout(applyFilters,300);}
-function applyFilters(){
-  const kw=document.getElementById('search-input').value.toLowerCase();
-  const st=document.getElementById('filter-status').value;
-  const ot=document.getElementById('filter-order-type').value;
-  const mo=document.getElementById('filter-month').value;
-  S.filtered=S.all.filter(r=>{
-    const mk=!kw||[r.quoteNo,r.orderNo,r.orderSlipNo,r.modelCode,r.subject,r.client].some(v=>String(v).toLowerCase().includes(kw));
-    const ms=!st||r.status===st;
-    const mo2=!ot||r.orderType===ot;
-    const mm=!mo||(String(r.orderDate).startsWith(mo)||String(r.quoteDate).startsWith(mo));
-    return mk&&ms&&mo2&&mm;
+
+// --- ▼ 注文書一覧の検索機能 ▼ ---
+function applyFilters() {
+  const rawKw = document.getElementById('search-input').value;
+  const kws   = normalizeSearchText(rawKw).split(/\s+/).filter(Boolean);
+  const st    = document.getElementById('filter-status').value;
+  const ot    = document.getElementById('filter-order-type').value;
+  const mo    = document.getElementById('filter-month').value;
+
+  S.filtered = S.all.filter(r => {
+    // 検索対象の項目
+    const targetValues = [
+      r.quoteNo, 
+      r.orderNo, 
+      r.orderSlipNo, 
+      r.modelCode, 
+      r.subject, 
+      r.client, 
+      r.orderAmount
+    ];
+    const searchableText = normalizeSearchText(targetValues.join(' '));
+    const mk = kws.length === 0 || kws.every(kw => searchableText.includes(kw));
+
+    const ms = !st || r.status === st;
+    const mo2 = !ot || r.orderType === ot;
+    const mm = !mo || (String(r.orderDate).startsWith(mo) || String(r.quoteDate).startsWith(mo));
+    return mk && ms && mo2 && mm;
   });
-  S.page=1;_renderTable();
+
+  S.page = 1;
+  _renderTable();
 }
+
 function clearFilters(){
   document.getElementById('search-input').value='';
   ['filter-status','filter-order-type','filter-month'].forEach(id=>document.getElementById(id).value='');
   S.filtered=S.all.slice();S.page=1;_renderTable();
 }
+
 function _populateMonthFilter(){
   const sel=document.getElementById('filter-month');
   if(!sel) return;
@@ -204,7 +235,7 @@ function _findMgmtItem(mgmtId) {
 }
 
 // ============================================================
-// 📋 詳細モーダル表示 ＆ 紐づけ機能 (明細行リンク追加版)
+// 📋 詳細モーダル表示 ＆ 紐づけ機能
 // ============================================================
 function openDetail(mgmtId) {
   let item = _findMgmtItem(mgmtId);
@@ -498,16 +529,32 @@ function loadQuoteList() {
     .handleApiRequest('quoteListGetAll', null);
 }
 
+// --- ▼ 見積書一覧の検索機能 ▼ ---
 function applyQuoteFilter() {
-  const kw     = document.getElementById('qs-search').value.toLowerCase();
+  const rawKw  = document.getElementById('qs-search').value;
+  const kws    = normalizeSearchText(rawKw).split(/\s+/).filter(Boolean); 
   const st     = document.getElementById('qs-filter-status').value;
   const linked = document.getElementById('qs-filter-linked').value;
+
   _filteredQuotes = _allQuotes.filter(r => {
-    const mk = !kw || [r.quoteNo, r.destCompany, r.destPerson, r.modelCode].some(v => String(v||'').toLowerCase().includes(kw));
+    const targetValues = [
+      r.quoteNo,      // 見積番号
+      r.subject,      // 件名（ファイル名など）
+      r.destCompany,  // 宛先
+      r.destPerson,   // 担当者
+      r.modelCode,    // 機種コード
+      r.quoteAmount,  // 金額
+      r.orderNo       // 紐づく注文番号
+    ];
+    const searchableText = normalizeSearchText(targetValues.join(' '));
+    const mk = kws.length === 0 || kws.every(kw => searchableText.includes(kw));
+    
     const ms = !st || r.status === st;
     const ml = !linked || (linked === 'linked' && r.linked) || (linked === 'unlinked' && !r.linked);
+    
     return mk && ms && ml;
   });
+
   _filteredQuotes.sort((a, b) => String(b.issueDate||'').localeCompare(String(a.issueDate||'')));
   _quotePage = 1;
   _renderQuoteTable();
@@ -535,11 +582,12 @@ function _renderQuoteTable() {
     return;
   }
 
+  // ▼ テーブルの行(<tr>)の出力順を変更 ▼
   const rows = data.map(r => `
     <tr onclick="openQuoteDetail('${r.id}')" style="cursor:pointer;">
       <td><strong>${r.quoteNo || '—'}</strong></td>
+      <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.subject || ''}">${r.subject || '—'}</td>
       <td style="font-size:12px;color:var(--text-sub);">${r.issueDate || '—'}</td>
-      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.destCompany || ''}</td>
       <td style="text-align:right;white-space:nowrap;">${r.quoteAmount ? Number(r.quoteAmount).toLocaleString() + ' 円' : '—'}</td>
       <td>${_sBadge(r.status)}</td>
       <td>
@@ -552,9 +600,21 @@ function _renderQuoteTable() {
       </td>
     </tr>`).join('');
 
+  // ▼ テーブルのヘッダー(<th>)の出力順を変更 ▼
   document.getElementById('quotelist-container').innerHTML = `
     <table>
-      <thead><tr><th>見積番号</th><th>発行日</th><th>送り先会社名</th><th>見積金額</th><th>ステータス</th><th>紐づけ状況</th><th>PDF</th><th>操作</th></tr></thead>
+      <thead>
+        <tr>
+          <th>見積No.</th>
+          <th>件名（ファイル名）</th>
+          <th>発行日</th>
+          <th>金額</th>
+          <th>ステータス</th>
+          <th>紐づけ状況</th>
+          <th>PDF</th>
+          <th>操作</th>
+        </tr>
+      </thead>
       <tbody>${rows}</tbody>
     </table>`;
 

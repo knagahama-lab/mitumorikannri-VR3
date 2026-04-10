@@ -150,3 +150,18 @@ function runBatchMatching() {
     throw e;
   }
 }
+// ============================================================
+// 🤖 自動マッチング実行用トリガー関数 (定期実行用)
+// ============================================================
+function autoMatchNewOrders() {
+  try {
+    Logger.log("定期実行: AI自動マッチングを開始します...");
+    
+    // 最新のマッチング司令塔（runBatchMatching）を呼び出す
+    var result = runBatchMatching(); 
+    
+    Logger.log("定期実行完了: 自動確定 " + result.autoCount + "件, 候補抽出 " + result.candidateCount + "件");
+  } catch (e) {
+    Logger.log("定期実行エラー: " + e.message);
+  }
+}

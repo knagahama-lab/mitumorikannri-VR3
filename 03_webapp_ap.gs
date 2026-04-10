@@ -785,15 +785,19 @@ function _apiQuoteListGetAll() {
         id:          mgmtId,
         quoteNo:     String(r[MGMT_COLS.QUOTE_NO - 1]      || ''),
         issueDate:   lineInfo.issueDate   || _toDateStr(r[MGMT_COLS.QUOTE_DATE - 1]),
+  
         destCompany: lineInfo.destCompany || String(r[MGMT_COLS.CLIENT - 1] || ''),
         destPerson:  lineInfo.destPerson  || '',
         quoteAmount: _toNum(r[MGMT_COLS.QUOTE_AMOUNT - 1]),
         status:      String(r[MGMT_COLS.STATUS - 1]        || ''),
         quotePdfUrl: String(r[MGMT_COLS.QUOTE_PDF_URL - 1] || ''),
         orderNo:     String(r[MGMT_COLS.ORDER_NO - 1]      || ''),
+   
         linked:      _isLinkedVal(r[MGMT_COLS.LINKED - 1]),
         orderType:   String(r[MGMT_COLS.ORDER_TYPE - 1]    || ''),
         modelCode:   String(r[MGMT_COLS.MODEL_CODE - 1]    || ''),
+        // ▼ ここに1行追加 ▼
+        subject:     String(r[MGMT_COLS.SUBJECT - 1]       || ''),
       };
     });
     items.sort(function(a, b) {
