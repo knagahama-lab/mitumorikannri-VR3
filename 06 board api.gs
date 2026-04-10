@@ -1,6 +1,6 @@
 // ============================================================
 // 統合管理システム
-// ファイル 6/6: 基板・部品管理API
+// ファイル 6/6: 基板・部品管理API & AIマッチング統合版
 // ============================================================
 
 var BOARD_SS_ID = '1OEpET_rvYRFVClVuh9VzRbfcEbnpSFfSZ0ZpM8yybUQ';
@@ -414,17 +414,17 @@ function _parseCSVLineFast(line) {
 
 
 // ============================================================
-// 🤖 Gemini API を使用した高精度マッチング
+// 🤖 Gemini API を使用した高精度マッチング (安全装置つき・2.5Flash対応)
 // ============================================================
 function matchWithGeminiAPI(orderData, quotesList) {
-  const apiKey = PropertiesService.getScriptProperties().getProperty("GEMINI_API_KEY");
+  let apiKey = PropertiesService.getScriptProperties().getProperty("GEMINI_API_KEY");
   if (!apiKey) {
-    Logger.log("GEMINI_API_KEY が設定されていません。GASのプロジェクト設定から追加してください。");
+    Logger.log("GEMINI_API_KEY が設定されていません。");
     return [];
   }
-
-  // ★お客様の環境で確実に動作するURL（-latest なし）
-  const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + apiKey;
+  
+  apiKey = apiKey.trim();
+  const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + apiKey;
 
   const prompt = `
 あなたは企業の優秀な営業事務アシスタントです。
@@ -437,13 +437,10 @@ function matchWithGeminiAPI(orderData, quotesList) {
 ・品名や機種コードが部分一致していれば加点する。
 ・見積番号が注文書の備考等に含まれていれば100点とする。
 
-【注文書データ】
-${JSON.stringify(orderData, null, 2)}
+【重要】
+合致しそうな見積書が1つもない場合は、必ず空の配列 [] のみを出力してください。
+出力は必ず以下のフォーマットのJSON配列のみとし、それ以外の文章やマークダウン記法(\`\`\`json など)は一切含めないでください。
 
-【見積書候補リスト】
-${JSON.stringify(quotesList, null, 2)}
-
-出力は必ず以下のフォーマットのJSON配列のみとしてください。Markdown記法(\`\`\`json など)は含めないでください。
 [
   {
     "quoteId": "見積書の管理ID",
@@ -451,13 +448,19 @@ ${JSON.stringify(quotesList, null, 2)}
     "reason": "金額（税抜）が一致し、宛先の表記ゆれも同一企業とみなせるため。"
   }
 ]
+
+【注文書データ】
+${JSON.stringify(orderData, null, 2)}
+
+【見積書候補リスト】
+${JSON.stringify(quotesList, null, 2)}
   `;
 
   const payload = {
     contents: [{ parts: [{ text: prompt }] }],
     generationConfig: {
-      temperature: 0.1, 
-      response_mime_type: "application/json" 
+      temperature: 0.1,
+      response_mime_type: "application/json"
     }
   };
 
@@ -470,15 +473,38 @@ ${JSON.stringify(quotesList, null, 2)}
 
   try {
     const response = UrlFetchApp.fetch(url, options);
-    const json = JSON.parse(response.getContentText());
-
+    const responseText = response.getContentText();
+    
+    // API自体がエラーを返した場合の処理
+    if (!responseText) return [];
+    const json = JSON.parse(responseText);
+    
     if (json.error) {
       Logger.log("Gemini API Error: " + json.error.message);
       return [];
     }
-
-    const resultText = json.candidates[0].content.parts[0].text;
-    return JSON.parse(resultText);
+    
+    if (!json.candidates || !json.candidates[0] || !json.candidates[0].content) {
+      return [];
+    }
+    
+    let resultText = json.candidates[0].content.parts[0].text;
+    
+    // 万が一空っぽの場合は空配列を返す
+    if (!resultText || resultText.trim() === "") {
+      return [];
+    }
+    
+    // マークダウン記号を取り除く
+    resultText = resultText.replace(/```json/gi, '').replace(/```/g, '').trim();
+    
+    // パース（データ化）で失敗してもシステムを止めない安全装置
+    try {
+      return JSON.parse(resultText);
+    } catch (parseError) {
+      Logger.log("JSONパースエラー発生。AIの生の出力: " + resultText);
+      return []; // エラーになっても空として扱い、処理を続行する
+    }
 
   } catch (e) {
     Logger.log("AIマッチング実行失敗: " + e.message);

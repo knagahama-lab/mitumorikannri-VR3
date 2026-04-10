@@ -748,7 +748,7 @@ function _apiConfirmLink(p) {
 function _apiRunMatching(p) {
   var mgmtId = p && p.mgmtId;
   if (mgmtId) return { success: true, result: matchOrderToQuote(mgmtId) };
-  return { success: true, result: batchMatchAllUnlinked() };
+  return { success: true, result: runBatchMatching() };  // ⭕ ここを修正！
 }
 
 // ===== 見積書一覧 API =====
