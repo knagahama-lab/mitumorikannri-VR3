@@ -13,13 +13,15 @@ let searchTimer=null;
 window.onload = () => {
   _populateMonthFilter();
   loadData();
+  loadQuoteList();
+  loadMatchingCandidates();
 };
 
 function showPage(name) {
   document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('active'); });
   document.querySelectorAll('.nav-tab').forEach(function(t) { t.classList.remove('active'); });
   var target = document.getElementById('page-'+name);
-  if (!target) { console.error('ページが見つかりません: page-'+name); return; }
+  if (!target) { console.warn('ページが見つかりません: page-'+name); return; }
   target.classList.add('active');
   
   document.querySelectorAll('.nav-tab').forEach(function(t) {
@@ -33,18 +35,17 @@ function showPage(name) {
     if (ao) ao.style.display = '';
     if (aq) aq.style.display = 'none';
   }
-  if (name==='parts') { if (_allParts.length === 0) loadPartsData(); switchPartsTab('parts'); }
+  if (name==='parts') { if (typeof loadPartsData === 'function') loadPartsData(); }
   if (name==='ledger')   loadLedger();
   if (name==='todo')     loadTodos();
   if (name==='calendar') loadCalendar();
   if (name==='matching') loadMatchingCandidates();
   if (name==='quotesubmit') { if (_allQs.length === 0) loadQsData(); }
-  if (name==='board')    loadBoardList();
-  if (name==='analysis') loadBoardAnalysis();
 }
 
 function showToast(msg,isError=false){
   const t=document.getElementById('toast');
+  if(!t) return;
   t.textContent=(isError?'✗ ':'✓ ')+msg;
   t.style.background=isError?'var(--danger)':'#323232';
   t.classList.add('show');
@@ -55,11 +56,13 @@ function showToast(msg,isError=false){
 // 案件データ（注文書一覧）
 // ============================================================
 function loadData() {
-  document.getElementById('table-container').innerHTML = '<div class="loading"><div class="spinner"></div><br>データ読み込み中...</div>';
+  const container = document.getElementById('table-container');
+  if(!container) return;
+  container.innerHTML = '<div class="loading"><div class="spinner"></div><br>データ読み込み中...</div>';
   google.script.run
     .withSuccessHandler(res => {
       if (!res || !res.success) {
-        document.getElementById('table-container').innerHTML = '<div class="loading" style="color:var(--danger);">⚠️ データ取得失敗: ' + (res ? res.error : '不明') + '</div>';
+        container.innerHTML = '<div class="loading" style="color:var(--danger);">⚠️ データ取得失敗: ' + (res ? res.error : '不明') + '</div>';
         return;
       }
       S.all = res.items || [];
@@ -69,7 +72,7 @@ function loadData() {
       _renderTable();
     })
     .withFailureHandler(err => {
-      document.getElementById('table-container').innerHTML = '<div class="loading" style="color:var(--danger);">⚠️ 通信エラー: ' + err.message + '</div>';
+      container.innerHTML = '<div class="loading" style="color:var(--danger);">⚠️ 通信エラー: ' + err.message + '</div>';
     })
     .handleApiRequest('getAll', null);
 }
@@ -97,18 +100,18 @@ function switchSubTab(tab) {
 function _updateSummary() {
   const now = new Date();
   const ym  = now.getFullYear() + '/' + String(now.getMonth()+1).padStart(2,'0');
-  document.getElementById('sum-sent').textContent     = S.all.filter(r=>r.status==='送信済み').length;
-  document.getElementById('sum-received').textContent = S.all.filter(r=>r.status==='受領').length;
-  document.getElementById('sum-done').textContent     = S.all.filter(r=>r.status==='納品済み').length;
+  if(document.getElementById('sum-sent')) document.getElementById('sum-sent').textContent     = S.all.filter(r=>r.status==='送信済み').length;
+  if(document.getElementById('sum-received')) document.getElementById('sum-received').textContent = S.all.filter(r=>r.status==='受領').length;
+  if(document.getElementById('sum-done')) document.getElementById('sum-done').textContent     = S.all.filter(r=>r.status==='納品済み').length;
   const tot = S.all.filter(r=>String(r.orderDate).startsWith(ym)).reduce((s,r)=>s+(Number(r.orderAmount)||0), 0);
-  document.getElementById('sum-amount').textContent = tot.toLocaleString();
+  if(document.getElementById('sum-amount')) document.getElementById('sum-amount').textContent = tot.toLocaleString();
 }
 
 function _renderTable() {
   const start = (S.page-1)*S.limit;
   const data  = S.filtered.slice(start, start+S.limit);
   const total = S.filtered.length;
-  document.getElementById('result-count').textContent = total+'件中 '+(total>0?start+1:0)+'–'+Math.min(start+S.limit,total)+'件';
+  if(document.getElementById('result-count')) document.getElementById('result-count').textContent = total+'件中 '+(total>0?start+1:0)+'–'+Math.min(start+S.limit,total)+'件';
 
   if (total===0) {
     document.getElementById('table-container').innerHTML = '<div class="loading" style="color:var(--text-sub);">該当する案件がありません</div>';
@@ -184,6 +187,7 @@ function clearFilters(){
 }
 function _populateMonthFilter(){
   const sel=document.getElementById('filter-month');
+  if(!sel) return;
   const now=new Date();
   for(let i=0;i<12;i++){
     const d=new Date(now.getFullYear(),now.getMonth()-i,1);
@@ -195,16 +199,21 @@ function _populateMonthFilter(){
 function _findMgmtItem(mgmtId) {
   let item = S.all.find(r => r.id === mgmtId);
   if (item) return item;
-  item = _allQuotes.find(r => r.id === mgmtId);
+  if(typeof _allQuotes !== 'undefined') item = _allQuotes.find(r => r.id === mgmtId);
   return item || null;
 }
 
+// ============================================================
+// 📋 詳細モーダル表示 ＆ 紐づけ機能 (明細行リンク追加版)
+// ============================================================
 function openDetail(mgmtId) {
   let item = _findMgmtItem(mgmtId);
   if (!item) item = { id: mgmtId, client: 'データ取得中...', status: '' };
+  
   document.getElementById('detail-title').textContent = '📋 ' + (item.orderNo || item.quoteNo || mgmtId);
   document.getElementById('detail-modal').classList.add('open');
   document.getElementById('detail-body').innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  
   google.script.run
     .withSuccessHandler(res => {
       if (!res.success) { document.getElementById('detail-body').innerHTML = '<div style="color:var(--danger);padding:20px;">エラー: ' + res.error + '</div>'; return; }
@@ -218,45 +227,134 @@ function openDetail(mgmtId) {
 }
 function closeDetailModal(){document.getElementById('detail-modal').classList.remove('open');}
 
-function _buildDetailHtml(item, detail){
+function _buildDetailHtml(item, detail) {
+  const orderLinks = [
+    item.orderPdfUrl ? `<a href="${item.orderPdfUrl}" target="_blank" class="pdf-link" style="display:inline-block; background:white; padding:2px 8px; border-radius:4px; border:1px solid var(--border); text-decoration:none; font-size:11px;">📄 発注書PDF</a>` : '',
+    item.driveFolderUrl ? `<a href="${item.driveFolderUrl}" target="_blank" class="pdf-link" style="display:inline-block; background:white; padding:2px 8px; border-radius:4px; border:1px solid var(--border); text-decoration:none; font-size:11px;">📁 フォルダ</a>` : ''
+  ].filter(Boolean).join(' ');
+
+  const quoteLinks = item.quotePdfUrl ? `<a href="${item.quotePdfUrl}" target="_blank" class="pdf-link" style="display:inline-block; background:white; padding:2px 8px; border-radius:4px; border:1px solid var(--border); text-decoration:none; font-size:11px;">📄 見積書PDF</a>` : '';
+
   const rows=[
-    ['管理ID',item.id],['発注書番号',item.orderNo||'—'],['発注伝票番号',item.orderSlipNo||'—'],
-    ['機種コード',item.modelCode||'—'],['顧客名',item.client||'—'],
-    ['ステータス',_sBadge(item.status)],['注文種別',item.orderType?_otBadge(item.orderType):'—'],
-    ['発注日',item.orderDate||'—'],['見積日',item.quoteDate||'—'],
-    ['注文金額',item.orderAmount?Number(item.orderAmount).toLocaleString()+' 円':'—'],
-    ['合計金額',item.total?Number(item.total).toLocaleString()+' 円':'—'],
-    ['納期',item.deliveryDate||'—'],['担当者',item.assignee||'—'],['メモ',item.memo||'—'],
+    ['管理ID', item.id],
+    ['発注書番号', (item.orderNo || '—') + (orderLinks ? `<div style="margin-top:6px;">${orderLinks}</div>` : '')],
+    ['見積書番号', (item.quoteNo || '—') + (quoteLinks ? `<div style="margin-top:6px;">${quoteLinks}</div>` : '')],
+    ['発注伝票番号', item.orderSlipNo || '—'],
+    ['機種コード', item.modelCode || '—'],
+    ['顧客名', item.client || '—'],
+    ['ステータス', _sBadge(item.status)],
+    ['注文種別', item.orderType ? _otBadge(item.orderType) : '—'],
+    ['発注日', item.orderDate || '—'],
+    ['見積日', item.quoteDate || '—'],
+    ['注文金額', item.orderAmount ? Number(item.orderAmount).toLocaleString() + ' 円' : '—'],
+    ['合計金額', item.total ? Number(item.total).toLocaleString() + ' 円' : '—'],
+    ['納期', item.deliveryDate || '—'],
+    ['担当者', item.assignee || '—'],
+    ['メモ', item.memo || '—'],
   ];
+
   const infoHtml='<table style="width:100%;font-size:13px;border-collapse:collapse;">'+
-    rows.map(([k,v])=>`<tr><td style="padding:5px 8px;font-weight:600;width:36%;color:var(--text-sub);border-bottom:1px solid var(--border);">${k}</td><td style="padding:5px 8px;border-bottom:1px solid var(--border);">${v}</td></tr>`).join('')+
+    rows.map(([k,v])=>`<tr><td style="padding:8px 10px;font-weight:600;width:30%;color:var(--text-sub);border-bottom:1px solid var(--border);background:var(--surface2);">${k}</td><td style="padding:8px 10px;border-bottom:1px solid var(--border);">${v}</td></tr>`).join('')+
     '</table>';
-  const links=[
-    item.quotePdfUrl?`<a href="${item.quotePdfUrl}" target="_blank" class="pdf-link">📄 見積書PDF</a>`:'',
-    item.orderPdfUrl?`<a href="${item.orderPdfUrl}" target="_blank" class="pdf-link">📦 発注書PDF</a>`:'',
-    item.driveFolderUrl?`<a href="${item.driveFolderUrl}" target="_blank" class="pdf-link">📁 フォルダ</a>`:'',
-  ].filter(Boolean).join('　');
+
   const statusOpts=['作成予定','送信済み','受領','納品済み'].map(s=>`<option value="${s}"${s===item.status?' selected':''}>${s}</option>`).join('');
 
-  const oTable=detail.orderLines&&detail.orderLines.length?`
+  // ★ 各明細行に表示する見積書リンクのHTML
+  const quoteCellHtml = item.quoteNo 
+    ? `<div style="line-height:1.4;">
+         <span style="font-size:11px; color:var(--text3);">No.</span><a href="javascript:void(0)" onclick="event.stopPropagation(); openQuoteDetail('${item.id}', '${item.quoteNo}')" style="color:var(--primary); font-weight:600; text-decoration:none; font-size:12px;">${item.quoteNo}</a>
+         ${item.quotePdfUrl ? `<br><a href="${item.quotePdfUrl}" target="_blank" onclick="event.stopPropagation()" style="font-size:11px; color:var(--info); text-decoration:none;">📄 PDFを開く</a>` : ''}
+       </div>`
+    : '<span style="font-size:11px; color:var(--text3);">未紐づけ</span>';
+
+  // ★ 明細テーブルに「紐づく見積」の列を追加
+  const oTable = detail.orderLines && detail.orderLines.length ? `
     <div class="detail-section"><h4>発注書 明細</h4>
-    <table class="dtable"><thead><tr><th>#</th><th>品名</th><th>仕様</th><th>納品先</th><th>数量</th><th>単価</th><th>金額</th><th>備考</th></tr></thead>
-    <tbody>${detail.orderLines.map(l=>`<tr class="${(l.remarks||'').includes('キャンセル')?'cancelled':''}">
-      <td>${l.lineNo}</td><td>${l.itemName||''}</td><td style="font-size:11px;">${l.spec||''}</td>
-      <td>${l.deliveryDest||''}</td><td class="r">${l.qty||''}</td>
-      <td class="r">${l.unitPrice?Number(l.unitPrice).toLocaleString():''}</td>
-      <td class="r">${l.amount?Number(l.amount).toLocaleString():''}</td><td>${l.remarks||''}</td>
-    </tr>`).join('')}</tbody></table></div>`:''  ;
+    <table class="dtable" style="width:100%;border-collapse:collapse;font-size:12px;">
+      <thead>
+        <tr>
+          <th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">#</th>
+          <th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">品名</th>
+          <th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">仕様</th>
+          <th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">納品先</th>
+          <th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">数量</th>
+          <th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">単価</th>
+          <th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">金額</th>
+          <th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">備考</th>
+          <th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">紐づく見積</th>
+        </tr>
+      </thead>
+      <tbody>${detail.orderLines.map(l=>`<tr class="${(l.remarks||'').includes('キャンセル')?'cancelled':''}">
+        <td style="padding:6px;border:1px solid var(--border);text-align:center;">${l.lineNo}</td>
+        <td style="padding:6px;border:1px solid var(--border);">${l.itemName||''}</td>
+        <td style="padding:6px;border:1px solid var(--border);font-size:11px;color:var(--text-sub);">${l.spec||''}</td>
+        <td style="padding:6px;border:1px solid var(--border);">${l.deliveryDest||''}</td>
+        <td style="padding:6px;border:1px solid var(--border);text-align:right;">${l.qty||''}</td>
+        <td style="padding:6px;border:1px solid var(--border);text-align:right;">${l.unitPrice?Number(l.unitPrice).toLocaleString():''}</td>
+        <td style="padding:6px;border:1px solid var(--border);text-align:right;font-weight:600;">${l.amount?Number(l.amount).toLocaleString():''}</td>
+        <td style="padding:6px;border:1px solid var(--border);">${l.remarks||''}</td>
+        <td style="padding:6px;border:1px solid var(--border);vertical-align:middle;text-align:center;">${quoteCellHtml}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>` : '';
+
+  // =====================================
+  // 🔗 手動＆AIマッチング候補の紐づけUI
+  // =====================================
+  let linkHtml = '';
+  // 注文書番号があって、見積書番号がない（未紐づけ）場合のみ表示
+  if (item.orderNo && !item.quoteNo) {
+    let candHtml = '';
+    if (typeof _allMatchingItems !== 'undefined') {
+      const matchData = _allMatchingItems.find(m => String(m.orderMgmtId) === String(item.id) || String(m.orderNo) === String(item.orderNo));
+      if (matchData && matchData.candidates && matchData.candidates.length > 0) {
+        candHtml = `<div style="margin-top:12px;font-size:12px;color:var(--text2);">
+          💡 <b>AIの推測候補:</b><br>
+          <div style="display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;">` + 
+          matchData.candidates.map(c => `
+            <button class="btn btn-outline btn-sm" onclick="confirmLink('${item.id}','${c.quoteId}')" style="background:white; border-color:#fbbc04;">
+              ${c.quoteNo || c.quoteId} (${c.score}点)
+            </button>`).join('') +
+          `</div></div>`;
+      }
+    }
+    
+    let quoteOpts = '';
+    if (typeof _allQuotes !== 'undefined') {
+      const unlinkedQuotes = _allQuotes.filter(q => !q.linked);
+      quoteOpts = unlinkedQuotes.map(q => `<option value="${q.id}">${q.quoteNo || '見積Noなし'} （${q.client || '顧客不明'} : ¥${q.quoteAmount ? Number(q.quoteAmount).toLocaleString() : 0}）</option>`).join('');
+    }
+
+    linkHtml = `
+    <div style="background:var(--info-bg);border:1px solid #b5d4f4;border-radius:8px;padding:16px;margin:20px 0;">
+      <div style="font-size:13px;font-weight:700;margin-bottom:10px;color:var(--info);">🔗 見積書との紐づけ</div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <select id="manual-link-quote-id" style="flex:1;padding:8px 10px;border-radius:4px;border:1px solid var(--border2);font-size:13px;background:white;outline:none;">
+          <option value="">-- 既存の未紐づけ見積書から選択 --</option>
+          ${quoteOpts}
+        </select>
+        <button class="btn btn-primary" onclick="_manualLinkQuote('${item.id}')">この見積書で確定</button>
+      </div>
+      ${candHtml}
+    </div>
+    `;
+  }
 
   return `${infoHtml}
-    <div style="margin:12px 0;">${links}</div>
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;">
-      <span style="font-size:12px;color:var(--text-sub);">ステータス変更:</span>
-      <select id="status-sel" style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">${statusOpts}</select>
+    ${linkHtml}
+    <div style="display:flex;align-items:center;gap:8px;margin-top:20px;margin-bottom:16px;">
+      <span style="font-size:12px;font-weight:600;color:var(--text-sub);">ステータス変更:</span>
+      <select id="status-sel" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;outline:none;">${statusOpts}</select>
       <button class="btn btn-primary btn-sm" onclick="updateStatus('${item.id}')">更新</button>
-      <button class="btn btn-outline btn-sm" onclick="openEditModal('${item.id}')" style="margin-left:8px;">✏️ 編集</button>
-      <button class="btn btn-danger btn-sm" onclick="deleteMgmt('${item.id}','${(item.orderNo||item.quoteNo||'').replace(/'/g,'')}')">🗑️ 削除</button>
+      <span style="margin:0 8px; color:var(--border);">|</span>
+      <button class="btn btn-outline btn-sm" onclick="openEditModal('${item.id}')">✏️ 案件情報を直接編集</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteMgmt('${item.id}','${(item.orderNo||item.quoteNo||'').replace(/'/g,'')}')" style="margin-left:auto;">🗑️ 削除</button>
     </div>${oTable}`;
+}
+
+function _manualLinkQuote(orderMgmtId) {
+  const quoteMgmtId = document.getElementById('manual-link-quote-id').value;
+  if(!quoteMgmtId) { showToast('プルダウンから見積書を選択してください', true); return; }
+  confirmLink(orderMgmtId, quoteMgmtId);
 }
 
 function updateStatus(mgmtId){
@@ -274,7 +372,7 @@ function updateStatus(mgmtId){
 }
 
 // ============================================================
-// ファイルアップロード
+// ファイルアップロード (OCR)
 // ============================================================
 function openUploadModal(){
   S.selectedFile=null;S.orderType='';
@@ -323,9 +421,8 @@ function uploadFile(){
       .withSuccessHandler(res=>{
         btn.textContent='解析・登録';btn.disabled=false;
         if(res.success){
-          if(S.docType==='order'){
-            _showOrderUploadResult(res);
-          } else {
+          if(S.docType==='order'){ _showOrderUploadResult(res); } 
+          else {
             document.getElementById('upload-status').innerHTML=`
               <div style="background:#e6f4ea;border-radius:8px;padding:12px;font-size:13px;">
                 <strong style="color:var(--success);">✓ 登録完了</strong><br>
@@ -359,7 +456,7 @@ function _showOrderUploadResult(res){
         <td style="padding:6px 8px;font-size:12px;text-align:center;">
           <span style="background:${color};color:#fff;border-radius:4px;padding:2px 6px;font-size:11px;">${c.score}点</span>
         </td>
-        <td style="padding:6px 8px;"><button onclick="_confirmOrderLink('${res.mgmtId}','${c.quoteMgmtId}','${c.quoteNo}')" class="btn btn-primary btn-sm">確定</button></td>
+        <td style="padding:6px 8px;"><button onclick="confirmLink('${res.mgmtId}','${c.quoteMgmtId}')" class="btn btn-primary btn-sm">確定</button></td>
       </tr>`;
     }).join('');
     candidateHtml = `<div style="margin-top:10px;"><p style="font-size:11px;color:var(--text-sub);margin-bottom:4px;">🔗 マッチング候補:</p><table style="width:100%;border-collapse:collapse;"><tbody>${rows}</tbody></table></div>`;
@@ -373,17 +470,6 @@ function _showOrderUploadResult(res){
   showToast('注文書を登録しました');
 }
 
-function _confirmOrderLink(orderMgmtId, quoteMgmtId, quoteNo){
-  if(!confirm('見積書「' + quoteNo + '」と紐づけを確定しますか？')) return;
-  google.script.run
-    .withSuccessHandler(res=>{
-      if(res.success){ showToast('✅ 紐づけ確定'); loadData(); }
-      else showToast('エラー: ' + res.error, true);
-    })
-    .handleApiRequest('confirmOrderLink',{orderMgmtId, quoteMgmtId});
-}
-
-
 // ============================================================
 // 見積書一覧
 // ============================================================
@@ -392,21 +478,21 @@ let _filteredQuotes = [];
 let _quotePage = 1;
 const _quoteLimit = 30;
 
-function openDriveFolder() {
-  window.open('https://drive.google.com/drive/folders/1sB42xntGKL31GeT9OjOKTxVJwj9IQz-h', '_blank');
-}
+function openDriveFolder() { window.open('https://drive.google.com/drive/folders/1sB42xntGKL31GeT9OjOKTxVJwj9IQz-h', '_blank'); }
 
 function loadQuoteList() {
-  document.getElementById('quotelist-container').innerHTML = '<div class="loading"><div class="spinner"></div><br>読み込み中...</div>';
+  const container = document.getElementById('quotelist-container');
+  if(!container) return;
+  container.innerHTML = '<div class="loading"><div class="spinner"></div><br>読み込み中...</div>';
   google.script.run
     .withSuccessHandler(res => {
-      if (!res.success) { document.getElementById('quotelist-container').innerHTML = '<div class="loading" style="color:var(--danger);">⚠️ ' + res.error + '</div>'; return; }
+      if (!res.success) { container.innerHTML = '<div class="loading" style="color:var(--danger);">⚠️ ' + res.error + '</div>'; return; }
       _allQuotes      = res.items || [];
       _filteredQuotes = _allQuotes.slice();
       _quotePage      = 1;
-      document.getElementById('qs-total').textContent  = _allQuotes.length;
-      document.getElementById('qs-linked').textContent = _allQuotes.filter(r => r.linked).length;
-      document.getElementById('qs-amount').textContent = _allQuotes.reduce((s, r) => s + (Number(r.quoteAmount) || 0), 0).toLocaleString();
+      if(document.getElementById('qs-total')) document.getElementById('qs-total').textContent  = _allQuotes.length;
+      if(document.getElementById('qs-linked')) document.getElementById('qs-linked').textContent = _allQuotes.filter(r => r.linked).length;
+      if(document.getElementById('qs-amount')) document.getElementById('qs-amount').textContent = _allQuotes.reduce((s, r) => s + (Number(r.quoteAmount) || 0), 0).toLocaleString();
       _renderQuoteTable();
     })
     .handleApiRequest('quoteListGetAll', null);
@@ -441,7 +527,7 @@ function _renderQuoteTable() {
   const data  = _filteredQuotes.slice(start, start + _quoteLimit);
   const total = _filteredQuotes.length;
 
-  document.getElementById('qs-count').textContent = total + '件中 ' + (total > 0 ? start + 1 : 0) + '–' + Math.min(start + _quoteLimit, total) + '件';
+  if(document.getElementById('qs-count')) document.getElementById('qs-count').textContent = total + '件中 ' + (total > 0 ? start + 1 : 0) + '–' + Math.min(start + _quoteLimit, total) + '件';
 
   if (total === 0) {
     document.getElementById('quotelist-container').innerHTML = '<div class="loading" style="color:var(--text-sub);">該当する見積書がありません</div>';
@@ -523,7 +609,7 @@ function _buildQuoteDetailHtml(res) {
 // 編集・削除（共通）
 // ============================================================
 function openEditModal(mgmtId) {
-  const item = S.all.find(r => r.id === mgmtId) || _allQuotes.find(r => r.id === mgmtId);
+  const item = S.all.find(r => r.id === mgmtId) || (typeof _allQuotes !== 'undefined' ? _allQuotes.find(r => r.id === mgmtId) : null);
   if (!item) { showToast('データが見つかりません', true); return; }
 
   const v = (id, val) => document.getElementById(id).value = val || '';
@@ -534,7 +620,7 @@ function openEditModal(mgmtId) {
   document.getElementById('edit-modal-title').textContent = (item.orderNo ? '✏️ 注文書 ' + item.orderNo : '✏️ 見積書 ' + item.quoteNo) + ' を編集';
   document.getElementById('edit-modal').classList.add('open');
   document.getElementById('detail-modal').classList.remove('open');
-  document.getElementById('quote-detail-modal').classList.remove('open');
+  if(document.getElementById('quote-detail-modal')) document.getElementById('quote-detail-modal').classList.remove('open');
 }
 
 function saveMgmtEdit() {
@@ -631,6 +717,7 @@ let _calendarInstance = null;
 
 function loadCalendar() {
   const container = document.getElementById('cal-container');
+  if(!container) return;
   if (_calendarInstance) { _calendarInstance.render(); return; }
 
   _calendarInstance = new FullCalendar.Calendar(container, {
@@ -688,10 +775,11 @@ function openCalEventDetail(evProps) {
 // ============================================================
 let _allLedger = [];
 let _ledgerMachines = [];
-const LEDGER_STATUS_BADGE = { '作成予定': 'planned', '作成中': 'sent', '送信済み': 'received', 'キャンセル': 'done' };
 
 function loadLedger() {
-  document.getElementById('ledger-tree-container').innerHTML = '<div class="loading"><div class="spinner"></div><br>読み込み中...</div>';
+  const container = document.getElementById('ledger-tree-container');
+  if(!container) return;
+  container.innerHTML = '<div class="loading"><div class="spinner"></div><br>読み込み中...</div>';
   google.script.run
     .withSuccessHandler(res => {
       if (!res.success) return;
@@ -711,13 +799,9 @@ function applyLedgerFilter() {
   _renderLedgerTree(filtered);
 }
 
-function _clearLedgerFilter() {
-  if (document.getElementById('ledger-search')) document.getElementById('ledger-search').value = '';
-  applyLedgerFilter();
-}
-
 function _renderLedgerTree(items) {
   const container = document.getElementById('ledger-tree-container');
+  if(!container) return;
   const machineSet = {};
   items.forEach(r => {
     const m = (r.machineCode || '（機種未設定）').trim();
@@ -843,128 +927,144 @@ function saveCreateMachine() {
 
 
 // ============================================================
-// AIチャット・その他機能・Todo管理
+// 🤖 Gemini AI 紐づけ候補管理機能
 // ============================================================
-function toggleChatPanel() {
-  const panel = document.getElementById('chat-panel');
-  panel.style.display = panel.style.display === 'flex' ? 'none' : 'flex';
-}
-
-function loadTodos() {
-  document.getElementById('todo-container').innerHTML = '<div class="loading"><div class="spinner"></div></div>';
-  google.script.run.withSuccessHandler(res => {
-    if (res.success) _renderTodos(res.items || []);
-  }).handleApiRequest('getTodos', null);
-}
-
-function _renderTodos(todos) {
-  const cards = todos.map(t => `<div class="todo-card"><div class="tc-title">${t.title}</div></div>`).join('');
-  document.getElementById('todo-container').innerHTML = cards ? `<div class="todo-grid">${cards}</div>` : 'Todoがありません';
-}
-
-function openTodoModal(id) { document.getElementById('todo-modal').classList.add('open'); }
-function closeTodoModal() { document.getElementById('todo-modal').classList.remove('open'); }
-function saveTodo() { closeTodoModal(); loadTodos(); }
+let _allMatchingItems = [];
 
 function loadMatchingCandidates() {
   const container = document.getElementById('matching-container');
-  container.innerHTML = '<div class="loading"><div class="spinner"></div><br>候補を収集中...</div>';
+  if(!container) return;
   
+  container.innerHTML = '<div class="loading"><div class="spinner"></div><br>AIが抽出した紐づけ候補を読み込み中...</div>';
+    
   google.script.run
     .withSuccessHandler(res => {
-      if (!res.success) { container.innerHTML = '<div class="loading" style="color:var(--danger);">⚠️ ' + res.error + '</div>'; return; }
-      _renderMatchingCandidates(res.items || []);
+      if (!res.success) { 
+        container.innerHTML = '<div class="alert alert-danger" style="color:var(--danger);">エラー: ' + res.error + '</div>'; 
+        return; 
+      }
+      _allMatchingItems = res.items || [];
+      _renderMatchingCandidates(_allMatchingItems);
     })
-    .handleApiRequest('getMatchingCandidates', null);
+    .withFailureHandler(err => { 
+      container.innerHTML = '<div class="alert alert-danger" style="color:var(--danger);">通信エラー: ' + err.message + '</div>'; 
+    })
+    .handleApiRequest('getCandidates', null);
+}
+
+function runBatchMatching() {
+  showToast('Gemini AIによる全件マッチングを開始しました...');
+  document.getElementById('matching-container').innerHTML =
+    '<div class="loading"><div class="spinner"></div><br>🤖 Gemini AIが未紐づけの注文書と見積書を解析中...<br><span style="font-size:12px;color:var(--text-sub)">※文脈・金額・表記揺れを比較しているため、数十秒〜数分かかります</span></div>';
+    
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res.success) {
+        showToast('完了！ 自動確定: ' + (res.result.autoCount||0) + '件 / 要確認候補: ' + (res.result.candidateCount||0) + '件');
+        loadMatchingCandidates();
+        if (typeof loadData === 'function') loadData();
+      } else {
+        showToast('エラー: ' + res.error, true);
+        loadMatchingCandidates();
+      }
+    })
+    .withFailureHandler(err => {
+      showToast('通信エラー: ' + err.message, true);
+      loadMatchingCandidates();
+    })
+    .handleApiRequest('runMatching', {});
 }
 
 function _renderMatchingCandidates(items) {
   const container = document.getElementById('matching-container');
+  if(!container) return;
+  
   if (items.length === 0) {
-    container.innerHTML = '<div class="loading" style="color:var(--text-sub);">現在、確認が必要な紐づけ候補はありません</div>';
+    container.innerHTML =
+      '<div style="text-align:center; padding:40px; background:var(--surface2); border-radius:8px;">' +
+      '<strong style="color:var(--success); font-size:16px;">✓ 要確認の紐づけ候補はありません</strong><br>' +
+      '<span style="font-size:13px; color:var(--text-sub); display:inline-block; margin-top:8px;">すべての注文書が自動紐づけされたか、未処理の案件がありません。</span></div>';
     return;
   }
 
+  const scoreBar = (s) => {
+    const w = Math.min(s, 100);
+    const c = s >= 80 ? 'var(--success)' : s >= 50 ? '#fbbc04' : 'var(--danger)';
+    return `
+    <div style="display:flex;align-items:center;gap:6px;">
+      <div style="flex:1;height:8px;background:var(--border);border-radius:4px;overflow:hidden;min-width:100px;">
+        <div style="width:${w}%;height:100%;background:${c};border-radius:4px;"></div>
+      </div>
+      <span style="font-size:14px;font-weight:700;color:${c};min-width:36px;text-align:right;">${s}点</span>
+    </div>`;
+  };
+
   const cards = items.map(item => {
-    const rows = (item.candidates || []).map(c => {
-      const color = c.score >= 80 ? '#34a853' : c.score >= 50 ? '#fbbc04' : '#ea4335';
-      return `
-        <tr style="border-bottom:1px solid var(--border);">
-          <td style="padding:10px 8px;">
-            <div style="font-weight:600;font-size:13px;">${c.quoteNo}</div>
-            <div style="font-size:11px;color:var(--text-sub);">${c.reason || ''}</div>
-          </td>
-          <td style="padding:10px 8px;text-align:center;">
-            <span style="background:${color};color:#fff;border-radius:4px;padding:3px 8px;font-size:12px;font-weight:600;">${c.score}点</span>
-          </td>
-          <td style="padding:10px 8px;text-align:right;">
-            <button class="btn btn-primary btn-sm" onclick="_confirmOrderLink('${item.orderMgmtId}', '${c.quoteMgmtId}', '${c.quoteNo}')">確定</button>
-          </td>
-        </tr>`;
-    }).join('');
+    const candidates = item.candidates || [];
+
+    const candRows = candidates.map(c => `
+      <div style="display:flex;flex-direction:column;gap:6px;padding:12px 16px;background:var(--card);border:1px solid var(--border);border-radius:8px;margin-bottom:8px;">
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+          <div style="flex:1;min-width:200px;">
+            <div style="font-size:13px;font-weight:700;">📄 見積書No: ${c.quoteNo || c.quoteId || '—'}</div>
+            <div style="font-size:12px;color:var(--text-sub);margin-top:2px;">宛先: ${c.client || '—'} | 金額: <strong>¥${c.amount ? Number(c.amount).toLocaleString() : '—'}</strong></div>
+          </div>
+          <div style="min-width:160px;">${scoreBar(c.score)}</div>
+          <button class="btn btn-primary" onclick="confirmLink('${item.orderMgmtId}','${c.quoteId}')">この見積書で確定</button>
+        </div>
+        ${c.reason ? `
+        <div style="font-size:12px;color:var(--info);background:var(--info-light, #e8f0fe);padding:8px 12px;border-radius:6px;border-left:3px solid var(--info);margin-top:4px;">
+          <strong>🤖 AIの推測理由:</strong> ${c.reason}
+        </div>` : ''}
+      </div>`).join('');
 
     return `
-      <div class="summary-card" style="margin-bottom:16px;padding:0;overflow:hidden;">
-        <div style="background:#f8f9fa;padding:12px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
-          <div>
-            <span class="badge badge-sent" style="margin-bottom:4px;">注文書</span>
-            <div style="font-weight:700;font-size:15px;">${item.orderNo || '番号不明'}</div>
-            <div style="font-size:12px;color:var(--text-sub);">${item.client || '顧客不明'} / ${item.modelCode || '機種不明'}</div>
-          </div>
-          <div style="text-align:right;">
-            <div style="font-size:11px;color:var(--text-sub);">注文金額</div>
-            <div style="font-weight:600;">${item.orderAmount ? Number(item.orderAmount).toLocaleString() + ' 円' : '—'}</div>
-          </div>
+      <div style="background:var(--bg);border-radius:var(--radius);border:1px solid var(--border);margin-bottom:24px;box-shadow:var(--shadow);overflow:hidden;">
+        <div style="background:#fce8e6;padding:14px 20px;border-bottom:1px solid #f9d5d1;display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+          <span class="badge" style="background:#c0392b;color:white;font-size:12px;padding:4px 10px;">📦 未紐づけ 注文書</span>
+          <strong style="font-size:16px;color:#c0392b;">${item.orderNo || item.orderMgmtId}</strong>
+          <span style="font-size:13px;color:var(--text-sub); border-left:1px solid #f9d5d1; padding-left:16px;">顧客: ${item.orderClient || '—'}</span>
+          <span style="font-size:13px;color:var(--text-sub);">発注日: ${item.orderDate || '—'}</span>
+          <span style="margin-left:auto;font-size:16px;font-weight:800;color:var(--danger);">¥${item.orderAmount ? Number(item.orderAmount).toLocaleString() : '—'}</span>
         </div>
-        <div style="padding:0 16px;">
-          <table style="width:100%;border-collapse:collapse;">
-            <thead>
-              <tr style="text-align:left;font-size:11px;color:var(--text-sub);">
-                <th style="padding:8px;font-weight:500;">マッチング候補 (見積書)</th>
-                <th style="padding:8px;text-align:center;font-weight:500;">AIスコア</th>
-                <th style="padding:8px;text-align:right;font-weight:500;">操作</th>
-              </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-          </table>
+        <div style="padding:16px 20px;">
+          <div style="font-size:13px;font-weight:700;color:var(--text-sub);margin-bottom:12px;">↓ AIが見つけた見積書候補（スコア順）</div>
+          ${candRows || '<div style="padding:10px; background:#fff8e1; color:#e65100; border:1px solid #f5d9b8; border-radius:6px; font-size:12px;">合致しそうな見積書候補が見つかりませんでした。新しく見積書を登録してください。</div>'}
         </div>
       </div>`;
   }).join('');
 
-  container.innerHTML = cards;
+  container.innerHTML = `<div>${cards}</div>`;
 }
 
-function runBatchMatching() {
-  if (!confirm('紐づけられていないすべての注文書に対して、AIによる再マッチングを実行しますか？\n(APIの実行に時間がかかる場合があります)')) return;
-  
-  const btn = event.target;
-  const originalText = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = '⌛ 実行中...';
-  
-  showToast('バッチ処理を開始しました。少々お待ちください...');
-  
+// 確定ボタンを押したときの処理
+function confirmLink(orderMgmtId, quoteMgmtId) {
+  if (!confirm('この注文書と見積書の紐づけを確定しますか？\n（ステータスが受注済みに更新されます）')) return;
   google.script.run
     .withSuccessHandler(res => {
-      btn.disabled = false;
-      btn.textContent = originalText;
       if (res.success) {
-        showToast(res.message || 'マッチング処理が完了しました');
+        showToast('✅ 紐づけが完了しました');
         loadMatchingCandidates();
-        loadData();
+        if (typeof loadData === 'function') loadData(); // メインの案件一覧も更新
       } else {
-        showToast('エラー: ' + res.error, true);
+        showToast('失敗: ' + res.error, true);
       }
     })
-    .handleApiRequest('runBatchMatching', null);
+    .handleApiRequest('confirmOrderLink', { orderMgmtId, quoteMgmtId });
 }
 
-function loadBoardList() { document.getElementById('board-container').innerHTML = 'データがありません'; }
-function loadBoardAnalysis() { document.getElementById('analysis-container').innerHTML = 'データがありません'; }
-function switchPartsTab(tab) {}
-function loadPartsData() {}
-function loadPcbData() {}
-function openModelInfoModal(id) {}
+// ============================================================
+// Todo管理 / ボット / その他プレースホルダー
+// ============================================================
+function toggleChatPanel() {
+  const p = document.getElementById('chat-panel');
+  if (p) p.style.display = p.style.display === 'flex' ? 'none' : 'flex';
+}
+function loadTodos() {
+  const container = document.getElementById('todo-container');
+  if(container) container.innerHTML = '<div style="padding:20px; color:var(--text-sub);">Todo機能は準備中です。</div>';
+}
+function openTodoModal() {}
 
 function loadSystemSettings() {
   google.script.run.withSuccessHandler(res => {
@@ -975,12 +1075,12 @@ function loadSystemSettings() {
   }).handleApiRequest('loadSettings');
 }
 function saveSystemSettings() { showToast('保存完了'); }
-
 document.addEventListener("DOMContentLoaded", function() {
   setTimeout(function() { if (document.getElementById('sysconf-admin-emails')) loadSystemSettings(); }, 1000);
 });
 
-// 編集モーダル用のダミー（元の関数が消えていた場合のフォールバック）
-function openEditMgmtModal(id) { openEditModal(id); }
+// エラー防止用スタブ
+function loadBoardList() {}
+function loadBoardAnalysis() {}
 
 </script>

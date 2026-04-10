@@ -298,37 +298,190 @@ function apiBoardSaveBOM(boardId, lines) {
   } catch(e) { return { success: false, error: e.message }; }
 }
 
+// ============================================================
+// 🚀 CSVの一括インポート (配列処理による高速化版)
+// ============================================================
 function apiBoardImportBOMCSV(csvText) {
   try {
-    const lines = csvText.split(/\r\n|\n/).filter(l => l.trim() !== '');
-    if (lines.length < 2) throw new Error('データがありません');
-    const data = lines.map(l => {
-      const row = []; let cur = '', inQ = false;
-      for (let i = 0; i < l.length; i++) {
-        const c = l[i];
-        if (c === '"') inQ = !inQ;
-        else if (c === ',' && !inQ) { row.push(cur.trim()); cur = ''; }
-        else cur += c;
-      }
-      row.push(cur.trim()); return row;
-    });
-    const machines = [], boards = [], parts = [], boms = [];
-    data.slice(1).forEach(row => {
-      const [mName, mCode, bId, bName, pCode, pName, price, qty] = row;
-      if (!mCode || !bId || !pCode) return;
-      machines.push({ '機種コード': mCode, '機種名': mName });
-      boards.push({ '基板ID': bId, '基板名': bName });
-      parts.push({ '部品コード': pCode, '部品名': pName, '公表単価': parseFloat(price)||0 });
-      boms.push({ '基板ID': bId, '部品コード': pCode, '使用数量': parseFloat(qty)||0 });
-    });
-    machines.forEach(apiBoardSaveMachine);
-    boards.forEach(apiBoardSaveBoard);
-    parts.forEach(apiBoardSavePart);
+    if (!csvText) return { success: false, error: 'データがありません' };
+    const lines = String(csvText).split(/\r\n|\n/).filter(l => l.trim() !== '');
+    if (lines.length < 2) return { success: false, error: 'データ行がありません' };
+
+    let addedProducts = 0, addedBoards = 0, addedParts = 0, updatedBOM = 0;
+
     const ss = _getBoardSS();
-    const bSheet = ss.getSheetByName(BOARD_CONFIG.SHEET_BOM);
-    const headers = BOARD_HEADERS.BOM;
-    const bomRows = boms.map(b => headers.map(h => b[h] !== undefined ? b[h] : ''));
-    bSheet.getRange(bSheet.getLastRow() + 1, 1, bomRows.length, headers.length).setValues(bomRows);
-    return { success: true, count: data.length - 1 };
-  } catch(e) { return { success: false, error: e.message }; }
+    const machineSheet = ss.getSheetByName(BOARD_CONFIG.SHEET_MACHINE);
+    const boardSheet   = ss.getSheetByName(BOARD_CONFIG.SHEET_BOARD);
+    const compSheet    = ss.getSheetByName(BOARD_CONFIG.SHEET_COMPONENTS);
+    const bomSheet     = ss.getSheetByName(BOARD_CONFIG.SHEET_BOM);
+
+    const getMap = (sheet, keyCol) => {
+      const m = {};
+      if (sheet && sheet.getLastRow() > 1) {
+        sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn())
+             .getValues().forEach(row => m[String(row[keyCol]).trim()] = true);
+      }
+      return m;
+    };
+    
+    const existingMachines = getMap(machineSheet, 0); 
+    const existingBoards   = getMap(boardSheet, 1);   
+    const existingParts    = getMap(compSheet, 0);    
+
+    const newMachineRows = [];
+    const newBoardRows   = [];
+    const newPartRows    = [];
+    const newBOMRows     = [];
+    const existingBomSet = new Set(); 
+
+    for (let i = 1; i < lines.length; i++) {
+      const row = _parseCSVLineFast(lines[i]);
+      if (row.length < 11) continue;
+
+      const prodCode    = row[0]; 
+      const prodName    = row[1]; 
+      const boardCode   = row[3]; 
+      const boardName   = row[4]; 
+      const partCode    = row[5]; 
+      const partName    = row[6]; 
+      const makerPartNo = row[7]; 
+      const maker       = row[9]; 
+      const qty         = Number(row[10]) || 0; 
+      const note        = row.length > 15 ? row[15] : ''; 
+
+      if (!prodCode || !boardName || (!partCode && !partName)) continue;
+
+      if (!existingMachines[prodCode]) {
+        const mRow = BOARD_HEADERS.MACHINE.map(() => '');
+        mRow[0] = prodCode; mRow[1] = prodName;
+        newMachineRows.push(mRow);
+        existingMachines[prodCode] = true;
+        addedProducts++;
+      }
+
+      const bId = boardCode || (prodCode + '-' + boardName.substring(0,4));
+      if (!existingBoards[bId]) {
+        const bRow = BOARD_HEADERS.BOARD.map(() => '');
+        bRow[1] = bId; bRow[2] = boardName; bRow[5] = 'CSV自動作成';
+        newBoardRows.push(bRow);
+        existingBoards[bId] = true;
+        addedBoards++;
+      }
+
+      const pId = partCode || makerPartNo;
+      if (pId && !existingParts[pId]) {
+        const pRow = BOARD_HEADERS.COMPONENTS.map(() => '');
+        pRow[0] = pId; pRow[1] = partName; pRow[2] = maker; pRow[3] = 0; pRow[5] = makerPartNo;
+        newPartRows.push(pRow);
+        existingParts[pId] = true;
+        addedParts++;
+      }
+
+      const bomKey = bId + '|' + pId;
+      if (!existingBomSet.has(bomKey)) {
+        newBOMRows.push([bId, pId, qty, '', note]);
+        existingBomSet.add(bomKey);
+        updatedBOM++;
+      }
+    }
+
+    if (newMachineRows.length > 0) machineSheet.getRange(machineSheet.getLastRow() + 1, 1, newMachineRows.length, newMachineRows[0].length).setValues(newMachineRows);
+    if (newBoardRows.length > 0)   boardSheet.getRange(boardSheet.getLastRow() + 1, 1, newBoardRows.length, newBoardRows[0].length).setValues(newBoardRows);
+    if (newPartRows.length > 0)    compSheet.getRange(compSheet.getLastRow() + 1, 1, newPartRows.length, newPartRows[0].length).setValues(newPartRows);
+    if (newBOMRows.length > 0)     bomSheet.getRange(bomSheet.getLastRow() + 1, 1, newBOMRows.length, newBOMRows[0].length).setValues(newBOMRows);
+
+    return { success: true, addedProducts, addedBoards, addedParts, updatedBOM };
+
+  } catch(e) {
+    Logger.log("BOMインポートエラー: " + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+function _parseCSVLineFast(line) {
+  const result = [];
+  let current = '', inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"' && line[i+1] === '"') { current += '"'; i++; } 
+    else if (char === '"') { inQuotes = !inQuotes; } 
+    else if (char === ',' && !inQuotes) { result.push(current.trim()); current = ''; } 
+    else { current += char; }
+  }
+  result.push(current.trim());
+  return result;
+}
+
+
+// ============================================================
+// 🤖 Gemini API を使用した高精度マッチング
+// ============================================================
+function matchWithGeminiAPI(orderData, quotesList) {
+  const apiKey = PropertiesService.getScriptProperties().getProperty("GEMINI_API_KEY");
+  if (!apiKey) {
+    Logger.log("GEMINI_API_KEY が設定されていません。GASのプロジェクト設定から追加してください。");
+    return [];
+  }
+
+  // ★お客様の環境で確実に動作するURL（-latest なし）
+  const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + apiKey;
+
+  const prompt = `
+あなたは企業の優秀な営業事務アシスタントです。
+新たに受領した以下の「注文書データ」に最も合致する「見積書」を、後述の「見積書候補リスト」から見つけ出し、それぞれにスコア（0〜100点）をつけてください。
+
+【判定基準】
+・会社名の表記ゆれ（株式会社の有無、前株/後株、略称）は同一とみなす。
+・金額のズレ（税抜と税込の10%の違い、数円の端数）は同一とみなす。
+・OCR特有の誤字（0とO、1とIなど）を推測してカバーする。
+・品名や機種コードが部分一致していれば加点する。
+・見積番号が注文書の備考等に含まれていれば100点とする。
+
+【注文書データ】
+${JSON.stringify(orderData, null, 2)}
+
+【見積書候補リスト】
+${JSON.stringify(quotesList, null, 2)}
+
+出力は必ず以下のフォーマットのJSON配列のみとしてください。Markdown記法(\`\`\`json など)は含めないでください。
+[
+  {
+    "quoteId": "見積書の管理ID",
+    "score": 95,
+    "reason": "金額（税抜）が一致し、宛先の表記ゆれも同一企業とみなせるため。"
+  }
+]
+  `;
+
+  const payload = {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: {
+      temperature: 0.1, 
+      response_mime_type: "application/json" 
+    }
+  };
+
+  const options = {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+
+  try {
+    const response = UrlFetchApp.fetch(url, options);
+    const json = JSON.parse(response.getContentText());
+
+    if (json.error) {
+      Logger.log("Gemini API Error: " + json.error.message);
+      return [];
+    }
+
+    const resultText = json.candidates[0].content.parts[0].text;
+    return JSON.parse(resultText);
+
+  } catch (e) {
+    Logger.log("AIマッチング実行失敗: " + e.message);
+    return [];
+  }
 }
