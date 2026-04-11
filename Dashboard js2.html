@@ -17,40 +17,10 @@ window.onload = () => {
   loadMatchingCandidates();
 };
 
-function showPage(name) {
-  document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('active'); });
-  document.querySelectorAll('.nav-tab').forEach(function(t) { t.classList.remove('active'); });
-  var target = document.getElementById('page-'+name);
-  if (!target) { console.warn('ページが見つかりません: page-'+name); return; }
-  target.classList.add('active');
-  
-  document.querySelectorAll('.nav-tab').forEach(function(t) {
-    var onclick = t.getAttribute('onclick') || '';
-    if (onclick.indexOf("'" + name + "'") >= 0) t.classList.add('active');
-  });
+// showPage: 新UIで定義済み
 
-  if (name === 'list') {
-    var ao = document.getElementById('area-order');
-    var aq = document.getElementById('area-quote');
-    if (ao) ao.style.display = '';
-    if (aq) aq.style.display = 'none';
-  }
-  if (name==='parts') { if (typeof loadPartsData === 'function') loadPartsData(); }
-  if (name==='ledger')   loadLedger();
-  if (name==='todo')     loadTodos();
-  if (name==='calendar') loadCalendar();
-  if (name==='matching') loadMatchingCandidates();
-  if (name==='quotesubmit') { if (_allQs.length === 0) loadQsData(); }
-}
 
-function showToast(msg,isError=false){
-  const t=document.getElementById('toast');
-  if(!t) return;
-  t.textContent=(isError?'✗ ':'✓ ')+msg;
-  t.style.background=isError?'var(--danger)':'#323232';
-  t.classList.add('show');
-  setTimeout(()=>t.classList.remove('show'),3500);
-}
+// showToast: 新UIで定義済み
 
 // --- ▼ 検索用の文字列正規化関数 ▼ ---
 function normalizeSearchText(str) {
@@ -981,8 +951,24 @@ function openCreateMachineModal() { document.getElementById('create-machine-moda
 function closeCreateMachineModal() { document.getElementById('create-machine-modal').classList.remove('open'); }
 function saveCreateMachine() {
   const code = document.getElementById('create-machine-code').value.trim();
-  if (!code) return;
-  google.script.run.withSuccessHandler(res => { if(res.success){ closeCreateMachineModal(); loadLedger(); } }).handleApiRequest('ledgerCreateMachine', { machineCode: code });
+  if (!code) { showToast('機種コードを入力してください', true); return; }
+  const statusEl = document.getElementById('create-machine-status');
+  if (statusEl) statusEl.innerHTML = '<span style="color:var(--primary);">⏳ 作成中...</span>';
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res.success) {
+        if (statusEl) statusEl.innerHTML = '<span style="color:var(--success);">✓ 作成しました: ' + res.machineCode + '</span>';
+        setTimeout(() => { closeCreateMachineModal(); loadLedger(); }, 700);
+      } else {
+        if (statusEl) statusEl.innerHTML = '<span style="color:var(--danger);">✗ ' + (res.error||'エラー') + '</span>';
+        showToast((res.error||'作成に失敗しました'), true);
+      }
+    })
+    .withFailureHandler(err => {
+      if (statusEl) statusEl.innerHTML = '<span style="color:var(--danger);">✗ 通信エラー: ' + err.message + '</span>';
+      showToast('通信エラー: ' + err.message, true);
+    })
+    .handleApiRequest('ledgerCreateMachine', { machineCode: code });
 }
 
 
@@ -1062,21 +1048,52 @@ function _renderMatchingCandidates(items) {
   const cards = items.map(item => {
     const candidates = item.candidates || [];
 
-    const candRows = candidates.map(c => `
+    const candRows = candidates.map(c => {
+      // 明細項目の表示（items配列がある場合）
+      const itemsHtml = (c.items && c.items.length > 0)
+        ? `<div style="margin-top:8px;border-top:1px dashed var(--border);padding-top:8px;">
+            <div style="font-size:11px;font-weight:600;color:var(--text-sub);margin-bottom:4px;">📋 明細項目</div>
+            <table style="width:100%;border-collapse:collapse;font-size:12px;">
+              <thead><tr style="background:#f8f9fa;">
+                <th style="padding:3px 8px;text-align:left;border:1px solid var(--border);">品名</th>
+                <th style="padding:3px 8px;text-align:left;border:1px solid var(--border);">仕様</th>
+                <th style="padding:3px 8px;text-align:right;border:1px solid var(--border);">数量</th>
+                <th style="padding:3px 8px;text-align:right;border:1px solid var(--border);">単価</th>
+                <th style="padding:3px 8px;text-align:right;border:1px solid var(--border);">金額</th>
+              </tr></thead>
+              <tbody>${c.items.map(it => `
+                <tr>
+                  <td style="padding:3px 8px;border:1px solid var(--border);">${it.itemName||'—'}</td>
+                  <td style="padding:3px 8px;border:1px solid var(--border);color:var(--text-sub);">${it.spec||'—'}</td>
+                  <td style="padding:3px 8px;border:1px solid var(--border);text-align:right;">${it.qty||'—'}</td>
+                  <td style="padding:3px 8px;border:1px solid var(--border);text-align:right;">${it.unitPrice!=null?'¥'+Number(it.unitPrice).toLocaleString():'—'}</td>
+                  <td style="padding:3px 8px;border:1px solid var(--border);text-align:right;font-weight:600;">${it.amount!=null?'¥'+Number(it.amount).toLocaleString():'—'}</td>
+                </tr>`).join('')}
+              </tbody>
+            </table>
+           </div>`
+        : '';
+      return `
       <div style="display:flex;flex-direction:column;gap:6px;padding:12px 16px;background:var(--card);border:1px solid var(--border);border-radius:8px;margin-bottom:8px;">
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
           <div style="flex:1;min-width:200px;">
             <div style="font-size:13px;font-weight:700;">📄 見積書No: ${c.quoteNo || c.quoteId || '—'}</div>
-            <div style="font-size:12px;color:var(--text-sub);margin-top:2px;">宛先: ${c.client || '—'} | 金額: <strong>¥${c.amount ? Number(c.amount).toLocaleString() : '—'}</strong></div>
+            <div style="font-size:12px;color:var(--text-sub);margin-top:2px;">
+              宛先: ${c.client || '—'} ｜
+              発行日: <strong>${c.issueDate || '—'}</strong> ｜
+              合計: <strong style="color:var(--danger);">¥${c.amount ? Number(c.amount).toLocaleString() : '—'}</strong>
+            </div>
           </div>
           <div style="min-width:160px;">${scoreBar(c.score)}</div>
           <button class="btn btn-primary" onclick="confirmLink('${item.orderMgmtId}','${c.quoteId}')">この見積書で確定</button>
         </div>
+        ${itemsHtml}
         ${c.reason ? `
         <div style="font-size:12px;color:var(--info);background:var(--info-light, #e8f0fe);padding:8px 12px;border-radius:6px;border-left:3px solid var(--info);margin-top:4px;">
           <strong>🤖 AIの推測理由:</strong> ${c.reason}
         </div>` : ''}
-      </div>`).join('');
+      </div>`;
+    }).join('');
 
     return `
       <div style="background:var(--bg);border-radius:var(--radius);border:1px solid var(--border);margin-bottom:24px;box-shadow:var(--shadow);overflow:hidden;">
@@ -1142,5 +1159,189 @@ document.addEventListener("DOMContentLoaded", function() {
 // エラー防止用スタブ
 function loadBoardList() {}
 function loadBoardAnalysis() {}
+
+
+
+// ============================================================
+// 📧 メール監視設定 管理
+// ============================================================
+
+let _emailCfgItems = [];
+
+function loadEmailConfigs() {
+  const container = document.getElementById('email-cfg-container');
+  if (!container) return;
+  container.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  google.script.run
+    .withSuccessHandler(res => {
+      if (!res.success) { container.innerHTML = '<div style="color:var(--danger);">エラー: ' + res.error + '</div>'; return; }
+      _emailCfgItems = res.items || [];
+      _renderEmailCfgs(_emailCfgItems);
+    })
+    .withFailureHandler(err => {
+      container.innerHTML = '<div style="color:var(--danger);">通信エラー: ' + err.message + '</div>';
+    })
+    .handleApiRequest('emailCfgGetAll', null);
+}
+
+function _renderEmailCfgs(items) {
+  const container = document.getElementById('email-cfg-container');
+  if (!container) return;
+  if (items.length === 0) {
+    container.innerHTML = `
+      <div style="text-align:center;padding:24px;background:#fffde7;border-radius:8px;border:1px dashed #fbbc04;">
+        <div style="font-size:24px;margin-bottom:8px;">📧</div>
+        <div style="font-weight:600;margin-bottom:4px;">メール監視設定がありません</div>
+        <div style="font-size:12px;color:var(--text-sub);">「＋ 設定を追加」から得意先のメールアドレスとキーワードを登録してください。</div>
+      </div>`;
+    return;
+  }
+  const typeColor = { '見積書': '#1a73e8', '注文書': '#c5221f' };
+  const typeIcon  = { '見積書': '📄', '注文書': '📦' };
+  const rows = items.map(item => `
+    <tr style="border-bottom:1px solid var(--border);"
+        onmouseenter="this.style.background='#f8f9fa'" onmouseleave="this.style.background=''">
+      <td style="padding:8px 12px;">
+        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${item.enabled ? '#34a853' : '#ccc'};margin-right:4px;"></span>
+        ${item.enabled ? '<span style="color:#137333;font-size:12px;">有効</span>' : '<span style="color:var(--text-sub);font-size:12px;">無効</span>'}
+      </td>
+      <td style="padding:8px 12px;">
+        <span style="background:${(typeColor[item.docType]||'#666')}22;color:${typeColor[item.docType]||'#666'};padding:2px 8px;border-radius:8px;font-size:12px;font-weight:600;">
+          ${typeIcon[item.docType]||'📄'} ${item.docType}
+        </span>
+      </td>
+      <td style="padding:8px 12px;font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${item.keywords || '—'}</td>
+      <td style="padding:8px 12px;font-size:12px;color:var(--text-sub);">${item.fromEmail || '—'}</td>
+      <td style="padding:8px 12px;font-size:12px;color:var(--text-sub);">${item.toEmail || '—'}</td>
+      <td style="padding:8px 12px;font-size:12px;">${item.orderType || '—'}</td>
+      <td style="padding:8px 12px;font-size:12px;color:var(--text-sub);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${item.remarks || ''}</td>
+      <td style="padding:8px 12px;white-space:nowrap;">
+        <button class="btn btn-outline btn-sm" onclick="openEmailCfgModal(${item.rowIndex})" style="padding:3px 8px;">✏️</button>
+        <button class="btn btn-danger btn-sm"  onclick="deleteEmailCfg(${item.rowIndex})"    style="padding:3px 8px;margin-left:2px;">🗑️</button>
+      </td>
+    </tr>`).join('');
+
+  container.innerHTML = `
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead>
+        <tr style="background:#fff8e1;">
+          <th style="padding:7px 12px;text-align:left;font-size:11px;color:var(--text-sub);border-bottom:1px solid var(--border);">有効</th>
+          <th style="padding:7px 12px;text-align:left;font-size:11px;color:var(--text-sub);border-bottom:1px solid var(--border);">種別</th>
+          <th style="padding:7px 12px;text-align:left;font-size:11px;color:var(--text-sub);border-bottom:1px solid var(--border);">キーワード</th>
+          <th style="padding:7px 12px;text-align:left;font-size:11px;color:var(--text-sub);border-bottom:1px solid var(--border);">送信元</th>
+          <th style="padding:7px 12px;text-align:left;font-size:11px;color:var(--text-sub);border-bottom:1px solid var(--border);">宛先（自社）</th>
+          <th style="padding:7px 12px;text-align:left;font-size:11px;color:var(--text-sub);border-bottom:1px solid var(--border);">注文種別</th>
+          <th style="padding:7px 12px;text-align:left;font-size:11px;color:var(--text-sub);border-bottom:1px solid var(--border);">備考</th>
+          <th style="padding:7px 12px;font-size:11px;color:var(--text-sub);border-bottom:1px solid var(--border);">操作</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+function openEmailCfgModal(rowIndex) {
+  const item = rowIndex ? _emailCfgItems.find(i => i.rowIndex === rowIndex) : null;
+  document.getElementById('email-cfg-modal-title').textContent = item ? '📧 メール監視設定の編集' : '📧 メール監視設定の追加';
+  document.getElementById('email-cfg-row-index').value  = item ? item.rowIndex : '';
+  document.getElementById('email-cfg-doctype').value    = item ? (item.docType  || '見積書') : '見積書';
+  document.getElementById('email-cfg-enabled').value    = item ? (item.enabled ? 'true' : 'false') : 'true';
+  document.getElementById('email-cfg-keywords').value   = item ? (item.keywords  || '') : '';
+  document.getElementById('email-cfg-from').value       = item ? (item.fromEmail || '') : '';
+  document.getElementById('email-cfg-to').value         = item ? (item.toEmail   || '') : '';
+  document.getElementById('email-cfg-ordertype').value  = item ? (item.orderType || '') : '';
+  document.getElementById('email-cfg-remarks').value    = item ? (item.remarks   || '') : '';
+  document.getElementById('email-cfg-test-result').textContent = '';
+  _emailCfgDocTypeChange();
+  document.getElementById('email-cfg-modal').classList.add('open');
+}
+
+function closeEmailCfgModal() {
+  document.getElementById('email-cfg-modal').classList.remove('open');
+}
+
+function _emailCfgDocTypeChange() {
+  const type = document.getElementById('email-cfg-doctype')?.value;
+  const wrap  = document.getElementById('email-cfg-ordertype-wrap');
+  const fromLbl  = document.getElementById('email-cfg-from-label');
+  const toLbl    = document.getElementById('email-cfg-to-label');
+  const fromHint = document.getElementById('email-cfg-from-hint');
+  const toHint   = document.getElementById('email-cfg-to-hint');
+  if (type === '見積書') {
+    if (wrap) wrap.style.display = 'none';
+    if (fromLbl)  fromLbl.textContent  = '送信元メールアドレス（自社）';
+    if (toLbl)    toLbl.textContent    = '宛先メールアドレス（得意先）';
+    if (fromHint) fromHint.textContent = '自社で見積書を送ったアドレス';
+    if (toHint)   toHint.textContent   = '送付先の得意先アドレス（省略可）';
+  } else {
+    if (wrap) wrap.style.display = '';
+    if (fromLbl)  fromLbl.textContent  = '送信元メールアドレス（得意先）';
+    if (toLbl)    toLbl.textContent    = '宛先メールアドレス（自社）';
+    if (fromHint) fromHint.textContent = '注文書を送ってくる得意先のアドレス';
+    if (toHint)   toHint.textContent   = '自社の受信アドレス（省略可）';
+  }
+}
+
+function saveEmailCfg() {
+  const keywords = document.getElementById('email-cfg-keywords').value.trim();
+  if (!keywords) { showToast('キーワードを入力してください', true); return; }
+  const payload = {
+    rowIndex:  document.getElementById('email-cfg-row-index').value || null,
+    enabled:   document.getElementById('email-cfg-enabled').value,
+    docType:   document.getElementById('email-cfg-doctype').value,
+    keywords:  keywords,
+    fromEmail: document.getElementById('email-cfg-from').value.trim(),
+    toEmail:   document.getElementById('email-cfg-to').value.trim(),
+    orderType: document.getElementById('email-cfg-ordertype').value,
+    remarks:   document.getElementById('email-cfg-remarks').value.trim(),
+  };
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res.success) { showToast('保存しました'); closeEmailCfgModal(); loadEmailConfigs(); }
+      else showToast('保存失敗: ' + res.error, true);
+    })
+    .withFailureHandler(err => showToast('通信エラー: ' + err.message, true))
+    .handleApiRequest('emailCfgSave', payload);
+}
+
+function deleteEmailCfg(rowIndex) {
+  const item = _emailCfgItems.find(i => i.rowIndex === rowIndex);
+  const label = item ? (item.docType + ' / ' + item.keywords) : String(rowIndex);
+  if (!confirm('「' + label + '」の設定を削除しますか？')) return;
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res.success) { showToast('削除しました'); loadEmailConfigs(); }
+      else showToast('削除失敗: ' + res.error, true);
+    })
+    .withFailureHandler(err => showToast('通信エラー: ' + err.message, true))
+    .handleApiRequest('emailCfgDelete', { rowIndex });
+}
+
+function testEmailCfg() {
+  const resultEl = document.getElementById('email-cfg-test-result');
+  resultEl.textContent = '⏳ Gmailを検索中...';
+  const payload = {
+    fromEmail: document.getElementById('email-cfg-from').value.trim(),
+    toEmail:   document.getElementById('email-cfg-to').value.trim(),
+    keywords:  document.getElementById('email-cfg-keywords').value.trim(),
+    docType:   document.getElementById('email-cfg-doctype').value,
+  };
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res.success) {
+        const sampleTxt = res.samples && res.samples.length > 0
+          ? '\n例: ' + res.samples.join(' / ')
+          : '';
+        resultEl.innerHTML = `<span style="color:${res.hitCount > 0 ? 'var(--success)' : 'var(--text-sub)'};">
+          ${res.hitCount > 0 ? '✅' : '⚠️'} ${res.hitCount}件ヒット${sampleTxt}
+        </span>`;
+      } else {
+        resultEl.innerHTML = '<span style="color:var(--danger);">✗ ' + res.error + '</span>';
+      }
+    })
+    .withFailureHandler(err => {
+      resultEl.innerHTML = '<span style="color:var(--danger);">✗ ' + err.message + '</span>';
+    })
+    .handleApiRequest('emailCfgTest', payload);
+}
 
 </script>
