@@ -142,6 +142,10 @@ function handleApiRequest(action, payload) {
       case 'confirmOrderLink':       return _apiConfirmOrderLink(payload);
       case 'getMatchingCandidates':  return _apiGetMatchingCandidates(payload);
       case 'runBatchMatching':       return _apiRunBatchMatching(payload);
+      case 'emailCfgGetAll':         return _apiEmailCfgGetAll();
+      case 'emailCfgSave':           return _apiEmailCfgSave(payload);
+      case 'emailCfgDelete':         return _apiEmailCfgDelete(payload);
+      case 'emailCfgTest':           return _apiEmailCfgTest(payload);
       default: return { success: false, error: '不明なアクション: ' + action };
     }
   } catch(e) {
@@ -1410,4 +1414,117 @@ function _apiUploadOrderWithLink(p) {
     res.linkResult = aiRes;
   }
   return res;
+}
+
+// ============================================================
+// メール監視設定 API
+// ============================================================
+
+var EMAIL_CFG_HEADERS = ['有効','種別','キーワード（ファイル名・件名）','送信元メールアドレス','宛先メールアドレス（自社）','注文種別','備考'];
+
+function _apiEmailCfgGetAll() {
+  try {
+    var ss    = getSpreadsheet();
+    var sheet = ss.getSheetByName(CONFIG.SHEET_EMAIL_CFG);
+    if (!sheet) {
+      // 存在しない場合は初期化してサンプルを返す
+      _setupEmailConfigSheet(ss);
+      sheet = ss.getSheetByName(CONFIG.SHEET_EMAIL_CFG);
+    }
+    if (sheet.getLastRow() <= 1) return { success: true, items: [] };
+    var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, EMAIL_CFG_HEADERS.length).getValues();
+    var items = rows
+      .filter(function(r) { return r.some(function(v){ return String(v).trim() !== ''; }); })
+      .map(function(r, i) {
+        return {
+          rowIndex: i + 2,
+          enabled:    r[0] === true || r[0] === 'TRUE',
+          docType:    String(r[1] || ''),
+          keywords:   String(r[2] || ''),
+          fromEmail:  String(r[3] || ''),
+          toEmail:    String(r[4] || ''),
+          orderType:  String(r[5] || ''),
+          remarks:    String(r[6] || ''),
+        };
+      });
+    return { success: true, items: items };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+function _apiEmailCfgSave(p) {
+  try {
+    var ss    = getSpreadsheet();
+    var sheet = ss.getSheetByName(CONFIG.SHEET_EMAIL_CFG);
+    if (!sheet) {
+      _setupEmailConfigSheet(ss);
+      sheet = ss.getSheetByName(CONFIG.SHEET_EMAIL_CFG);
+    }
+    var row = [
+      p.enabled === true || p.enabled === 'true' || p.enabled === 'TRUE',
+      p.docType   || '',
+      p.keywords  || '',
+      p.fromEmail || '',
+      p.toEmail   || '',
+      p.orderType || '',
+      p.remarks   || '',
+    ];
+    if (p.rowIndex && Number(p.rowIndex) >= 2) {
+      // 既存行を更新
+      sheet.getRange(Number(p.rowIndex), 1, 1, row.length).setValues([row]);
+      // チェックボックス再設定
+      sheet.getRange(Number(p.rowIndex), 1).insertCheckboxes();
+    } else {
+      // 新規追加
+      sheet.appendRow(row);
+      var newRow = sheet.getLastRow();
+      sheet.getRange(newRow, 1).insertCheckboxes();
+    }
+    return { success: true };
+  } catch(e) {
+    Logger.log('[EMAIL CFG SAVE ERROR] ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+function _apiEmailCfgDelete(p) {
+  try {
+    var ss    = getSpreadsheet();
+    var sheet = ss.getSheetByName(CONFIG.SHEET_EMAIL_CFG);
+    if (!sheet || !p.rowIndex || Number(p.rowIndex) < 2) return { success: false, error: 'パラメータ不足' };
+    sheet.deleteRow(Number(p.rowIndex));
+    return { success: true };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+function _apiEmailCfgTest(p) {
+  try {
+    // Gmail検索をテスト実行して件数を返す
+    var query = 'has:attachment filename:pdf';
+    if (p.fromEmail) query += ' from:' + p.fromEmail;
+    var threads = GmailApp.search(query, 0, 5);
+    var hitCount = 0;
+    var samples  = [];
+    threads.forEach(function(t) {
+      t.getMessages().forEach(function(m) {
+        var subject = m.getSubject();
+        var atts    = m.getAttachments();
+        atts.forEach(function(a) {
+          if (!a.getName().toLowerCase().endsWith('.pdf')) return;
+          var kws = String(p.keywords || '').toLowerCase().split(',').map(function(k){ return k.trim(); }).filter(Boolean);
+          var text = (a.getName() + ' ' + subject).toLowerCase();
+          if (kws.length === 0 || kws.some(function(k){ return text.indexOf(k) >= 0; })) {
+            hitCount++;
+            if (samples.length < 3) samples.push(subject + ' / ' + a.getName());
+          }
+        });
+      });
+    });
+    return { success: true, hitCount: hitCount, samples: samples };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
 }
