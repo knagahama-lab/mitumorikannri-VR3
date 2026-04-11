@@ -98,8 +98,16 @@ function matchWithGeminiAPI_LineLevel(orderData, orderLines, quoteGroups, quoteL
   const quoteDetailSummary = quoteGroups.map(q => {
     const details = quoteLines.filter(ql => ql['管理ID'] === q.mgmtId);
     return {
-      mgmtId: q.mgmtId, quoteNo: q.quoteNo,
-      items: details.map(d => `${d['品名']} (${d['仕様']})`).join(", ")
+      mgmtId: q.mgmtId,
+      quoteNo: q.quoteNo,
+      issueDate: q.issueDate || q['発行日'] || '',
+      client: q.client || q['顧客名'] || '',
+      totalAmount: q.totalAmount || q['見積金額'] || '',
+      items: details.map(d => {
+        const up = d['単価'] || d['単価（円）'] || '';
+        const amt = d['金額'] || '';
+        return `${d['品名']} / ${d['仕様']} / 数量:${d['数量']} / 単価:${up} / 金額:${amt}`;
+      }).join('; ')
     };
   });
 
@@ -107,18 +115,24 @@ function matchWithGeminiAPI_LineLevel(orderData, orderLines, quoteGroups, quoteL
 あなたは優秀な営業事務アシスタントです。注文書の各明細に最適な見積書（管理ID）を特定してください。
 1つの注文に異なる見積書の内容が混在している場合があります。
 
-【注文書】番号:${orderData['注文書番号']} | 顧客:${orderData['顧客名']}
+【注文書】番号:${orderData['注文書番号']} | 顧客:${orderData['顧客名']} | 発注日:${orderData['発注日']||''}
 【注文明細】
-${orderLines.map(l => `行:${l.lineNo} | 品名:${l['品名']} | 仕様:${l['仕様']} | 数量:${l['数量']}`).join('\n')}
+${orderLines.map(l => `行:${l.lineNo} | 品名:${l['品名']} | 仕様:${l['仕様']} | 数量:${l['数量']} | 単価:${l['単価']||''} | 金額:${l['金額']||''}`).join('\n')}
 
-【見積書候補】
-${quoteDetailSummary.map(q => `ID:${q.mgmtId} | 見積番号:${q.quoteNo} | 内容:[${q.items}]`).join('\n')}
+【見積書候補】（発行日・単価が注文書と近いものを優先してください）
+${quoteDetailSummary.map(q => `ID:${q.mgmtId} | 見積番号:${q.quoteNo} | 顧客:${q.client} | 発行日:${q.issueDate} | 合計:${q.totalAmount} | 明細:[${q.items}]`).join('\n')}
+
+マッチング判断基準（優先順位順）：
+1. 品名・仕様の一致度（最重要）
+2. 単価・金額の一致度
+3. 発行日が発注日より前であること
+4. 顧客名の一致
 
 【返却形式】 JSONのみ。
 {
   "isMixed": boolean,
   "matches": [
-    { "orderLineNo": 注文明細の行番号, "quoteMgmtId": "管理ID", "quoteNo": "見積番号", "score": 0-100, "reason": "理由" }
+    { "orderLineNo": 注文明細の行番号, "quoteMgmtId": "管理ID", "quoteNo": "見積番号", "score": 0-100, "reason": "理由（品名/単価/発行日の一致根拠を明記）" }
   ]
 }
 `;
