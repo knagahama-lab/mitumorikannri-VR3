@@ -36,10 +36,18 @@ function doGet(e) {
     }
   }
 
+  // 楽楽販売からのWebhook受信
+  if (e && e.parameter && e.parameter.action === 'rakurakuWebhook') {
+    return handleRakurakuWebhook(e);
+  }
+
   // 通常のアクセス（パラメータなし）の場合は、これまでの見積・注文管理システムを開く
+  var userRole = (typeof getUserRole === 'function') ? getUserRole(userEmail) : (isAdmin ? 'admin' : 'viewer');
   var dashboardTmpl = HtmlService.createTemplateFromFile('Dashboard');
-  dashboardTmpl.isAdmin = isAdmin;
-  dashboardTmpl.userEmail = userEmail;
+  dashboardTmpl.isAdmin    = (userRole === 'admin');
+  dashboardTmpl.isEditor   = (userRole === 'admin' || userRole === 'editor');
+  dashboardTmpl.userEmail  = userEmail;
+  dashboardTmpl.userRole   = userRole;
 
   return dashboardTmpl.evaluate()
     .setTitle('見積・注文 管理システム')
@@ -146,6 +154,36 @@ function handleApiRequest(action, payload) {
       case 'emailCfgSave':           return _apiEmailCfgSave(payload);
       case 'emailCfgDelete':         return _apiEmailCfgDelete(payload);
       case 'emailCfgTest':           return _apiEmailCfgTest(payload);
+      // ===== 連携ハブ =====
+      case 'getAssignees':           return _apiGetAssignees();
+      case 'saveAssignee':           return _apiSaveAssignee(payload);
+      case 'deleteAssignee':         return _apiDeleteAssignee(payload);
+      case 'handover':               return _apiHandover(payload);
+      case 'requestApproval':        return _apiRequestApproval(payload);
+      case 'processApproval':        return _apiProcessApproval(payload);
+      case 'getApprovals':           return _apiGetApprovals(payload);
+      case 'getNotificationSettings':return _apiGetNotificationSettings();
+      case 'saveNotificationSettings':return _apiSaveNotificationSettings(payload);
+      case 'testNotification':       return _apiTestNotification(payload);
+      case 'getIntegrationSettings': return _apiGetIntegrationSettings();
+      case 'saveIntegrationSettings':return _apiSaveIntegrationSettings(payload);
+      case 'getMatchingCandidatesV2':return getMatchingCandidates();
+      case 'getWorkflowStats':       return _apiGetWorkflowStats();
+      // ===== 権限管理 =====
+      case 'getViewerPermissions':   return _apiGetViewerPermissions();
+      case 'saveViewerPermission':   return _apiSaveViewerPermission(payload);
+      case 'deleteViewerPermission': return _apiDeleteViewerPermission(payload);
+      // ===== メール配信 =====
+      case 'getMailSendSettings':    return _apiGetMailSendSettings();
+      case 'saveMailSendSettings':   return _apiSaveMailSendSettings(payload);
+      case 'sendTestMailAll':        return _apiSendTestMailAll(payload);
+      // ===== 楽楽販売連携 =====
+      case 'getRakurakuSettings':    return _apiGetRakurakuSettings();
+      case 'saveRakurakuSettings':   return _apiSaveRakurakuSettings(payload);
+      case 'testRakurakuConnection': return _apiTestRakurakuConnection(payload);
+      case 'syncRakurakuNow':        return _apiSyncRakurakuNow(payload);
+      case 'importRakurakuCsv':      return _apiImportRakurakuCsv(payload);
+      case 'saveMatchingSettings':   return _apiSaveMatchingSettings(payload);
       default: return { success: false, error: '不明なアクション: ' + action };
     }
   } catch(e) {
@@ -1524,6 +1562,73 @@ function _apiEmailCfgTest(p) {
       });
     });
     return { success: true, hitCount: hitCount, samples: samples };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+
+// ============================================================
+// ワークフロー統計 API
+// ============================================================
+function _apiGetWorkflowStats() {
+  try {
+    var allRows = getAllMgmtData().map(_rowToObject);
+    var now = new Date();
+    var monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    
+    var planned   = allRows.filter(function(r){ return r.status === CONFIG.STATUS.PLANNED; }).length;
+    var sent      = allRows.filter(function(r){ return r.status === CONFIG.STATUS.SENT; }).length;
+    var received  = allRows.filter(function(r){ return r.orderNo && r.orderNo !== ''; }).length;
+    var linked    = allRows.filter(function(r){ return r.linked === 'TRUE'; }).length;
+    var unlinked  = allRows.filter(function(r){ return r.orderNo && r.orderNo !== '' && r.linked !== 'TRUE'; }).length;
+    var ordered   = allRows.filter(function(r){ return r.status === CONFIG.STATUS.ORDERED || r.status === '受注済み'; }).length;
+    
+    // 今月受注
+    var orderedMonth = allRows.filter(function(r){
+      if (r.status !== CONFIG.STATUS.ORDERED && r.status !== '受注済み') return false;
+      var d = r.updatedAt ? new Date(r.updatedAt) : null;
+      return d && d >= monthStart;
+    }).length;
+    
+    // AI紐付け率（linked / 受領済み注文書）
+    var matchRate = received > 0 ? (linked / received * 100) : 0;
+    
+    // 承認待ち件数
+    var approvalPending = 0;
+    try {
+      var ss = getSpreadsheet();
+      var aSheet = ss.getSheetByName('承認管理');
+      if (aSheet && aSheet.getLastRow() > 1) {
+        var aData = aSheet.getDataRange().getValues();
+        approvalPending = aData.slice(1).filter(function(r){ return String(r[7]) === '承認待ち'; }).length;
+      }
+    } catch(e2) {}
+    
+    return {
+      success: true,
+      data: {
+        planned: planned, sent: sent,
+        ocrDone: sent,    // OCR転記=送信済みとみなす
+        received: received, linked: linked, unlinked: unlinked,
+        approvalPending: approvalPending, ordered: ordered,
+        orderedMonth: orderedMonth, matchRate: Math.round(matchRate),
+      }
+    };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+function _apiSaveMatchingSettings(p) {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    props.setProperty('MATCHING_SETTINGS', JSON.stringify({
+      autoThreshold:      p.autoThreshold      || 80,
+      candidateThreshold: p.candidateThreshold || 50,
+      model:              p.model              || 'gemini-2.5-flash',
+    }));
+    return { success: true };
   } catch(e) {
     return { success: false, error: e.message };
   }
