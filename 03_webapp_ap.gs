@@ -8,13 +8,12 @@ function doGet(e) {
   var adminEmailsStr = PropertiesService.getScriptProperties().getProperty('ADMIN_EMAILS') || '';
   var isAdmin = false;
   if (!adminEmailsStr || adminEmailsStr.trim() === '') {
-    isAdmin = true; // 未設定時は全員を管理者扱いとする
+    isAdmin = true;
   } else {
     var adminEmails = adminEmailsStr.split(',').map(function(s){return s.trim();});
     isAdmin = (adminEmails.indexOf(userEmail) >= 0);
   }
 
-  // URLの末尾に「?page=bom」がついている場合はBOM管理画面を開く
   if (e && e.parameter && e.parameter.page === 'bom') {
     var bomTmpl = HtmlService.createTemplateFromFile('BomDashboard');
     bomTmpl.isAdmin = isAdmin;
@@ -36,26 +35,15 @@ function doGet(e) {
     }
   }
 
-  // 楽楽販売からのWebhook受信
-  if (e && e.parameter && e.parameter.action === 'rakurakuWebhook') {
-    return handleRakurakuWebhook(e);
-  }
-
-  // 通常のアクセス（パラメータなし）の場合は、これまでの見積・注文管理システムを開く
-  var userRole = (typeof getUserRole === 'function') ? getUserRole(userEmail) : (isAdmin ? 'admin' : 'viewer');
   var dashboardTmpl = HtmlService.createTemplateFromFile('Dashboard');
-  dashboardTmpl.isAdmin    = (userRole === 'admin');
-  dashboardTmpl.isEditor   = (userRole === 'admin' || userRole === 'editor');
-  dashboardTmpl.userEmail  = userEmail;
-  dashboardTmpl.userRole   = userRole;
-
+  dashboardTmpl.isAdmin = isAdmin;
+  dashboardTmpl.userEmail = userEmail;
   return dashboardTmpl.evaluate()
     .setTitle('見積・注文 管理システム')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
-// HTMLテンプレートから別ファイルをインクルードするためのヘルパー関数
 function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
@@ -64,7 +52,10 @@ function handleApiRequest(action, payload) {
   try {
     payload = payload || {};
     switch (action) {
-      case 'getAll':        return _apiGetAll();
+      // ★修正：エラーを安全にキャッチして止まらないようにする
+      case 'getAll':
+        try { return _apiGetAll(); } 
+        catch(ex) { return { success: false, error: '[getAll] ' + ex.message }; }
       case 'search':        return _apiSearch(payload);
       case 'uploadPdf':     return _apiUploadPdf(payload);
       case 'updateStatus':  return _apiUpdateStatus(payload);
@@ -76,7 +67,6 @@ function handleApiRequest(action, payload) {
       case 'getCandidates': return _apiGetCandidates();
       case 'confirmLink':   return _apiConfirmLink(payload);
       case 'runMatching':   return _apiRunMatching(payload);
-      // ===== 見積台帳API =====
       case 'quoteListGetAll':     return _apiQuoteListGetAll();
       case 'getQuoteDetail':      return _apiGetQuoteDetail(payload);
       case 'ledgerGetAll':        return _apiLedgerGetAll();
@@ -86,28 +76,21 @@ function handleApiRequest(action, payload) {
       case 'ledgerUploadFile':    return _apiLedgerUploadFile(payload);
       case 'ledgerGetMachines':   return _apiLedgerGetMachines();
       case 'ledgerCreateMachine': return _apiLedgerCreateMachine(payload);
-      // ===== 基板マスタ・機種マスタ新規登録 =====
       case 'appendBoardRow':   return _apiAppendBoardRow(payload);
-      // ===== 編集・削除API =====
       case 'updateMgmt':       return _apiUpdateMgmt(payload);
       case 'deleteMgmt':       return _apiDeleteMgmt(payload);
-      // ===== チャットボットAPI =====
       case 'chatbotQuery':     return apiChatbotQuery(payload);
-      // ===== 機種情報管理API =====
       case 'modelInfoGet':     return _apiModelInfoGet(payload);
       case 'modelInfoSave':    return _apiModelInfoSave(payload);
       case 'modelInfoUpload':  return _apiModelInfoUpload(payload);
-      // ===== Drive検索API =====
       case 'driveSearch':       return _apiDriveSearch(payload);
       case 'driveRefreshCache': return { success: true, count: refreshDrivePdfCache() };
       case 'driveDeleteFile':   return _apiDriveDeleteFile(payload);
-      // ===== 見積提出管理API =====
       case 'qsGetAll':      return _apiQsGetAll(payload);
       case 'qsSave':        return _apiQsSave(payload);
       case 'qsDelete':      return _apiQsDelete(payload);
       case 'qsUploadFile':  return _apiQsUploadFile(payload);
       case 'qsGetMachines': return _apiQsGetMachines();
-      // ===== 部品・PCB 原価管理API =====
       case 'partsGetAll':      return _apiPartsGetAll(payload);
       case 'partsSave':        return _apiPartsSave(payload);
       case 'partsDelete':      return _apiPartsDelete(payload);
@@ -119,7 +102,6 @@ function handleApiRequest(action, payload) {
       case 'pcbImportCSV':     return _apiPcbImportCSV(payload);
       case 'pcbExportCSV':     return _apiPcbExportCSV(payload);
       case 'ensurePartsSheets': return ensurePartsSheets() || { success: true };
-      // ===== 基板管理API (BOM・部品) =====
       case 'boardGetAll':       return apiBoardGetAll();
       case 'boardGetParts':     return apiBoardGetParts();
       case 'boardGetMachines':  return apiBoardGetMachines();
@@ -137,7 +119,6 @@ function handleApiRequest(action, payload) {
       case 'boardGetAnalysis':  return apiGetBoardAnalysis();
       case 'boardGetOrders':    return apiGetOrdersWithBoardInfo();
       case 'boardComparePrice': return apiComparePriceToBOM(payload.mgmtId);
-      // ===== 注文書PDF登録＋AI紐づけ＋Chat通知 =====
       case 'searchDetail':           return _apiSearchDetail(payload);
       case 'updateLineStatus':       return _apiUpdateLineStatus(payload);
       case 'createRevision':         return _apiCreateRevision(payload);
@@ -150,40 +131,6 @@ function handleApiRequest(action, payload) {
       case 'confirmOrderLink':       return _apiConfirmOrderLink(payload);
       case 'getMatchingCandidates':  return _apiGetMatchingCandidates(payload);
       case 'runBatchMatching':       return _apiRunBatchMatching(payload);
-      case 'emailCfgGetAll':         return _apiEmailCfgGetAll();
-      case 'emailCfgSave':           return _apiEmailCfgSave(payload);
-      case 'emailCfgDelete':         return _apiEmailCfgDelete(payload);
-      case 'emailCfgTest':           return _apiEmailCfgTest(payload);
-      // ===== 連携ハブ =====
-      case 'getAssignees':           return _apiGetAssignees();
-      case 'saveAssignee':           return _apiSaveAssignee(payload);
-      case 'deleteAssignee':         return _apiDeleteAssignee(payload);
-      case 'handover':               return _apiHandover(payload);
-      case 'requestApproval':        return _apiRequestApproval(payload);
-      case 'processApproval':        return _apiProcessApproval(payload);
-      case 'getApprovals':           return _apiGetApprovals(payload);
-      case 'getNotificationSettings':return _apiGetNotificationSettings();
-      case 'saveNotificationSettings':return _apiSaveNotificationSettings(payload);
-      case 'testNotification':       return _apiTestNotification(payload);
-      case 'getIntegrationSettings': return _apiGetIntegrationSettings();
-      case 'saveIntegrationSettings':return _apiSaveIntegrationSettings(payload);
-      case 'getMatchingCandidatesV2':return getMatchingCandidates();
-      case 'getWorkflowStats':       return _apiGetWorkflowStats();
-      // ===== 権限管理 =====
-      case 'getViewerPermissions':   return _apiGetViewerPermissions();
-      case 'saveViewerPermission':   return _apiSaveViewerPermission(payload);
-      case 'deleteViewerPermission': return _apiDeleteViewerPermission(payload);
-      // ===== メール配信 =====
-      case 'getMailSendSettings':    return _apiGetMailSendSettings();
-      case 'saveMailSendSettings':   return _apiSaveMailSendSettings(payload);
-      case 'sendTestMailAll':        return _apiSendTestMailAll(payload);
-      // ===== 楽楽販売連携 =====
-      case 'getRakurakuSettings':    return _apiGetRakurakuSettings();
-      case 'saveRakurakuSettings':   return _apiSaveRakurakuSettings(payload);
-      case 'testRakurakuConnection': return _apiTestRakurakuConnection(payload);
-      case 'syncRakurakuNow':        return _apiSyncRakurakuNow(payload);
-      case 'importRakurakuCsv':      return _apiImportRakurakuCsv(payload);
-      case 'saveMatchingSettings':   return _apiSaveMatchingSettings(payload);
       default: return { success: false, error: '不明なアクション: ' + action };
     }
   } catch(e) {
@@ -191,8 +138,6 @@ function handleApiRequest(action, payload) {
     return { success: false, error: e.message };
   }
 }
-
-// ===== 案件データ取得 =====
 
 function _apiGetAll() {
   var rows = getAllMgmtData();
@@ -302,10 +247,6 @@ function _apiUpdateStatus(p) {
   return { success: true };
 }
 
-// ============================================================
-// ⑤ 基板マスタ・機種マスタ 新規行追加API
-// ============================================================
-
 function _apiAppendBoardRow(p) {
   try {
     if (!p.sheetName || !p.rowData) return { success: false, error: 'パラメータ不足' };
@@ -320,10 +261,6 @@ function _apiAppendBoardRow(p) {
     return { success: false, error: e.message };
   }
 }
-
-// ============================================================
-// ① 管理シート 編集API
-// ============================================================
 
 function _apiUpdateMgmt(p) {
   try {
@@ -387,10 +324,6 @@ function _updateLinkedSheetByMgmtId(ss, sheetName, mgmtId, colIdx, value) {
     }
   });
 }
-
-// ============================================================
-// ① 管理シート 削除API
-// ============================================================
 
 function _apiDeleteMgmt(p) {
   try {
@@ -484,8 +417,6 @@ function _apiGetDetail(p) {
   return { success: true, mgmtId: p.mgmtId, quoteLines: quoteLines, orderLines: orderLines };
 }
 
-// ===== 機種情報管理 API =====
-
 function _apiModelInfoGet(p) {
   try {
     var all = getAllModelInfoData().map(_modelInfoRowToObject);
@@ -522,8 +453,6 @@ function _apiModelInfoSave(p) {
       p.purchaseUrl1 || '', p.purchaseUrl2 || '', p.purchaseUrl3 || '',
       p.localServerUrl || '', p.comment || '', nowJST(),
     ];
-
-
     if (existingRow > 0) {
       sheet.getRange(existingRow, 1, 1, 10).setValues([rowData]);
     } else {
@@ -702,34 +631,21 @@ function _apiGetQuoteDetail(p) {
     if (!p || !p.mgmtId) return { success: false, error: '管理IDが必要です' };
     var ss = getSpreadsheet();
     var mgmtData = getAllMgmtData();
-    var mgmtRow = mgmtData.find(function(r) {
+    var targetRow = mgmtData.find(function(r) {
       return String(r[MGMT_COLS.ID - 1]) === String(p.mgmtId);
     });
-    if (!mgmtRow) return { success: false, error: '管理ID未発見: ' + p.mgmtId };
-    var mgmt = _rowToObject(mgmtRow);
-
-    // 見積書明細取得
-    var qs = ss.getSheetByName(CONFIG.SHEET_QUOTES);
-    var quoteLines = [];
-    if (qs && qs.getLastRow() > 1) {
-      qs.getRange(2, 1, qs.getLastRow() - 1, 15).getValues()
-        .filter(function(r) { return String(r[0]) === String(p.mgmtId); })
-        .forEach(function(r) {
-          quoteLines.push({
-            issueDate: _toDateStr(r[2]), destCompany: String(r[3] || ''),
-            destPerson: String(r[4] || ''), lineNo: r[5],
-            itemName: String(r[6] || ''), spec: String(r[7] || ''),
-            qty: r[8], unit: String(r[9] || ''), unitPrice: r[10],
-            amount: r[11], remarks: String(r[12] || ''), pdfUrl: String(r[13] || ''),
-          });
-        });
+    if (!targetRow) return { success: false, error: '管理IDが見つかりません: ' + p.mgmtId };
+    var quoteNo = String(targetRow[MGMT_COLS.QUOTE_NO - 1] || '').trim();
+    var relatedIds = [String(p.mgmtId)];
+    if (quoteNo) {
+      mgmtData.forEach(function(r) {
+        var id = String(r[MGMT_COLS.ID - 1] || '');
+        if (id === String(p.mgmtId)) return;
+        if (String(r[MGMT_COLS.QUOTE_NO - 1] || '').trim() === quoteNo) {
+          relatedIds.push(id);
+        }
+      });
     }
-    return { success: true, mgmt: mgmt, quoteLines: quoteLines };
-  } catch(e) {
-    return { success: false, error: e.message };
-  }
-}
-
     var mgmt = _rowToObject(targetRow);
     var quoteSheet = ss.getSheetByName(CONFIG.SHEET_QUOTES);
     var quoteLines = [];
@@ -772,7 +688,6 @@ function _apiGetQuoteDetail(p) {
   }
 }
 
-// ===== 紐づけ API =====
 function _apiGetCandidates() {
   var ss    = getSpreadsheet();
   var sheet = ss.getSheetByName('紐づけ候補');
@@ -803,10 +718,9 @@ function _apiConfirmLink(p) {
 function _apiRunMatching(p) {
   var mgmtId = p && p.mgmtId;
   if (mgmtId) return { success: true, result: matchOrderToQuote(mgmtId) };
-  return { success: true, result: runBatchMatching() };  // ⭕ ここを修正！
+  return { success: true, result: runBatchMatching() };
 }
 
-// ===== 見積書一覧 API =====
 function _apiQuoteListGetAll() {
   try {
     var ss         = getSpreadsheet();
@@ -840,19 +754,15 @@ function _apiQuoteListGetAll() {
         id:          mgmtId,
         quoteNo:     String(r[MGMT_COLS.QUOTE_NO - 1]      || ''),
         issueDate:   lineInfo.issueDate   || _toDateStr(r[MGMT_COLS.QUOTE_DATE - 1]),
-  
         destCompany: lineInfo.destCompany || String(r[MGMT_COLS.CLIENT - 1] || ''),
         destPerson:  lineInfo.destPerson  || '',
         quoteAmount: _toNum(r[MGMT_COLS.QUOTE_AMOUNT - 1]),
         status:      String(r[MGMT_COLS.STATUS - 1]        || ''),
         quotePdfUrl: String(r[MGMT_COLS.QUOTE_PDF_URL - 1] || ''),
         orderNo:     String(r[MGMT_COLS.ORDER_NO - 1]      || ''),
-   
         linked:      _isLinkedVal(r[MGMT_COLS.LINKED - 1]),
         orderType:   String(r[MGMT_COLS.ORDER_TYPE - 1]    || ''),
         modelCode:   String(r[MGMT_COLS.MODEL_CODE - 1]    || ''),
-        // ▼ ここに1行追加 ▼
-        subject:     String(r[MGMT_COLS.SUBJECT - 1]       || ''),
       };
     });
     items.sort(function(a, b) {
@@ -866,7 +776,6 @@ function _apiQuoteListGetAll() {
 
 function _isLinkedVal(val) { return val === true || val === 'TRUE' || val === 'true'; }
 
-// ===== 見積台帳 API =====
 function _apiLedgerGetAll() { return { success: true, items: getAllLedgerData().map(_ledgerRowToObject) }; }
 
 function _apiLedgerSave(p) {
@@ -998,7 +907,6 @@ function _apiLedgerCreateMachine(p) {
   } catch(e) { return { success: false, error: e.message }; }
 }
 
-// ===== Todo API =====
 function _apiGetTodos() {
   var items = getAllTodoData().map(function(r) { return { id:r[0], title:r[1], client:r[2], dueDate:r[3], priority:r[4], status:r[5], linkedMgmt:r[6], memo:r[7] }; });
   return { success: true, items: items };
@@ -1033,7 +941,6 @@ function _apiDeleteTodo(p) {
   return { success: true };
 }
 
-// ===== カレンダーAPI =====
 function _apiGetCalendar(p) {
   var year  = p.year  || new Date().getFullYear();
   var month = p.month || (new Date().getMonth() + 1);
@@ -1052,7 +959,6 @@ function _apiGetCalendar(p) {
   return { success: true, year: year, month: month, events: events };
 }
 
-// ===== 行→オブジェクト変換 =====
 function _toDateStr(val) {
   if (!val || val === '') return '';
   if (val instanceof Date) { if (isNaN(val.getTime())) return ''; return Utilities.formatDate(val, 'Asia/Tokyo', 'yyyy/MM/dd'); }
@@ -1100,9 +1006,6 @@ function _rowToObject(row) {
   };
 }
 
-// ============================================================
-// ★⑩ 明細横断検索
-// ============================================================
 function _apiSearchDetail(p) {
   var kw = normalizeText(p.keyword || '');
   if (!kw) return { success: true, total: 0, items: [] };
@@ -1136,9 +1039,6 @@ function _apiSearchDetail(p) {
   return { success:true, total:items.length, items:items };
 }
 
-// ============================================================
-// ★⑥ 明細ステータス更新
-// ============================================================
 function _apiUpdateLineStatus(p) {
   try {
     if (!p.mgmtId||!p.lineNo||!p.sheetType||p.newStatus===undefined) return {success:false,error:'mgmtId/lineNo/sheetType/newStatus required'};
@@ -1158,9 +1058,6 @@ function _apiUpdateLineStatus(p) {
   } catch(e){ return {success:false,error:e.message}; }
 }
 
-// ============================================================
-// ★⑨ 改版
-// ============================================================
 function _apiCreateRevision(p) {
   try {
     if (!p.mgmtId) return {success:false,error:'mgmtId required'};
@@ -1194,9 +1091,6 @@ function _apiCreateRevision(p) {
   } catch(e){ return {success:false,error:e.message}; }
 }
 
-// ============================================================
-// ★③ デッドラインアラート
-// ============================================================
 function _apiCheckDeadlines() { checkOrderDeadlines(); return {success:true}; }
 
 function checkOrderDeadlines() {
@@ -1230,18 +1124,12 @@ function checkOrderDeadlines() {
   });
 }
 
-// ============================================================
-// ★④ 通知設定 保存・読み込み API
-// ============================================================
 var SETTINGS_KEY = 'SYS_SETTINGS';
-
 function _apiSaveSettings(p) {
   try {
     var props = PropertiesService.getScriptProperties();
-    // GUI設定（管理コンソール）
     if (p.adminEmails !== undefined) props.setProperty('ADMIN_EMAILS', p.adminEmails);
     if (p.chatWebhook !== undefined) props.setProperty('GOOGLE_CHAT_WEBHOOK_URL', p.chatWebhook);
-    // 詳細設定
     var current = _loadSettingsObj();
     var merged = {
       webhookUrl:  p.chatWebhook  !== undefined ? String(p.chatWebhook)  : (p.webhookUrl !== undefined ? String(p.webhookUrl) : current.webhookUrl),
@@ -1300,21 +1188,10 @@ function _apiTestWebhook(p) {
   } catch(e) { return { success: false, error: e.message }; }
 }
 
-// ============================================================
-// ★⓪ 周知メール一括送信
-// ============================================================
 function _apiSendAnnouncement() {
   return { success: false, error: '周知メール送信は無効化されています。' };
 }
 
-// ============================================================
-// 📣 統合通知関数（見積書・注文書インポート時のChat通知）
-// ============================================================
-
-/**
- * 見積書インポート後のChat通知
- * info: { mgmtId, subject, client, amount, pdfUrl, folderUrl }
- */
 function notifyQuoteImported(info) {
   try {
     var settings   = _loadSettingsObj();
@@ -1324,7 +1201,6 @@ function notifyQuoteImported(info) {
     var amountStr = info.amount ? '¥' + Number(info.amount).toLocaleString() : '—';
     var rowUrl    = _getMgmtRowUrl(info.mgmtId);
     var appUrl    = ScriptApp.getService().getUrl();
-
     var lines = [
       '【📄 見積書を登録しました】',
       '案件名: ' + (info.subject || '—'),
@@ -1343,11 +1219,6 @@ function notifyQuoteImported(info) {
   }
 }
 
-/**
- * 注文書インポート後のChat通知（紐づく見積書候補も含む）
- * info: { mgmtId, orderNo, client, amount, pdfUrl, folderUrl, linkResult }
- * linkResult: { status, quoteNo, quoteUrl, score, candidates:[{quoteNo,score,quoteUrl,keywords}] }
- */
 function notifyOrderImported(info) {
   try {
     var settings   = _loadSettingsObj();
@@ -1358,7 +1229,6 @@ function notifyOrderImported(info) {
     var rowUrl    = _getMgmtRowUrl(info.mgmtId);
     var appUrl    = ScriptApp.getService().getUrl();
     var lr        = info.linkResult || {};
-
     var lines = [
       '【📦 注文書を登録しました】',
       '発注書番号: ' + (info.orderNo || '—'),
@@ -1372,12 +1242,10 @@ function notifyOrderImported(info) {
     if (info.folderUrl) lines.push('📁 フォルダ: ' + info.folderUrl);
     lines.push('');
 
-    // ── 紐づけ結果 ──────────────────────────────
     if (lr.status === 'auto_linked') {
       lines.push('✅ 見積書と自動紐づけ済み（スコア: ' + (lr.score || '—') + '点）');
       lines.push('見積No: ' + (lr.quoteNo || '—'));
       if (lr.quoteUrl) lines.push('📄 紐づく見積書PDF: ' + lr.quoteUrl);
-
     } else if (lr.status === 'candidates_found' || lr.status === 'forced_candidate') {
       lines.push('⚠️ 紐づく見積書の候補があります（要確認）');
       var candidates = lr.candidates || [];
@@ -1394,7 +1262,6 @@ function notifyOrderImported(info) {
 
     } else if (lr.status === 'no_quotes') {
       lines.push('❌ 紐づく見積書が見つかりませんでした');
-
     } else if (lr.status === 'already_linked') {
       lines.push('✅ 既に見積書と紐づけ済みです');
       if (lr.quoteUrl) lines.push('📄 紐づく見積書PDF: ' + lr.quoteUrl);
@@ -1406,9 +1273,6 @@ function notifyOrderImported(info) {
   }
 }
 
-/**
- * 管理シートの該当行URLを生成（Spreadsheet直接リンク）
- */
 function _getMgmtRowUrl(mgmtId) {
   try {
     if (!mgmtId) return '';
@@ -1419,7 +1283,6 @@ function _getMgmtRowUrl(mgmtId) {
                    .getValues().flat();
     var idx = ids.map(String).indexOf(String(mgmtId));
     if (idx < 0) return '';
-    // 行番号はヘッダー行(1) + 0始まりインデックス(idx) + 1 = idx+2
     return ss.getUrl() + '&gid=' + sheet.getSheetId() + '&range=A' + (idx + 2);
   } catch(e) {
     Logger.log('[GET ROW URL ERROR] ' + e.message);
@@ -1427,9 +1290,6 @@ function _getMgmtRowUrl(mgmtId) {
   }
 }
 
-/**
- * Google Chat Webhook にメッセージを送信
- */
 function _postToChat(webhookUrl, text) {
   try {
     UrlFetchApp.fetch(webhookUrl, {
@@ -1458,191 +1318,10 @@ function _apiRunBatchMatching(p) {
 }
 
 function _apiUploadOrderWithLink(p) {
-  // すでにあるPDFアップロード処理を流用しつつ、AIマッチングを実行
   const res = _apiUploadPdf(p);
   if (res.success && res.mgmtId) {
     const aiRes = aiLinkOrderToQuote(res.mgmtId);
     res.linkResult = aiRes;
   }
   return res;
-}
-
-// ============================================================
-// メール監視設定 API
-// ============================================================
-
-var EMAIL_CFG_HEADERS = ['有効','種別','キーワード（ファイル名・件名）','送信元メールアドレス','宛先メールアドレス（自社）','注文種別','備考'];
-
-function _apiEmailCfgGetAll() {
-  try {
-    var ss    = getSpreadsheet();
-    var sheet = ss.getSheetByName(CONFIG.SHEET_EMAIL_CFG);
-    if (!sheet) {
-      // 存在しない場合は初期化してサンプルを返す
-      _setupEmailConfigSheet(ss);
-      sheet = ss.getSheetByName(CONFIG.SHEET_EMAIL_CFG);
-    }
-    if (sheet.getLastRow() <= 1) return { success: true, items: [] };
-    var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, EMAIL_CFG_HEADERS.length).getValues();
-    var items = rows
-      .filter(function(r) { return r.some(function(v){ return String(v).trim() !== ''; }); })
-      .map(function(r, i) {
-        return {
-          rowIndex: i + 2,
-          enabled:    r[0] === true || r[0] === 'TRUE',
-          docType:    String(r[1] || ''),
-          keywords:   String(r[2] || ''),
-          fromEmail:  String(r[3] || ''),
-          toEmail:    String(r[4] || ''),
-          orderType:  String(r[5] || ''),
-          remarks:    String(r[6] || ''),
-        };
-      });
-    return { success: true, items: items };
-  } catch(e) {
-    return { success: false, error: e.message };
-  }
-}
-
-function _apiEmailCfgSave(p) {
-  try {
-    var ss    = getSpreadsheet();
-    var sheet = ss.getSheetByName(CONFIG.SHEET_EMAIL_CFG);
-    if (!sheet) {
-      _setupEmailConfigSheet(ss);
-      sheet = ss.getSheetByName(CONFIG.SHEET_EMAIL_CFG);
-    }
-    var row = [
-      p.enabled === true || p.enabled === 'true' || p.enabled === 'TRUE',
-      p.docType   || '',
-      p.keywords  || '',
-      p.fromEmail || '',
-      p.toEmail   || '',
-      p.orderType || '',
-      p.remarks   || '',
-    ];
-    if (p.rowIndex && Number(p.rowIndex) >= 2) {
-      // 既存行を更新
-      sheet.getRange(Number(p.rowIndex), 1, 1, row.length).setValues([row]);
-      // チェックボックス再設定
-      sheet.getRange(Number(p.rowIndex), 1).insertCheckboxes();
-    } else {
-      // 新規追加
-      sheet.appendRow(row);
-      var newRow = sheet.getLastRow();
-      sheet.getRange(newRow, 1).insertCheckboxes();
-    }
-    return { success: true };
-  } catch(e) {
-    Logger.log('[EMAIL CFG SAVE ERROR] ' + e.message);
-    return { success: false, error: e.message };
-  }
-}
-
-function _apiEmailCfgDelete(p) {
-  try {
-    var ss    = getSpreadsheet();
-    var sheet = ss.getSheetByName(CONFIG.SHEET_EMAIL_CFG);
-    if (!sheet || !p.rowIndex || Number(p.rowIndex) < 2) return { success: false, error: 'パラメータ不足' };
-    sheet.deleteRow(Number(p.rowIndex));
-    return { success: true };
-  } catch(e) {
-    return { success: false, error: e.message };
-  }
-}
-
-function _apiEmailCfgTest(p) {
-  try {
-    // Gmail検索をテスト実行して件数を返す
-    var query = 'has:attachment filename:pdf';
-    if (p.fromEmail) query += ' from:' + p.fromEmail;
-    var threads = GmailApp.search(query, 0, 5);
-    var hitCount = 0;
-    var samples  = [];
-    threads.forEach(function(t) {
-      t.getMessages().forEach(function(m) {
-        var subject = m.getSubject();
-        var atts    = m.getAttachments();
-        atts.forEach(function(a) {
-          if (!a.getName().toLowerCase().endsWith('.pdf')) return;
-          var kws = String(p.keywords || '').toLowerCase().split(',').map(function(k){ return k.trim(); }).filter(Boolean);
-          var text = (a.getName() + ' ' + subject).toLowerCase();
-          if (kws.length === 0 || kws.some(function(k){ return text.indexOf(k) >= 0; })) {
-            hitCount++;
-            if (samples.length < 3) samples.push(subject + ' / ' + a.getName());
-          }
-        });
-      });
-    });
-    return { success: true, hitCount: hitCount, samples: samples };
-  } catch(e) {
-    return { success: false, error: e.message };
-  }
-}
-
-
-// ============================================================
-// ワークフロー統計 API
-// ============================================================
-function _apiGetWorkflowStats() {
-  try {
-    var allRows = getAllMgmtData().map(_rowToObject);
-    var now = new Date();
-    var monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    
-    var planned   = allRows.filter(function(r){ return r.status === CONFIG.STATUS.PLANNED; }).length;
-    var sent      = allRows.filter(function(r){ return r.status === CONFIG.STATUS.SENT; }).length;
-    var received  = allRows.filter(function(r){ return r.orderNo && r.orderNo !== ''; }).length;
-    var linked    = allRows.filter(function(r){ return r.linked === 'TRUE'; }).length;
-    var unlinked  = allRows.filter(function(r){ return r.orderNo && r.orderNo !== '' && r.linked !== 'TRUE'; }).length;
-    var ordered   = allRows.filter(function(r){ return r.status === CONFIG.STATUS.ORDERED || r.status === '受注済み'; }).length;
-    
-    // 今月受注
-    var orderedMonth = allRows.filter(function(r){
-      if (r.status !== CONFIG.STATUS.ORDERED && r.status !== '受注済み') return false;
-      var d = r.updatedAt ? new Date(r.updatedAt) : null;
-      return d && d >= monthStart;
-    }).length;
-    
-    // AI紐付け率（linked / 受領済み注文書）
-    var matchRate = received > 0 ? (linked / received * 100) : 0;
-    
-    // 承認待ち件数
-    var approvalPending = 0;
-    try {
-      var ss = getSpreadsheet();
-      var aSheet = ss.getSheetByName('承認管理');
-      if (aSheet && aSheet.getLastRow() > 1) {
-        var aData = aSheet.getDataRange().getValues();
-        approvalPending = aData.slice(1).filter(function(r){ return String(r[7]) === '承認待ち'; }).length;
-      }
-    } catch(e2) {}
-    
-    return {
-      success: true,
-      data: {
-        planned: planned, sent: sent,
-        ocrDone: sent,    // OCR転記=送信済みとみなす
-        received: received, linked: linked, unlinked: unlinked,
-        approvalPending: approvalPending, ordered: ordered,
-        orderedMonth: orderedMonth, matchRate: Math.round(matchRate),
-      }
-    };
-  } catch(e) {
-    return { success: false, error: e.message };
-  }
-}
-
-function _apiSaveMatchingSettings(p) {
-  try {
-    var props = PropertiesService.getScriptProperties();
-    props.setProperty('MATCHING_SETTINGS', JSON.stringify({
-      autoThreshold:      p.autoThreshold      || 80,
-      candidateThreshold: p.candidateThreshold || 50,
-      model:              p.model              || 'gemini-2.5-flash',
-    }));
-    return { success: true };
-  } catch(e) {
-    return { success: false, error: e.message };
-  }
 }
