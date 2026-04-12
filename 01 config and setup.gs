@@ -553,7 +553,7 @@ function getAllMgmtData() {
   var sheet = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT);
   var last  = sheet.getLastRow();
   if (last <= 1) return [];
-  return sheet.getRange(2, 1, last - 1, 27).getValues()
+  return sheet.getRange(2, 1, last - 1, 30).getValues()
     .filter(function(r) { return r[0] !== ''; });
 }
 
