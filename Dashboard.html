@@ -951,35 +951,440 @@ tr:hover td{background:#f8fafc;}
     <div id="toast"></div>
 
 <div id="page-admin" class="page">
-  <div style="margin-bottom:20px;">
-    <h2 style="font-size:22px;font-weight:700;margin-bottom:4px;">⚙️ システム管理コンソール (Admin Console)</h2>
-    <p style="color:var(--text-sub);">システム全体の設定値や、権限の付与、各種自動化ルーチンの仕様が確認・編集できます。</p>
+  <div class="page-heading">
+    <div>
+      <h2>⚙️ システム管理コンソール</h2>
+      <p>権限管理・メール監視・メール配信・外部連携などシステム全体の設定を行います</p>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button class="topbar-btn" onclick="loadAllAdminSettings()">🔄 全設定を読み込む</button>
+    </div>
   </div>
 
-  <div class="card" style="background:white;padding:20px;border-radius:12px;box-shadow:var(--shadow);margin-bottom:20px;border-left:4px solid var(--primary);">
-    <h3 style="font-size:16px;font-weight:600;margin-bottom:12px;color:var(--primary);">🔧 デプロイシステム環境設定 (Settings)</h3>
-    <p style="font-size:12px;color:var(--text-sub);margin-bottom:16px;">
-      システム全体の振る舞いや、管理者権限、通知先を指定します。これらはGASのスクリプトプロパティに直接保存・適用されます。
-    </p>
-    <div class="form-row">
-      <div class="form-field">
-        <label>管理者アカウント (Admin Emails)</label>
-        <input type="text" id="sysconf-admin-emails" placeholder="カンマ区切りで入力 (例: admin@example.com, test@example.com)">
-        <span style="font-size:11px;color:var(--text-sub);">※ 未入力の場合は全員に管理者権限（設定メニューや原価マスタ等）が開放されます。</span>
+  <!-- 管理コンソールタブ -->
+  <div style="display:flex;gap:0;border-bottom:2px solid var(--border-light);margin-bottom:20px;overflow-x:auto;">
+    <button class="settings-tab active" onclick="switchAdminTab('env')"      id="atab-env">🔧 基本設定</button>
+    <button class="settings-tab"        onclick="switchAdminTab('viewer')"   id="atab-viewer">👁️ 閲覧権限</button>
+    <button class="settings-tab"        onclick="switchAdminTab('mail-mon')" id="atab-mail-mon">📧 メール監視</button>
+    <button class="settings-tab"        onclick="switchAdminTab('mail-send')" id="atab-mail-send">✉️ メール配信</button>
+    <button class="settings-tab"        onclick="switchAdminTab('rakuraku')" id="atab-rakuraku">🔗 楽楽販売連携</button>
+    <button class="settings-tab"        onclick="switchAdminTab('ext-api')"  id="atab-ext-api">⚡ 外部連携</button>
+  </div>
+
+  <!-- ① 基本設定タブ -->
+  <div id="apanel-env" class="admin-panel">
+    <div class="card" style="border-left:4px solid var(--primary);">
+      <h3 style="font-size:14px;font-weight:700;margin-bottom:12px;color:var(--primary);">🔧 デプロイ環境設定</h3>
+      <p style="font-size:12px;color:var(--text-sub);margin-bottom:16px;">GASのスクリプトプロパティに直接保存されます。</p>
+      <div class="form-row">
+        <div class="form-field">
+          <label>管理者アカウント (Admin Emails)</label>
+          <input type="text" id="sysconf-admin-emails" placeholder="admin@example.com, manager@example.com">
+          <span style="font-size:11px;color:var(--text-sub);">未入力の場合は全員に管理者権限が付与されます</span>
+        </div>
+        <div class="form-field">
+          <label>Google Chat Webhook URL</label>
+          <input type="text" id="sysconf-chat-webhook" placeholder="https://chat.googleapis.com/v1/spaces/...">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-field">
+          <label>Gemini API Key</label>
+          <input type="password" id="sysconf-gemini-key" placeholder="設定済みの場合は変更時のみ入力">
+          <span style="font-size:11px;color:var(--text-sub);">OCR・AI紐付けに使用</span>
+        </div>
+        <div class="form-field">
+          <label>スプレッドシートID</label>
+          <input type="text" id="sysconf-sheet-id" placeholder="1xxxxxxxxxxxxxxxxxxxxxx">
+        </div>
+      </div>
+      <div style="text-align:right;margin-top:12px;">
+        <button class="btn btn-outline" onclick="loadSystemSettings()">🔄 読み込む</button>
+        <button class="btn btn-primary" onclick="saveSystemSettings()" style="margin-left:8px;">💾 保存</button>
       </div>
     </div>
-    <div class="form-row">
-      <div class="form-field">
-        <label>Google Chat Webhook URL (自動アラート送信先)</label>
-        <input type="text" id="sysconf-chat-webhook" placeholder="https://chat.googleapis.com/...">
+  </div>
+
+  <!-- ② 閲覧権限タブ -->
+  <div id="apanel-viewer" class="admin-panel" style="display:none;">
+    <div class="card" style="border-left:4px solid #7c3aed;">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px;">
+        <div>
+          <h3 style="font-size:14px;font-weight:700;color:#7c3aed;">👁️ 閲覧・編集権限管理</h3>
+          <p style="font-size:12px;color:var(--text-sub);margin-top:4px;">社内メンバーに対して閲覧・編集権限を個別に設定します</p>
+        </div>
+        <button class="topbar-btn primary" style="background:#7c3aed;border-color:#7c3aed;" onclick="openViewerModal()">＋ メンバー追加</button>
+      </div>
+
+      <div style="background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px;">
+        <strong style="color:#5b21b6;">📌 権限レベルの説明</strong><br>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px;">
+          <div style="background:#fff;border-radius:6px;padding:8px;border:1px solid #ddd6fe;">
+            <div style="font-weight:700;color:#7c3aed;margin-bottom:2px;">👑 管理者</div>
+            <div style="font-size:11px;color:#6b7280;">全機能・設定変更・ユーザー管理</div>
+          </div>
+          <div style="background:#fff;border-radius:6px;padding:8px;border:1px solid #ddd6fe;">
+            <div style="font-weight:700;color:#2563eb;margin-bottom:2px;">✏️ 編集者</div>
+            <div style="font-size:11px;color:#6b7280;">案件登録・編集・PDF登録（設定変更不可）</div>
+          </div>
+          <div style="background:#fff;border-radius:6px;padding:8px;border:1px solid #ddd6fe;">
+            <div style="font-weight:700;color:#059669;margin-bottom:2px;">👁️ 閲覧者</div>
+            <div style="font-size:11px;color:#6b7280;">データ閲覧のみ（登録・編集不可）</div>
+          </div>
+        </div>
+      </div>
+
+      <div id="viewer-list-container">
+        <div class="loading"><div class="spinner"></div></div>
       </div>
     </div>
-    <div style="text-align:right;margin-top:12px;">
-      <button class="btn btn-outline" onclick="loadSystemSettings()">🔄 最新設定を読み込む</button>
-      <button class="btn btn-primary" onclick="saveSystemSettings()" style="margin-left:8px;">💾 上書きして設定を保存</button>
+  </div>
+
+  <!-- ③ メール監視設定タブ -->
+  <div id="apanel-mail-mon" class="admin-panel" style="display:none;">
+    <div class="card" style="border-left:4px solid #f59e0b;">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px;">
+        <div>
+          <h3 style="font-size:14px;font-weight:700;color:#d97706;">📧 メール監視設定</h3>
+          <p style="font-size:12px;color:var(--text-sub);margin-top:4px;">見積PDF・注文書PDFを自動取り込みする条件を設定します</p>
+        </div>
+        <button class="topbar-btn primary" style="background:#d97706;border-color:#d97706;" onclick="openEmailCfgModal()">＋ 設定追加</button>
+      </div>
+
+      <div style="background:#fffde7;border:1px solid #fbbf24;border-radius:8px;padding:12px;margin-bottom:14px;font-size:12px;color:#92400e;">
+        <strong>📌 設定のコツ（担当者変更時の対応）：</strong><br>
+        ・担当者が変わったら「送信元メールアドレス」を新担当者のアドレスに更新するだけです<br>
+        ・<strong>見積書</strong>：自社が送った送信済みトレイを監視します<br>
+        ・<strong>注文書</strong>：得意先から届く受信トレイを監視します<br>
+        ・キーワードはファイル名・件名どちらにも適用されます（部分一致・カンマ区切りでOR）
+      </div>
+
+      <div id="email-cfg-container">
+        <div class="loading"><div class="spinner"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ④ メール配信設定タブ（新機能） -->
+  <div id="apanel-mail-send" class="admin-panel" style="display:none;">
+    <div class="card" style="border-left:4px solid #0891b2;">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px;">
+        <div>
+          <h3 style="font-size:14px;font-weight:700;color:#0891b2;">✉️ メール配信設定</h3>
+          <p style="font-size:12px;color:var(--text-sub);margin-top:4px;">各種イベント発生時の自動配信メールを細かく設定します</p>
+        </div>
+        <button class="topbar-btn" onclick="sendTestMailAll()">🧪 全チャンネルテスト送信</button>
+      </div>
+
+      <!-- 配信テンプレート設定 -->
+      <div style="margin-bottom:20px;">
+        <div style="font-size:13px;font-weight:700;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border-light);">イベント別 自動配信設定</div>
+
+        <div id="mail-send-events">
+          <!-- JS生成 -->
+        </div>
+      </div>
+
+      <!-- 配信先グループ設定 -->
+      <div style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:8px;padding:14px;margin-bottom:16px;">
+        <div style="font-weight:700;font-size:13px;color:#0d9488;margin-bottom:10px;">📮 配信先グループ設定</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+          <div class="form-field">
+            <label>営業担当グループ (カンマ区切り)</label>
+            <textarea id="mailgrp-sales" rows="3" placeholder="sales1@example.com, sales2@example.com" style="font-size:12px;"></textarea>
+          </div>
+          <div class="form-field">
+            <label>管理部門グループ (カンマ区切り)</label>
+            <textarea id="mailgrp-mgmt" rows="3" placeholder="manager@example.com, director@example.com" style="font-size:12px;"></textarea>
+          </div>
+          <div class="form-field">
+            <label>製造部門グループ (カンマ区切り)</label>
+            <textarea id="mailgrp-mfg" rows="3" placeholder="mfg@example.com, plant@example.com" style="font-size:12px;"></textarea>
+          </div>
+          <div class="form-field">
+            <label>承認者グループ (カンマ区切り)</label>
+            <textarea id="mailgrp-approver" rows="3" placeholder="approver@example.com" style="font-size:12px;"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <!-- メールテンプレート -->
+      <div style="background:#f8fafc;border-radius:8px;padding:14px;margin-bottom:16px;">
+        <div style="font-weight:700;font-size:13px;margin-bottom:10px;">📝 メール件名テンプレート</div>
+        <div style="font-size:11px;color:var(--text-sub);margin-bottom:10px;">
+          使用可能な変数: <code>{orderNo}</code> <code>{quoteNo}</code> <code>{client}</code> <code>{amount}</code> <code>{assignee}</code> <code>{date}</code>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <div class="form-field">
+            <label>見積書登録時の件名</label>
+            <input type="text" id="mailtpl-quote" value="【見積登録】{quoteNo} - {client}" style="font-size:12px;">
+          </div>
+          <div class="form-field">
+            <label>注文書受領時の件名</label>
+            <input type="text" id="mailtpl-order" value="【注文受領】{orderNo} - {client} ¥{amount}" style="font-size:12px;">
+          </div>
+          <div class="form-field">
+            <label>紐付け完了時の件名</label>
+            <input type="text" id="mailtpl-link" value="【紐付完了】{orderNo} ← {quoteNo} 自動マッチング" style="font-size:12px;">
+          </div>
+          <div class="form-field">
+            <label>承認依頼時の件名</label>
+            <input type="text" id="mailtpl-approval" value="【承認依頼】{orderNo} - {client} ¥{amount} 担当:{assignee}" style="font-size:12px;">
+          </div>
+        </div>
+      </div>
+
+      <div style="text-align:right;">
+        <button class="btn btn-outline" onclick="loadMailSendSettings()">🔄 読み込む</button>
+        <button class="btn btn-primary" onclick="saveMailSendSettings()" style="margin-left:8px;">💾 保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ⑤ 楽楽販売連携タブ（新機能） -->
+  <div id="apanel-rakuraku" class="admin-panel" style="display:none;">
+    <div class="card" style="border-left:4px solid #dc2626;">
+      <h3 style="font-size:14px;font-weight:700;color:#dc2626;margin-bottom:8px;">🔗 楽楽販売 連携設定</h3>
+      <p style="font-size:12px;color:var(--text-sub);margin-bottom:16px;">楽楽販売で作成した見積書データをこのシステムに自動同期します</p>
+
+      <div style="background:#fff1f2;border:1px solid #fecaca;border-radius:8px;padding:14px;margin-bottom:16px;">
+        <div style="font-weight:700;font-size:12.5px;color:#991b1b;margin-bottom:8px;">💡 連携方式について</div>
+        <div style="font-size:12px;color:#7f1d1d;line-height:1.7;">
+          楽楽販売はREST APIを公開しています。以下の連携方式から選択できます：<br>
+          <strong>① API連携（推奨）</strong>：楽楽販売APIキーを設定し、定期的に見積書データを自動取得<br>
+          <strong>② CSV取込</strong>：楽楽販売からエクスポートしたCSVを手動アップロード<br>
+          <strong>③ Webhook受信</strong>：楽楽販売の操作をトリガーにリアルタイム同期（楽楽販売Pro以上）
+        </div>
+      </div>
+
+      <!-- 連携方式選択 -->
+      <div style="margin-bottom:16px;">
+        <label style="font-size:11.5px;font-weight:700;display:block;margin-bottom:8px;">連携方式</label>
+        <div style="display:flex;gap:10px;">
+          <label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;">
+            <input type="radio" name="raku-mode" value="api" id="raku-mode-api" checked onchange="updateRakurakuUI()"> API連携
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;">
+            <input type="radio" name="raku-mode" value="csv" id="raku-mode-csv" onchange="updateRakurakuUI()"> CSV取込
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;">
+            <input type="radio" name="raku-mode" value="webhook" id="raku-mode-webhook" onchange="updateRakurakuUI()"> Webhook受信
+          </label>
+        </div>
+      </div>
+
+      <!-- API連携設定 -->
+      <div id="raku-api-section">
+        <div style="background:#f8fafc;border-radius:8px;padding:14px;margin-bottom:14px;">
+          <div style="font-weight:700;font-size:13px;margin-bottom:12px;">🔑 楽楽販売 API設定</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+            <div class="form-field">
+              <label>テナントID / サブドメイン</label>
+              <input type="text" id="raku-tenant" placeholder="your-company（your-company.rakurakuhanbai.com の部分）">
+            </div>
+            <div class="form-field">
+              <label>APIキー</label>
+              <input type="password" id="raku-apikey" placeholder="楽楽販売の設定画面から取得">
+            </div>
+            <div class="form-field">
+              <label>同期対象ステータス（カンマ区切り）</label>
+              <input type="text" id="raku-status" value="承認済み,送付済み" placeholder="承認済み,送付済み,受注">
+              <span style="font-size:11px;color:var(--text-sub);">このステータスの見積書を取得します</span>
+            </div>
+            <div class="form-field">
+              <label>自動同期間隔</label>
+              <select id="raku-interval">
+                <option value="15">15分毎</option>
+                <option value="30" selected>30分毎</option>
+                <option value="60">1時間毎</option>
+                <option value="0">手動のみ</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div style="background:#f8fafc;border-radius:8px;padding:14px;margin-bottom:14px;">
+          <div style="font-weight:700;font-size:13px;margin-bottom:10px;">🗂️ データマッピング設定</div>
+          <p style="font-size:12px;color:var(--text-sub);margin-bottom:10px;">楽楽販売のフィールド名 → このシステムの列名 の対応を設定します</p>
+          <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;font-size:12px;" id="raku-mapping">
+            <div style="font-weight:600;color:var(--text-sub);">楽楽販売フィールド</div>
+            <div></div>
+            <div style="font-weight:600;color:var(--text-sub);">このシステムの項目</div>
+
+            <input type="text" id="rmap-quoteno-from" value="見積番号" style="font-size:12px;padding:6px;">
+            <div style="text-align:center;color:var(--text-muted);">→</div>
+            <input type="text" id="rmap-quoteno-to" value="見積書番号" style="font-size:12px;padding:6px;" disabled style="background:#f8fafc;">
+
+            <input type="text" id="rmap-client-from" value="取引先名" style="font-size:12px;padding:6px;">
+            <div style="text-align:center;color:var(--text-muted);">→</div>
+            <input type="text" id="rmap-client-to" value="顧客名" style="font-size:12px;padding:6px;" disabled>
+
+            <input type="text" id="rmap-amount-from" value="見積金額" style="font-size:12px;padding:6px;">
+            <div style="text-align:center;color:var(--text-muted);">→</div>
+            <input type="text" id="rmap-amount-to" value="見積金額" style="font-size:12px;padding:6px;" disabled>
+
+            <input type="text" id="rmap-date-from" value="見積日" style="font-size:12px;padding:6px;">
+            <div style="text-align:center;color:var(--text-muted);">→</div>
+            <input type="text" id="rmap-date-to" value="発行日" style="font-size:12px;padding:6px;" disabled>
+
+            <input type="text" id="rmap-status-from" value="ステータス" style="font-size:12px;padding:6px;">
+            <div style="text-align:center;color:var(--text-muted);">→</div>
+            <input type="text" id="rmap-status-to" value="ステータス" style="font-size:12px;padding:6px;" disabled>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+          <button class="topbar-btn" onclick="testRakurakuConnection()">🔌 接続テスト</button>
+          <button class="topbar-btn" onclick="syncRakurakuNow()">▶ 今すぐ同期</button>
+          <span id="raku-sync-status" style="line-height:32px;font-size:12px;color:var(--text-sub);"></span>
+        </div>
+      </div>
+
+      <!-- CSV取込設定 -->
+      <div id="raku-csv-section" style="display:none;">
+        <div style="background:#f8fafc;border-radius:8px;padding:14px;margin-bottom:14px;">
+          <div style="font-weight:700;font-size:13px;margin-bottom:10px;">📁 楽楽販売CSV取込</div>
+          <p style="font-size:12px;color:var(--text-sub);margin-bottom:12px;">
+            楽楽販売 → データエクスポート → 見積書一覧 からCSVをダウンロードしてアップロードしてください
+          </p>
+          <div class="upload-area" onclick="document.getElementById('raku-csv-file').click();" id="raku-csv-drop">
+            <div style="font-size:24px;margin-bottom:8px;">📂</div>
+            <div style="font-weight:600;font-size:13px;">CSVファイルをドロップ or クリックして選択</div>
+            <div style="font-size:11px;color:var(--text-sub);margin-top:4px;">楽楽販売からエクスポートした .csv ファイル</div>
+            <input type="file" id="raku-csv-file" accept=".csv" style="display:none;" onchange="previewRakurakuCsv(this)">
+          </div>
+          <div id="raku-csv-preview" style="margin-top:12px;display:none;">
+            <div style="font-weight:600;font-size:12px;margin-bottom:8px;" id="raku-csv-info"></div>
+            <div style="max-height:200px;overflow-y:auto;border:1px solid var(--border-light);border-radius:6px;" id="raku-csv-table"></div>
+            <div style="text-align:right;margin-top:10px;">
+              <button class="btn btn-primary" onclick="importRakurakuCsv()">📥 取込実行</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Webhook設定 -->
+      <div id="raku-webhook-section" style="display:none;">
+        <div style="background:#f8fafc;border-radius:8px;padding:14px;margin-bottom:14px;">
+          <div style="font-weight:700;font-size:13px;margin-bottom:10px;">🌐 Webhook受信設定</div>
+          <div class="form-field" style="margin-bottom:12px;">
+            <label>このシステムのWebhook受信URL（楽楽販売側に登録）</label>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <input type="text" id="raku-webhook-url" placeholder="GASデプロイ後に自動生成されます" readonly style="background:#f8fafc;font-size:11.5px;font-family:monospace;">
+              <button class="topbar-btn" onclick="copyWebhookUrl()">📋 コピー</button>
+            </div>
+            <span style="font-size:11px;color:var(--text-sub);">このURLを楽楽販売の外部連携Webhook送信先に設定してください</span>
+          </div>
+          <div style="font-size:12px;color:var(--text-sub);background:#fff;border:1px solid var(--border-light);border-radius:6px;padding:10px;">
+            <strong>設定手順：</strong><br>
+            1. 楽楽販売 → 設定 → 外部連携 → Webhook設定<br>
+            2. 上記URLを「送信先URL」に設定<br>
+            3. イベント：「見積書 承認完了時」「見積書 送付完了時」にチェック<br>
+            4. 保存して動作確認
+          </div>
+        </div>
+      </div>
+
+      <!-- 同期ログ -->
+      <div style="margin-top:16px;">
+        <div style="font-weight:700;font-size:13px;margin-bottom:8px;">📊 同期履歴</div>
+        <div id="raku-sync-log" style="max-height:150px;overflow-y:auto;font-size:11.5px;font-family:monospace;background:#1e293b;color:#e2e8f0;border-radius:8px;padding:12px;">
+          同期履歴を読み込み中...
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+        <button class="btn btn-outline" onclick="loadRakurakuSettings()">🔄 読み込む</button>
+        <button class="btn btn-primary" onclick="saveRakurakuSettings()">💾 保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ⑥ 外部連携タブ -->
+  <div id="apanel-ext-api" class="admin-panel" style="display:none;">
+    <div class="card" style="border-left:4px solid #7c3aed;">
+      <h3 style="font-size:14px;font-weight:700;color:#7c3aed;margin-bottom:8px;">⚡ 外部サービス連携</h3>
+      <p style="font-size:12px;color:var(--text-sub);margin-bottom:16px;">n8n・Slack・Teamsなど外部ツールとの連携設定</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px;">
+        <div class="form-field">
+          <label>n8n Webhook URL</label>
+          <input type="url" id="ext-n8n-url" placeholder="https://your-n8n.com/webhook/xxxxx">
+          <span style="font-size:11px;color:var(--text-sub);">各イベント時に自動でPOSTされます</span>
+        </div>
+        <div class="form-field">
+          <label>Slack Webhook URL</label>
+          <input type="url" id="ext-slack-url" placeholder="https://hooks.slack.com/services/...">
+        </div>
+        <div class="form-field">
+          <label>Microsoft Teams Webhook URL</label>
+          <input type="url" id="ext-teams-url" placeholder="https://xxx.webhook.office.com/...">
+        </div>
+        <div class="form-field">
+          <label>その他 汎用Webhook（追加1）</label>
+          <input type="url" id="ext-custom1-url" placeholder="https://...">
+          <input type="text" id="ext-custom1-name" placeholder="連携名（例：基幹システム）" style="margin-top:6px;font-size:12px;">
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button class="topbar-btn" onclick="testAllWebhooks()">🧪 全Webhookテスト</button>
+        <button class="topbar-btn" onclick="loadIntegrationSettings()">🔄 読み込む</button>
+        <button class="topbar-btn primary" onclick="saveAllExtSettings()">💾 保存</button>
+      </div>
+    </div>
+
+    <!-- メール監視設定のショートカット -->
+    <div class="card" style="border-left:4px solid #f59e0b;margin-top:16px;">
+      <h3 style="font-size:13px;font-weight:700;color:#d97706;margin-bottom:8px;">📧 メール監視 クイックアクセス</h3>
+      <p style="font-size:12px;color:var(--text-sub);margin-bottom:10px;">担当者変更時はこちらからメールアドレスを更新してください</p>
+      <button class="topbar-btn" onclick="switchAdminTab('mail-mon');document.getElementById('atab-mail-mon').scrollIntoView()">📧 メール監視設定を開く</button>
+    </div>
+  </div>
+
+  <!-- 閲覧権限 追加モーダル -->
+  <div class="modal-overlay" id="viewer-modal" onclick="if(event.target===this)this.classList.remove('open')">
+    <div class="modal" style="max-width:500px;">
+      <div class="modal-head">
+        <h3>👤 メンバー権限設定</h3>
+        <button class="modal-close" onclick="document.getElementById('viewer-modal').classList.remove('open')">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="_viewer-rowIdx">
+        <div class="form-field" style="margin-bottom:14px;">
+          <label>メールアドレス <span style="color:var(--danger);">*</span></label>
+          <input type="email" id="_viewer-email" placeholder="user@example.com">
+        </div>
+        <div class="form-field" style="margin-bottom:14px;">
+          <label>氏名 / 表示名</label>
+          <input type="text" id="_viewer-name" placeholder="山田 太郎">
+        </div>
+        <div class="form-field" style="margin-bottom:14px;">
+          <label>部署</label>
+          <input type="text" id="_viewer-dept" placeholder="営業部">
+        </div>
+        <div class="form-field" style="margin-bottom:14px;">
+          <label>権限レベル <span style="color:var(--danger);">*</span></label>
+          <select id="_viewer-role">
+            <option value="admin">👑 管理者（全機能・設定変更可）</option>
+            <option value="editor" selected>✏️ 編集者（案件登録・編集可）</option>
+            <option value="viewer">👁️ 閲覧者（データ閲覧のみ）</option>
+          </select>
+        </div>
+        <div class="form-field" style="margin-bottom:16px;">
+          <label>備考</label>
+          <input type="text" id="_viewer-memo" placeholder="例：営業部 外部委託">
+        </div>
+        <div style="text-align:right;">
+          <button class="btn btn-outline" onclick="document.getElementById('viewer-modal').classList.remove('open')">キャンセル</button>
+          <button class="btn btn-primary" onclick="saveViewerPermission()" style="margin-left:8px;">💾 保存</button>
+        </div>
+      </div>
     </div>
   </div>
 </div>
+
+<style>
+.admin-panel { animation: fadeSlideIn .15s ease-out; }
+</style>
 
 <div id="page-list" class="page active">
 
@@ -1807,6 +2212,611 @@ tr:hover td{background:#f8fafc;}
   <div class="modal">
     <div class="modal-head"><h3 id="parts-detail-title">部品詳細</h3><button class="modal-close" onclick="document.getElementById('parts-detail-modal').classList.remove('open')">✕</button></div>
     <div class="modal-body" id="parts-detail-body"></div>
+  </div>
+</div>
+
+
+<!-- ============================================================
+     新規ページ群（左サイドバーメニューに追加）
+============================================================ -->
+
+<!-- ① ビジネスフロー可視化 -->
+<div id="page-workflow" class="page">
+  <div class="page-heading">
+    <div>
+      <h2>🔄 業務フロー・自動化ステータス</h2>
+      <p>見積書発行から製造開始までの一連フローをリアルタイム確認</p>
+    </div>
+    <button class="topbar-btn" onclick="refreshWorkflowStatus()">🔄 更新</button>
+  </div>
+
+  <!-- フローステップ可視化 -->
+  <div style="background:#fff;border-radius:12px;padding:24px;margin-bottom:20px;border:1px solid var(--border-light);box-shadow:var(--shadow-sm);">
+    <div style="font-size:12px;font-weight:700;color:var(--text-sub);margin-bottom:16px;letter-spacing:.05em;text-transform:uppercase;">自動化フロー</div>
+    <div style="display:flex;align-items:stretch;gap:0;overflow-x:auto;padding-bottom:8px;">
+      <!-- ステップ1 -->
+      <div class="flow-step" id="flow-step-1">
+        <div class="flow-step-num">①</div>
+        <div class="flow-step-icon">📝</div>
+        <div class="flow-step-title">見積台帳登録</div>
+        <div class="flow-step-desc">見積書を作成・台帳に記入</div>
+        <div class="flow-step-count" id="flow-count-1">—</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <!-- ステップ2 -->
+      <div class="flow-step" id="flow-step-2">
+        <div class="flow-step-num">②</div>
+        <div class="flow-step-icon">📧</div>
+        <div class="flow-step-title">メール送信・監視</div>
+        <div class="flow-step-desc">PDF添付メール自動検知・保存</div>
+        <div class="flow-step-count" id="flow-count-2">—</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <!-- ステップ3 -->
+      <div class="flow-step" id="flow-step-3">
+        <div class="flow-step-num">③</div>
+        <div class="flow-step-icon">🔍</div>
+        <div class="flow-step-title">OCR転記</div>
+        <div class="flow-step-desc">Gemini AIでPDFをDB蓄積</div>
+        <div class="flow-step-count" id="flow-count-3">—</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <!-- ステップ4 -->
+      <div class="flow-step" id="flow-step-4">
+        <div class="flow-step-num">④</div>
+        <div class="flow-step-icon">📦</div>
+        <div class="flow-step-title">注文書受領</div>
+        <div class="flow-step-desc">注文書OCR→DB転記</div>
+        <div class="flow-step-count" id="flow-count-4">—</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <!-- ステップ5 -->
+      <div class="flow-step" id="flow-step-5">
+        <div class="flow-step-num">⑤</div>
+        <div class="flow-step-icon">🔗</div>
+        <div class="flow-step-title">AI紐付け</div>
+        <div class="flow-step-desc">見積書⇔注文書自動マッチング</div>
+        <div class="flow-step-count" id="flow-count-5">—</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <!-- ステップ6 -->
+      <div class="flow-step" id="flow-step-6">
+        <div class="flow-step-num">⑥</div>
+        <div class="flow-step-icon">✅</div>
+        <div class="flow-step-title">社内承認</div>
+        <div class="flow-step-desc">金額確認・製造承認</div>
+        <div class="flow-step-count" id="flow-count-6">—</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <!-- ステップ7 -->
+      <div class="flow-step active" id="flow-step-7">
+        <div class="flow-step-num">⑦</div>
+        <div class="flow-step-icon">🏭</div>
+        <div class="flow-step-title">製造開始</div>
+        <div class="flow-step-desc">受注確定・製造指示</div>
+        <div class="flow-step-count" id="flow-count-7">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 案件ステータスサマリ -->
+  <div class="summary-grid" style="grid-template-columns:repeat(4,1fr);">
+    <div class="summary-card" style="border-left:4px solid var(--primary);">
+      <div class="lbl">未紐付け注文書</div>
+      <div class="val c-red" id="wf-unlinked">—</div>
+      <div class="sub">要アクション</div>
+    </div>
+    <div class="summary-card" style="border-left:4px solid var(--warning);">
+      <div class="lbl">承認待ち</div>
+      <div class="val" id="wf-approval">—</div>
+      <div class="sub">製造承認待ち</div>
+    </div>
+    <div class="summary-card" style="border-left:4px solid var(--success);">
+      <div class="lbl">今月受注</div>
+      <div class="val c-green" id="wf-ordered">—</div>
+      <div class="sub">件</div>
+    </div>
+    <div class="summary-card" style="border-left:4px solid var(--info);">
+      <div class="lbl">AI自動紐付け率</div>
+      <div class="val c-blue" id="wf-match-rate">—</div>
+      <div class="sub">直近30日</div>
+    </div>
+  </div>
+
+  <!-- n8n / 自動化モニター -->
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <div style="font-weight:700;font-size:14px;">⚡ 自動化ジョブ状況</div>
+      <button class="topbar-btn" onclick="runManualBatch()">▶ 手動バッチ実行</button>
+    </div>
+    <table style="width:100%;border-collapse:collapse;">
+      <thead>
+        <tr style="background:#f8fafc;">
+          <th style="padding:8px 12px;text-align:left;font-size:10.5px;color:var(--text-sub);border-bottom:1px solid var(--border-light);text-transform:uppercase;letter-spacing:.04em;">ジョブ名</th>
+          <th style="padding:8px 12px;text-align:left;font-size:10.5px;color:var(--text-sub);border-bottom:1px solid var(--border-light);text-transform:uppercase;letter-spacing:.04em;">実行間隔</th>
+          <th style="padding:8px 12px;text-align:left;font-size:10.5px;color:var(--text-sub);border-bottom:1px solid var(--border-light);text-transform:uppercase;letter-spacing:.04em;">最終実行</th>
+          <th style="padding:8px 12px;text-align:left;font-size:10.5px;color:var(--text-sub);border-bottom:1px solid var(--border-light);text-transform:uppercase;letter-spacing:.04em;">ステータス</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="padding:10px 12px;border-bottom:1px solid var(--border-light);">📧 メール自動監視 (processNewEmails)</td>
+          <td style="padding:10px 12px;border-bottom:1px solid var(--border-light);">15分毎</td>
+          <td style="padding:10px 12px;border-bottom:1px solid var(--border-light);font-family:'IBM Plex Mono',monospace;font-size:11px;" id="job-email-last">—</td>
+          <td style="padding:10px 12px;border-bottom:1px solid var(--border-light);"><span class="badge badge-done" id="job-email-status">稼働中</span></td>
+        </tr>
+        <tr>
+          <td style="padding:10px 12px;border-bottom:1px solid var(--border-light);">🤖 AI自動マッチング (autoMatchNewOrders)</td>
+          <td style="padding:10px 12px;border-bottom:1px solid var(--border-light);">1時間毎</td>
+          <td style="padding:10px 12px;border-bottom:1px solid var(--border-light);font-family:'IBM Plex Mono',monospace;font-size:11px;" id="job-match-last">—</td>
+          <td style="padding:10px 12px;border-bottom:1px solid var(--border-light);"><span class="badge badge-done" id="job-match-status">稼働中</span></td>
+        </tr>
+        <tr>
+          <td style="padding:10px 12px;border-bottom:1px solid var(--border-light);">📂 Drive監視 (processDriveImports)</td>
+          <td style="padding:10px 12px;border-bottom:1px solid var(--border-light);">30分毎</td>
+          <td style="padding:10px 12px;border-bottom:1px solid var(--border-light);font-family:'IBM Plex Mono',monospace;font-size:11px;" id="job-drive-last">—</td>
+          <td style="padding:10px 12px;border-bottom:1px solid var(--border-light);"><span class="badge badge-done" id="job-drive-status">稼働中</span></td>
+        </tr>
+        <tr>
+          <td style="padding:10px 12px;">⚠️ 納期アラート (checkDeliveryAlerts)</td>
+          <td style="padding:10px 12px;">毎朝8時</td>
+          <td style="padding:10px 12px;font-family:'IBM Plex Mono',monospace;font-size:11px;" id="job-alert-last">—</td>
+          <td style="padding:10px 12px;"><span class="badge badge-done" id="job-alert-status">稼働中</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ② 担当者・部署管理 -->
+<div id="page-assignees" class="page">
+  <div class="page-heading">
+    <div>
+      <h2>👥 担当者・引き継ぎ管理</h2>
+      <p>担当者マスタの管理と引き継ぎ処理</p>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button class="topbar-btn" onclick="openHandoverModal()">🔄 引き継ぎ処理</button>
+      <button class="topbar-btn primary" onclick="openAssigneeModal()">＋ 担当者追加</button>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:20px;">
+    <div style="font-size:12px;color:var(--text-sub);margin-bottom:12px;">
+      担当者変更・退職時は「引き継ぎ処理」ボタンから一括変更できます。紐付けられた全案件の担当者が変更されます。
+    </div>
+    <div id="assignee-container"><div class="loading"><div class="spinner"></div></div></div>
+  </div>
+</div>
+
+<!-- ③ 承認フロー -->
+<div id="page-approval" class="page">
+  <div class="page-heading">
+    <div>
+      <h2>✅ 製造承認フロー</h2>
+      <p>注文書の社内承認・製造開始判断</p>
+    </div>
+    <button class="topbar-btn" onclick="loadApprovals()">🔄 更新</button>
+  </div>
+
+  <div style="display:flex;gap:8px;margin-bottom:16px;">
+    <button class="topbar-btn" style="font-weight:700;" onclick="filterApprovals('承認待ち')">⏳ 承認待ち</button>
+    <button class="topbar-btn" onclick="filterApprovals('承認済み')">✅ 承認済み</button>
+    <button class="topbar-btn" onclick="filterApprovals('否認')">❌ 否認</button>
+    <button class="topbar-btn" onclick="filterApprovals('')">すべて</button>
+  </div>
+
+  <div class="card">
+    <div id="approval-container"><div class="loading"><div class="spinner"></div></div></div>
+  </div>
+</div>
+
+<!-- ④ 通知・連携設定（拡充版） -->
+<div id="page-settings" class="page">
+  <div class="page-heading">
+    <div>
+      <h2>⚙️ 詳細設定・システム連携</h2>
+      <p>各種通知・自動化・外部サービス連携の細粒度設定</p>
+    </div>
+  </div>
+
+  <!-- タブ -->
+  <div style="display:flex;gap:0;border-bottom:2px solid var(--border-light);margin-bottom:20px;">
+    <button class="settings-tab active" onclick="switchSettingsTab('notification')" id="tab-notification">📢 通知設定</button>
+    <button class="settings-tab" onclick="switchSettingsTab('integration')" id="tab-integration">🔗 外部連携</button>
+    <button class="settings-tab" onclick="switchSettingsTab('email-monitor')" id="tab-email-monitor">📧 メール監視</button>
+    <button class="settings-tab" onclick="switchSettingsTab('matching')" id="tab-matching">🤖 マッチング設定</button>
+    <button class="settings-tab" onclick="switchSettingsTab('approval-cfg')" id="tab-approval-cfg">✅ 承認フロー</button>
+    <button class="settings-tab" onclick="switchSettingsTab('system')" id="tab-system">🔧 システム</button>
+  </div>
+
+  <!-- 通知設定タブ -->
+  <div id="settings-notification" class="settings-panel">
+    <div class="card">
+      <h3 style="font-size:14px;font-weight:700;margin-bottom:16px;">📢 通知チャンネル設定</h3>
+      <p style="font-size:12px;color:var(--text-sub);margin-bottom:20px;">各チャンネルのオン/オフと設定を個別に管理できます。</p>
+
+      <!-- Google Chat -->
+      <div class="notif-channel-card" id="ncfg-gchat">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+          <span style="font-size:20px;">💬</span>
+          <span style="font-weight:700;font-size:14px;">Google Chat</span>
+          <button class="menu-vis-toggle on" id="ncfg-gchat-toggle" onclick="toggleNotifChannel('gchat')"></button>
+          <span style="font-size:11px;color:var(--text-muted);" id="ncfg-gchat-label">有効</span>
+        </div>
+        <div class="form-field">
+          <label>Webhook URL</label>
+          <input type="url" id="ncfg-gchat-url" placeholder="https://chat.googleapis.com/v1/spaces/...">
+        </div>
+        <div style="margin-top:10px;">
+          <label style="font-size:11.5px;font-weight:600;">通知イベント</label>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;" id="ncfg-gchat-events">
+            <!-- JS生成 -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Slack -->
+      <div class="notif-channel-card" id="ncfg-slack">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+          <span style="font-size:20px;">🟢</span>
+          <span style="font-weight:700;font-size:14px;">Slack</span>
+          <button class="menu-vis-toggle" id="ncfg-slack-toggle" onclick="toggleNotifChannel('slack')"></button>
+          <span style="font-size:11px;color:var(--text-muted);" id="ncfg-slack-label">無効</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="form-field">
+            <label>Webhook URL</label>
+            <input type="url" id="ncfg-slack-url" placeholder="https://hooks.slack.com/services/...">
+          </div>
+          <div class="form-field">
+            <label>チャンネル名（任意）</label>
+            <input type="text" id="ncfg-slack-channel" placeholder="#見積管理">
+          </div>
+        </div>
+      </div>
+
+      <!-- Teams -->
+      <div class="notif-channel-card" id="ncfg-teams">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+          <span style="font-size:20px;">🔵</span>
+          <span style="font-weight:700;font-size:14px;">Microsoft Teams</span>
+          <button class="menu-vis-toggle" id="ncfg-teams-toggle" onclick="toggleNotifChannel('teams')"></button>
+          <span style="font-size:11px;color:var(--text-muted);" id="ncfg-teams-label">無効</span>
+        </div>
+        <div class="form-field">
+          <label>Incoming Webhook URL</label>
+          <input type="url" id="ncfg-teams-url" placeholder="https://xxx.webhook.office.com/...">
+        </div>
+      </div>
+
+      <!-- メール -->
+      <div class="notif-channel-card" id="ncfg-email">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+          <span style="font-size:20px;">📧</span>
+          <span style="font-weight:700;font-size:14px;">メール通知</span>
+          <button class="menu-vis-toggle" id="ncfg-email-toggle" onclick="toggleNotifChannel('email')"></button>
+          <span style="font-size:11px;color:var(--text-muted);" id="ncfg-email-label">無効</span>
+        </div>
+        <div class="form-field">
+          <label>通知先メールアドレス（カンマ区切りで複数可）</label>
+          <input type="text" id="ncfg-email-address" placeholder="manager@example.com, sales@example.com">
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+        <button class="topbar-btn" onclick="testNotification()">🧪 テスト送信</button>
+        <button class="topbar-btn primary" onclick="saveNotificationSettings()">💾 保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 外部連携タブ -->
+  <div id="settings-integration" class="settings-panel" style="display:none;">
+    <div class="card">
+      <h3 style="font-size:14px;font-weight:700;margin-bottom:16px;">🔗 n8n / 外部サービス連携</h3>
+
+      <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:14px;margin-bottom:18px;">
+        <div style="font-weight:600;font-size:12.5px;color:#0369a1;margin-bottom:6px;">💡 n8n連携について</div>
+        <div style="font-size:12px;color:#0c4a6e;line-height:1.6;">
+          n8nのWebhookトリガーURLを設定することで、以下のイベント時に自動フローを起動できます：<br>
+          見積書登録・注文書受領・紐付け完了・承認依頼・承認完了 etc.<br>
+          n8n側でSlack通知・基幹システム連携・Google Drive整理などを自動化できます。
+        </div>
+      </div>
+
+      <div class="form-field" style="margin-bottom:16px;">
+        <label>n8n Webhook URL</label>
+        <input type="url" id="int-n8n-url" placeholder="https://your-n8n.example.com/webhook/xxxxx">
+        <span style="font-size:11px;color:var(--text-sub);">各イベント発生時にこのURLへPOSTされます</span>
+      </div>
+
+      <div style="background:#f8fafc;border-radius:8px;padding:14px;margin-bottom:16px;">
+        <div style="font-weight:600;font-size:12px;margin-bottom:10px;">n8nへ送信されるイベント一覧</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11.5px;">
+          <div>• <code>quote.created</code> — 見積書登録</div>
+          <div>• <code>order.received</code> — 注文書受領</div>
+          <div>• <code>link.confirmed</code> — 紐付け確定</div>
+          <div>• <code>approval.required</code> — 承認依頼</div>
+          <div>• <code>approval.approved</code> — 承認完了</div>
+          <div>• <code>handover.completed</code> — 引き継ぎ完了</div>
+        </div>
+      </div>
+
+      <h4 style="font-size:13px;font-weight:700;margin:20px 0 12px;">その他API設定</h4>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+        <div class="form-field">
+          <label>Gemini API Key</label>
+          <input type="password" id="int-gemini-key" placeholder="設定済みの場合は変更時のみ入力">
+        </div>
+        <div class="form-field">
+          <label>スプレッドシートID</label>
+          <input type="text" id="int-spreadsheet-id" placeholder="1xxxxxxxxxxxx">
+        </div>
+      </div>
+
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button class="topbar-btn" onclick="loadIntegrationSettings()">🔄 現在の設定を読み込む</button>
+        <button class="topbar-btn primary" onclick="saveIntegrationSettings()">💾 保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- メール監視設定タブ（既存を詳細化） -->
+  <div id="settings-email-monitor" class="settings-panel" style="display:none;">
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+        <h3 style="font-size:14px;font-weight:700;">📧 メール監視設定（詳細）</h3>
+        <button class="topbar-btn primary" onclick="openEmailCfgModal()">＋ 設定追加</button>
+      </div>
+      <div style="background:#fffde7;border:1px solid #fbbf24;border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px;">
+        <strong>📌 設定ポイント：</strong><br>
+        • <strong>種別「見積書」</strong>：送信済みトレイを監視。自社が送った見積書PDFを自動保存<br>
+        • <strong>種別「注文書」</strong>：受信トレイを監視。得意先からの注文書PDFを自動保存<br>
+        • <strong>キーワード</strong>：ファイル名または件名に含まれる語でフィルタリング（カンマ区切り）<br>
+        • <strong>担当者変更時</strong>：送信元・宛先メールアドレスを更新するだけで自動切り替え
+      </div>
+      <div id="email-cfg-container"><div class="loading"><div class="spinner"></div></div></div>
+    </div>
+  </div>
+
+  <!-- マッチング設定タブ -->
+  <div id="settings-matching" class="settings-panel" style="display:none;">
+    <div class="card">
+      <h3 style="font-size:14px;font-weight:700;margin-bottom:16px;">🤖 AI紐付けマッチング設定</h3>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;">
+        <div>
+          <label style="font-size:11.5px;font-weight:600;display:block;margin-bottom:6px;">自動確定スコアしきい値（現在: <span id="threshold-auto-val">80</span>点）</label>
+          <input type="range" min="50" max="99" value="80" id="threshold-auto" style="width:100%;" oninput="document.getElementById('threshold-auto-val').textContent=this.value">
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-sub);margin-top:2px;">
+            <span>50（緩い）</span><span>99（厳格）</span>
+          </div>
+        </div>
+        <div>
+          <label style="font-size:11.5px;font-weight:600;display:block;margin-bottom:6px;">候補表示スコアしきい値（現在: <span id="threshold-cand-val">50</span>点）</label>
+          <input type="range" min="20" max="79" value="50" id="threshold-cand" style="width:100%;" oninput="document.getElementById('threshold-cand-val').textContent=this.value">
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-sub);margin-top:2px;">
+            <span>20（広く表示）</span><span>79（絞り込み）</span>
+          </div>
+        </div>
+      </div>
+
+      <div style="background:#f8fafc;border-radius:8px;padding:14px;margin-bottom:16px;">
+        <div style="font-weight:600;font-size:12px;margin-bottom:10px;">スコアリング内訳（ルールベース）</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;">
+          <div>📝 見積番号が注文書に記載: <strong>+95点（即確定）</strong></div>
+          <div>💰 金額一致（1%以内）: <strong>+30点</strong></div>
+          <div>🏢 会社名マッチ（表記ゆれ対応）: <strong>+25点</strong></div>
+          <div>🏷️ 機種コード一致: <strong>+20点</strong></div>
+          <div>📅 日付論理整合（見積<注文）: <strong>+5点</strong></div>
+          <div>⚠️ 日付不整合（見積>注文）: <strong>-20点</strong></div>
+        </div>
+      </div>
+
+      <div class="form-field" style="margin-bottom:16px;">
+        <label>AI精密判定モデル</label>
+        <select id="matching-model">
+          <option value="gemini-2.5-flash">gemini-2.5-flash（高速・低コスト）</option>
+          <option value="gemini-2.5-pro">gemini-2.5-pro（高精度）</option>
+        </select>
+      </div>
+
+      <div style="display:flex;gap:8px;">
+        <button class="topbar-btn" onclick="loadMatchingSettings()">🔄 設定読み込み</button>
+        <button class="topbar-btn" onclick="showPage('matching')">🔗 紐付け候補を確認</button>
+        <button class="topbar-btn primary" onclick="saveMatchingSettings()">💾 保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 承認フロー設定タブ -->
+  <div id="settings-approval-cfg" class="settings-panel" style="display:none;">
+    <div class="card">
+      <h3 style="font-size:14px;font-weight:700;margin-bottom:16px;">✅ 承認フロー設定</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+        <div class="form-field">
+          <label>承認者メールアドレス</label>
+          <input type="email" id="apvcfg-approver" placeholder="manager@example.com">
+          <span style="font-size:11px;color:var(--text-sub);">承認依頼メールの送信先</span>
+        </div>
+        <div class="form-field">
+          <label>承認不要の金額上限（この金額以下は自動承認）</label>
+          <input type="number" id="apvcfg-auto-limit" placeholder="例: 100000（10万円以下自動承認）">
+        </div>
+        <div class="form-field">
+          <label>承認期限（日数）</label>
+          <input type="number" id="apvcfg-deadline" placeholder="3" min="1" max="30">
+          <span style="font-size:11px;color:var(--text-sub);">期限超過時にリマインド通知</span>
+        </div>
+        <div class="form-field">
+          <label>承認スキップ条件</label>
+          <select id="apvcfg-skip">
+            <option value="none">スキップなし（全案件要承認）</option>
+            <option value="amount">金額上限以下はスキップ</option>
+            <option value="trusted_client">登録得意先はスキップ</option>
+          </select>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button class="topbar-btn" onclick="loadApprovalCfg()">🔄 読み込み</button>
+        <button class="topbar-btn primary" onclick="saveApprovalCfg()">💾 保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- システムタブ（既存の管理コンソール） -->
+  <div id="settings-system" class="settings-panel" style="display:none;">
+    <div id="page-admin-inner">
+      <!-- 既存の管理コンソール内容をここに表示 -->
+      <div style="font-size:12px;color:var(--text-sub);margin-bottom:12px;">
+        管理コンソール（システム環境設定）は「管理コンソール」タブからもアクセスできます。
+      </div>
+      <button class="topbar-btn" onclick="showPage('admin')">⚙️ 管理コンソールを開く</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     追加スタイル
+============================================================ -->
+<style>
+/* フローステップ */
+.flow-step{
+  flex:1;min-width:110px;
+  background:#f8fafc;
+  border:1px solid var(--border-light);
+  border-radius:10px;
+  padding:14px 12px;
+  text-align:center;
+  transition:all .2s;
+}
+.flow-step:hover{box-shadow:var(--shadow);transform:translateY(-2px);}
+.flow-step.active{background:#eff6ff;border-color:#93c5fd;}
+.flow-step-num{font-size:10px;font-weight:700;color:var(--text-muted);margin-bottom:4px;}
+.flow-step-icon{font-size:22px;margin-bottom:4px;}
+.flow-step-title{font-size:11.5px;font-weight:700;color:var(--text);margin-bottom:3px;}
+.flow-step-desc{font-size:10px;color:var(--text-sub);line-height:1.4;}
+.flow-step-count{font-size:18px;font-weight:700;color:var(--primary);margin-top:6px;}
+.flow-arrow{
+  display:flex;align-items:center;
+  font-size:18px;color:var(--text-muted);
+  padding:0 4px;flex-shrink:0;
+}
+
+/* 通知チャンネルカード */
+.notif-channel-card{
+  border:1px solid var(--border-light);
+  border-radius:10px;
+  padding:16px;
+  margin-bottom:12px;
+  transition:box-shadow .15s;
+}
+.notif-channel-card:hover{box-shadow:var(--shadow-sm);}
+
+/* 設定タブ */
+.settings-tab{
+  padding:8px 20px;
+  border:none;border-bottom:3px solid transparent;
+  background:none;
+  font-size:12.5px;font-weight:600;
+  color:var(--text-sub);
+  cursor:pointer;
+  transition:all .15s;
+  font-family:inherit;
+  margin-bottom:-2px;
+}
+.settings-tab:hover{color:var(--text);}
+.settings-tab.active{color:var(--primary);border-bottom-color:var(--primary);}
+</style>
+
+
+<!-- ===== 担当者編集モーダル ===== -->
+<div class="modal-overlay" id="assignee-modal" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="modal" style="max-width:580px;">
+    <div class="modal-head">
+      <h3>👤 担当者情報</h3>
+      <button class="modal-close" onclick="document.getElementById('assignee-modal').classList.remove('open')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="_asgn-rowIdx">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;">
+        <div class="form-field">
+          <label>氏名 <span style="color:var(--danger);">*</span></label>
+          <input type="text" id="_asgn-name" placeholder="山田 太郎">
+        </div>
+        <div class="form-field">
+          <label>部署</label>
+          <input type="text" id="_asgn-dept" placeholder="営業部">
+        </div>
+        <div class="form-field">
+          <label>メールアドレス</label>
+          <input type="email" id="_asgn-email" placeholder="yamada@example.com">
+        </div>
+        <div class="form-field">
+          <label>チャットID（Google Chat など）</label>
+          <input type="text" id="_asgn-chatid" placeholder="users/xxxxx">
+        </div>
+        <div class="form-field" style="grid-column:1/-1;">
+          <label>担当顧客（カンマ区切り）</label>
+          <input type="text" id="_asgn-clients" placeholder="○○製造,△△工業">
+        </div>
+        <div class="form-field">
+          <label>有効</label>
+          <select id="_asgn-active">
+            <option value="true">✅ 有効（在職中）</option>
+            <option value="false">❌ 無効（退職・異動）</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label>引き継ぎ先担当者ID</label>
+          <input type="text" id="_asgn-handover" placeholder="引き継ぎ先ID（任意）">
+        </div>
+        <div class="form-field" style="grid-column:1/-1;">
+          <label>メモ</label>
+          <textarea id="_asgn-memo" rows="2" placeholder="備考・引き継ぎ事項など"></textarea>
+        </div>
+      </div>
+      <div style="text-align:right;">
+        <button class="btn btn-outline" onclick="document.getElementById('assignee-modal').classList.remove('open')">キャンセル</button>
+        <button class="btn btn-primary" onclick="saveAssignee()" style="margin-left:8px;">💾 保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 引き継ぎモーダル ===== -->
+<div class="modal-overlay" id="handover-modal" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="modal" style="max-width:500px;">
+    <div class="modal-head">
+      <h3>🔄 引き継ぎ処理</h3>
+      <button class="modal-close" onclick="document.getElementById('handover-modal').classList.remove('open')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:12px;margin-bottom:16px;font-size:12px;color:#9a3412;">
+        ⚠️ この操作は「引き継ぎ元」担当者の全案件を「引き継ぎ先」へ一括移管します。元に戻せません。
+      </div>
+      <div class="form-field" style="margin-bottom:14px;">
+        <label>引き継ぎ元（現担当者）</label>
+        <select id="handover-from">
+          <option value="">選択してください</option>
+        </select>
+      </div>
+      <div class="form-field" style="margin-bottom:14px;">
+        <label>引き継ぎ先（新担当者）</label>
+        <select id="handover-to">
+          <option value="">選択してください</option>
+        </select>
+      </div>
+      <div class="form-field" style="margin-bottom:16px;">
+        <label>引き継ぎメモ（案件備考に記録されます）</label>
+        <textarea id="handover-memo" rows="3" placeholder="引き継ぎ理由・注意事項など"></textarea>
+      </div>
+      <div style="text-align:right;">
+        <button class="btn btn-outline" onclick="document.getElementById('handover-modal').classList.remove('open')">キャンセル</button>
+        <button class="btn btn-primary" onclick="executeHandover()" style="background:#dc2626;border-color:#dc2626;margin-left:8px;">🔄 引き継ぎを実行</button>
+      </div>
+    </div>
   </div>
 </div>
 
