@@ -702,21 +702,34 @@ function _apiGetQuoteDetail(p) {
     if (!p || !p.mgmtId) return { success: false, error: '管理IDが必要です' };
     var ss = getSpreadsheet();
     var mgmtData = getAllMgmtData();
-    var targetRow = mgmtData.find(function(r) {
+    var mgmtRow = mgmtData.find(function(r) {
       return String(r[MGMT_COLS.ID - 1]) === String(p.mgmtId);
     });
-    if (!targetRow) return { success: false, error: '管理IDが見つかりません: ' + p.mgmtId };
-    var quoteNo = String(targetRow[MGMT_COLS.QUOTE_NO - 1] || '').trim();
-    var relatedIds = [String(p.mgmtId)];
-    if (quoteNo) {
-      mgmtData.forEach(function(r) {
-        var id = String(r[MGMT_COLS.ID - 1] || '');
-        if (id === String(p.mgmtId)) return;
-        if (String(r[MGMT_COLS.QUOTE_NO - 1] || '').trim() === quoteNo) {
-          relatedIds.push(id);
-        }
-      });
+    if (!mgmtRow) return { success: false, error: '管理ID未発見: ' + p.mgmtId };
+    var mgmt = _rowToObject(mgmtRow);
+
+    // 見積書明細取得
+    var qs = ss.getSheetByName(CONFIG.SHEET_QUOTES);
+    var quoteLines = [];
+    if (qs && qs.getLastRow() > 1) {
+      qs.getRange(2, 1, qs.getLastRow() - 1, 15).getValues()
+        .filter(function(r) { return String(r[0]) === String(p.mgmtId); })
+        .forEach(function(r) {
+          quoteLines.push({
+            issueDate: _toDateStr(r[2]), destCompany: String(r[3] || ''),
+            destPerson: String(r[4] || ''), lineNo: r[5],
+            itemName: String(r[6] || ''), spec: String(r[7] || ''),
+            qty: r[8], unit: String(r[9] || ''), unitPrice: r[10],
+            amount: r[11], remarks: String(r[12] || ''), pdfUrl: String(r[13] || ''),
+          });
+        });
     }
+    return { success: true, mgmt: mgmt, quoteLines: quoteLines };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
     var mgmt = _rowToObject(targetRow);
     var quoteSheet = ss.getSheetByName(CONFIG.SHEET_QUOTES);
     var quoteLines = [];
