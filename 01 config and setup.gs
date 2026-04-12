@@ -50,34 +50,7 @@ var CONFIG = {
 // ===== 管理シート 列定義（27列）=====
 // ログ解析により実際のシートは27列構成と判明
 var MGMT_COLS = {
-  ID:               1,
-  QUOTE_NO:         2,
-  ORDER_NO:         3,
-  SUBJECT:          4,
-  CLIENT:           5,
-  STATUS:           6,
-  QUOTE_DATE:       7,
-  ORDER_DATE:       8,
-  QUOTE_AMOUNT:     9,
-  ORDER_AMOUNT:    10,
-  TAX:             11,
-  TOTAL:           12,
-  QUOTE_PDF_URL:   13,
-  ORDER_PDF_URL:   14,
-  DRIVE_FOLDER_URL:15,
-  QUOTE_SHEET_ROW: 16,
-  ORDER_SHEET_ROW: 17,
-  LINKED:          18,
-  ORDER_TYPE:      19,
-  MODEL_CODE:      20,
-  ORDER_SLIP_NO:   21,
-  ASSIGNEE:        22,
-  DELIVERY_DATE:   23,
-  MEMO:            24,
-  CREATED_AT:      25,
-  UPDATED_AT:      26,
-  GMAIL_MSG_ID:    27,
-　// 現在の MGMT_COLS の末尾（GMAIL_MSG_ID: 27 の後）に追記
+// 現在の MGMT_COLS の末尾（GMAIL_MSG_ID: 27 の後）に追記
 var MGMT_COLS = {
   ID: 1,
   QUOTE_NO: 2,
