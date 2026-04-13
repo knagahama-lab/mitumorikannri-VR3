@@ -139,26 +139,46 @@ function handleApiRequest(action, payload) {
   }
 }
 
+// ============================================================
+// ★安全版：案件データ取得
+// ============================================================
 function _apiGetAll() {
-  var rows = getAllMgmtData();
-  rows = rows.filter(function(r) {
-    var v = String(r[MGMT_COLS.IS_LATEST - 1] || '');
-    return v === '' || v === 'TRUE' || v === true;
-  });
-  rows = rows.filter(function(r) {
-    var hidden = CONFIG.STATUS_HIDDEN || [];
-    return hidden.indexOf(String(r[MGMT_COLS.STATUS - 1] || '')) < 0;
-  });
-  var orderRows = rows.filter(function(r) {
-    return String(r[MGMT_COLS.ORDER_NO - 1]).trim() !== '';
-  });
-  var items = _deduplicateMgmtRows(orderRows);
-  items.sort(function(a, b) {
-    var da = String(a.orderDate || a.quoteDate || '');
-    var db = String(b.orderDate || b.quoteDate || '');
-    return db.localeCompare(da);
-  });
-  return { success: true, total: items.length, items: items };
+  try {
+    var rows = getAllMgmtData();
+
+    // IS_LATEST フィルター（列が存在しない場合も安全に処理）
+    rows = rows.filter(function(r) {
+      var colIdx = (MGMT_COLS.IS_LATEST || 0) - 1;
+      if (colIdx < 0 || colIdx >= r.length) return true; // 列がなければ全件通す
+      var v = String(r[colIdx] || '');
+      return v === '' || v.toUpperCase() === 'TRUE';
+    });
+
+    // 非表示ステータスを除外
+    rows = rows.filter(function(r) {
+      var hidden = CONFIG.STATUS_HIDDEN || [];
+      return hidden.indexOf(String(r[MGMT_COLS.STATUS - 1] || '')) < 0;
+    });
+
+    // 注文番号がある行のみ
+    var orderRows = rows.filter(function(r) {
+      return String(r[MGMT_COLS.ORDER_NO - 1]).trim() !== '';
+    });
+
+    var items = _deduplicateMgmtRows(orderRows);
+
+    // 発注日の新しい順
+    items.sort(function(a, b) {
+      var da = String(a.orderDate || a.quoteDate || '');
+      var db = String(b.orderDate || b.quoteDate || '');
+      return db.localeCompare(da);
+    });
+
+    return { success: true, total: items.length, items: items };
+  } catch(e) {
+    Logger.log('[_apiGetAll ERROR] ' + e.message + '\n' + e.stack);
+    return { success: false, error: e.message };
+  }
 }
 
 function _deduplicateMgmtRows(rows) {
