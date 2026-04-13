@@ -1,675 +1,996 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BOM管理システム</title>
+<style>
+/* CSS変数の定義 */
+:root {
+  --bg: #f5f4f0;
+  --surface: #ffffff;
+  --surface2: #f9f8f5;
+  --border: #e0ddd5;
+  --border2: #ccc9be;
+  --text: #1a1917;
+  --text2: #5c5a54;
+  --text3: #9a9890;
+  --accent: #1a6b3a;
+  --accent-bg: #e8f5ed;
+  --accent-hover: #155830;
+  --danger: #c0392b;
+  --danger-bg: #fdf0ee;
+  --warn: #d4701a;
+  --warn-bg: #fef5ec;
+  --info: #185fa5;
+  --info-bg: #e6f1fb;
+  --radius: 8px;
+  --radius-lg: 12px;
+  --shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Hiragino Sans', 'Meiryo', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.6; overflow: hidden; }
+
+/* Layout */
+#app { display: flex; width: 100vw; height: 100vh; position: relative; overflow: hidden; }
+
+/* Sidebar */
+#sidebar { width: 220px; min-width: 220px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; z-index: 10; }
+#sidebar-header { padding: 20px 16px 16px; border-bottom: 1px solid var(--border); }
+#sidebar-header h1 { font-size: 15px; font-weight: 700; color: var(--text); letter-spacing: -0.3px; }
+#sidebar-header p { font-size: 11px; color: var(--text3); margin-top: 2px; }
+#nav { padding: 12px 8px; flex: 1; overflow-y: auto; }
+.nav-item { display: flex; align-items: center; gap: 8px; padding: 9px 10px; border-radius: var(--radius); cursor: pointer; font-size: 13px; color: var(--text2); transition: all 0.15s; margin-bottom: 2px; }
+.nav-item:hover { background: var(--surface2); color: var(--text); }
+.nav-item.active { background: var(--accent-bg); color: var(--accent); font-weight: 600; }
+.nav-icon { width: 18px; height: 18px; opacity: 0.7; }
+.nav-item.active .nav-icon { opacity: 1; }
+
+/* Main Content */
+#main { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; background: var(--bg); }
+#topbar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; height: 52px; min-height: 52px; display: flex; align-items: center; justify-content: space-between; z-index: 5; }
+#topbar h2 { font-size: 16px; font-weight: 700; }
+#content { flex: 1; padding: 24px; overflow-y: auto; }
+
+/* Cards & Buttons */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+.card-title { font-size: 14px; font-weight: 700; margin-bottom: 16px; color: var(--text); display: flex; align-items: center; gap: 8px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 16px; border-radius: var(--radius); border: none; cursor: pointer; font-size: 13px; font-weight: 600; font-family: inherit; transition: all 0.15s; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary { background: var(--accent); color: white; }
+.btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
+.btn-danger { background: var(--danger-bg); color: var(--danger); border: 1px solid #f5c8c4; }
+.btn-danger:hover:not(:disabled) { background: #f9d5d1; }
+.btn-outline { background: var(--surface); color: var(--text2); border: 1px solid var(--border2); }
+.btn-outline:hover:not(:disabled) { background: var(--surface2); color: var(--text); }
+.btn-warn { background: var(--warn-bg); color: var(--warn); border: 1px solid #f5d9b8; }
+.btn-warn:hover:not(:disabled) { background: #fdecd6; }
+.btn-info { background: var(--info-bg); color: var(--info); border: 1px solid #b5d4f4; }
+.btn-info:hover:not(:disabled) { background: #d0e7f9; }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
+.btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* Tables & Forms */
+.tbl-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; background: var(--surface); }
+thead th { background: var(--surface2); padding: 10px 12px; text-align: left; font-weight: 600; color: var(--text2); border-bottom: 1px solid var(--border); white-space: nowrap; font-size: 12px; }
+tbody td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+tbody tr:hover { background: var(--surface2); }
+tbody tr:last-child td { border-bottom: none; }
+.form-row { display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.form-group { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 140px; }
+.form-group label { font-size: 12px; font-weight: 600; color: var(--text2); }
+.form-group input, .form-group select, .form-group textarea {
+  padding: 8px 12px; border: 1px solid var(--border2); border-radius: var(--radius); font-family: inherit; font-size: 13px; background: var(--surface); color: var(--text); outline: none; transition: border 0.15s;
+}
+.form-group input:focus, .form-group select:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-bg); }
+
+/* Badges & Stats */
+.badge { display: inline-block; padding: 3px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+.badge-green { background: #e8f5ed; color: #1a6b3a; }
+.badge-blue { background: #e6f1fb; color: #185fa5; }
+.badge-orange { background: #fef5ec; color: #d4701a; }
+.badge-gray { background: #f1efe8; color: #5f5e5a; }
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.stat-card { background: var(--surface); border-radius: var(--radius-lg); padding: 16px 20px; border: 1px solid var(--border); box-shadow: var(--shadow); }
+.stat-label { font-size: 12px; font-weight: 600; color: var(--text3); margin-bottom: 4px; }
+.stat-value { font-size: 24px; font-weight: 700; color: var(--text); }
+
+/* Modal */
+.modal-overlay { 
+  position: absolute; 
+  top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(0,0,0,0.6); z-index: 9999; 
+  display: flex; align-items: center; justify-content: center; 
+  padding: 20px; opacity: 0; pointer-events: none; transition: opacity 0.2s; 
+}
+.modal-overlay.open { opacity: 1; pointer-events: auto; }
+.modal { 
+  background: var(--surface); border-radius: var(--radius-lg); width: 100%; 
+  max-width: 640px; max-height: 90%; display: flex; flex-direction: column;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.3); transform: translateY(20px); transition: transform 0.2s; 
+}
+.modal-overlay.open .modal { transform: translateY(0); }
+.modal-header { padding: 16px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; background: var(--surface2); border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+.modal-header h3 { font-size: 16px; font-weight: 700; color: var(--text); }
+.modal-body { padding: 24px; overflow-y: auto; flex: 1; }
+.modal-footer { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 12px; background: var(--surface2); border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+.close-btn { background: none; border: none; cursor: pointer; font-size: 22px; color: var(--text3); padding: 0 8px; }
+.close-btn:hover { color: var(--danger); }
+
+/* Misc */
+.csv-area { background: var(--surface2); border: 1px dashed var(--border2); border-radius: var(--radius); padding: 16px; font-family: monospace; font-size: 12px; color: var(--text2); min-height: 100px; white-space: pre; overflow: auto; }
+textarea.csv-input { width: 100%; min-height: 120px; font-family: monospace; font-size: 12px; }
+.empty-state { text-align: center; padding: 60px 20px; color: var(--text3); }
+.empty-state p { font-size: 14px; font-weight: 500; }
+.num { font-variant-numeric: tabular-nums; }
+.profit-high { color: #1a6b3a; font-weight: 700; }
+.profit-mid { color: #d4701a; font-weight: 700; }
+.profit-low { color: #c0392b; font-weight: 700; }
+.alert { padding: 12px 16px; border-radius: var(--radius); font-size: 13px; font-weight: 500; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; line-height: 1.4; }
+.alert-info { background: var(--info-bg); color: var(--info); border: 1px solid #b5d4f4; }
+.alert-success { background: var(--accent-bg); color: var(--accent); border: 1px solid #9fe1cb; }
+.alert-warn { background: var(--warn-bg); color: var(--warn); border: 1px solid #f5d9b8; }
+.section-title { font-size: 13px; font-weight: 700; color: var(--text2); margin: 20px 0 10px; border-bottom: 2px solid var(--border); padding-bottom: 6px; }
+
+/* ローディング */
+.loading { text-align: center; padding: 30px; color: var(--text3); font-size: 13px; font-weight: 500; }
+.spinner { display: inline-block; width: 24px; height: 24px; border: 3px solid var(--border2); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="sidebar">
+    <div id="sidebar-header">
+      <h1>🔧 BOM管理</h1>
+      <p>部品構成表システム</p>
+    </div>
+    <div id="nav">
+      <div class="nav-item active" onclick="showPage('dashboard')" id="nav-dashboard">ダッシュボード</div>
+      <div class="nav-item" onclick="showPage('parts')" id="nav-parts">部品マスタ</div>
+      <div class="nav-item" onclick="showPage('products')" id="nav-products">機種・基板</div>
+      <div class="nav-item" onclick="showPage('bom')" id="nav-bom">部品構成表 (BOM)</div>
+      <div class="nav-item" onclick="showPage('pricing')" id="nav-pricing">価格管理</div>
+      <div class="nav-item" onclick="showPage('csv')" id="nav-csv">CSVエクスポート</div>
+      
+      <div class="nav-item" onclick="openBomImportModal()" style="color:var(--info); font-weight:700; margin-top: 16px; background: var(--info-bg); border: 1px solid #b5d4f4;">
+        📥 一括データ取込 (CSV)
+      </div>
+
+      <div style="margin-top:auto;padding-top:16px;border-top:1px solid var(--border);margin-top:24px">
+        <div class="nav-item" onclick="resetToSample()" style="color:var(--danger);font-size:12px;font-weight:600;">
+          ⚠️ サンプルデータに戻す
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="main">
+    <div id="topbar">
+      <h2 id="page-title">ダッシュボード</h2>
+      <div class="btn-group" id="topbar-actions"></div>
+    </div>
+    <div id="content"></div>
+    
+    <div id="modal-container"></div>
+  </div>
+</div>
+
 <script>
 // ============================================================
-// グローバル状態・初期化
+// GAS HtmlService環境 localStorage polyfill
 // ============================================================
-const S = {
-  all:[], filtered:[], page:1, limit:30,
-  docType:'quote', orderType:'', selectedFile:null,
-  calYear: new Date().getFullYear(), calMonth: new Date().getMonth()+1,
-  calEvents:[],
+(function() {
+  var _store = {};
+  if (typeof window !== 'undefined') {
+    try {
+      // localStorage が使えるかテスト
+      window.localStorage.setItem('__test__', '1');
+      window.localStorage.removeItem('__test__');
+    } catch (e) {
+      // 使えない場合はメモリ内ストアで代替
+      console.warn('[BOM] localStorage 利用不可。メモリ内ストアで代替します。');
+      Object.defineProperty(window, 'localStorage', {
+        value: {
+          _data: {},
+          getItem: function(k) { return this._data.hasOwnProperty(k) ? this._data[k] : null; },
+          setItem: function(k, v) { this._data[k] = String(v); },
+          removeItem: function(k) { delete this._data[k]; },
+          clear: function() { this._data = {}; },
+          key: function(i) { return Object.keys(this._data)[i] || null; },
+          get length() { return Object.keys(this._data).length; }
+        },
+        writable: false
+      });
+    }
+  }
+})();
+
+// ==========================================
+// DATA STORE + Artifact環境対応 (メモリフォールバック)
+// ==========================================
+const STORAGE_KEY = 'bom_manager_v1';
+
+const SAMPLE_DATA = {
+  parts: [
+    { id: 'P001', name: 'コンデンサ 100μF/25V', category: 'コンデンサ', maker: '日本ケミコン', cost: 45, price: 90, unit: '個', spec: '電解、径8mm', stock: 1000 },
+  ],
+  products: [
+    { id: 'M001', name: 'パチンコ機 A-100シリーズ', code: 'A100', desc: '最新液晶演出搭載モデル' },
+  ],
+  boards: [
+    { id: 'B001', productId: 'M001', name: '液晶演出基板 A', code: 'A100-LCD-01', desc: 'メイン液晶制御', version: 'v2.1' },
+  ],
+  bom: [
+    { id: 'BOM001', boardId: 'B001', partId: 'P001', qty: 4, note: '電源デカップリング' },
+  ],
+  priceHistory: []
 };
-let searchTimer=null;
 
-window.addEventListener('load', () => {
-  _populateMonthFilter();
-  loadData();
-  loadQuoteList();
-  loadMatchingCandidates();
-});
+let db = { parts: [], products: [], boards: [], bom: [], priceHistory: [] };
 
-// --- ▼ 検索用の文字列正規化関数 ▼ ---
-function normalizeSearchText(str) {
-  if (str === null || str === undefined) return '';
-  return String(str).toLowerCase()
-    .replace(/[Ａ-Ｚａ-ｚ０-９]/g, function(s) { return String.fromCharCode(s.charCodeAt(0) - 0xFEE0); })
-    .replace(/[\u3000]/g, ' ');
+function saveDB() {
+  try { 
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); 
+  } catch(e) {}
 }
 
-// ============================================================
-// 案件データ（注文書一覧）
-// ============================================================
-function loadData() {
-  const container = document.getElementById('table-container');
-  if(!container) return;
-  container.innerHTML = '<div class="loading"><div class="spinner"></div><br>データ読み込み中...</div>';
-  google.script.run
-    .withSuccessHandler(res => {
-      if (!res || !res.success) {
-        container.innerHTML = '<div class="loading" style="color:var(--danger);">⚠️ データ取得失敗: ' + (res ? res.error : '不明') + '</div>'; return;
-      }
-      S.all = res.items || [];
-      S.filtered = S.all.slice();
-      S.page = 1;
-      _updateSummary();
-      _renderTable();
-    })
-    .withFailureHandler(err => { container.innerHTML = '<div class="loading" style="color:var(--danger);">⚠️ 通信エラー: ' + err.message + '</div>'; })
-    .handleApiRequest('getAll', null);
-}
-
-function switchSubTab(tab) {
-  var isOrder   = tab === 'order';
-  var areaOrder = document.getElementById('area-order');
-  var areaQuote = document.getElementById('area-quote');
-  var orderBtn  = document.getElementById('subtab-order');
-  var quoteBtn  = document.getElementById('subtab-quote');
-  if (!areaOrder || !areaQuote || !orderBtn || !quoteBtn) return;
-  areaOrder.style.display = isOrder ? '' : 'none';
-  areaQuote.style.display = isOrder ? 'none' : '';
-  orderBtn.style.color        = isOrder ? 'var(--primary)'  : 'var(--text-sub)';
-  orderBtn.style.borderBottom = isOrder ? '2px solid var(--primary)' : '2px solid transparent';
-  orderBtn.style.fontWeight   = isOrder ? '600' : '500';
-  quoteBtn.style.color        = isOrder ? 'var(--text-sub)'  : 'var(--primary)';
-  quoteBtn.style.borderBottom = isOrder ? '2px solid transparent' : '2px solid var(--primary)';
-  quoteBtn.style.fontWeight   = isOrder ? '500' : '600';
-  if (!isOrder && _allQuotes.length === 0) loadQuoteList();
-}
-
-function _updateSummary() {
-  const now = new Date(); const ym = now.getFullYear() + '/' + String(now.getMonth()+1).padStart(2,'0');
-  if(document.getElementById('sum-sent')) document.getElementById('sum-sent').textContent = S.all.filter(r=>r.status==='送信済み').length;
-  if(document.getElementById('sum-received')) document.getElementById('sum-received').textContent = S.all.filter(r=>r.status==='受領').length;
-  if(document.getElementById('sum-done')) document.getElementById('sum-done').textContent = S.all.filter(r=>r.status==='納品済み').length;
-  const tot = S.all.filter(r=>String(r.orderDate).startsWith(ym)).reduce((s,r)=>s+(Number(r.orderAmount)||0), 0);
-  if(document.getElementById('sum-amount')) document.getElementById('sum-amount').textContent = tot.toLocaleString();
-}
-
-function _renderTable() {
-  const start = (S.page-1)*S.limit;
-  const data  = S.filtered.slice(start, start+S.limit);
-  const total = S.filtered.length;
-  if(document.getElementById('result-count')) document.getElementById('result-count').textContent = total+'件中 '+(total>0?start+1:0)+'–'+Math.min(start+S.limit,total)+'件';
-  if (total===0) {
-    document.getElementById('table-container').innerHTML = '<div class="loading" style="color:var(--text-sub);">該当する案件がありません</div>';
-    document.getElementById('pagination').innerHTML='';
-    return;
-  }
-  const rows = data.map(r=>`
-    <tr onclick="openDetail('${r.id}')" style="cursor:pointer;">
-      <td><span class="text-sub">${r.id||''}</span></td>
-      <td><strong>${r.orderNo||r.quoteNo||'—'}</strong></td>
-      <td>${r.orderSlipNo||'—'}</td>
-      <td>${r.modelCode||'—'}</td>
-      <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.client||''}</td>
-      <td>${_sBadge(r.status)}</td>
-      <td>${r.orderType?_otBadge(r.orderType):''}</td>
-      <td class="text-sub">${r.orderDate||r.quoteDate||''}</td>
-      <td class="text-sub">${r.deliveryDate||''}</td>
-      <td style="text-align:right;white-space:nowrap;">${r.orderAmount?Number(r.orderAmount).toLocaleString()+' 円':'—'}</td>
-      <td>
-        ${r.quotePdfUrl?`<a class="pdf-link" href="${r.quotePdfUrl}" target="_blank" onclick="event.stopPropagation()">見積</a> `:''}
-        ${r.orderPdfUrl?`<a class="pdf-link" href="${r.orderPdfUrl}" target="_blank" onclick="event.stopPropagation()">発注</a>`:''}
-        ${r.driveFolderUrl?`<br><a class="pdf-link" href="${r.driveFolderUrl}" target="_blank" onclick="event.stopPropagation()">📁</a>`:''}
-      </td>
-      <td style="text-align:center; white-space:nowrap;">
-        <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteMgmt('${r.id}', '${(r.orderNo||r.quoteNo||'').replace(/'/g,'')}')">🗑️ 削除</button>
-      </td>
-    </tr>`).join('');
-  document.getElementById('table-container').innerHTML = `
-    <table>
-      <thead><tr>
-        <th>管理ID</th><th>発注書番号</th><th>発注伝票No</th><th>機種</th><th>顧客名</th>
-        <th>ステータス</th><th>種別</th><th>発注日</th><th>納期</th><th>注文金額</th><th>PDF/フォルダ</th><th>操作</th>
-      </tr></thead>
-      <tbody>${rows}</tbody>
-    </table>`;
-  _renderPagination(total);
-}
-
-function _sBadge(s){const m={'作成予定':'planned','送信済み':'sent','受領':'received','納品済み':'done'};return`<span class="badge badge-${m[s]||'planned'}">${s||'—'}</span>`;}
-function _otBadge(t){if(t==='試作')return'<span class="badge badge-trial">試作</span>';if(t==='量産')return'<span class="badge badge-mass">量産</span>';return'';}
-
-function _renderPagination(total) {
-  const pages=Math.ceil(total/S.limit);
-  if(pages<=1){document.getElementById('pagination').innerHTML='';return;}
-  let h='';
-  for(let i=1;i<=Math.min(pages,10);i++) h+=`<button class="page-btn ${i===S.page?'active':''}" onclick="goPage(${i})">${i}</button>`;
-  document.getElementById('pagination').innerHTML=h;
-}
-function goPage(n){S.page=n;_renderTable();}
-
-function debounceSearch(){clearTimeout(searchTimer);searchTimer=setTimeout(applyFilters,300);}
-
-function applyFilters() {
-  const rawKw = document.getElementById('search-input').value;
-  const kws   = normalizeSearchText(rawKw).split(/\s+/).filter(Boolean);
-  const st    = document.getElementById('filter-status').value;
-  const ot    = document.getElementById('filter-order-type').value;
-  const mo    = document.getElementById('filter-month').value;
-  S.filtered = S.all.filter(r => {
-    const targetValues = [ r.quoteNo, r.orderNo, r.orderSlipNo, r.modelCode, r.subject, r.client, r.orderAmount ];
-    const searchableText = normalizeSearchText(targetValues.join(' '));
-    const mk = kws.length === 0 || kws.every(kw => searchableText.includes(kw));
-    const ms = !st || r.status === st;
-    const mo2 = !ot || r.orderType === ot;
-    const mm = !mo || (String(r.orderDate).startsWith(mo) || String(r.quoteDate).startsWith(mo));
-    return mk && ms && mo2 && mm;
-  });
-  S.page = 1;
-  _renderTable();
-}
-
-function clearFilters(){
-  document.getElementById('search-input').value='';
-  ['filter-status','filter-order-type','filter-month'].forEach(id=>document.getElementById(id).value='');
-  S.filtered=S.all.slice();S.page=1;_renderTable();
-}
-
-function _populateMonthFilter(){
-  const sel=document.getElementById('filter-month');
-  if(!sel) return;
-  const now=new Date();
-  for(let i=0;i<12;i++){
-    const d=new Date(now.getFullYear(),now.getMonth()-i,1);
-    const ym=d.getFullYear()+'/'+String(d.getMonth()+1).padStart(2,'0');
-    const o=document.createElement('option');o.value=ym;o.textContent=ym;sel.appendChild(o);
-  }
-}
-
-function _findMgmtItem(mgmtId) {
-  let item = S.all.find(r => r.id === mgmtId);
-  if (item) return item;
-  if(typeof _allQuotes !== 'undefined') item = _allQuotes.find(r => r.id === mgmtId);
-  return item || null;
-}
-
-// ============================================================
-// 詳細モーダル ＆ 紐づけ
-// ============================================================
-function openDetail(mgmtId) {
-  let item = _findMgmtItem(mgmtId);
-  if (!item) item = { id: mgmtId, client: 'データ取得中...', status: '' };
-  document.getElementById('detail-title').textContent = '📋 ' + (item.orderNo || item.quoteNo || mgmtId);
-  document.getElementById('detail-modal').classList.add('open');
-  document.getElementById('detail-body').innerHTML = '<div class="loading"><div class="spinner"></div></div>';
-  google.script.run
-    .withSuccessHandler(res => {
-      if (!res.success) { document.getElementById('detail-body').innerHTML = '<div style="color:var(--danger);padding:20px;">エラー: ' + res.error + '</div>'; return; }
-      try {
-        const dataItem = res.mgmt || item;
-        document.getElementById('detail-body').innerHTML = _buildDetailHtml(dataItem, res);
-        if (dataItem.orderNo) document.getElementById('detail-title').textContent = '📦 注文書 ' + dataItem.orderNo;
-      } catch(e) { document.getElementById('detail-body').innerHTML = '<div style="color:var(--danger);padding:20px;">表示エラー: ' + e.message + '</div>'; }
-    })
-    .handleApiRequest('getDetail', { mgmtId });
-}
-function closeDetailModal(){document.getElementById('detail-modal').classList.remove('open');}
-
-function _buildDetailHtml(item, detail) {
-  const orderLinks = [
-    item.orderPdfUrl ? `<a href="${item.orderPdfUrl}" target="_blank" class="pdf-link" style="display:inline-block; background:white; padding:2px 8px; border-radius:4px; border:1px solid var(--border); text-decoration:none; font-size:11px;">📄 発注書PDF</a>` : '',
-    item.driveFolderUrl ? `<a href="${item.driveFolderUrl}" target="_blank" class="pdf-link" style="display:inline-block; background:white; padding:2px 8px; border-radius:4px; border:1px solid var(--border); text-decoration:none; font-size:11px;">📁 フォルダ</a>` : ''
-  ].filter(Boolean).join(' ');
-  const quoteLinks = item.quotePdfUrl ? `<a href="${item.quotePdfUrl}" target="_blank" class="pdf-link" style="display:inline-block; background:white; padding:2px 8px; border-radius:4px; border:1px solid var(--border); text-decoration:none; font-size:11px;">📄 見積書PDF</a>` : '';
-
-  const rows=[
-    ['管理ID', item.id],
-    ['発注書番号', (item.orderNo || '—') + (orderLinks ? `<div style="margin-top:6px;">${orderLinks}</div>` : '')],
-    ['見積書番号', (item.quoteNo || '—') + (quoteLinks ? `<div style="margin-top:6px;">${quoteLinks}</div>` : '')],
-    ['発注伝票番号', item.orderSlipNo || '—'],
-    ['機種コード', item.modelCode || '—'],
-    ['顧客名', item.client || '—'],
-    ['ステータス', _sBadge(item.status)],
-    ['注文種別', item.orderType ? _otBadge(item.orderType) : '—'],
-    ['発注日', item.orderDate || '—'],
-    ['見積日', item.quoteDate || '—'],
-    ['注文金額', item.orderAmount ? Number(item.orderAmount).toLocaleString() + ' 円' : '—'],
-    ['合計金額', item.total ? Number(item.total).toLocaleString() + ' 円' : '—'],
-    ['納期', item.deliveryDate || '—'],
-    ['担当者', item.assignee || '—'],
-    ['メモ', item.memo || '—'],
-  ];
-  const infoHtml='<table style="width:100%;font-size:13px;border-collapse:collapse;">'+
-    rows.map(([k,v])=>`<tr><td style="padding:8px 10px;font-weight:600;width:30%;color:var(--text-sub);border-bottom:1px solid var(--border);background:var(--surface2);">${k}</td><td style="padding:8px 10px;border-bottom:1px solid var(--border);">${v}</td></tr>`).join('')+
-    '</table>';
-  const statusOpts=['作成予定','送信済み','受領','納品済み'].map(s=>`<option value="${s}"${s===item.status?' selected':''}>${s}</option>`).join('');
-  const quoteCellHtml = item.quoteNo 
-    ? `<div style="line-height:1.4;">
-         <span style="font-size:11px; color:var(--text3);">No.</span><a href="javascript:void(0)" onclick="event.stopPropagation(); openQuoteDetail('${item.id}', '${item.quoteNo}')" style="color:var(--primary); font-weight:600; text-decoration:none; font-size:12px;">${item.quoteNo}</a>
-         ${item.quotePdfUrl ? `<br><a href="${item.quotePdfUrl}" target="_blank" onclick="event.stopPropagation()" style="font-size:11px; color:var(--info); text-decoration:none;">📄 PDFを開く</a>` : ''}
-       </div>`
-    : '<span style="font-size:11px; color:var(--text3);">未紐づけ</span>';
-
-  const oTable = detail.orderLines && detail.orderLines.length ? `
-    <div class="detail-section" style="margin-top:20px;"><h4>発注書 明細</h4>
-    <table class="dtable" style="width:100%;border-collapse:collapse;font-size:12px;">
-      <thead>
-        <tr><th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">#</th><th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">品名</th><th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">仕様</th><th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">納品先</th><th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">数量</th><th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">単価</th><th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">金額</th><th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">備考</th><th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">紐づく見積</th></tr>
-      </thead>
-      <tbody>${detail.orderLines.map(l=>`<tr>
-        <td style="padding:6px;border:1px solid var(--border);text-align:center;">${l.lineNo}</td><td style="padding:6px;border:1px solid var(--border);">${l.itemName||''}</td><td style="padding:6px;border:1px solid var(--border);font-size:11px;color:var(--text-sub);">${l.spec||''}</td><td style="padding:6px;border:1px solid var(--border);">${l.deliveryDest||''}</td><td style="padding:6px;border:1px solid var(--border);text-align:right;">${l.qty||''}</td><td style="padding:6px;border:1px solid var(--border);text-align:right;">${l.unitPrice?Number(l.unitPrice).toLocaleString():''}</td><td style="padding:6px;border:1px solid var(--border);text-align:right;font-weight:600;">${l.amount?Number(l.amount).toLocaleString():''}</td><td style="padding:6px;border:1px solid var(--border);">${l.remarks||''}</td><td style="padding:6px;border:1px solid var(--border);vertical-align:middle;text-align:center;">${quoteCellHtml}</td>
-      </tr>`).join('')}</tbody>
-    </table></div>` : '';
-
-  let linkHtml = '';
-  if (item.orderNo && !item.quoteNo) {
-    let candHtml = '';
-    if (typeof _allMatchingItems !== 'undefined') {
-      const matchData = _allMatchingItems.find(m => String(m.orderMgmtId) === String(item.id) || String(m.orderNo) === String(item.orderNo));
-      if (matchData) {
-        let cands = [];
-        if (matchData.candidates && matchData.candidates.length > 0) cands = matchData.candidates;
-        else {
-          if (matchData.c1Id) cands.push({ id: matchData.c1Id, no: matchData.c1No, score: matchData.c1Score });
-          if (matchData.c2Id) cands.push({ id: matchData.c2Id, no: '', score: matchData.c2Score });
-          if (matchData.c3Id) cands.push({ id: matchData.c3Id, no: '', score: matchData.c3Score });
-        }
-        if (cands.length > 0) {
-          const candCards = cands.map(c => {
-             const qId = c.id || c.quoteId;
-             const q = (typeof _allQuotes !== 'undefined') ? _allQuotes.find(aq => String(aq.id) === String(qId)) : null;
-             const qNo = q && q.quoteNo ? q.quoteNo : (c.no || c.quoteNo || qId || '不明');
-             const qDate = q && q.issueDate ? q.issueDate : '—';
-             let itemNames = '—', unitPrice = '—';
-             if (detail && detail.allQuoteLines && detail.allQuoteLines.length > 0) {
-               const qLines = detail.allQuoteLines.filter(ql => String(ql.mgmtId) === String(qId));
-               if (qLines.length > 0) { itemNames = qLines.map(ql => ql.itemName).join('、'); unitPrice = '¥' + Number(qLines[0].unitPrice).toLocaleString(); }
-             }
-             const btnColor = c.score >= 80 ? 'var(--success)' : '#fbbc04';
-             return `
-             <div style="background:#fff; border:1px solid var(--border); border-left:4px solid ${btnColor}; border-radius:6px; padding:12px; margin-bottom:8px; display:flex; align-items:center; justify-content:space-between; box-shadow:0 1px 3px rgba(0,0,0,0.05);">
-               <div style="flex:1;">
-                 <div style="font-weight:700; font-size:13px; color:var(--text); margin-bottom:6px; display:flex; align-items:center; gap:8px;">
-                   📄 見積NO: ${qNo} <span style="background:${btnColor}; color:#fff; padding:2px 6px; border-radius:4px; font-size:11px;">${c.score}点</span>
-                 </div>
-                 <div style="font-size:11px; color:var(--text-sub); display:flex; flex-wrap:wrap; gap:12px; line-height:1.5;">
-                   <span><b style="color:var(--text);">📅 発行日:</b> ${qDate}</span><span><b style="color:var(--text);">💰 単価:</b> <span style="color:var(--danger); font-weight:600;">${unitPrice}</span></span><span style="width:100%;"><b style="color:var(--text);">📦 項目名:</b> ${itemNames}</span>
-                 </div>
-               </div>
-               <button class="btn btn-primary" onclick="confirmLink('${item.id}','${qId}')" style="margin-left:12px; white-space:nowrap; height:fit-content;">🔗 確定</button>
-             </div>`;
-          }).join('');
-          candHtml = `<div style="margin-top:16px; border-top:1px dashed #b5d4f4; padding-top:12px;"><div style="font-size:12px; font-weight:700; color:var(--info); margin-bottom:10px;">💡 AIが推測した見積書候補:</div>${candCards}</div>`;
-        }
-      }
+function loadDB() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const saved = JSON.parse(raw);
+      db.parts        = saved.parts        || [];
+      db.products     = saved.products     || [];
+      db.boards       = saved.boards       || [];
+      db.bom          = saved.bom          || [];
+      db.priceHistory = saved.priceHistory || [];
+      return true;
     }
-    
-    let quoteOpts = '';
-    if (typeof _allQuotes !== 'undefined') {
-      const unlinkedQuotes = _allQuotes.filter(q => !q.linked);
-      quoteOpts = unlinkedQuotes.map(q => {
-        let itemNames = q.subject || '—'; let unitPrice = '—';
-        if (detail && detail.allQuoteLines && detail.allQuoteLines.length > 0) {
-          const qLines = detail.allQuoteLines.filter(ql => String(ql.mgmtId) === String(q.id));
-          if (qLines.length > 0) { const names = qLines.map(ql => ql.itemName).filter(Boolean); if (names.length > 0) itemNames = names.join('、'); if (qLines[0].unitPrice != null) unitPrice = '¥' + Number(qLines[0].unitPrice).toLocaleString(); }
-          else if (q.quoteAmount != null) unitPrice = '¥' + Number(q.quoteAmount).toLocaleString();
-        } else if (q.quoteAmount != null) unitPrice = '¥' + Number(q.quoteAmount).toLocaleString();
-        const qDate = q.issueDate || '—'; const qNo = q.quoteNo || 'Noなし';
-        const displayText = `NO:${qNo} ｜ 単価:${unitPrice} ｜ 項目:${itemNames} ｜ 発行日:${qDate}`;
-        return `<option value="${q.id}">${displayText}</option>`;
-      }).join('');
-    }
-    linkHtml = `
-    <div style="background:var(--info-bg);border:1px solid #b5d4f4;border-radius:8px;padding:16px;margin:20px 0;">
-      <div style="font-size:13px;font-weight:700;margin-bottom:10px;color:var(--info);">🔗 手動で他の見積書と紐づける</div>
-      <div style="display:flex;gap:8px;align-items:center;">
-        <select id="manual-link-quote-id" style="flex:1;padding:8px 10px;border-radius:4px;border:1px solid var(--border2);font-size:13px;background:white;outline:none;">
-          <option value="">-- 既存の未紐づけ見積書から選択 --</option>${quoteOpts}
-        </select>
-        <button class="btn btn-primary" onclick="_manualLinkQuote('${item.id}')" style="white-space:nowrap;">この見積書で確定</button>
-      </div>
-      ${candHtml}
-    </div>`;
-  }
-
-  return `${infoHtml}${linkHtml}
-    <div style="display:flex;align-items:center;gap:8px;margin-top:20px;margin-bottom:16px;">
-      <span style="font-size:12px;font-weight:600;color:var(--text-sub);">ステータス変更:</span>
-      <select id="status-sel" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;outline:none;">${statusOpts}</select>
-      <button class="btn btn-primary btn-sm" onclick="updateStatus('${item.id}')">更新</button>
-      <span style="margin:0 8px; color:var(--border);">|</span>
-      <button class="btn btn-outline btn-sm" onclick="openEditModal('${item.id}')">✏️ 案件情報を直接編集</button>
-      <button class="btn btn-danger btn-sm" onclick="deleteMgmt('${item.id}','${(item.orderNo||item.quoteNo||'').replace(/'/g,'')}')" style="margin-left:auto;">🗑️ 削除</button>
-    </div>${oTable}`;
+  } catch(e) {}
+  return false;
 }
 
-function _manualLinkQuote(orderMgmtId) {
-  const quoteMgmtId = document.getElementById('manual-link-quote-id').value;
-  if(!quoteMgmtId) { showToast('プルダウンから見積書を選択してください', true); return; }
-  confirmLink(orderMgmtId, quoteMgmtId);
+function resetToSample() {
+  if (!confirm('全データをサンプルデータにリセットしますか？\n現在のデータはすべて失われます。')) return;
+  db = JSON.parse(JSON.stringify(SAMPLE_DATA));
+  saveDB();
+  showPage('dashboard');
 }
 
-function updateStatus(mgmtId){
-  const ns=document.getElementById('status-sel').value;
-  google.script.run.withSuccessHandler(res=>{
-    if(res.success){ showToast('ステータスを「'+ns+'」に変更しました'); const it=S.all.find(r=>r.id===mgmtId);if(it)it.status=ns; S.filtered=S.filtered.map(r=>r.id===mgmtId?{...r,status:ns}:r); _renderTable();_updateSummary();closeDetailModal(); }
-    else showToast('更新失敗: '+res.error,true);
-  }).handleApiRequest('updateStatus',{mgmtId,newStatus:ns});
-}
+function genId(prefix) { return prefix + Date.now().toString(36).toUpperCase(); }
 
-// ============================================================
-// ファイルアップロード (OCR)
-// ============================================================
-function openUploadModal(){
-  S.selectedFile=null;S.orderType='';
-  document.getElementById('upload-status').innerHTML='';
-  document.getElementById('upload-btn').disabled=true;
-  document.getElementById('file-input').value='';
-  document.getElementById('order-type-section').style.display='none';
-  document.getElementById('upload-modal').classList.add('open');
-}
-function closeUploadModal(){document.getElementById('upload-modal').classList.remove('open');}
-function setDocType(t){
-  S.docType=t;S.orderType='';
-  document.getElementById('type-quote').classList.toggle('active',t==='quote');
-  document.getElementById('type-order').classList.toggle('active',t==='order');
-  document.getElementById('order-type-section').style.display=t==='order'?'block':'none';
-}
-function setOrderType(t){ S.orderType=t; }
-function handleFileSelect(e){const f=e.target.files[0];if(f)_setFile(f);}
-function _setFile(file){
-  if(!file.name.toLowerCase().endsWith('.pdf')){showToast('PDFのみ対応',true);return;}
-  S.selectedFile=file;
-  document.getElementById('upload-status').innerHTML=`<p style="color:var(--success);font-size:13px;">✓ ${file.name} (${(file.size/1024).toFixed(1)} KB)</p>`;
-  document.getElementById('upload-btn').disabled=false;
-}
-function uploadFile(){
-  if(!S.selectedFile)return;
-  if(S.docType==='order'&&!S.orderType){showToast('注文種別を選択してください',true);return;}
-  const btn=document.getElementById('upload-btn'); btn.disabled=true;btn.textContent='解析中...';
-  document.getElementById('upload-status').innerHTML='<div class="loading" style="padding:16px;"><div class="spinner"></div> Gemini OCR 解析中...</div>';
-  const reader=new FileReader();
-  reader.onload=e=>{
-    const b64=e.target.result.split(',')[1];
-    const action = S.docType==='order' ? 'uploadOrderWithLink' : 'uploadPdf';
-    google.script.run
-      .withSuccessHandler(res=>{
-        btn.textContent='解析・登録';btn.disabled=false;
-        if(res.success){ showToast('登録完了しました'); loadData(); closeUploadModal(); }
-        else{ document.getElementById('upload-status').innerHTML=`<p style="color:var(--danger);font-size:13px;">✗ ${res.error}</p>`; }
-      })
-      .withFailureHandler(err=>{
-        document.getElementById('upload-status').innerHTML=`<p style="color:var(--danger);font-size:13px;">✗ 通信エラー</p>`;
-        btn.textContent='解析・登録';btn.disabled=false;
-      })
-      .handleApiRequest(action,{base64Data:b64,fileName:S.selectedFile.name,docType:S.docType,orderType:S.orderType});
-  };
-  reader.readAsDataURL(S.selectedFile);
-}
+// ==========================================
+// NAVIGATION
+// ==========================================
+const pageTitles = { dashboard: 'ダッシュボード', parts: '部品マスタ', products: '機種・基板管理', bom: '部品構成表（BOM）', pricing: '価格管理', csv: 'CSVエクスポート' };
 
-// ============================================================
-// 見積書一覧
-// ============================================================
-let _allQuotes = [];
-let _filteredQuotes = [];
-let _quotePage = 1;
-const _quoteLimit = 30;
-
-function openDriveFolder() { window.open('https://drive.google.com/drive/folders/1sB42xntGKL31GeT9OjOKTxVJwj9IQz-h', '_blank'); }
-
-function loadQuoteList() {
-  const container = document.getElementById('quotelist-container');
-  if(!container) return;
-  container.innerHTML = '<div class="loading"><div class="spinner"></div><br>読み込み中...</div>';
-  google.script.run
-    .withSuccessHandler(res => {
-      if (!res.success) { container.innerHTML = '<div class="loading" style="color:var(--danger);">⚠️ ' + res.error + '</div>'; return; }
-      _allQuotes = res.items || [];
-      _filteredQuotes = _allQuotes.slice();
-      _quotePage = 1;
-      if(document.getElementById('qs-total')) document.getElementById('qs-total').textContent = _allQuotes.length;
-      if(document.getElementById('qs-linked')) document.getElementById('qs-linked').textContent = _allQuotes.filter(r => r.linked).length;
-      if(document.getElementById('qs-amount')) document.getElementById('qs-amount').textContent = _allQuotes.reduce((s, r) => s + (Number(r.quoteAmount) || 0), 0).toLocaleString();
-      _renderQuoteTable();
-    })
-    .handleApiRequest('quoteListGetAll', null);
-}
-
-function applyQuoteFilter() {
-  const rawKw  = document.getElementById('qs-search').value;
-  const kws    = normalizeSearchText(rawKw).split(/\s+/).filter(Boolean); 
-  const st     = document.getElementById('qs-filter-status').value;
-  const linked = document.getElementById('qs-filter-linked').value;
-  _filteredQuotes = _allQuotes.filter(r => {
-    const targetValues = [ r.quoteNo, r.subject, r.destCompany, r.destPerson, r.modelCode, r.quoteAmount, r.orderNo ];
-    const searchableText = normalizeSearchText(targetValues.join(' '));
-    const mk = kws.length === 0 || kws.every(kw => searchableText.includes(kw));
-    const ms = !st || r.status === st;
-    const ml = !linked || (linked === 'linked' && r.linked) || (linked === 'unlinked' && !r.linked);
-    return mk && ms && ml;
-  });
-  _filteredQuotes.sort((a, b) => String(b.issueDate||'').localeCompare(String(a.issueDate||'')));
-  _quotePage = 1;
-  _renderQuoteTable();
-}
-
-function clearQuoteFilter() {
-  document.getElementById('qs-search').value = '';
-  document.getElementById('qs-filter-status').value = '';
-  document.getElementById('qs-filter-linked').value = '';
-  _filteredQuotes = _allQuotes.slice();
-  _quotePage = 1;
-  _renderQuoteTable();
-}
-
-function _renderQuoteTable() {
-  const start = (_quotePage - 1) * _quoteLimit;
-  const data  = _filteredQuotes.slice(start, start + _quoteLimit);
-  const total = _filteredQuotes.length;
-  if(document.getElementById('qs-count')) document.getElementById('qs-count').textContent = total + '件中 ' + (total > 0 ? start + 1 : 0) + '–' + Math.min(start + _quoteLimit, total) + '件';
-  if (total === 0) {
-    document.getElementById('quotelist-container').innerHTML = '<div class="loading" style="color:var(--text-sub);">該当する見積書がありません</div>';
-    document.getElementById('qs-pagination').innerHTML = ''; return;
-  }
-  const rows = data.map(r => `
-    <tr onclick="openQuoteDetail('${r.id}')" style="cursor:pointer;">
-      <td><strong>${r.quoteNo || '—'}</strong></td>
-      <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.subject || ''}">${r.subject || '—'}</td>
-      <td style="font-size:12px;color:var(--text-sub);">${r.issueDate || '—'}</td>
-      <td style="text-align:right;white-space:nowrap;">${r.quoteAmount ? Number(r.quoteAmount).toLocaleString() + ' 円' : '—'}</td>
-      <td>${_sBadge(r.status)}</td>
-      <td>${r.linked ? '<span class="badge badge-linked">✓ 注文書あり</span>' : '<span style="font-size:11px;color:var(--text-sub);">未受注</span>'}${r.orderNo ? '<br><span style="font-size:11px;color:var(--text-sub);">No.' + r.orderNo + '</span>' : ''}</td>
-      <td>${r.quotePdfUrl ? '<a class="pdf-link" href="' + r.quotePdfUrl + '" target="_blank" onclick="event.stopPropagation()">📄 PDF</a>' : ''}</td>
-      <td style="text-align:center; white-space:nowrap;">
-        <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteMgmt('${r.id}', '${(r.quoteNo||'').replace(/'/g,'')}')">🗑️ 削除</button>
-      </td>
-    </tr>`).join('');
-  document.getElementById('quotelist-container').innerHTML = `<table><thead><tr><th>見積No.</th><th>件名（ファイル名）</th><th>発行日</th><th>金額</th><th>ステータス</th><th>紐づけ状況</th><th>PDF</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table>`;
-  const pages = Math.ceil(total / _quoteLimit);
-  if (pages <= 1) { document.getElementById('qs-pagination').innerHTML = ''; return; }
-  let pHtml = '';
-  for (let i = 1; i <= Math.min(pages, 10); i++) pHtml += `<button class="page-btn ${i === _quotePage ? 'active' : ''}" onclick="goQuotePage(${i})">${i}</button>`;
-  document.getElementById('qs-pagination').innerHTML = pHtml;
-}
-
-function goQuotePage(n) { _quotePage = n; _renderQuoteTable(); }
-
-function openQuoteDetail(mgmtId, quoteNo) {
-  let item = _findMgmtItem(mgmtId);
-  if (!item) item = { id: mgmtId, quoteNo: quoteNo || mgmtId, client: '', status: '' };
-  document.getElementById('quote-detail-title').textContent = '📄 見積書 ' + (item.quoteNo || mgmtId);
-  document.getElementById('quote-detail-modal').classList.add('open');
-  document.getElementById('quote-detail-body').innerHTML = '<div class="loading"><div class="spinner"></div></div>';
-  google.script.run
-    .withSuccessHandler(res => {
-      if (!res.success) { document.getElementById('quote-detail-body').innerHTML = '<div style="color:var(--danger);padding:20px;">エラー: ' + res.error + '</div>'; return; }
-      if (!res.mgmt) res.mgmt = item; 
-      document.getElementById('quote-detail-body').innerHTML = _buildQuoteDetailHtml(res);
-    })
-    .handleApiRequest('getQuoteDetail', { mgmtId });
-}
-function closeQuoteDetail() { document.getElementById('quote-detail-modal').classList.remove('open'); }
-
-function _buildQuoteDetailHtml(res) {
-  const m = res.mgmt || {};
-  const lines = res.quoteLines || [];
-  const pdfUrl = lines.length ? lines[0].pdfUrl : m.quotePdfUrl;
-  const lineRows = lines.map((l, i) => `<tr><td>${i+1}</td><td><strong style="font-size:12px;">${l.itemName||''}</strong></td><td class="r">${l.qty||''}</td><td class="r">${l.amount?Number(l.amount).toLocaleString():''}</td></tr>`).join('');
-  return `
-    <table style="width:100%;font-size:13px;border-collapse:collapse;margin-bottom:16px;">
-      <tbody><tr><td style="padding:6px;width:30%;border-bottom:1px solid var(--border);">見積番号</td><td style="padding:6px;border-bottom:1px solid var(--border);">${m.quoteNo||'—'}</td></tr>
-      <tr><td style="padding:6px;border-bottom:1px solid var(--border);">見積金額</td><td style="padding:6px;border-bottom:1px solid var(--border);">${m.quoteAmount?Number(m.quoteAmount).toLocaleString()+' 円':'—'}</td></tr></tbody>
-    </table>
-    ${pdfUrl ? `<div style="margin-bottom:16px;"><a href="${pdfUrl}" target="_blank" class="btn btn-outline btn-sm">📄 見積書PDFを開く</a></div>` : ''}
-    <div class="detail-section"><h4>見積書 明細</h4>${lineRows ? `<table class="dtable"><thead><tr><th>#</th><th>品名</th><th>数量</th><th>金額</th></tr></thead><tbody>${lineRows}</tbody></table>` : '<div style="font-size:13px;color:var(--text-sub);">明細データなし</div>'}</div>`;
-}
-
-// ============================================================
-// AI紐づけ候補・マッチング
-// ============================================================
-let _allMatchingItems = [];
-
-function loadMatchingCandidates() {
-  const container = document.getElementById('matching-container');
-  if(!container) return;
-  container.innerHTML = '<div class="loading"><div class="spinner"></div><br>AIが抽出した紐づけ候補を読み込み中...</div>';
-  google.script.run
-    .withSuccessHandler(res => {
-      if (!res.success) { container.innerHTML = '<div class="alert alert-danger" style="color:var(--danger);">エラー: ' + res.error + '</div>'; return; }
-      _allMatchingItems = res.items || [];
-      _renderMatchingCandidates(_allMatchingItems);
-    })
-    .withFailureHandler(err => { container.innerHTML = '<div class="alert alert-danger" style="color:var(--danger);">通信エラー: ' + err.message + '</div>'; })
-    .handleApiRequest('getCandidates', null);
-}
-
-function runBatchMatching() {
-  showToast('Gemini AIによる全件マッチングを開始しました...');
-  document.getElementById('matching-container').innerHTML = '<div class="loading"><div class="spinner"></div><br>🤖 Gemini AIが未紐づけの注文書と見積書を解析中...<br><span style="font-size:12px;color:var(--text-sub)">※数十秒〜数分かかります</span></div>';
-  google.script.run
-    .withSuccessHandler(res => {
-      if (res.success) {
-        showToast('完了！ 自動確定: ' + (res.result.autoCount||0) + '件 / 要確認候補: ' + (res.result.candidateCount||0) + '件');
-        loadMatchingCandidates();
-        if (typeof loadData === 'function') loadData();
-      } else { showToast('エラー: ' + res.error, true); loadMatchingCandidates(); }
-    })
-    .withFailureHandler(err => { showToast('通信エラー: ' + err.message, true); loadMatchingCandidates(); })
-    .handleApiRequest('runMatching', {});
-}
-
-function _renderMatchingCandidates(items) {
-  const container = document.getElementById('matching-container');
-  if(!container) return;
-  if (items.length === 0) {
-    container.innerHTML = '<div style="text-align:center; padding:40px; background:var(--surface2); border-radius:8px;"><strong style="color:var(--success); font-size:16px;">✓ 要確認の紐づけ候補はありません</strong></div>';
-    return;
-  }
-  const scoreBar = (s) => {
-    const w = Math.min(s, 100); const c = s >= 80 ? 'var(--success)' : s >= 50 ? '#fbbc04' : 'var(--danger)';
-    return `<div style="display:flex;align-items:center;gap:6px;"><div style="flex:1;height:8px;background:var(--border);border-radius:4px;overflow:hidden;min-width:100px;"><div style="width:${w}%;height:100%;background:${c};border-radius:4px;"></div></div><span style="font-size:14px;font-weight:700;color:${c};min-width:36px;text-align:right;">${s}点</span></div>`;
-  };
-  const cards = items.map(item => {
-    const candidates = item.candidates || [];
-    const candRows = candidates.map(c => {
-      const itemsHtml = (c.items && c.items.length > 0) ? `<div style="margin-top:8px;border-top:1px dashed var(--border);padding-top:8px;"><div style="font-size:11px;font-weight:600;color:var(--text-sub);margin-bottom:4px;">📋 明細項目</div><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:#f8f9fa;"><th style="padding:3px 8px;text-align:left;border:1px solid var(--border);">品名</th><th style="padding:3px 8px;text-align:right;border:1px solid var(--border);">数量</th><th style="padding:3px 8px;text-align:right;border:1px solid var(--border);">単価</th><th style="padding:3px 8px;text-align:right;border:1px solid var(--border);">金額</th></tr></thead><tbody>${c.items.map(it => `<tr><td style="padding:3px 8px;border:1px solid var(--border);">${it.itemName||'—'}</td><td style="padding:3px 8px;border:1px solid var(--border);text-align:right;">${it.qty||'—'}</td><td style="padding:3px 8px;border:1px solid var(--border);text-align:right;">${it.unitPrice!=null?'¥'+Number(it.unitPrice).toLocaleString():'—'}</td><td style="padding:3px 8px;border:1px solid var(--border);text-align:right;font-weight:600;">${it.amount!=null?'¥'+Number(it.amount).toLocaleString():'—'}</td></tr>`).join('')}</tbody></table></div>` : '';
-      return `<div style="display:flex;flex-direction:column;gap:6px;padding:12px 16px;background:var(--card);border:1px solid var(--border);border-radius:8px;margin-bottom:8px;"><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;"><div style="flex:1;min-width:200px;"><div style="font-size:13px;font-weight:700;">📄 見積書No: ${c.quoteNo || c.quoteId || '—'}</div><div style="font-size:12px;color:var(--text-sub);margin-top:2px;">宛先: ${c.client || '—'} ｜ 発行日: <strong>${c.issueDate || '—'}</strong></div></div><div style="min-width:160px;">${scoreBar(c.score)}</div><button class="btn btn-primary" onclick="confirmLink('${item.orderMgmtId}','${c.quoteId}')">この見積書で確定</button></div>${itemsHtml}</div>`;
-    }).join('');
-    return `<div style="background:var(--bg);border-radius:var(--radius);border:1px solid var(--border);margin-bottom:24px;box-shadow:var(--shadow);overflow:hidden;"><div style="background:#fce8e6;padding:14px 20px;border-bottom:1px solid #f9d5d1;display:flex;align-items:center;gap:16px;flex-wrap:wrap;"><span class="badge" style="background:#c0392b;color:white;font-size:12px;padding:4px 10px;">📦 未紐づけ 注文書</span><strong style="font-size:16px;color:#c0392b;">${item.orderNo || item.orderMgmtId}</strong><span style="font-size:13px;color:var(--text-sub); border-left:1px solid #f9d5d1; padding-left:16px;">顧客: ${item.orderClient || '—'}</span><span style="margin-left:auto;font-size:16px;font-weight:800;color:var(--danger);">¥${item.orderAmount ? Number(item.orderAmount).toLocaleString() : '—'}</span></div><div style="padding:16px 20px;"><div style="font-size:13px;font-weight:700;color:var(--text-sub);margin-bottom:12px;">↓ AIが見つけた見積書候補（スコア順）</div>${candRows || '<div style="padding:10px; background:#fff8e1; color:#e65100; border:1px solid #f5d9b8; border-radius:6px; font-size:12px;">候補が見つかりませんでした。</div>'}</div></div>`;
-  }).join('');
-  container.innerHTML = `<div>${cards}</div>`;
-}
-
-function confirmLink(orderMgmtId, quoteMgmtId) {
-  if (!confirm('この注文書と見積書の紐づけを確定しますか？')) return;
-  google.script.run
-    .withSuccessHandler(res => {
-      if (res.success) { showToast('✅ 紐づけが完了しました'); loadMatchingCandidates(); loadData(); }
-      else { showToast('失敗: ' + res.error, true); }
-    })
-    .handleApiRequest('confirmOrderLink', { orderMgmtId, quoteMgmtId });
-}
-
-// ============================================================
-// 管理コンソール 関連スクリプト
-// ============================================================
-function switchAdminTab(tab) {
-  document.querySelectorAll('.admin-tab').forEach(function(t) { t.classList.remove('active'); });
-  document.querySelectorAll('.admin-tab-content').forEach(function(c) { c.style.display = 'none'; });
-  var tabEl = document.getElementById('atab-' + tab);
-  var contentEl = document.getElementById('admin-tab-' + tab);
-  if (tabEl) tabEl.classList.add('active');
-  if (contentEl) contentEl.style.display = 'block';
-}
-
-function loadAdminSettings() {
-  var btn = document.getElementById('admin-reload-btn');
-  if (btn) btn.textContent = '読み込み中...';
-  google.script.run
-    .withSuccessHandler(function(res) {
-      if (btn) btn.textContent = '📥 全設定を読み込む';
-      if (!res || !res.success) { showToast('設定の読み込みに失敗しました', true); return; }
-      var s = res.settings || {};
-      _setVal('cfg-admin-emails',       res.adminEmails || '');
-      _setVal('cfg-chat-webhook',       res.chatWebhook || s.webhookUrl || '');
-      _setVal('cfg-gemini-key',         '');  
-      _setVal('cfg-spreadsheet-id',     res.spreadsheetId || '');
-      _setVal('cfg-admin-emails-access', res.adminEmails || '');
-      _setCheck('cfg-notify-order',    s.notifyOrder !== false);
-      _setCheck('cfg-notify-quote',    s.notifyQuote !== false);
-      _setCheck('cfg-notify-deadline', s.notifyDl    !== false);
-      _setVal('cfg-alert-days',         s.alertDays || 3);
-      _setVal('cfg-notify-emails', res.notifyEmails || '');
-      _setVal('cfg-rakuraku-company',  res.rakurakuCompany  || '');
-      _setVal('cfg-rakuraku-endpoint', res.rakurakuEndpoint || '');
-      _setVal('cfg-n8n-order-webhook',  res.n8nOrderWebhook  || '');
-      _setVal('cfg-n8n-quote-webhook',  res.n8nQuoteWebhook  || '');
-      _setVal('cfg-custom-webhook',     res.customWebhook    || '');
-      showToast('設定を読み込みました');
-    })
-    .handleApiRequest('loadSettings', {});
-}
-
-function _setVal(id, val) { var el = document.getElementById(id); if (el) el.value = val; }
-function _setCheck(id, checked) { var el = document.getElementById(id); if (el) el.checked = !!checked; }
-function _getVal(id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; }
-function _getCheck(id) { var el = document.getElementById(id); return el ? el.checked : false; }
-
-function saveAdminBasic() {
-  var payload = { adminEmails: _getVal('cfg-admin-emails'), chatWebhook: _getVal('cfg-chat-webhook'), notifyOrder: _getCheck('cfg-notify-order'), notifyQuote: _getCheck('cfg-notify-quote'), notifyDl: _getCheck('cfg-notify-deadline'), alertDays: parseInt(_getVal('cfg-alert-days')) || 3 };
-  var geminiKey = _getVal('cfg-gemini-key'); if (geminiKey) payload.geminiKey = geminiKey;
-  var ssId = _getVal('cfg-spreadsheet-id'); if (ssId) payload.spreadsheetId = ssId;
+function showPage(page) {
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const navEl = document.getElementById('nav-' + page);
+  if (navEl) navEl.classList.add('active');
+  document.getElementById('page-title').textContent = pageTitles[page] || page;
   
-  // Directly save avoiding _loadSettingsObj error on backend
-  google.script.run
-    .withSuccessHandler(function(res) {
-      if (res && res.success) { showToast('基本設定を保存しました'); }
-      else { showToast('保存失敗: ' + (res ? res.error : '不明'), true); }
-    })
-    .handleApiRequest('saveSettings', payload);
+  const tb = document.getElementById('topbar-actions');
+  const content = document.getElementById('content');
+  tb.innerHTML = '';
+  
+  if (page === 'dashboard') renderDashboard(content, tb);
+  else if (page === 'parts') renderParts(content, tb);
+  else if (page === 'products') renderProducts(content, tb);
+  else if (page === 'bom') renderBOM(content, tb);
+  else if (page === 'pricing') renderPricing(content, tb);
+  else if (page === 'csv') renderCSV(content, tb);
 }
 
-function saveAdminNotify() { 
-  google.script.run
-    .withSuccessHandler(function(res) { if (res && res.success) showToast('通知設定を保存しました'); else showToast('保存失敗', true); })
-    .handleApiRequest('saveSettings', { notifyOrder: _getCheck('cfg-notify-order'), notifyQuote: _getCheck('cfg-notify-quote'), notifyDl: _getCheck('cfg-notify-deadline'), alertDays: parseInt(_getVal('cfg-alert-days')) || 3 });
+function showModal(html) {
+  const c = document.getElementById('modal-container');
+  c.innerHTML = `
+    <div class="modal-overlay open" onclick="if(event.target===this)closeModal()">
+      <div class="modal">${html}</div>
+    </div>
+  `;
+}
+function closeModal() { document.getElementById('modal-container').innerHTML = ''; }
+
+// ==========================================
+// ★ 一括データ取込 (k10部品表 / 最終リスト 対応)
+// 文字化け自動判別機能つき
+// ==========================================
+let _importCsvText = '';
+
+function openBomImportModal() {
+  _importCsvText = '';
+  showModal(`
+    <div class="modal-header">
+      <h3>📥 一括データ取込 (CSV)</h3>
+      <button class="close-btn" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div style="margin-bottom: 20px;">
+        <label style="font-size:13px; font-weight:700; color:var(--text); display:block; margin-bottom:12px;">インポートするデータの種類を選択してください：</label>
+        <div style="display:flex; gap:24px; padding:12px; background:var(--surface2); border:1px solid var(--border2); border-radius:8px;">
+          <label style="display:flex; align-items:center; gap:6px; font-size:14px; font-weight:600; cursor:pointer; color:var(--info);">
+            <input type="radio" name="import_type" value="final_list" checked onchange="updateImportHint()">
+            最終リスト (BOM・基板)
+          </label>
+          <label style="display:flex; align-items:center; gap:6px; font-size:14px; font-weight:600; cursor:pointer; color:var(--accent);">
+            <input type="radio" name="import_type" value="k10_parts" onchange="updateImportHint()">
+            k10部品表 (部品マスタ)
+          </label>
+        </div>
+      </div>
+
+      <div id="import-hint" class="alert alert-info">
+        <strong>最終リスト</strong>のCSVを選択してください。<br>自動的に「機種」「基板」「BOM構成」が分解されて登録されます。
+      </div>
+
+      <div style="border:2px dashed var(--border2); border-radius:12px; padding:30px 20px; text-align:center; background:var(--surface); margin-bottom:16px; cursor:pointer; transition:all 0.2s;"
+           id="drop-zone"
+           onclick="document.getElementById('bom-csv-file').click()"
+           ondragover="event.preventDefault();this.style.background='var(--surface2)';this.style.borderColor='var(--accent)';"
+           ondragleave="this.style.background='var(--surface)';this.style.borderColor='var(--border2)';"
+           ondrop="handleBomCsvDrop(event)">
+        <input type="file" id="bom-csv-file" accept=".csv" style="display:none;" onchange="handleBomCsvFile(event)">
+        <div style="font-size:32px; margin-bottom:8px;">📂</div>
+        <div style="font-size:14px; font-weight:700; color:var(--text); margin-bottom:4px;">クリックしてCSVファイルを選択</div>
+        <div style="font-size:12px; color:var(--text2);">または、ここにドラッグ＆ドロップ（文字化けは自動補正されます）</div>
+        <div id="bom-csv-filename" style="margin-top:12px; font-size:13px; color:var(--danger); font-weight:700;"></div>
+      </div>
+
+      <div id="bom-import-preview" style="display:none; margin-bottom:16px;">
+        <div class="section-title">データプレビュー（先頭5行）</div>
+        <pre id="bom-import-preview-text" style="font-size:11px; background:var(--surface2); padding:12px; border:1px solid var(--border2); border-radius:6px; overflow-x:auto; white-space:pre-wrap; max-height:120px; overflow-y:auto; line-height:1.4;"></pre>
+      </div>
+
+      <div id="bom-import-status" style="font-size:13px; min-height:40px;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">キャンセル</button>
+      <button class="btn btn-primary" onclick="executeCSVImport()" id="bom-import-exec-btn" disabled style="padding:10px 20px; font-size:14px;">🚀 インポート実行</button>
+    </div>
+  `);
 }
 
-function saveAdminAccess() { 
-  google.script.run
-    .withSuccessHandler(function(res) { if (res && res.success) showToast('閲覧権限を保存しました'); else showToast('保存失敗', true); })
-    .handleApiRequest('saveSettings', { adminEmails: _getVal('cfg-admin-emails-access') }); 
+function updateImportHint() {
+  const type = document.querySelector('input[name="import_type"]:checked').value;
+  const hint = document.getElementById('import-hint');
+  if (type === 'final_list') {
+    hint.className = 'alert alert-info';
+    hint.innerHTML = '<strong>最終リスト</strong>のCSVを選択してください。<br>自動的に「機種」「基板」「BOM構成」が分解されて登録されます。';
+  } else {
+    hint.className = 'alert alert-success';
+    hint.innerHTML = '<strong>k10部品表</strong>のCSVを選択してください。<br>部品ID、メーカー、原価などの詳細な「部品マスタ」が一括登録・上書きされます。';
+  }
 }
 
-function saveAdminMailSend() { 
-  // FIX: This calls the dedicated Mail Send API if the rich UI is restored, 
-  // but if the simple UI is used, we save it here.
-  google.script.run
-    .withSuccessHandler(function(res) { if (res && res.success) showToast('メール配信設定を保存しました'); else showToast('保存失敗', true); })
-    .handleApiRequest('saveSettings', { notifyEmails: _getVal('cfg-notify-emails') }); 
+function handleBomCsvDrop(event) {
+  event.preventDefault();
+  const dropZone = document.getElementById('drop-zone');
+  dropZone.style.background = 'var(--surface)';
+  dropZone.style.borderColor = 'var(--border2)';
+  const file = event.dataTransfer.files[0];
+  if (file) _readCsvWithAutoEncoding(file);
 }
 
-function saveAdminRakuraku() { 
-  var payload = { rakurakuCompany: _getVal('cfg-rakuraku-company'), rakurakuEndpoint: _getVal('cfg-rakuraku-endpoint') }; 
-  var apiKey = _getVal('cfg-rakuraku-apikey'); if (apiKey) payload.rakurakuApiKey = apiKey; 
-  google.script.run
-    .withSuccessHandler(function(res) { if (res && res.success) showToast('楽楽販売設定を保存しました'); else showToast('保存失敗', true); })
-    .handleApiRequest('saveSettings', payload);
+function handleBomCsvFile(event) {
+  const file = event.target.files[0];
+  if (file) _readCsvWithAutoEncoding(file);
 }
 
-function saveAdminExternal() { 
-  google.script.run
-    .withSuccessHandler(function(res) { if (res && res.success) showToast('外部連携設定を保存しました'); else showToast('保存失敗', true); })
-    .handleApiRequest('saveSettings', { n8nOrderWebhook: _getVal('cfg-n8n-order-webhook'), n8nQuoteWebhook: _getVal('cfg-n8n-quote-webhook'), customWebhook: _getVal('cfg-custom-webhook') }); 
+// 📌 文字化け自動判別つき読み込み
+function _readCsvWithAutoEncoding(file) {
+  document.getElementById('bom-csv-filename').textContent = '📄 ' + file.name;
+  document.getElementById('bom-import-status').innerHTML = '<div class="loading"><div class="spinner"></div> 読み込み中...</div>';
+  
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    let text = e.target.result;
+    // 「」が含まれていれば文字化け（UTF-8なのにSJISで読んだ等）と判定して読み直す
+    if (text.includes('')) {
+      const utf8Reader = new FileReader();
+      utf8Reader.onload = function(e2) {
+        _importCsvText = e2.target.result;
+        _showPreviewAndEnableBtn();
+      };
+      utf8Reader.readAsText(file, 'UTF-8');
+    } else {
+      _importCsvText = text;
+      _showPreviewAndEnableBtn();
+    }
+  };
+  // デフォルトはExcel出力標準のShift_JIS
+  reader.readAsText(file, 'Shift_JIS'); 
 }
 
-var _adminLoaded = false;
-function _onShowAdmin() { if (!_adminLoaded) { _adminLoaded = true; loadAdminSettings(); } }
+function _showPreviewAndEnableBtn() {
+  const lines = _importCsvText.split(/\r\n|\n/).filter(l => l.trim() !== '');
+  const previewText = lines.slice(0, 5).join('\n') + (lines.length > 5 ? '\n...' : '');
+  document.getElementById('bom-import-preview-text').textContent = previewText;
+  document.getElementById('bom-import-preview').style.display = 'block';
 
-// showPage フック追加（元の機能を維持しつつ拡張）
-const _originalShowPage = window.showPage || function(){};
-window.showPage = function(name) {
-  _originalShowPage(name);
-  if (name === 'admin') _onShowAdmin();
-};
+  document.getElementById('bom-import-status').innerHTML = '<div class="alert alert-success">✓ 正常に読み込めました。「インポート実行」を押してください。</div>';
+  document.getElementById('bom-import-exec-btn').disabled = false;
+}
+
+// 引用符の中のカンマを無視する安全なCSVパーサー
+function parseCSVLine(line) {
+  const result = [];
+  let current = '', inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"' && line[i+1] === '"') { current += '"'; i++; } 
+    else if (char === '"') { inQuotes = !inQuotes; } 
+    else if (char === ',' && !inQuotes) { result.push(current); current = ''; } 
+    else { current += char; }
+  }
+  result.push(current);
+  return result.map(s => s.trim());
+}
+
+function executeCSVImport() {
+  if (!_importCsvText) return;
+  const importType = document.querySelector('input[name="import_type"]:checked').value;
+  
+  document.getElementById('bom-import-status').innerHTML = '<div class="loading"><div class="spinner"></div> データを解析・登録中...</div>';
+  document.getElementById('bom-import-exec-btn').disabled = true;
+
+  setTimeout(() => {
+    try {
+      const lines = _importCsvText.split(/\r\n|\n/);
+      let addedProducts = 0, addedBoards = 0, addedParts = 0, updatedParts = 0, updatedBom = 0;
+
+      for (let i = 1; i < lines.length; i++) { // 1行目はヘッダーなのでスキップ
+        if (!lines[i].trim()) continue;
+        const row = parseCSVLine(lines[i]);
+        
+        // ===================================
+        // 【最終リスト】の取り込み処理
+        // ===================================
+        if (importType === 'final_list') {
+          if (row.length < 11) continue;
+          
+          const prodCode    = row[0]; // 0: 機種コード
+          const prodName    = row[1]; // 1: 機種名
+          const boardCode   = row[3]; // 3: 区分コード
+          const boardName   = row[4]; // 4: 基板名
+          const partCode    = row[5]; // 5: 品目コード
+          const partName    = row[6]; // 6: 品名
+          const makerPartNo = row[7]; // 7: メーカー品番
+          const maker       = row[9]; // 9: メーカー
+          const qty         = Number(row[10]) || 0; // 10: 数量
+          const note        = row.length > 15 ? row[15] : ''; // 15: コメント
+
+          if (!prodCode || !boardName || (!partCode && !partName)) continue;
+
+          // 1. 機種
+          let prod = db.products.find(p => p.code === prodCode);
+          if (!prod) {
+            prod = { id: genId('M'), name: prodName || prodCode, code: prodCode, desc: 'CSV自動作成' };
+            db.products.push(prod);
+            addedProducts++;
+          }
+
+          // 2. 基板
+          let board = db.boards.find(b => b.name === boardName && b.productId === prod.id);
+          if (!board) {
+            board = { id: genId('B'), productId: prod.id, name: boardName, code: boardCode, desc: '', version: '' };
+            db.boards.push(board);
+            addedBoards++;
+          }
+
+          // 3. 部品
+          let pId = partCode || genId('P'); 
+          let part = db.parts.find(p => p.id === pId || p.spec === makerPartNo);
+          if (!part) {
+            part = { id: pId, name: partName, category: '電子部品', maker: maker, cost: 0, price: 0, unit: '個', spec: makerPartNo, stock: 0 };
+            db.parts.push(part);
+            addedParts++;
+          } else { pId = part.id; }
+
+          // 4. BOM
+          let bomItem = db.bom.find(b => b.boardId === board.id && b.partId === pId);
+          if (bomItem) {
+            bomItem.qty = qty;
+            if (note) bomItem.note = note;
+          } else {
+            db.bom.push({ id: genId('BOM'), boardId: board.id, partId: pId, qty: qty, note: note });
+          }
+          updatedBom++;
+        } 
+        // ===================================
+        // 【k10部品表】の取り込み処理
+        // ===================================
+        else if (importType === 'k10_parts') {
+          if (row.length < 18) continue;
+          
+          const id    = row[2]; // コード
+          const name  = row[3]; // 品名
+          const maker = row[10]; // メーカー名
+          const cost  = parseFloat(row[12]) || 0; // 単価(原価)
+          const spec  = row[17]; // メーカー型式
+          const note  = row.length > 19 ? row[19] : ''; // 注意事項等
+
+          if (!id || !name) continue;
+
+          let part = db.parts.find(p => p.id === id);
+          if (part) {
+            // 既存の部品があれば情報をリッチに上書きする
+            part.name = name;
+            if(maker && maker !== '無し') part.maker = maker;
+            if(spec) part.spec = spec;
+            if(cost > 0) part.cost = cost; // 価格は0より大きければ更新
+            updatedParts++;
+          } else {
+            // 新規部品としてマスタに登録
+            db.parts.push({
+              id: id,
+              name: name,
+              category: '電子部品',
+              maker: maker === '無し' ? '' : maker,
+              unit: '個',
+              spec: spec || '',
+              cost: cost,
+              price: 0,
+              stock: 0
+            });
+            addedParts++;
+          }
+        }
+      }
+
+      saveDB(); // 保存実行
+
+      let resultHtml = '';
+      if (importType === 'final_list') {
+        resultHtml = `追加機種: <b>${addedProducts}</b> 機種<br>追加基板: <b>${addedBoards}</b> 枚<br>追加部品: <b>${addedParts}</b> 点<br>BOM更新: <b>${updatedBom}</b> 件`;
+      } else {
+        resultHtml = `新規部品追加: <b>${addedParts}</b> 点<br>既存部品更新: <b>${updatedParts}</b> 点`;
+      }
+
+      document.getElementById('bom-import-status').innerHTML = `
+        <div class="alert alert-success">
+          <strong>✓ インポート完了！</strong><br>
+          <div style="margin-top:8px; font-size:12px; line-height:1.6;">${resultHtml}</div>
+        </div>
+      `;
+      
+      setTimeout(() => {
+        closeModal();
+        showPage(importType === 'final_list' ? 'dashboard' : 'parts');
+      }, 3500);
+
+    } catch (e) {
+      document.getElementById('bom-import-status').innerHTML = `<div class="alert alert-danger">✗ 処理エラー: ${e.message}</div>`;
+      document.getElementById('bom-import-exec-btn').disabled = false;
+    }
+  }, 100);
+}
+
+// ==========================================
+// DASHBOARD
+// ==========================================
+function renderDashboard(el, tb) {
+  const totalCost = db.parts.reduce((s, p) => s + p.cost, 0);
+  const totalParts = db.parts.length;
+  const totalBoards = db.boards.length;
+  const totalProducts = db.products.length;
+
+  const boardStats = db.boards.map(b => {
+    const boms = db.bom.filter(x => x.boardId === b.id);
+    const cost = boms.reduce((s, x) => {
+      const p = db.parts.find(p => p.id === x.partId);
+      return s + (p ? p.cost * x.qty : 0);
+    }, 0);
+    const price = boms.reduce((s, x) => {
+      const p = db.parts.find(p => p.id === x.partId);
+      return s + (p ? p.price * x.qty : 0);
+    }, 0);
+    return { ...b, cost, price, profit: price - cost, margin: price > 0 ? ((price - cost) / price * 100).toFixed(1) : 0 };
+  });
+
+  el.innerHTML = `
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">部品点数</div>
+        <div class="stat-value">${totalParts}<span style="font-size:14px;color:var(--text3)"> 種</span></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">機種数</div>
+        <div class="stat-value">${totalProducts}<span style="font-size:14px;color:var(--text3)"> 機種</span></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">基板数</div>
+        <div class="stat-value">${totalBoards}<span style="font-size:14px;color:var(--text3)"> 枚</span></div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">価格改定履歴</div>
+        <div class="stat-value">${db.priceHistory.length}<span style="font-size:14px;color:var(--text3)"> 件</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📊 基板別 原価・売値サマリー</div>
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>基板名</th>
+              <th>機種</th>
+              <th>部品点数</th>
+              <th style="text-align:right">原価合計</th>
+              <th style="text-align:right">売値合計</th>
+              <th style="text-align:right">利益率</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${boardStats.map(b => {
+              const prod = db.products.find(p => p.id === b.productId);
+              const bomCount = db.bom.filter(x => x.boardId === b.id).length;
+              const marginNum = parseFloat(b.margin);
+              const cls = marginNum >= 40 ? 'profit-high' : marginNum >= 20 ? 'profit-mid' : 'profit-low';
+              return `<tr>
+                <td><strong>${b.name}</strong><br><span style="font-size:11px;color:var(--text3)">${b.code}</span></td>
+                <td><span class="badge badge-blue">${prod ? prod.name : '-'}</span></td>
+                <td>${bomCount} 種</td>
+                <td class="num" style="text-align:right">¥${b.cost.toLocaleString()}</td>
+                <td class="num" style="text-align:right; font-weight:700;">¥${b.price.toLocaleString()}</td>
+                <td class="num ${cls}" style="text-align:right">${b.margin}%</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+// ==========================================
+// PARTS MASTER
+// ==========================================
+let partsSearch = '';
+function renderParts(el, tb) {
+  tb.innerHTML = `<button class="btn btn-primary" onclick="openPartModal()">＋ 部品追加</button>`;
+  const cats = [...new Set(db.parts.map(p => p.category))];
+  const filtered = db.parts.filter(p =>
+    !partsSearch || p.name.includes(partsSearch) || p.id.includes(partsSearch) || p.maker.includes(partsSearch) || p.category.includes(partsSearch)
+  );
+
+  el.innerHTML = `
+    <div class="card">
+      <div style="display:flex;gap:12px;margin-bottom:16px;align-items:center;flex-wrap:wrap">
+        <input type="text" placeholder="🔍 部品名・ID・メーカーで検索..." value="${partsSearch}"
+          oninput="partsSearch=this.value;renderParts(document.getElementById('content'),document.getElementById('topbar-actions'))"
+          style="flex:1;min-width:200px;padding:8px 12px;border:1px solid var(--border2);border-radius:var(--radius);font-size:13px;font-family:inherit">
+        <span style="font-size:12px;color:var(--text3)">${filtered.length} / ${db.parts.length} 件</span>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>部品ID</th>
+              <th>部品名</th>
+              <th>カテゴリ</th>
+              <th>メーカー</th>
+              <th style="text-align:right">原価</th>
+              <th style="text-align:right">売値</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filtered.length === 0 ? `<tr><td colspan="7"><div class="empty-state"><p>部品が見つかりません</p></div></td></tr>` :
+            filtered.map(p => {
+              return `<tr>
+                <td><code style="font-size:12px;background:var(--surface2);padding:2px 6px;border-radius:4px">${p.id}</code></td>
+                <td><strong>${p.name}</strong><br><span style="font-size:11px;color:var(--text3)">${p.spec || ''}</span></td>
+                <td><span class="badge badge-gray">${p.category}</span></td>
+                <td>${p.maker}</td>
+                <td class="num" style="text-align:right">¥${p.cost.toLocaleString()}</td>
+                <td class="num" style="text-align:right;font-weight:700;">¥${p.price.toLocaleString()}</td>
+                <td>
+                  <div style="display:flex;gap:4px">
+                    <button class="btn btn-outline btn-sm" onclick="openPartModal('${p.id}')">編集</button>
+                    <button class="btn btn-danger btn-sm" onclick="deletePart('${p.id}')">削除</button>
+                  </div>
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function openPartModal(partId) {
+  const part = partId ? db.parts.find(p => p.id === partId) : null;
+  const isEdit = !!part;
+  showModal(`
+    <div class="modal-header">
+      <h3>${isEdit ? '部品編集' : '新規部品登録'}</h3>
+      <button class="close-btn" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <div class="form-group" style="max-width:130px"><label>部品ID</label><input type="text" id="f-id" value="${part ? part.id : ''}" placeholder="P001" ${isEdit ? 'readonly style="background:var(--surface2)"' : ''}></div>
+        <div class="form-group"><label>部品名 *</label><input type="text" id="f-name" value="${part ? part.name : ''}"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>カテゴリ</label><input type="text" id="f-cat" value="${part ? part.category : ''}"></div>
+        <div class="form-group"><label>メーカー</label><input type="text" id="f-maker" value="${part ? part.maker : ''}"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>原価 (¥)</label><input type="number" id="f-cost" value="${part ? part.cost : '0'}"></div>
+        <div class="form-group"><label>売値 (¥)</label><input type="number" id="f-price" value="${part ? part.price : '0'}"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal()">キャンセル</button>
+      <button class="btn btn-primary" onclick="savePart('${partId || ''}')">保存</button>
+    </div>
+  `);
+}
+
+function savePart(partId) {
+  const id = document.getElementById('f-id').value.trim();
+  const name = document.getElementById('f-name').value.trim();
+  if (!id || !name) { alert('部品IDと部品名は必須です'); return; }
+  const data = {
+    id, name,
+    category: document.getElementById('f-cat').value.trim(), maker: document.getElementById('f-maker').value.trim(),
+    unit: '個', spec: '',
+    cost: parseFloat(document.getElementById('f-cost').value) || 0, price: parseFloat(document.getElementById('f-price').value) || 0, stock: 0
+  };
+  if (partId) {
+    const idx = db.parts.findIndex(p => p.id === partId);
+    if (idx >= 0) db.parts[idx] = { ...db.parts[idx], ...data };
+  } else {
+    if (db.parts.find(p => p.id === id)) { alert('既存IDです'); return; }
+    db.parts.push(data);
+  }
+  saveDB(); closeModal(); renderParts(document.getElementById('content'), document.getElementById('topbar-actions'));
+}
+function deletePart(id) {
+  if (!confirm('削除しますか？\n（BOMに使用中の場合も削除されます）')) return;
+  db.parts = db.parts.filter(p => p.id !== id); db.bom = db.bom.filter(b => b.partId !== id);
+  saveDB(); renderParts(document.getElementById('content'), document.getElementById('topbar-actions'));
+}
+
+// ==========================================
+// PRODUCTS / BOARDS
+// ==========================================
+let selectedProductId = null;
+function renderProducts(el, tb) {
+  tb.innerHTML = `<button class="btn btn-primary" onclick="openProductModal()">＋ 機種追加</button>`;
+  el.innerHTML = `
+    <div style="display:grid;grid-template-columns:280px 1fr;gap:16px">
+      <div class="card" style="margin-bottom:0">
+        <div class="card-title">機種一覧</div>
+        ${db.products.map(p => `
+          <div onclick="selectProduct('${p.id}')" style="padding:10px;border-radius:8px;cursor:pointer;border:1px solid ${selectedProductId===p.id?'var(--accent)':'transparent'};background:${selectedProductId===p.id?'var(--accent-bg)':'transparent'}">
+            <div style="font-weight:700;font-size:13px">${p.name}</div><div style="font-size:11px;color:var(--text3)">${p.code}</div>
+          </div>
+        `).join('')}
+      </div>
+      <div id="product-detail">
+        ${selectedProductId ? renderProductDetail(selectedProductId) : '<div class="card"><div class="empty-state"><p>機種を選択してください</p></div></div>'}
+      </div>
+    </div>`;
+}
+
+function selectProduct(id) { selectedProductId = id; renderProducts(document.getElementById('content'), document.getElementById('topbar-actions')); }
+
+function renderProductDetail(productId) {
+  const prod = db.products.find(p => p.id === productId);
+  if (!prod) return '';
+  const boards = db.boards.filter(b => b.productId === productId);
+  return `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;margin-bottom:16px">
+        <div><div style="font-size:18px;font-weight:700">${prod.name}</div><div style="font-size:12px;color:var(--text3)">${prod.code}</div></div>
+        <div class="btn-group"><button class="btn btn-outline btn-sm" onclick="openProductModal('${prod.id}')">編集</button><button class="btn btn-primary btn-sm" onclick="openBoardModal('${prod.id}')">＋ 基板追加</button></div>
+      </div>
+      <div class="section-title">搭載基板</div>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>基板名</th><th>コード</th><th>部品数</th><th>操作</th></tr></thead>
+        <tbody>
+          ${boards.map(b => {
+            const bomCount = db.bom.filter(x => x.boardId === b.id).length;
+            return `<tr>
+              <td><strong>${b.name}</strong></td><td><code>${b.code}</code></td><td>${bomCount}種</td>
+              <td><button class="btn btn-info btn-sm" onclick="showPage('bom');selectedBoardId='${b.id}'">BOM</button> <button class="btn btn-outline btn-sm" onclick="openBoardModal('${prod.id}','${b.id}')">編集</button> <button class="btn btn-danger btn-sm" onclick="deleteBoard('${b.id}')">削除</button></td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table></div>
+    </div>`;
+}
+
+function openProductModal(id) {
+  const p = id ? db.products.find(x => x.id === id) : null;
+  showModal(`<div class="modal-header"><h3>機種編集</h3><button class="close-btn" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-row"><div class="form-group"><label>コード</label><input type="text" id="fp-code" value="${p?p.code:''}"></div><div class="form-group"><label>機種名</label><input type="text" id="fp-name" value="${p?p.name:''}"></div></div></div>
+    <div class="modal-footer"><button class="btn btn-outline" onclick="closeModal()">取消</button><button class="btn btn-primary" onclick="saveProduct('${id||''}')">保存</button></div>`);
+}
+function saveProduct(id) {
+  const code = document.getElementById('fp-code').value.trim(), name = document.getElementById('fp-name').value.trim();
+  if(!code||!name)return;
+  if(id) { const i=db.products.findIndex(x=>x.id===id); if(i>=0) db.products[i]={...db.products[i],code,name}; }
+  else db.products.push({id:genId('M'),code,name,desc:''});
+  saveDB(); closeModal(); renderProducts(document.getElementById('content'), document.getElementById('topbar-actions'));
+}
+
+function openBoardModal(pId, bId) {
+  const b = bId ? db.boards.find(x => x.id === bId) : null;
+  showModal(`<div class="modal-header"><h3>基板編集</h3><button class="close-btn" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-row"><div class="form-group"><label>コード</label><input type="text" id="fb-code" value="${b?b.code:''}"></div><div class="form-group"><label>基板名</label><input type="text" id="fb-name" value="${b?b.name:''}"></div></div></div>
+    <div class="modal-footer"><button class="btn btn-outline" onclick="closeModal()">取消</button><button class="btn btn-primary" onclick="saveBoard('${pId}','${bId||''}')">保存</button></div>`);
+}
+function saveBoard(pId, bId) {
+  const code = document.getElementById('fb-code').value.trim(), name = document.getElementById('fb-name').value.trim();
+  if(!name)return;
+  if(bId) { const i=db.boards.findIndex(x=>x.id===bId); if(i>=0) db.boards[i]={...db.boards[i],code,name}; }
+  else db.boards.push({id:genId('B'),productId:pId,code,name,desc:'',version:''});
+  saveDB(); closeModal(); renderProducts(document.getElementById('content'), document.getElementById('topbar-actions'));
+}
+function deleteBoard(id) {
+  if(!confirm('削除しますか？')) return;
+  db.boards = db.boards.filter(b=>b.id!==id); db.bom = db.bom.filter(b=>b.boardId!==id); saveDB(); renderProducts(document.getElementById('content'), document.getElementById('topbar-actions'));
+}
+
+// ==========================================
+// BOM (部品構成表)
+// ==========================================
+let selectedBoardId = null;
+function renderBOM(el, tb) {
+  const board = selectedBoardId ? db.boards.find(b => b.id === selectedBoardId) : null;
+  if (board) tb.innerHTML = `<button class="btn btn-primary" onclick="openBOMAddModal('${board.id}')">＋ 部品追加</button>`;
+
+  let boardSelector = `
+    <div class="card" style="margin-bottom:16px"><div class="card-title">基板を選択</div><div style="display:flex;gap:8px;flex-wrap:wrap">
+      ${db.products.map(prod => {
+        const bds = db.boards.filter(b => b.productId === prod.id);
+        if (!bds.length) return '';
+        return `<div><div style="font-size:11px;color:var(--text3);margin-bottom:6px;font-weight:700;">${prod.name}</div><div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${bds.map(b => `<div onclick="selectedBoardId='${b.id}';renderBOM(document.getElementById('content'),document.getElementById('topbar-actions'))" style="padding:8px 12px;border-radius:8px;cursor:pointer;border:1px solid ${selectedBoardId===b.id?'var(--accent)':'var(--border)'};background:${selectedBoardId===b.id?'var(--accent-bg)':'var(--surface)'};font-weight:600;">${b.name}</div>`).join('')}
+        </div></div>`;
+      }).join('')}
+    </div></div>`;
+
+  if (!board) { el.innerHTML = boardSelector; return; }
+
+  const boms = db.bom.filter(x => x.boardId === board.id);
+  let tCost = 0, tPrice = 0;
+  boms.forEach(x => { const p = db.parts.find(p => p.id === x.partId); if(p) { tCost += p.cost * x.qty; tPrice += p.price * x.qty; }});
+
+  el.innerHTML = boardSelector + `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;margin-bottom:16px">
+        <div style="font-size:18px;font-weight:700">${board.name}</div>
+        <div style="text-align:right">
+          <span style="font-size:12px;color:var(--text3)">原価合計: </span><span style="font-size:16px;font-weight:700;margin-right:12px;">¥${tCost.toLocaleString()}</span>
+          <span style="font-size:12px;color:var(--text3)">売値合計: </span><span style="font-size:16px;font-weight:700;color:var(--accent);">¥${tPrice.toLocaleString()}</span>
+        </div>
+      </div>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th>ID</th><th>部品名</th><th>メーカー</th><th style="text-align:right">数量</th><th style="text-align:right">小計(原価)</th><th>操作</th></tr></thead>
+        <tbody>
+          ${boms.map(x => {
+            const p = db.parts.find(pt => pt.id === x.partId);
+            if (!p) return '';
+            return `<tr><td><code style="font-size:11px">${p.id}</code></td><td><strong>${p.name}</strong></td><td>${p.maker}</td><td class="num" style="text-align:right">${x.qty}</td><td class="num" style="text-align:right">¥${(p.cost*x.qty).toLocaleString()}</td><td><button class="btn btn-outline btn-sm" onclick="openBOMEditModal('${x.id}')">編集</button> <button class="btn btn-danger btn-sm" onclick="deleteBOM('${x.id}')">削除</button></td></tr>`;
+          }).join('')}
+        </tbody>
+      </table></div>
+    </div>`;
+}
+
+function openBOMAddModal(bId) {
+  showModal(`<div class="modal-header"><h3>部品追加</h3><button class="close-btn" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-group"><label>部品</label><select id="fb-part">${db.parts.map(p=>`<option value="${p.id}">${p.id} | ${p.name}</option>`).join('')}</select></div><div class="form-group"><label>数量</label><input type="number" id="fb-qty" value="1"></div></div>
+    <div class="modal-footer"><button class="btn btn-outline" onclick="closeModal()">取消</button><button class="btn btn-primary" onclick="saveBOM('','${bId}')">追加</button></div>`);
+}
+function openBOMEditModal(bomId) {
+  const bom = db.bom.find(x=>x.id===bomId); if(!bom)return;
+  showModal(`<div class="modal-header"><h3>数量編集</h3><button class="close-btn" onclick="closeModal()">×</button></div>
+    <div class="modal-body"><div class="form-group"><label>数量</label><input type="number" id="fb-qty" value="${bom.qty}"></div></div>
+    <div class="modal-footer"><button class="btn btn-outline" onclick="closeModal()">取消</button><button class="btn btn-primary" onclick="saveBOM('${bomId}','')">保存</button></div>`);
+}
+function saveBOM(bomId, boardId) {
+  if(bomId){ const i=db.bom.findIndex(x=>x.id===bomId); if(i>=0) db.bom[i].qty = parseInt(document.getElementById('fb-qty').value)||1; }
+  else {
+    const pId = document.getElementById('fb-part').value;
+    db.bom.push({ id: genId('BOM'), boardId, partId: pId, qty: parseInt(document.getElementById('fb-qty').value)||1, note: ''});
+  }
+  saveDB(); closeModal(); renderBOM(document.getElementById('content'), document.getElementById('topbar-actions'));
+}
+function deleteBOM(id) {
+  if(!confirm('削除しますか？'))return;
+  db.bom = db.bom.filter(x=>x.id!==id); saveDB(); renderBOM(document.getElementById('content'), document.getElementById('topbar-actions'));
+}
+
+// ==========================================
+// CSVエクスポート
+// ==========================================
+function renderCSV(el, tb) {
+  el.innerHTML = `
+    <div class="card" style="max-width:600px; margin:0 auto;">
+      <div class="card-title">📤 CSVエクスポート (データ出力)</div>
+      <p style="font-size:13px; color:var(--text2); margin-bottom:20px;">現在システムに登録されているデータをCSV形式でダウンロードします。</p>
+      
+      <div style="display:flex; flex-direction:column; gap:12px;">
+        <div style="padding:16px; border:1px solid var(--border); border-radius:var(--radius); display:flex; justify-content:space-between; align-items:center;">
+          <div><div style="font-weight:700;font-size:14px;">🔩 部品マスタ</div><div style="font-size:12px;color:var(--text3);margin-top:4px;">${db.parts.length} 件</div></div>
+          <button class="btn btn-primary" onclick="exportCSV('parts')">ダウンロード</button>
+        </div>
+        <div style="padding:16px; border:1px solid var(--border); border-radius:var(--radius); display:flex; justify-content:space-between; align-items:center;">
+          <div><div style="font-weight:700;font-size:14px;">📋 BOM (部品構成表)</div><div style="font-size:12px;color:var(--text3);margin-top:4px;">${db.bom.length} 件</div></div>
+          <button class="btn btn-primary" onclick="exportCSV('bom')">ダウンロード</button>
+        </div>
+        <div style="padding:16px; border:1px solid var(--border); border-radius:var(--radius); display:flex; justify-content:space-between; align-items:center;">
+          <div><div style="font-weight:700;font-size:14px;">📊 基板別 原価・売値レポート</div><div style="font-size:12px;color:var(--text3);margin-top:4px;">${db.boards.length} 枚</div></div>
+          <button class="btn btn-primary" onclick="exportCSV('report')">ダウンロード</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function generateCSV(type) {
+  if (type === 'parts') {
+    const header = '部品ID,部品名,カテゴリ,メーカー,単位,仕様,原価,売値';
+    const rows = db.parts.map(p => `"${p.id}","${p.name}","${p.category}","${p.maker}","${p.unit}","${p.spec || ''}",${p.cost},${p.price}`);
+    return header + '\n' + rows.join('\n');
+  } else if (type === 'bom') {
+    const header = '基板ID,基板名,部品ID,部品名,数量,単位,備考';
+    const rows = db.bom.map(x => {
+      const b = db.boards.find(b => b.id === x.boardId);
+      const p = db.parts.find(p => p.id === x.partId);
+      return `"${x.boardId}","${b ? b.name : ''}","${x.partId}","${p ? p.name : ''}",${x.qty},"${p ? p.unit : ''}","${x.note || ''}"`;
+    });
+    return header + '\n' + rows.join('\n');
+  } else if (type === 'report') {
+    const header = '基板ID,基板コード,基板名,機種名,バージョン,部品点数,原価合計,売値合計,利益,利益率';
+    const rows = db.boards.map(b => {
+      const prod = db.products.find(p => p.id === b.productId);
+      const boms = db.bom.filter(x => x.boardId === b.id);
+      const cost = boms.reduce((s, x) => { const p = db.parts.find(p => p.id === x.partId); return s + (p ? p.cost * x.qty : 0); }, 0);
+      const price = boms.reduce((s, x) => { const p = db.parts.find(p => p.id === x.partId); return s + (p ? p.price * x.qty : 0); }, 0);
+      const margin = price > 0 ? ((price - cost) / price * 100).toFixed(1) : 0;
+      return `"${b.id}","${b.code}","${b.name}","${prod ? prod.name : ''}","${b.version || ''}",${boms.length},${cost},${price},${price-cost},${margin}`;
+    });
+    return header + '\n' + rows.join('\n');
+  }
+  return '';
+}
+
+function exportCSV(type) {
+  // Excelで文字化けしないようにShift_JISにするか、BOM付きUTF-8にする。今回はBOM付きUTF-8で出力。
+  const csv = '\uFEFF' + generateCSV(type);
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const names = { parts: 'PartsMaster', bom: 'BOM_All', report: 'BoardReport' };
+  a.href = url;
+  a.download = `${names[type]}_${new Date().toISOString().split('T')[0]}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// プレースホルダー
+function renderPricing(el, tb) { el.innerHTML = '<div class="card"><p>価格管理画面です。</p></div>'; }
+
+// ==========================================
+// INIT
+// ==========================================
+const loaded = loadDB();
+if (!loaded) {
+  db = JSON.parse(JSON.stringify(SAMPLE_DATA));
+  saveDB();
+}
+showPage('dashboard');
+
 </script>
+</body>
+</html>

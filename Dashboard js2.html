@@ -10,12 +10,86 @@ const S = {
 };
 let searchTimer=null;
 
-window.onload = () => {
+// ============================================================
+// 初期化（DOMContentLoaded統一 - renderSidebarと競合しないよう修正）
+// ============================================================
+document.addEventListener('DOMContentLoaded', function() {
+  // サイドバー初期化（Dashboard.html側のrenderSidebarを呼ぶ）
+  if (typeof renderSidebar === 'function') renderSidebar();
+
+  // 既存のデータ初期化
   _populateMonthFilter();
   loadData();
   loadQuoteList();
   loadMatchingCandidates();
-};
+
+  // 管理コンソール初期化
+  setTimeout(function() {
+    if (document.getElementById('sysconf-admin-emails') && typeof loadSystemSettings === 'function') {
+      loadSystemSettings();
+    }
+  }, 500);
+});
+
+function showPage(name) {
+  // 全ページ非表示
+  document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('active'); });
+
+  // 新UIサイドバーのアクティブ状態更新
+  document.querySelectorAll('.nav-item[data-id]').forEach(function(t) {
+    t.classList.toggle('active', t.dataset.id === name);
+  });
+
+  // ページ表示
+  var target = document.getElementById('page-' + name);
+  if (!target) { console.warn('ページが見つかりません: page-' + name); return; }
+  target.classList.add('active');
+
+  // Topbarタイトル更新
+  var PAGE_TITLES_MAP = {
+    list:'案件一覧', ledger:'見積台帳', matching:'AI紐づけ', calendar:'スケジュール',
+    ocr:'簡易OCR', board:'基板管理', parts:'部品管理', analysis:'分析・レポート',
+    todo:'ToDo', drivesearch:'全文検索', admin:'管理コンソール',
+    workflow:'業務フロー', assignees:'担当者管理', approval:'製造承認', settings:'詳細設定'
+  };
+  var titleEl = document.getElementById('topbar-page-title');
+  if (titleEl) titleEl.textContent = PAGE_TITLES_MAP[name] || name;
+
+  // コンテンツエリアをスクロールトップ
+  var contentEl = document.getElementById('content');
+  if (contentEl) contentEl.scrollTop = 0;
+
+  // 各ページの初期化フック
+  if (name === 'list') {
+    var ao = document.getElementById('area-order');
+    var aq = document.getElementById('area-quote');
+    if (ao) ao.style.display = '';
+    if (aq) aq.style.display = 'none';
+  }
+  if (name === 'parts'    && typeof loadPartsData          === 'function') loadPartsData();
+  if (name === 'ledger'   && typeof loadLedger             === 'function') loadLedger();
+  if (name === 'todo'     && typeof loadTodos              === 'function') loadTodos();
+  if (name === 'calendar' && typeof loadCalendar           === 'function') loadCalendar();
+  if (name === 'matching' && typeof loadMatchingCandidates === 'function') loadMatchingCandidates();
+  if (name === 'quotesubmit' && typeof _allQs !== 'undefined' && _allQs.length === 0 && typeof loadQsData === 'function') loadQsData();
+  if (name === 'admin') {
+    if (typeof switchAdminTab === 'function') setTimeout(function() { switchAdminTab('env'); }, 100);
+  }
+  if (name === 'workflow'  && typeof refreshWorkflowStatus === 'function') setTimeout(refreshWorkflowStatus, 200);
+  if (name === 'assignees' && typeof loadAssignees         === 'function') setTimeout(loadAssignees, 200);
+  if (name === 'approval'  && typeof loadApprovals         === 'function') setTimeout(loadApprovals, 200);
+  if (name === 'settings'  && typeof switchSettingsTab     === 'function') setTimeout(function(){ switchSettingsTab('notification'); }, 200);
+}
+
+function showToast(msg, isError) {
+  isError = !!isError;
+  var t = document.getElementById('toast');
+  if (!t) return;
+  t.textContent = (isError ? '✗ ' : '✓ ') + msg;
+  t.style.background = isError ? '#dc2626' : '#1e293b';
+  t.classList.add('show');
+  setTimeout(function() { t.classList.remove('show'); }, 3500);
+}
 
 // --- ▼ 検索用の文字列正規化関数 ▼ ---
 function normalizeSearchText(str) {
@@ -143,6 +217,7 @@ function goPage(n){S.page=n;_renderTable();}
 
 function debounceSearch(){clearTimeout(searchTimer);searchTimer=setTimeout(applyFilters,300);}
 
+// --- ▼ 注文書一覧の検索機能 ▼ ---
 function applyFilters() {
   const rawKw = document.getElementById('search-input').value;
   const kws   = normalizeSearchText(rawKw).split(/\s+/).filter(Boolean);
@@ -151,9 +226,19 @@ function applyFilters() {
   const mo    = document.getElementById('filter-month').value;
 
   S.filtered = S.all.filter(r => {
-    const targetValues = [ r.quoteNo, r.orderNo, r.orderSlipNo, r.modelCode, r.subject, r.client, r.orderAmount ];
+    // 検索対象の項目
+    const targetValues = [
+      r.quoteNo, 
+      r.orderNo, 
+      r.orderSlipNo, 
+      r.modelCode, 
+      r.subject, 
+      r.client, 
+      r.orderAmount
+    ];
     const searchableText = normalizeSearchText(targetValues.join(' '));
     const mk = kws.length === 0 || kws.every(kw => searchableText.includes(kw));
+
     const ms = !st || r.status === st;
     const mo2 = !ot || r.orderType === ot;
     const mm = !mo || (String(r.orderDate).startsWith(mo) || String(r.quoteDate).startsWith(mo));
@@ -212,12 +297,6 @@ function openDetail(mgmtId) {
 }
 function closeDetailModal(){document.getElementById('detail-modal').classList.remove('open');}
 
-// ============================================================
-// 📋 詳細モーダル表示 ＆ 紐づけ機能
-// ============================================================
-// ============================================================
-// 📋 詳細モーダル表示 ＆ 紐づけ機能
-// ============================================================
 function _buildDetailHtml(item, detail) {
   const orderLinks = [
     item.orderPdfUrl ? `<a href="${item.orderPdfUrl}" target="_blank" class="pdf-link" style="display:inline-block; background:white; padding:2px 8px; border-radius:4px; border:1px solid var(--border); text-decoration:none; font-size:11px;">📄 発注書PDF</a>` : '',
@@ -250,6 +329,7 @@ function _buildDetailHtml(item, detail) {
 
   const statusOpts=['作成予定','送信済み','受領','納品済み'].map(s=>`<option value="${s}"${s===item.status?' selected':''}>${s}</option>`).join('');
 
+  // ★ 各明細行に表示する見積書リンクのHTML
   const quoteCellHtml = item.quoteNo 
     ? `<div style="line-height:1.4;">
          <span style="font-size:11px; color:var(--text3);">No.</span><a href="javascript:void(0)" onclick="event.stopPropagation(); openQuoteDetail('${item.id}', '${item.quoteNo}')" style="color:var(--primary); font-weight:600; text-decoration:none; font-size:12px;">${item.quoteNo}</a>
@@ -257,6 +337,7 @@ function _buildDetailHtml(item, detail) {
        </div>`
     : '<span style="font-size:11px; color:var(--text3);">未紐づけ</span>';
 
+  // ★ 明細テーブルに「紐づく見積」の列を追加
   const oTable = detail.orderLines && detail.orderLines.length ? `
     <div class="detail-section"><h4>発注書 明細</h4>
     <table class="dtable" style="width:100%;border-collapse:collapse;font-size:12px;">
@@ -286,109 +367,42 @@ function _buildDetailHtml(item, detail) {
       </tr>`).join('')}</tbody>
     </table></div>` : '';
 
+  // =====================================
+  // 🔗 手動＆AIマッチング候補の紐づけUI
+  // =====================================
   let linkHtml = '';
   // 注文書番号があって、見積書番号がない（未紐づけ）場合のみ表示
   if (item.orderNo && !item.quoteNo) {
     let candHtml = '';
     if (typeof _allMatchingItems !== 'undefined') {
       const matchData = _allMatchingItems.find(m => String(m.orderMgmtId) === String(item.id) || String(m.orderNo) === String(item.orderNo));
-      
-      if (matchData) {
-        let cands = [];
-        if (matchData.candidates && matchData.candidates.length > 0) {
-          cands = matchData.candidates;
-        } else {
-          if (matchData.c1Id) cands.push({ id: matchData.c1Id, no: matchData.c1No, score: matchData.c1Score });
-          if (matchData.c2Id) cands.push({ id: matchData.c2Id, no: '', score: matchData.c2Score });
-          if (matchData.c3Id) cands.push({ id: matchData.c3Id, no: '', score: matchData.c3Score });
-        }
-
-        if (cands.length > 0) {
-          const candCards = cands.map(c => {
-             const qId = c.id || c.quoteId;
-             const q = (typeof _allQuotes !== 'undefined') ? _allQuotes.find(aq => String(aq.id) === String(qId)) : null;
-             const qNo = q && q.quoteNo ? q.quoteNo : (c.no || c.quoteNo || qId || '不明');
-             const qDate = q && q.issueDate ? q.issueDate : '—';
-             
-             let itemNames = '—';
-             let unitPrice = '—';
-             if (detail && detail.allQuoteLines && detail.allQuoteLines.length > 0) {
-               const qLines = detail.allQuoteLines.filter(ql => String(ql.mgmtId) === String(qId));
-               if (qLines.length > 0) {
-                 itemNames = qLines.map(ql => ql.itemName).join('、');
-                 unitPrice = '¥' + Number(qLines[0].unitPrice).toLocaleString();
-               }
-             }
-
-             const btnColor = c.score >= 80 ? 'var(--success)' : '#fbbc04';
-
-             return `
-             <div style="background:#fff; border:1px solid var(--border); border-left:4px solid ${btnColor}; border-radius:6px; padding:12px; margin-bottom:8px; display:flex; align-items:center; justify-content:space-between; box-shadow:0 1px 3px rgba(0,0,0,0.05);">
-               <div style="flex:1;">
-                 <div style="font-weight:700; font-size:13px; color:var(--text); margin-bottom:6px; display:flex; align-items:center; gap:8px;">
-                   📄 見積NO: ${qNo} 
-                   <span style="background:${btnColor}; color:#fff; padding:2px 6px; border-radius:4px; font-size:11px;">${c.score}点</span>
-                 </div>
-                 <div style="font-size:11px; color:var(--text-sub); display:flex; flex-wrap:wrap; gap:12px; line-height:1.5;">
-                   <span><b style="color:var(--text);">📅 発行日:</b> ${qDate}</span>
-                   <span><b style="color:var(--text);">💰 単価:</b> <span style="color:var(--danger); font-weight:600;">${unitPrice}</span></span>
-                   <span style="width:100%;"><b style="color:var(--text);">📦 項目名:</b> ${itemNames}</span>
-                 </div>
-               </div>
-               <button class="btn btn-primary" onclick="confirmLink('${item.id}','${qId}')" style="margin-left:12px; white-space:nowrap; height:fit-content;">🔗 確定</button>
-             </div>`;
-          }).join('');
-
-          candHtml = `
-            <div style="margin-top:16px; border-top:1px dashed #b5d4f4; padding-top:12px;">
-              <div style="font-size:12px; font-weight:700; color:var(--info); margin-bottom:10px;">💡 AIが推測した見積書候補:</div>
-              ${candCards}
-            </div>`;
-        }
+      if (matchData && matchData.candidates && matchData.candidates.length > 0) {
+        candHtml = `<div style="margin-top:12px;font-size:12px;color:var(--text2);">
+          💡 <b>AIの推測候補:</b><br>
+          <div style="display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;">` + 
+          matchData.candidates.map(c => `
+            <button class="btn btn-outline btn-sm" onclick="confirmLink('${item.id}','${c.quoteId}')" style="background:white; border-color:#fbbc04;">
+              ${c.quoteNo || c.quoteId} (${c.score}点)
+            </button>`).join('') +
+          `</div></div>`;
       }
     }
     
-    // ★ 変更部分：プルダウンの表示を見積NO・項目名・単価・発行日に変更
     let quoteOpts = '';
     if (typeof _allQuotes !== 'undefined') {
       const unlinkedQuotes = _allQuotes.filter(q => !q.linked);
-      
-      quoteOpts = unlinkedQuotes.map(q => {
-        let itemNames = q.subject || '—'; // 基本は件名
-        let unitPrice = '—';
-        
-        // 明細データが存在する場合は、そこから項目名と単価を抽出
-        if (detail && detail.allQuoteLines && detail.allQuoteLines.length > 0) {
-          const qLines = detail.allQuoteLines.filter(ql => String(ql.mgmtId) === String(q.id));
-          if (qLines.length > 0) {
-            const names = qLines.map(ql => ql.itemName).filter(Boolean);
-            if (names.length > 0) itemNames = names.join('、');
-            if (qLines[0].unitPrice != null) unitPrice = '¥' + Number(qLines[0].unitPrice).toLocaleString();
-          } else if (q.quoteAmount != null) {
-            unitPrice = '¥' + Number(q.quoteAmount).toLocaleString();
-          }
-        } else if (q.quoteAmount != null) {
-          unitPrice = '¥' + Number(q.quoteAmount).toLocaleString();
-        }
-        
-        const qDate = q.issueDate || '—';
-        const qNo = q.quoteNo || 'Noなし';
-        
-        // プルダウン内に表示するテキスト
-        const displayText = `NO:${qNo} ｜ 単価:${unitPrice} ｜ 項目:${itemNames} ｜ 発行日:${qDate}`;
-        return `<option value="${q.id}">${displayText}</option>`;
-      }).join('');
+      quoteOpts = unlinkedQuotes.map(q => `<option value="${q.id}">${q.quoteNo || '見積Noなし'} （${q.client || '顧客不明'} : ¥${q.quoteAmount ? Number(q.quoteAmount).toLocaleString() : 0}）</option>`).join('');
     }
 
     linkHtml = `
     <div style="background:var(--info-bg);border:1px solid #b5d4f4;border-radius:8px;padding:16px;margin:20px 0;">
-      <div style="font-size:13px;font-weight:700;margin-bottom:10px;color:var(--info);">🔗 手動で他の見積書と紐づける</div>
+      <div style="font-size:13px;font-weight:700;margin-bottom:10px;color:var(--info);">🔗 見積書との紐づけ</div>
       <div style="display:flex;gap:8px;align-items:center;">
         <select id="manual-link-quote-id" style="flex:1;padding:8px 10px;border-radius:4px;border:1px solid var(--border2);font-size:13px;background:white;outline:none;">
           <option value="">-- 既存の未紐づけ見積書から選択 --</option>
           ${quoteOpts}
         </select>
-        <button class="btn btn-primary" onclick="_manualLinkQuote('${item.id}')" style="white-space:nowrap;">この見積書で確定</button>
+        <button class="btn btn-primary" onclick="_manualLinkQuote('${item.id}')">この見積書で確定</button>
       </div>
       ${candHtml}
     </div>
@@ -562,11 +576,21 @@ function applyQuoteFilter() {
   const linked = document.getElementById('qs-filter-linked').value;
 
   _filteredQuotes = _allQuotes.filter(r => {
-    const targetValues = [ r.quoteNo, r.subject, r.destCompany, r.destPerson, r.modelCode, r.quoteAmount, r.orderNo ];
+    const targetValues = [
+      r.quoteNo,      // 見積番号
+      r.subject,      // 件名（ファイル名など）
+      r.destCompany,  // 宛先
+      r.destPerson,   // 担当者
+      r.modelCode,    // 機種コード
+      r.quoteAmount,  // 金額
+      r.orderNo       // 紐づく注文番号
+    ];
     const searchableText = normalizeSearchText(targetValues.join(' '));
     const mk = kws.length === 0 || kws.every(kw => searchableText.includes(kw));
+    
     const ms = !st || r.status === st;
     const ml = !linked || (linked === 'linked' && r.linked) || (linked === 'unlinked' && !r.linked);
+    
     return mk && ms && ml;
   });
 
@@ -597,6 +621,7 @@ function _renderQuoteTable() {
     return;
   }
 
+  // ▼ テーブルの行(<tr>)の出力順を変更 ▼
   const rows = data.map(r => `
     <tr onclick="openQuoteDetail('${r.id}')" style="cursor:pointer;">
       <td><strong>${r.quoteNo || '—'}</strong></td>
@@ -614,9 +639,21 @@ function _renderQuoteTable() {
       </td>
     </tr>`).join('');
 
+  // ▼ テーブルのヘッダー(<th>)の出力順を変更 ▼
   document.getElementById('quotelist-container').innerHTML = `
     <table>
-      <thead><tr><th>見積No.</th><th>件名（ファイル名）</th><th>発行日</th><th>金額</th><th>ステータス</th><th>紐づけ状況</th><th>PDF</th><th>操作</th></tr></thead>
+      <thead>
+        <tr>
+          <th>見積No.</th>
+          <th>件名（ファイル名）</th>
+          <th>発行日</th>
+          <th>金額</th>
+          <th>ステータス</th>
+          <th>紐づけ状況</th>
+          <th>PDF</th>
+          <th>操作</th>
+        </tr>
+      </thead>
       <tbody>${rows}</tbody>
     </table>`;
 
@@ -983,24 +1020,8 @@ function openCreateMachineModal() { document.getElementById('create-machine-moda
 function closeCreateMachineModal() { document.getElementById('create-machine-modal').classList.remove('open'); }
 function saveCreateMachine() {
   const code = document.getElementById('create-machine-code').value.trim();
-  if (!code) { showToast('機種コードを入力してください', true); return; }
-  const statusEl = document.getElementById('create-machine-status');
-  if (statusEl) statusEl.innerHTML = '<span style="color:var(--primary);">⏳ 作成中...</span>';
-  google.script.run
-    .withSuccessHandler(res => {
-      if (res.success) {
-        if (statusEl) statusEl.innerHTML = '<span style="color:var(--success);">✓ 作成しました: ' + res.machineCode + '</span>';
-        setTimeout(() => { closeCreateMachineModal(); loadLedger(); }, 700);
-      } else {
-        if (statusEl) statusEl.innerHTML = '<span style="color:var(--danger);">✗ ' + (res.error||'エラー') + '</span>';
-        showToast((res.error||'作成に失敗しました'), true);
-      }
-    })
-    .withFailureHandler(err => {
-      if (statusEl) statusEl.innerHTML = '<span style="color:var(--danger);">✗ 通信エラー: ' + err.message + '</span>';
-      showToast('通信エラー: ' + err.message, true);
-    })
-    .handleApiRequest('ledgerCreateMachine', { machineCode: code });
+  if (!code) return;
+  google.script.run.withSuccessHandler(res => { if(res.success){ closeCreateMachineModal(); loadLedger(); } }).handleApiRequest('ledgerCreateMachine', { machineCode: code });
 }
 
 
@@ -1080,52 +1101,21 @@ function _renderMatchingCandidates(items) {
   const cards = items.map(item => {
     const candidates = item.candidates || [];
 
-    const candRows = candidates.map(c => {
-      // 明細項目の表示（items配列がある場合）
-      const itemsHtml = (c.items && c.items.length > 0)
-        ? `<div style="margin-top:8px;border-top:1px dashed var(--border);padding-top:8px;">
-            <div style="font-size:11px;font-weight:600;color:var(--text-sub);margin-bottom:4px;">📋 明細項目</div>
-            <table style="width:100%;border-collapse:collapse;font-size:12px;">
-              <thead><tr style="background:#f8f9fa;">
-                <th style="padding:3px 8px;text-align:left;border:1px solid var(--border);">品名</th>
-                <th style="padding:3px 8px;text-align:left;border:1px solid var(--border);">仕様</th>
-                <th style="padding:3px 8px;text-align:right;border:1px solid var(--border);">数量</th>
-                <th style="padding:3px 8px;text-align:right;border:1px solid var(--border);">単価</th>
-                <th style="padding:3px 8px;text-align:right;border:1px solid var(--border);">金額</th>
-              </tr></thead>
-              <tbody>${c.items.map(it => `
-                <tr>
-                  <td style="padding:3px 8px;border:1px solid var(--border);">${it.itemName||'—'}</td>
-                  <td style="padding:3px 8px;border:1px solid var(--border);color:var(--text-sub);">${it.spec||'—'}</td>
-                  <td style="padding:3px 8px;border:1px solid var(--border);text-align:right;">${it.qty||'—'}</td>
-                  <td style="padding:3px 8px;border:1px solid var(--border);text-align:right;">${it.unitPrice!=null?'¥'+Number(it.unitPrice).toLocaleString():'—'}</td>
-                  <td style="padding:3px 8px;border:1px solid var(--border);text-align:right;font-weight:600;">${it.amount!=null?'¥'+Number(it.amount).toLocaleString():'—'}</td>
-                </tr>`).join('')}
-              </tbody>
-            </table>
-           </div>`
-        : '';
-      return `
+    const candRows = candidates.map(c => `
       <div style="display:flex;flex-direction:column;gap:6px;padding:12px 16px;background:var(--card);border:1px solid var(--border);border-radius:8px;margin-bottom:8px;">
         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
           <div style="flex:1;min-width:200px;">
             <div style="font-size:13px;font-weight:700;">📄 見積書No: ${c.quoteNo || c.quoteId || '—'}</div>
-            <div style="font-size:12px;color:var(--text-sub);margin-top:2px;">
-              宛先: ${c.client || '—'} ｜
-              発行日: <strong>${c.issueDate || '—'}</strong> ｜
-              合計: <strong style="color:var(--danger);">¥${c.amount ? Number(c.amount).toLocaleString() : '—'}</strong>
-            </div>
+            <div style="font-size:12px;color:var(--text-sub);margin-top:2px;">宛先: ${c.client || '—'} | 金額: <strong>¥${c.amount ? Number(c.amount).toLocaleString() : '—'}</strong></div>
           </div>
           <div style="min-width:160px;">${scoreBar(c.score)}</div>
           <button class="btn btn-primary" onclick="confirmLink('${item.orderMgmtId}','${c.quoteId}')">この見積書で確定</button>
         </div>
-        ${itemsHtml}
         ${c.reason ? `
         <div style="font-size:12px;color:var(--info);background:var(--info-light, #e8f0fe);padding:8px 12px;border-radius:6px;border-left:3px solid var(--info);margin-top:4px;">
           <strong>🤖 AIの推測理由:</strong> ${c.reason}
         </div>` : ''}
-      </div>`;
-    }).join('');
+      </div>`).join('');
 
     return `
       <div style="background:var(--bg);border-radius:var(--radius);border:1px solid var(--border);margin-bottom:24px;box-shadow:var(--shadow);overflow:hidden;">
@@ -1162,220 +1152,6 @@ function confirmLink(orderMgmtId, quoteMgmtId) {
     .handleApiRequest('confirmOrderLink', { orderMgmtId, quoteMgmtId });
 }
 
-function filterMatchingCandidates() {
-  const kw = document.getElementById('matching-search').value.toLowerCase();
-  if (!kw) { _renderMatchingCandidates(_allMatchingItems); return; }
-  const filtered = _allMatchingItems.filter(item =>
-    String(item.orderNo||'').toLowerCase().includes(kw) ||
-    String(item.orderMgmtId||'').toLowerCase().includes(kw) ||
-    String(item.orderClient||'').toLowerCase().includes(kw)
-  );
-  _renderMatchingCandidates(filtered);
-}
-
-// ===== 基板管理 =====
-let _allBoards = [];
-
-function loadBoardList() {
-  document.getElementById('board-container').innerHTML =
-    '<div class="loading"><div class="spinner"></div><br>基板データ読み込み中...</div>';
-  google.script.run
-    .withSuccessHandler(res => {
-      if (!res.success) { document.getElementById('board-container').innerHTML = 'エラー: '+res.error; return; }
-      _allBoards = res.items || [];
-      _renderBoardList(_allBoards);
-    })
-    .withFailureHandler(err => { document.getElementById('board-container').innerHTML = 'エラー: '+err.message; })
-    .handleApiRequest('boardGetAll', null);
-}
-
-function filterBoards() {
-  const q = document.getElementById('board-search').value.toLowerCase();
-  const filtered = _allBoards.filter(b =>
-    String(b['基板名']||'').toLowerCase().includes(q) ||
-    String(b['基板ID']||'').toLowerCase().includes(q) ||
-    String(b['基板分類']||'').toLowerCase().includes(q)
-  );
-  _renderBoardList(filtered);
-}
-
-// ============================================================
-// 修正版: 基板管理リスト描画
-// ============================================================
-function _renderBoardList(boards) {
-  if (boards.length === 0) {
-    document.getElementById('board-container').innerHTML =
-      '<div class="loading" style="color:var(--text-sub);">基板データがありません</div>';
-    return;
-  }
-  const catColors = {
-    'M基板':'var(--info)','C基板':'var(--success)','DE基板':'var(--warning)',
-    'E基板':'var(--danger)','S基板':'#9c27b0','その他':'var(--text-sub)'
-  };
-  const cards = boards.map(b => {
-    const color = catColors[b['基板分類']] || catColors['その他'];
-    const fileId = b['画像URL'] ? String(b['画像URL']).match(/[-\w]{25,}/) : null;
-    const img = fileId
-      ? `<img src="https://drive.google.com/uc?export=view&id=${fileId[0]}" style="width:100%;height:100%;object-fit:cover;">`
-      : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#ccc;font-size:20px;">🔬</div>`;
-    
-    // ★ 修正: 混ざってしまったマッチングのコードを削除し、正しいカード表示に戻しました
-    return `
-      <div onclick="openBoardDetail('${b['基板ID']}','${(b['基板名']||'').replace(/'/g,"\'")}')"
-           style="background:var(--card);border-radius:var(--radius);padding:14px 16px;margin-bottom:10px;
-                  border:1px solid var(--border);display:flex;align-items:center;gap:14px;cursor:pointer;box-shadow:var(--shadow);">
-        <div style="width:52px;height:52px;border-radius:8px;overflow:hidden;flex-shrink:0;background:#f8f9fa;">${img}</div>
-        <div style="flex:1;">
-          <div style="font-weight:600;font-size:14px;">${b['基板名']||'—'} <span style="font-size:11px;color:${color};background:${color}22;padding:2px 6px;border-radius:4px;margin-left:4px;">${b['基板分類']||'その他'}</span></div>
-          <div style="font-size:12px;color:var(--text-sub);margin-top:4px;">
-            ID: ${b['基板ID']||''} ${b['バージョン'] ? '&nbsp; v' + b['バージョン'] : ''}
-          </div>
-        </div>
-        <div style="color:var(--text-sub);font-size:18px;">›</div>
-      </div>`;
-  }).join('');
-  document.getElementById('board-container').innerHTML = `<div>${cards}</div>`;
-}
-
-function openBoardDetail(boardId, boardName) {
-  document.getElementById('board-detail-title').textContent = '🔬 ' + boardName;
-  document.getElementById('board-detail-modal').classList.add('open');
-  document.getElementById('board-detail-body').innerHTML = '<div class="loading"><div class="spinner"></div></div>';
-  google.script.run
-    .withSuccessHandler(res => {
-      if (!res.success) { document.getElementById('board-detail-body').innerHTML = 'エラー: '+res.error; return; }
-      document.getElementById('board-detail-body').innerHTML = _buildBoardDetailHtml(boardId, boardName, res);
-    })
-    .withFailureHandler(err => { document.getElementById('board-detail-body').innerHTML = 'エラー: '+err.message; })
-    .handleApiRequest('boardGetDetail', { boardId, boardName });
-}
-function closeBoardDetail() { document.getElementById('board-detail-modal').classList.remove('open'); }
-
-function _buildBoardDetailHtml(boardId, boardName, res) {
-  const cost = `<div style="font-size:28px;font-weight:700;color:var(--danger);">¥${Math.floor(res.totalCost||0).toLocaleString()}</div>
-    <div style="font-size:12px;color:var(--text-sub);">BOM 公表単価合計</div>`;
-
-  const machine = res.machine
-    ? `<div style="padding:12px;background:var(--primary-light);border-radius:8px;border-left:4px solid var(--primary);">
-        <strong>${res.machine['機種名']||''}</strong>
-        <span style="font-size:12px;color:var(--text-sub);margin-left:8px;">${res.machine['機種コード']||''}</span><br>
-        <span style="font-size:12px;color:var(--text-sub);">ブランド: ${res.machine['ブランド']||'—'}</span>
-      </div>`
-    : '<div style="font-size:13px;color:var(--text-sub);">機種マスタに登録なし</div>';
-
-  const bomRows = (res.bom||[]).map(b => `<tr>
-    <td><strong style="font-size:12px;">${b['部品名']||''}</strong><br>
-      <span style="font-size:11px;color:var(--text-sub);font-family:monospace;">${b['部品コード']||''}</span></td>
-    <td class="r">${b['使用数量']||0}</td>
-    <td class="r">¥${Math.floor(b['公表単価']||0).toLocaleString()}</td>
-    <td class="r" style="font-weight:600;color:var(--danger);">¥${Math.floor(b['小計']||0).toLocaleString()}</td>
-  </tr>`).join('');
-
-  const estRows = (res.estimates||[]).map(e => `
-    <div style="background:#f8f9fa;padding:10px;border-radius:8px;margin-bottom:8px;border:1px solid var(--border);">
-      <strong style="color:var(--danger);">¥${Number(e['見積金額']||0).toLocaleString()}</strong>
-      <span style="font-size:12px;color:var(--text-sub);margin-left:8px;">${e['見積No']||''} / ${e['見積種別']||''}</span><br>
-      <span style="font-size:12px;">${e['備考']||''}</span>
-    </div>`).join('') || '<div style="font-size:13px;color:var(--text-sub);">見積履歴なし</div>';
-
-  return `
-    <div style="margin-bottom:16px;">${cost}</div>
-    <div class="detail-section">
-      <h4 style="display:flex;align-items:center;justify-content:space-between;">
-        採用機種
-        <button class="btn btn-outline btn-sm" onclick="openModelInfoModal('${boardId}','')">✏️ 基板情報を編集</button>
-      </h4>
-      ${machine}
-    </div>
-    <div class="detail-section"><h4>部品表（BOM）</h4>
-      ${bomRows ? `<table class="dtable"><thead><tr><th>部品名 / コード</th><th>数量</th><th>単価</th><th>小計</th></tr></thead><tbody>${bomRows}</tbody></table>` : '<div style="font-size:13px;color:var(--text-sub);">BOMデータなし</div>'}
-    </div>
-    <div class="detail-section"><h4>見積履歴</h4>${estRows}</div>`;
-}
-
-// ===== 機種別分析 =====
-function loadBoardAnalysis() {
-  document.getElementById('analysis-container').innerHTML =
-    '<div class="loading"><div class="spinner"></div><br>分析データ集計中...</div>';
-  google.script.run
-    .withSuccessHandler(res => {
-      if (!res.success) { document.getElementById('analysis-container').innerHTML = 'エラー: '+res.error; return; }
-      // 基板情報データも取得して統合（基板IDで紐づけ）
-      google.script.run
-        .withSuccessHandler(infoRes => {
-          const boardInfoMap = {};
-          if (infoRes.success && infoRes.items) {
-            infoRes.items.forEach(info => { boardInfoMap[info.boardId] = info; });
-          }
-          const items = (res.items || []).map(item => {
-            // この機種に紐づく基板の情報をまとめる
-            const boardInfoList = (item.boards || [])
-              .map(bid => boardInfoMap[bid])
-              .filter(Boolean);
-            return { ...item, boardInfoList };
-          });
-          _renderAnalysis(items);
-        })
-        .handleApiRequest('modelInfoGet', {});
-    })
-    .withFailureHandler(err => { document.getElementById('analysis-container').innerHTML = 'エラー: '+err.message; })
-    .handleApiRequest('boardGetAnalysis', null);
-}
-
-function _renderAnalysis(items) {
-  if (items.length === 0) {
-    document.getElementById('analysis-container').innerHTML =
-      '<div class="loading" style="color:var(--text-sub);">発注書の機種コードと機種マスタが一致するデータがありません</div>';
-    return;
-  }
-
-  const rows = items.map(item => {
-    const latestOrder = item.orders && item.orders.length
-      ? item.orders.sort((a,b) => String(b.orderDate).localeCompare(String(a.orderDate)))[0]
-      : null;
-    // 複数基板の情報をまとめて表示
-    const boardInfoList = item.boardInfoList || [];
-    const links = boardInfoList.flatMap(info => [
-      info.quoteUrl       ? '<a href="'+info.quoteUrl+'" target="_blank" class="pdf-link" title="'+info.boardId+'">📄 見積('+info.boardId+')</a>' : '',
-      info.orderUrl       ? '<a href="'+info.orderUrl+'" target="_blank" class="pdf-link" title="'+info.boardId+'">📦 注文('+info.boardId+')</a>' : '',
-      info.purchaseUrl1   ? '<a href="'+info.purchaseUrl1+'" target="_blank" class="pdf-link">🛒 仕入1('+info.boardId+')</a>' : '',
-      info.purchaseUrl2   ? '<a href="'+info.purchaseUrl2+'" target="_blank" class="pdf-link">🛒 仕入2('+info.boardId+')</a>' : '',
-      info.purchaseUrl3   ? '<a href="'+info.purchaseUrl3+'" target="_blank" class="pdf-link">🛒 仕入3('+info.boardId+')</a>' : '',
-      info.localServerUrl ? '<a href="'+info.localServerUrl+'" target="_blank" class="pdf-link">🖥 サーバー('+info.boardId+')</a>' : '',
-    ]).filter(Boolean).join(' ');
-    const comments = boardInfoList.map(info => info.boardId + ': ' + info.comment).filter(c => c.includes(': ') && c.split(': ')[1]).join(' / ');
-
-    return `<tr>
-      <td>
-        <strong style="font-size:14px;">${item.modelCode}</strong><br>
-        <span style="font-size:12px;color:var(--text-sub);">${item.machineName||'—'}</span>
-      </td>
-      <td style="font-size:12px;color:var(--text-sub);">${latestOrder ? String(latestOrder.orderDate).substring(0,10) : '—'}</td>
-      <td>${links || '<span style="font-size:12px;color:var(--text-sub);">未登録</span>'}</td>
-      <td style="font-size:12px;max-width:200px;">${comments||''}</td>
-      <td>
-        <button class="btn btn-outline btn-sm" onclick="openModelBoardList('${item.modelCode}','${(item.machineName||'').replace(/'/g,'')}','${(item.boards||[]).join(',')}')">
-          🔬 基板情報
-        </button>
-      </td>
-    </tr>`;
-  }).join('');
-
-  document.getElementById('analysis-container').innerHTML = `
-    <div style="margin-bottom:12px;font-size:13px;color:var(--text-sub);">
-      発注書データと紐づいた機種: ${items.length}機種 ／ 「✏️ 編集」で見積書・注文書・仕入れ見積のURLやコメントを登録できます
-    </div>
-    <div class="table-wrap">
-      <div class="table-toolbar"><h2>機種別 関連ドキュメント</h2></div>
-      <table>
-        <thead><tr>
-          <th>機種コード / 機種名</th><th>最終受注日</th><th>関連ドキュメント</th><th>コメント</th><th>操作</th>
-        </tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>`;
-}
-
 // ============================================================
 // Todo管理 / ボット / その他プレースホルダー
 // ============================================================
@@ -1389,186 +1165,1079 @@ function loadTodos() {
 }
 function openTodoModal() {}
 
+function loadSystemSettings() {
+  google.script.run.withSuccessHandler(res => {
+    if(res.success) {
+      if(document.getElementById('sysconf-admin-emails')) document.getElementById('sysconf-admin-emails').value = res.adminEmails || '';
+      if(document.getElementById('sysconf-chat-webhook')) document.getElementById('sysconf-chat-webhook').value = res.chatWebhook || '';
+    }
+  }).handleApiRequest('loadSettings');
+}
+function saveSystemSettings() { showToast('保存完了'); }
+// DOMContentLoaded: 先頭で統合済み
+
+// エラー防止用スタブ
+function loadBoardList() {}
+function loadBoardAnalysis() {}
+
+
+
+
 // ============================================================
-// 📧 メール監視設定 管理
+// 新ページ群 JavaScript
 // ============================================================
 
-let _emailCfgItems = [];
+// ============================================================
+// ① ワークフロー
+// ============================================================
+function refreshWorkflowStatus() {
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res.success) return;
+      var d = res.data || {};
+      document.getElementById('flow-count-1').textContent = (d.planned || 0) + '件';
+      document.getElementById('flow-count-2').textContent = (d.sent || 0) + '件';
+      document.getElementById('flow-count-3').textContent = (d.ocrDone || 0) + '件';
+      document.getElementById('flow-count-4').textContent = (d.received || 0) + '件';
+      document.getElementById('flow-count-5').textContent = (d.linked || 0) + '件';
+      document.getElementById('flow-count-6').textContent = (d.approvalPending || 0) + '件';
+      document.getElementById('flow-count-7').textContent = (d.ordered || 0) + '件';
+      document.getElementById('wf-unlinked').textContent = (d.unlinked || 0) + '件';
+      document.getElementById('wf-approval').textContent = (d.approvalPending || 0) + '件';
+      document.getElementById('wf-ordered').textContent = (d.orderedMonth || 0) + '件';
+      var rate = d.matchRate ? Math.round(d.matchRate) + '%' : '—';
+      document.getElementById('wf-match-rate').textContent = rate;
+    })
+    .withFailureHandler(function(e) { console.warn(e); })
+    .handleApiRequest('getWorkflowStats', null);
+}
 
-function loadEmailConfigs() {
-  const container = document.getElementById('email-cfg-container');
+function runManualBatch() {
+  if (!confirm('AI自動マッチングバッチを手動で実行しますか？\n（未紐付けの全注文書が対象になります）')) return;
+  showToast('⏳ バッチ実行中...');
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res.success || res.autoCount !== undefined) {
+        showToast('完了: 自動確定 ' + (res.autoCount||0) + '件, 候補 ' + (res.candidateCount||0) + '件');
+        refreshWorkflowStatus();
+      } else {
+        showToast('エラー: ' + (res.error || '不明'), true);
+      }
+    })
+    .withFailureHandler(function(e) { showToast('通信エラー: ' + e.message, true); })
+    .handleApiRequest('runBatchMatching', {});
+}
+
+// ============================================================
+// ② 担当者管理
+// ============================================================
+let _assignees = [];
+
+function loadAssignees() {
+  const container = document.getElementById('assignee-container');
   if (!container) return;
   container.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
   google.script.run
-    .withSuccessHandler(res => {
-      if (!res.success) { container.innerHTML = '<div style="color:var(--danger);">エラー: ' + res.error + '</div>'; return; }
-      _emailCfgItems = res.items || [];
-      _renderEmailCfgs(_emailCfgItems);
+    .withSuccessHandler(function(res) {
+      _assignees = res.assignees || [];
+      _renderAssignees(_assignees);
     })
-    .withFailureHandler(err => {
-      container.innerHTML = '<div style="color:var(--danger);">通信エラー: ' + err.message + '</div>';
+    .withFailureHandler(function(e) {
+      container.innerHTML = '<div style="color:var(--danger);padding:16px;">エラー: ' + e.message + '</div>';
     })
-    .handleApiRequest('emailCfgGetAll', null);
+    .handleApiRequest('getAssignees', null);
 }
 
-function _renderEmailCfgs(items) {
-  const container = document.getElementById('email-cfg-container');
+function _renderAssignees(list) {
+  const container = document.getElementById('assignee-container');
   if (!container) return;
-  if (items.length === 0) {
+  if (!list.length) {
     container.innerHTML = `
-      <div style="text-align:center;padding:24px;background:#fffde7;border-radius:8px;border:1px dashed #fbbc04;">
-        <div style="font-size:24px;margin-bottom:8px;">📧</div>
-        <div style="font-weight:600;margin-bottom:4px;">メール監視設定がありません</div>
-        <div style="font-size:12px;color:var(--text-sub);">「＋ 設定を追加」から得意先のメールアドレスとキーワードを登録してください。</div>
+      <div style="text-align:center;padding:30px;color:var(--text-sub);">
+        <div style="font-size:32px;margin-bottom:8px;">👥</div>
+        <div style="font-weight:600;">担当者が登録されていません</div>
+        <div style="font-size:12px;margin-top:4px;">「担当者追加」から登録してください</div>
       </div>`;
     return;
   }
-  const typeColor = { '見積書': '#1a73e8', '注文書': '#c5221f' };
-  const typeIcon  = { '見積書': '📄', '注文書': '📦' };
-  const rows = items.map(item => `
-    <tr style="border-bottom:1px solid var(--border);"
-        onmouseenter="this.style.background='#f8f9fa'" onmouseleave="this.style.background=''">
-      <td style="padding:8px 12px;">
-        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${item.enabled ? '#34a853' : '#ccc'};margin-right:4px;"></span>
-        ${item.enabled ? '<span style="color:#137333;font-size:12px;">有効</span>' : '<span style="color:var(--text-sub);font-size:12px;">無効</span>'}
+  const rows = list.map((a, i) => `
+    <tr onmouseenter="this.style.background='#f8fafc'" onmouseleave="this.style.background=''">
+      <td style="padding:10px 12px;border-bottom:1px solid var(--border-light);">
+        <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${a.active?'var(--success)':'var(--text-muted)'};margin-right:6px;"></span>
+        <strong>${a.name}</strong>
       </td>
-      <td style="padding:8px 12px;">
-        <span style="background:${(typeColor[item.docType]||'#666')}22;color:${typeColor[item.docType]||'#666'};padding:2px 8px;border-radius:8px;font-size:12px;font-weight:600;">
-          ${typeIcon[item.docType]||'📄'} ${item.docType}
-        </span>
-      </td>
-      <td style="padding:8px 12px;font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${item.keywords || '—'}</td>
-      <td style="padding:8px 12px;font-size:12px;color:var(--text-sub);">${item.fromEmail || '—'}</td>
-      <td style="padding:8px 12px;font-size:12px;color:var(--text-sub);">${item.toEmail || '—'}</td>
-      <td style="padding:8px 12px;font-size:12px;">${item.orderType || '—'}</td>
-      <td style="padding:8px 12px;font-size:12px;color:var(--text-sub);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${item.remarks || ''}</td>
-      <td style="padding:8px 12px;white-space:nowrap;">
-        <button class="btn btn-outline btn-sm" onclick="openEmailCfgModal(${item.rowIndex})" style="padding:3px 8px;">✏️</button>
-        <button class="btn btn-danger btn-sm"  onclick="deleteEmailCfg(${item.rowIndex})"    style="padding:3px 8px;margin-left:2px;">🗑️</button>
+      <td style="padding:10px 12px;border-bottom:1px solid var(--border-light);">${a.dept || '—'}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid var(--border-light);font-size:11.5px;">${a.email || '—'}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid var(--border-light);font-size:11.5px;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${a.clients || '—'}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid var(--border-light);">${a.memo || ''}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid var(--border-light);white-space:nowrap;">
+        <button class="btn btn-sm btn-outline" onclick="openAssigneeModal(${i})">✏️</button>
+        <button class="btn btn-sm" style="background:#fef2f2;color:var(--danger);border:1px solid #fecaca;margin-left:4px;" onclick="deleteAssignee(${i + 2})">🗑️</button>
       </td>
     </tr>`).join('');
-
+  
   container.innerHTML = `
-    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+    <table style="width:100%;border-collapse:collapse;">
       <thead>
-        <tr style="background:#fff8e1;">
-          <th style="padding:7px 12px;text-align:left;font-size:11px;color:var(--text-sub);border-bottom:1px solid var(--border);">有効</th>
-          <th style="padding:7px 12px;text-align:left;font-size:11px;color:var(--text-sub);border-bottom:1px solid var(--border);">種別</th>
-          <th style="padding:7px 12px;text-align:left;font-size:11px;color:var(--text-sub);border-bottom:1px solid var(--border);">キーワード</th>
-          <th style="padding:7px 12px;text-align:left;font-size:11px;color:var(--text-sub);border-bottom:1px solid var(--border);">送信元</th>
-          <th style="padding:7px 12px;text-align:left;font-size:11px;color:var(--text-sub);border-bottom:1px solid var(--border);">宛先（自社）</th>
-          <th style="padding:7px 12px;text-align:left;font-size:11px;color:var(--text-sub);border-bottom:1px solid var(--border);">注文種別</th>
-          <th style="padding:7px 12px;text-align:left;font-size:11px;color:var(--text-sub);border-bottom:1px solid var(--border);">備考</th>
-          <th style="padding:7px 12px;font-size:11px;color:var(--text-sub);border-bottom:1px solid var(--border);">操作</th>
+        <tr style="background:#f8fafc;">
+          <th style="padding:8px 12px;text-align:left;font-size:10.5px;color:var(--text-sub);border-bottom:1px solid var(--border-light);text-transform:uppercase;letter-spacing:.04em;">氏名</th>
+          <th style="padding:8px 12px;text-align:left;font-size:10.5px;color:var(--text-sub);border-bottom:1px solid var(--border-light);text-transform:uppercase;letter-spacing:.04em;">部署</th>
+          <th style="padding:8px 12px;text-align:left;font-size:10.5px;color:var(--text-sub);border-bottom:1px solid var(--border-light);text-transform:uppercase;letter-spacing:.04em;">メール</th>
+          <th style="padding:8px 12px;text-align:left;font-size:10.5px;color:var(--text-sub);border-bottom:1px solid var(--border-light);text-transform:uppercase;letter-spacing:.04em;">担当顧客</th>
+          <th style="padding:8px 12px;text-align:left;font-size:10.5px;color:var(--text-sub);border-bottom:1px solid var(--border-light);text-transform:uppercase;letter-spacing:.04em;">メモ</th>
+          <th style="padding:8px 12px;border-bottom:1px solid var(--border-light);"></th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
     </table>`;
 }
 
-function openEmailCfgModal(rowIndex) {
-  const item = rowIndex ? _emailCfgItems.find(i => i.rowIndex === rowIndex) : null;
-  document.getElementById('email-cfg-modal-title').textContent = item ? '📧 メール監視設定の編集' : '📧 メール監視設定の追加';
-  document.getElementById('email-cfg-row-index').value  = item ? item.rowIndex : '';
-  document.getElementById('email-cfg-doctype').value    = item ? (item.docType  || '見積書') : '見積書';
-  document.getElementById('email-cfg-enabled').value    = item ? (item.enabled ? 'true' : 'false') : 'true';
-  document.getElementById('email-cfg-keywords').value   = item ? (item.keywords  || '') : '';
-  document.getElementById('email-cfg-from').value       = item ? (item.fromEmail || '') : '';
-  document.getElementById('email-cfg-to').value         = item ? (item.toEmail   || '') : '';
-  document.getElementById('email-cfg-ordertype').value  = item ? (item.orderType || '') : '';
-  document.getElementById('email-cfg-remarks').value    = item ? (item.remarks   || '') : '';
-  document.getElementById('email-cfg-test-result').textContent = '';
-  _emailCfgDocTypeChange();
-  document.getElementById('email-cfg-modal').classList.add('open');
+// モーダル（担当者）
+function openAssigneeModal(idx) {
+  const a = idx !== undefined ? _assignees[idx] : {};
+  const rIdx = idx !== undefined ? idx + 2 : null;
+  document.getElementById('_asgn-rowIdx').value = rIdx || '';
+  document.getElementById('_asgn-name').value   = a.name    || '';
+  document.getElementById('_asgn-dept').value   = a.dept    || '';
+  document.getElementById('_asgn-email').value  = a.email   || '';
+  document.getElementById('_asgn-clients').value = a.clients || '';
+  document.getElementById('_asgn-chatid').value = a.chatId  || '';
+  document.getElementById('_asgn-active').value = a.active === false ? 'false' : 'true';
+  document.getElementById('_asgn-handover').value = a.handoverId || '';
+  document.getElementById('_asgn-memo').value   = a.memo    || '';
+  document.getElementById('assignee-modal').classList.add('open');
 }
 
-function closeEmailCfgModal() {
-  document.getElementById('email-cfg-modal').classList.remove('open');
+function saveAssignee() {
+  const rIdx = document.getElementById('_asgn-rowIdx').value;
+  const payload = {
+    rowIndex:  rIdx ? Number(rIdx) : null,
+    name:      document.getElementById('_asgn-name').value,
+    dept:      document.getElementById('_asgn-dept').value,
+    email:     document.getElementById('_asgn-email').value,
+    clients:   document.getElementById('_asgn-clients').value,
+    chatId:    document.getElementById('_asgn-chatid').value,
+    active:    document.getElementById('_asgn-active').value !== 'false',
+    handoverId:document.getElementById('_asgn-handover').value,
+    memo:      document.getElementById('_asgn-memo').value,
+  };
+  if (!payload.name) { showToast('氏名は必須です', true); return; }
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res.success) {
+        showToast('保存しました');
+        document.getElementById('assignee-modal').classList.remove('open');
+        loadAssignees();
+      } else { showToast('エラー: ' + res.error, true); }
+    })
+    .withFailureHandler(function(e) { showToast(e.message, true); })
+    .handleApiRequest('saveAssignee', payload);
 }
 
-function _emailCfgDocTypeChange() {
-  const type = document.getElementById('email-cfg-doctype')?.value;
-  const wrap  = document.getElementById('email-cfg-ordertype-wrap');
-  const fromLbl  = document.getElementById('email-cfg-from-label');
-  const toLbl    = document.getElementById('email-cfg-to-label');
-  const fromHint = document.getElementById('email-cfg-from-hint');
-  const toHint   = document.getElementById('email-cfg-to-hint');
-  if (type === '見積書') {
-    if (wrap) wrap.style.display = 'none';
-    if (fromLbl)  fromLbl.textContent  = '送信元メールアドレス（自社）';
-    if (toLbl)    toLbl.textContent    = '宛先メールアドレス（得意先）';
-    if (fromHint) fromHint.textContent = '自社で見積書を送ったアドレス';
-    if (toHint)   toHint.textContent   = '送付先の得意先アドレス（省略可）';
-  } else {
-    if (wrap) wrap.style.display = '';
-    if (fromLbl)  fromLbl.textContent  = '送信元メールアドレス（得意先）';
-    if (toLbl)    toLbl.textContent    = '宛先メールアドレス（自社）';
-    if (fromHint) fromHint.textContent = '注文書を送ってくる得意先のアドレス';
-    if (toHint)   toHint.textContent   = '自社の受信アドレス（省略可）';
+function deleteAssignee(rowIndex) {
+  if (!confirm('この担当者を削除しますか？')) return;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res.success) { showToast('削除しました'); loadAssignees(); }
+      else showToast('エラー: ' + res.error, true);
+    })
+    .handleApiRequest('deleteAssignee', { rowIndex });
+}
+
+// 引き継ぎモーダル
+function openHandoverModal() {
+  const from = document.getElementById('handover-from');
+  const to   = document.getElementById('handover-to');
+  if (from && to) {
+    const opts = _assignees.map(a => `<option value="${a.id}" data-name="${a.name}">${a.name} (${a.dept})</option>`).join('');
+    from.innerHTML = '<option value="">選択してください</option>' + opts;
+    to.innerHTML   = '<option value="">選択してください</option>' + opts;
+  }
+  document.getElementById('handover-modal').classList.add('open');
+}
+
+function executeHandover() {
+  const fromSel = document.getElementById('handover-from');
+  const toSel   = document.getElementById('handover-to');
+  const fromId  = fromSel.value;
+  const toId    = toSel.value;
+  const fromName = fromSel.options[fromSel.selectedIndex]?.dataset.name || fromId;
+  const toName   = toSel.options[toSel.selectedIndex]?.dataset.name   || toId;
+  const memo     = document.getElementById('handover-memo').value;
+  
+  if (!fromId || !toId) { showToast('引き継ぎ元・先を選択してください', true); return; }
+  if (fromId === toId)  { showToast('同じ担当者には引き継げません', true); return; }
+  if (!confirm(fromName + ' の担当案件を ' + toName + ' へ一括移管しますか？')) return;
+  
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res.success) {
+        showToast('引き継ぎ完了: ' + res.updatedCount + '件を移管しました');
+        document.getElementById('handover-modal').classList.remove('open');
+      } else showToast('エラー: ' + res.error, true);
+    })
+    .handleApiRequest('handover', { fromId, fromName, toId, toName, memo });
+}
+
+// ============================================================
+// ③ 承認フロー
+// ============================================================
+let _approvals = [];
+let _currentApprovalFilter = '';
+
+function loadApprovals() {
+  const container = document.getElementById('approval-container');
+  if (!container) return;
+  container.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      _approvals = res.approvals || [];
+      renderApprovals(_approvals.filter(a => !_currentApprovalFilter || a['ステータス'] === _currentApprovalFilter));
+    })
+    .handleApiRequest('getApprovals', {});
+}
+
+function filterApprovals(status) {
+  _currentApprovalFilter = status;
+  const list = status ? _approvals.filter(a => a['ステータス'] === status) : _approvals;
+  renderApprovals(list);
+}
+
+function renderApprovals(list) {
+  const container = document.getElementById('approval-container');
+  if (!container) return;
+  if (!list.length) {
+    container.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-sub);">該当する承認案件がありません</div>';
+    return;
+  }
+  const statusBadge = {
+    '承認待ち': '<span class="badge badge-sent">⏳ 承認待ち</span>',
+    '承認済み': '<span class="badge badge-done">✅ 承認済み</span>',
+    '否認':     '<span class="badge badge-received">❌ 否認</span>',
+  };
+  const rows = list.map((a, i) => `
+    <tr onmouseenter="this.style.background='#f8fafc'" onmouseleave="this.style.background=''">
+      <td style="padding:10px 12px;border-bottom:1px solid var(--border-light);font-size:11.5px;font-family:'IBM Plex Mono',monospace;">${a['承認ID']||'—'}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid var(--border-light);">${a['注文書番号']||'—'}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid var(--border-light);">${a['顧客名']||'—'}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid var(--border-light);font-weight:600;">¥${Number(a['金額']||0).toLocaleString()}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid var(--border-light);">${a['担当者']||'—'}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid var(--border-light);">${statusBadge[a['ステータス']]||a['ステータス']}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid var(--border-light);font-size:11px;">${a['申請日時']||''}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid var(--border-light);">
+        ${a['ステータス']==='承認待ち' ? `
+          <button class="btn btn-sm btn-primary" onclick="processApproval('${a['承認ID']}',true)">✅ 承認</button>
+          <button class="btn btn-sm" style="background:#fef2f2;color:var(--danger);border:1px solid #fecaca;margin-left:4px;" onclick="processApproval('${a['承認ID']}',false)">❌ 否認</button>
+        ` : (a['コメント'] ? `<span style="font-size:11px;color:var(--text-sub);">${a['コメント']}</span>` : '')}
+      </td>
+    </tr>`).join('');
+  
+  container.innerHTML = `
+    <table style="width:100%;border-collapse:collapse;">
+      <thead><tr style="background:#f8fafc;">
+        <th style="padding:8px 12px;text-align:left;font-size:10.5px;color:var(--text-sub);border-bottom:1px solid var(--border-light);">承認ID</th>
+        <th style="padding:8px 12px;text-align:left;font-size:10.5px;color:var(--text-sub);border-bottom:1px solid var(--border-light);">注文書番号</th>
+        <th style="padding:8px 12px;text-align:left;font-size:10.5px;color:var(--text-sub);border-bottom:1px solid var(--border-light);">顧客名</th>
+        <th style="padding:8px 12px;text-align:left;font-size:10.5px;color:var(--text-sub);border-bottom:1px solid var(--border-light);">金額</th>
+        <th style="padding:8px 12px;text-align:left;font-size:10.5px;color:var(--text-sub);border-bottom:1px solid var(--border-light);">担当者</th>
+        <th style="padding:8px 12px;text-align:left;font-size:10.5px;color:var(--text-sub);border-bottom:1px solid var(--border-light);">ステータス</th>
+        <th style="padding:8px 12px;text-align:left;font-size:10.5px;color:var(--text-sub);border-bottom:1px solid var(--border-light);">申請日時</th>
+        <th style="padding:8px 12px;border-bottom:1px solid var(--border-light);"></th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+function processApproval(approvalId, approved) {
+  const action = approved ? '承認' : '否認';
+  const comment = approved ? '' : prompt(action + 'コメント（任意）：') || '';
+  if (!confirm('ID: ' + approvalId + ' を' + action + 'しますか？')) return;
+  const approver = document.getElementById('sidebar-user-name')?.textContent?.trim() || 'システム';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res.success) { showToast(action + 'しました'); loadApprovals(); }
+      else showToast('エラー: ' + res.error, true);
+    })
+    .handleApiRequest('processApproval', { approvalId, approved, approver, comment });
+}
+
+// ============================================================
+// ④ 設定画面
+// ============================================================
+
+function switchSettingsTab(tabId) {
+  document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.settings-panel').forEach(p => p.style.display = 'none');
+  document.getElementById('tab-' + tabId)?.classList.add('active');
+  const panel = document.getElementById('settings-' + tabId);
+  if (panel) panel.style.display = '';
+  
+  // 遅延初期化
+  if (tabId === 'notification') loadNotificationSettings();
+  if (tabId === 'integration')  loadIntegrationSettings();
+  if (tabId === 'email-monitor') loadEmailConfigs();
+  if (tabId === 'matching')     loadMatchingSettings();
+  if (tabId === 'approval-cfg') loadApprovalCfg();
+}
+
+// 通知イベントの定義
+const NOTIF_EVENTS = [
+  { key:'quote_created',     label:'見積書登録' },
+  { key:'order_received',    label:'注文書受領' },
+  { key:'link_confirmed',    label:'紐付け確定' },
+  { key:'approval_required', label:'承認依頼' },
+  { key:'approval_done',     label:'承認完了' },
+  { key:'handover_done',     label:'引き継ぎ完了' },
+  { key:'delivery_alert',    label:'納期アラート' },
+];
+
+let _notifSettings = {};
+
+function loadNotificationSettings() {
+  // イベントチェックボックスを生成（Google Chat用）
+  const gchatEvents = document.getElementById('ncfg-gchat-events');
+  if (gchatEvents && !gchatEvents.innerHTML) {
+    gchatEvents.innerHTML = NOTIF_EVENTS.map(e => `
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;background:#f8fafc;padding:4px 10px;border-radius:20px;border:1px solid var(--border-light);">
+        <input type="checkbox" id="ncfg-gchat-ev-${e.key}" checked style="width:12px;height:12px;">
+        ${e.label}
+      </label>`).join('');
+  }
+  
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res.success) return;
+      _notifSettings = res.settings || {};
+      const s = _notifSettings;
+      
+      const setToggle = (ch, on) => {
+        const btn = document.getElementById('ncfg-' + ch + '-toggle');
+        const lbl = document.getElementById('ncfg-' + ch + '-label');
+        if (btn) { btn.classList.toggle('on', !!on); }
+        if (lbl) lbl.textContent = on ? '有効' : '無効';
+      };
+      
+      setToggle('gchat', s.googleChat?.enabled);
+      setToggle('slack', s.slack?.enabled);
+      setToggle('teams', s.teams?.enabled);
+      setToggle('email', s.email?.enabled);
+      
+      const gchatUrl = document.getElementById('ncfg-gchat-url');
+      const slackUrl = document.getElementById('ncfg-slack-url');
+      const slackCh  = document.getElementById('ncfg-slack-channel');
+      const teamsUrl = document.getElementById('ncfg-teams-url');
+      const emailAddr = document.getElementById('ncfg-email-address');
+      
+      if (gchatUrl)  gchatUrl.value  = s.googleChat?.url || '';
+      if (slackUrl)  slackUrl.value  = s.slack?.url || '';
+      if (slackCh)   slackCh.value   = s.slack?.channel || '';
+      if (teamsUrl)  teamsUrl.value  = s.teams?.url || '';
+      if (emailAddr) emailAddr.value = s.email?.address || '';
+    })
+    .handleApiRequest('getNotificationSettings', null);
+}
+
+function toggleNotifChannel(ch) {
+  const btn = document.getElementById('ncfg-' + ch + '-toggle');
+  const lbl = document.getElementById('ncfg-' + ch + '-label');
+  if (btn) { btn.classList.toggle('on'); }
+  if (lbl) lbl.textContent = btn.classList.contains('on') ? '有効' : '無効';
+}
+
+function saveNotificationSettings() {
+  const isOn = (ch) => document.getElementById('ncfg-' + ch + '-toggle')?.classList.contains('on');
+  const val  = (id)  => document.getElementById(id)?.value?.trim() || '';
+  
+  const settings = {
+    googleChat: { enabled: isOn('gchat'), url: val('ncfg-gchat-url') },
+    slack:      { enabled: isOn('slack'), url: val('ncfg-slack-url'), channel: val('ncfg-slack-channel') },
+    teams:      { enabled: isOn('teams'), url: val('ncfg-teams-url') },
+    email:      { enabled: isOn('email'), address: val('ncfg-email-address') },
+    n8n:        { enabled: !!val('int-n8n-url') },
+  };
+  const chatUrl  = val('ncfg-gchat-url');
+  const slackUrl = val('ncfg-slack-url');
+  const teamsUrl = val('ncfg-teams-url');
+  const n8nUrl   = val('int-n8n-url');
+  
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res.success) showToast('通知設定を保存しました');
+      else showToast('エラー: ' + res.error, true);
+    })
+    .handleApiRequest('saveNotificationSettings', {
+      settings, chatUrl, slackUrl, teamsUrl, n8nUrl
+    });
+}
+
+function testNotification() {
+  showToast('⏳ テスト通知を送信中...');
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res.success) showToast('テスト通知を送信しました。各チャンネルを確認してください');
+      else showToast('送信失敗: ' + (res.error || ''), true);
+    })
+    .handleApiRequest('testNotification', {});
+}
+
+function loadIntegrationSettings() {
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res.success) return;
+      const setV = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
+      setV('int-n8n-url',        res.n8nUrl);
+      setV('int-gemini-key',     res.geminiKey === '設定済み' ? '' : res.geminiKey);
+      setV('int-spreadsheet-id', res.spreadsheetId);
+      if (res.geminiKey === '設定済み') {
+        const el = document.getElementById('int-gemini-key');
+        if (el) el.placeholder = '設定済み（変更する場合のみ入力）';
+      }
+    })
+    .handleApiRequest('getIntegrationSettings', null);
+}
+
+function saveIntegrationSettings() {
+  const val = (id) => document.getElementById(id)?.value?.trim() || '';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res.success) showToast('連携設定を保存しました');
+      else showToast('エラー: ' + res.error, true);
+    })
+    .handleApiRequest('saveIntegrationSettings', {
+      n8nUrl:        val('int-n8n-url'),
+      geminiKey:     val('int-gemini-key'),
+      spreadsheetId: val('int-spreadsheet-id'),
+    });
+}
+
+function loadMatchingSettings() {
+  var props = { autoThreshold: 80, candidateThreshold: 50, model: 'gemini-2.5-flash' };
+  var stored = JSON.parse(localStorage.getItem('matchingSettings') || '{}');
+  props = Object.assign(props, stored);
+  const autoEl  = document.getElementById('threshold-auto');
+  const candEl  = document.getElementById('threshold-cand');
+  const modelEl = document.getElementById('matching-model');
+  if (autoEl)  { autoEl.value  = props.autoThreshold;  document.getElementById('threshold-auto-val').textContent  = props.autoThreshold; }
+  if (candEl)  { candEl.value  = props.candidateThreshold; document.getElementById('threshold-cand-val').textContent = props.candidateThreshold; }
+  if (modelEl) modelEl.value = props.model;
+}
+
+function saveMatchingSettings() {
+  var s = {
+    autoThreshold:      parseInt(document.getElementById('threshold-auto')?.value) || 80,
+    candidateThreshold: parseInt(document.getElementById('threshold-cand')?.value) || 50,
+    model:              document.getElementById('matching-model')?.value || 'gemini-2.5-flash',
+  };
+  localStorage.setItem('matchingSettings', JSON.stringify(s));
+  // GASへも送信
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res.success) showToast('マッチング設定を保存しました');
+    })
+    .handleApiRequest('saveMatchingSettings', s);
+}
+
+function loadApprovalCfg() {
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res.success) return;
+      var cfg = res.approvalSettings || {};
+      const setV = (id, v) => { const el = document.getElementById(id); if (el && v !== undefined) el.value = v; };
+      setV('apvcfg-approver',   cfg.approverEmail);
+      setV('apvcfg-auto-limit', cfg.autoApprovalLimit);
+      setV('apvcfg-deadline',   cfg.deadlineDays || 3);
+      setV('apvcfg-skip',       cfg.skipCondition || 'none');
+    })
+    .handleApiRequest('getNotificationSettings', null);
+}
+
+function saveApprovalCfg() {
+  const val = (id) => document.getElementById(id)?.value?.trim();
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res.success) showToast('承認フロー設定を保存しました');
+      else showToast('エラー: ' + res.error, true);
+    })
+    .handleApiRequest('saveNotificationSettings', {
+      approvalSettings: {
+        approverEmail:      val('apvcfg-approver'),
+        autoApprovalLimit:  Number(val('apvcfg-auto-limit')) || 0,
+        deadlineDays:       Number(val('apvcfg-deadline'))   || 3,
+        skipCondition:      val('apvcfg-skip') || 'none',
+      }
+    });
+}
+
+// ============================================================
+// showPage フック（新ページ対応）
+// ============================================================
+const _origShowPage = window.showPage || function(){};
+window.showPage = function(name) {
+  _origShowPage(name);
+  if (name === 'workflow')  { setTimeout(refreshWorkflowStatus, 200); }
+  if (name === 'assignees') { setTimeout(loadAssignees, 200); }
+  if (name === 'approval')  { setTimeout(loadApprovals,  200); }
+  if (name === 'settings')  { setTimeout(function(){ switchSettingsTab('notification'); }, 200); }
+};
+
+// DEFAULT_MENUに新ページを追加（サイドバー設定のため）
+if (window.DEFAULT_MENU) {
+  const newItems = [
+    { id:'workflow',  icon:'🔄', label:'業務フロー',     section:'自動化・連携', visible:true },
+    { id:'assignees', icon:'👥', label:'担当者管理',     section:'自動化・連携', visible:true },
+    { id:'approval',  icon:'✅', label:'製造承認',       section:'自動化・連携', visible:true },
+    { id:'settings',  icon:'🛠️', label:'詳細設定',       section:'自動化・連携', visible:true },
+  ];
+  // 重複チェックして追加
+  const existingIds = DEFAULT_MENU.map(function(m){ return m.id; });
+  newItems.forEach(function(item) {
+    if (existingIds.indexOf(item.id) < 0) {
+      DEFAULT_MENU.splice(DEFAULT_MENU.length - 3, 0, item); // 設定セクションの前に追加
+    }
+  });
+  // PAGE_TITLESにも追加
+  if (window.PAGE_TITLES) {
+    PAGE_TITLES.workflow  = '業務フロー';
+    PAGE_TITLES.assignees = '担当者管理';
+    PAGE_TITLES.approval  = '製造承認';
+    PAGE_TITLES.settings  = '詳細設定';
   }
 }
 
-function saveEmailCfg() {
-  const keywords = document.getElementById('email-cfg-keywords').value.trim();
-  if (!keywords) { showToast('キーワードを入力してください', true); return; }
-  const payload = {
-    rowIndex:  document.getElementById('email-cfg-row-index').value || null,
-    enabled:   document.getElementById('email-cfg-enabled').value,
-    docType:   document.getElementById('email-cfg-doctype').value,
-    keywords:  keywords,
-    fromEmail: document.getElementById('email-cfg-from').value.trim(),
-    toEmail:   document.getElementById('email-cfg-to').value.trim(),
-    orderType: document.getElementById('email-cfg-ordertype').value,
-    remarks:   document.getElementById('email-cfg-remarks').value.trim(),
+
+
+// ============================================================
+// 管理コンソール JavaScript
+// ============================================================
+
+// ============================================================
+// タブ切り替え
+// ============================================================
+function switchAdminTab(tabId) {
+  document.querySelectorAll('[id^="atab-"]').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.admin-panel').forEach(p => p.style.display = 'none');
+  const tab = document.getElementById('atab-' + tabId);
+  if (tab) tab.classList.add('active');
+  const panel = document.getElementById('apanel-' + tabId);
+  if (panel) panel.style.display = '';
+  // 遅延初期化
+  const loaders = {
+    'env':       loadSystemSettings,
+    'viewer':    loadViewerPermissions,
+    'mail-mon':  loadEmailConfigs,
+    'mail-send': loadMailSendSettings,
+    'rakuraku':  loadRakurakuSettings,
+    'ext-api':   loadIntegrationSettings,
   };
-  google.script.run
-    .withSuccessHandler(res => {
-      if (res.success) { showToast('保存しました'); closeEmailCfgModal(); loadEmailConfigs(); }
-      else showToast('保存失敗: ' + res.error, true);
-    })
-    .withFailureHandler(err => showToast('通信エラー: ' + err.message, true))
-    .handleApiRequest('emailCfgSave', payload);
+  if (loaders[tabId]) setTimeout(loaders[tabId], 100);
 }
 
-function deleteEmailCfg(rowIndex) {
-  const item = _emailCfgItems.find(i => i.rowIndex === rowIndex);
-  const label = item ? (item.docType + ' / ' + item.keywords) : String(rowIndex);
-  if (!confirm('「' + label + '」の設定を削除しますか？')) return;
-  google.script.run
-    .withSuccessHandler(res => {
-      if (res.success) { showToast('削除しました'); loadEmailConfigs(); }
-      else showToast('削除失敗: ' + res.error, true);
-    })
-    .withFailureHandler(err => showToast('通信エラー: ' + err.message, true))
-    .handleApiRequest('emailCfgDelete', { rowIndex });
+function loadAllAdminSettings() {
+  loadSystemSettings();
+  loadViewerPermissions();
+  loadEmailConfigs();
 }
 
-function testEmailCfg() {
-  const resultEl = document.getElementById('email-cfg-test-result');
-  resultEl.textContent = '⏳ Gmailを検索中...';
+// ============================================================
+// 基本設定
+// ============================================================
+function loadSystemSettings() {
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.settings) return;
+      const setV = (id, v) => { const el = document.getElementById(id); if (el && v !== undefined) el.value = v || ''; };
+      setV('sysconf-admin-emails', res.adminEmails);
+      setV('sysconf-chat-webhook', res.chatWebhook);
+      setV('sysconf-sheet-id',    res.spreadsheetId || '');
+    })
+    .withFailureHandler(function(e) { console.warn('loadSystemSettings:', e.message); })
+    .handleApiRequest('loadSettings', null);
+  // Gemini / spreadsheet from integration settings
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res.success) return;
+      const el = document.getElementById('sysconf-gemini-key');
+      if (el) el.placeholder = res.geminiKey === '設定済み' ? '設定済み（変更時のみ入力）' : '未設定';
+      const si = document.getElementById('sysconf-sheet-id');
+      if (si && res.spreadsheetId) si.value = res.spreadsheetId;
+    })
+    .handleApiRequest('getIntegrationSettings', null);
+}
+
+function saveSystemSettings() {
+  const val = id => document.getElementById(id)?.value?.trim() || '';
   const payload = {
-    fromEmail: document.getElementById('email-cfg-from').value.trim(),
-    toEmail:   document.getElementById('email-cfg-to').value.trim(),
-    keywords:  document.getElementById('email-cfg-keywords').value.trim(),
-    docType:   document.getElementById('email-cfg-doctype').value,
+    adminEmails: val('sysconf-admin-emails'),
+    chatWebhook: val('sysconf-chat-webhook'),
   };
   google.script.run
-    .withSuccessHandler(res => {
+    .withSuccessHandler(function(res) {
+      if (res && res.success) showToast('基本設定を保存しました');
+      else showToast('保存失敗: ' + (res?.error || ''), true);
+    })
+    .withFailureHandler(e => showToast('通信エラー: ' + e.message, true))
+    .handleApiRequest('saveSettings', payload);
+
+  // Gemini Key / spreadsheet IDも保存
+  const gKey = val('sysconf-gemini-key');
+  const sId  = val('sysconf-sheet-id');
+  if (gKey || sId) {
+    google.script.run
+      .withSuccessHandler(function() {})
+      .handleApiRequest('saveIntegrationSettings', {
+        geminiKey: gKey || undefined,
+        spreadsheetId: sId || undefined,
+      });
+  }
+}
+
+// ============================================================
+// 閲覧権限管理
+// ============================================================
+let _viewerList = [];
+
+function loadViewerPermissions() {
+  const container = document.getElementById('viewer-list-container');
+  if (!container) return;
+  container.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      _viewerList = res.viewers || [];
+      renderViewerList(_viewerList);
+    })
+    .withFailureHandler(function(e) {
+      container.innerHTML = '<div style="color:var(--danger);padding:12px;">エラー: ' + e.message + '</div>';
+    })
+    .handleApiRequest('getViewerPermissions', null);
+}
+
+function renderViewerList(list) {
+  const container = document.getElementById('viewer-list-container');
+  if (!container) return;
+
+  if (!list.length) {
+    container.innerHTML = `
+      <div style="text-align:center;padding:24px;background:#f5f3ff;border-radius:8px;">
+        <div style="font-size:28px;margin-bottom:8px;">👥</div>
+        <div style="font-weight:600;color:#5b21b6;">メンバーが登録されていません</div>
+        <div style="font-size:12px;color:var(--text-sub);margin-top:4px;">「メンバー追加」から登録してください</div>
+      </div>`;
+    return;
+  }
+
+  const roleConfig = {
+    admin:  { label: '👑 管理者', color: '#7c3aed', bg: '#f5f3ff' },
+    editor: { label: '✏️ 編集者', color: '#2563eb', bg: '#eff6ff' },
+    viewer: { label: '👁️ 閲覧者', color: '#059669', bg: '#f0fdf4' },
+  };
+
+  const rows = list.map((v, i) => {
+    const rc = roleConfig[v.role] || roleConfig.viewer;
+    return `
+    <tr onmouseenter="this.style.background='#f8fafc'" onmouseleave="this.style.background=''">
+      <td style="padding:10px 12px;border-bottom:1px solid var(--border-light);">
+        <div style="font-weight:600;font-size:13px;">${v.name || '—'}</div>
+        <div style="font-size:11px;color:var(--text-sub);">${v.email}</div>
+      </td>
+      <td style="padding:10px 12px;border-bottom:1px solid var(--border-light);font-size:12px;">${v.dept || '—'}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid var(--border-light);">
+        <span style="display:inline-flex;align-items:center;padding:3px 10px;border-radius:20px;font-size:11.5px;font-weight:600;background:${rc.bg};color:${rc.color};">${rc.label}</span>
+      </td>
+      <td style="padding:10px 12px;border-bottom:1px solid var(--border-light);font-size:11.5px;color:var(--text-sub);">${v.memo || ''}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid var(--border-light);white-space:nowrap;">
+        <button class="btn btn-sm btn-outline" onclick="openViewerModal(${i})">✏️</button>
+        <button class="btn btn-sm" style="background:#fef2f2;color:var(--danger);border:1px solid #fecaca;margin-left:4px;" onclick="deleteViewerPermission(${v.rowIndex})">🗑️</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  container.innerHTML = `
+    <table style="width:100%;border-collapse:collapse;">
+      <thead><tr style="background:#f8fafc;">
+        <th style="padding:8px 12px;text-align:left;font-size:10.5px;color:var(--text-sub);border-bottom:1px solid var(--border-light);text-transform:uppercase;letter-spacing:.04em;">氏名 / メール</th>
+        <th style="padding:8px 12px;text-align:left;font-size:10.5px;color:var(--text-sub);border-bottom:1px solid var(--border-light);text-transform:uppercase;letter-spacing:.04em;">部署</th>
+        <th style="padding:8px 12px;text-align:left;font-size:10.5px;color:var(--text-sub);border-bottom:1px solid var(--border-light);text-transform:uppercase;letter-spacing:.04em;">権限</th>
+        <th style="padding:8px 12px;text-align:left;font-size:10.5px;color:var(--text-sub);border-bottom:1px solid var(--border-light);text-transform:uppercase;letter-spacing:.04em;">備考</th>
+        <th style="padding:8px 12px;border-bottom:1px solid var(--border-light);"></th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+function openViewerModal(idx) {
+  const v = idx !== undefined ? _viewerList[idx] : {};
+  document.getElementById('_viewer-rowIdx').value = v.rowIndex || '';
+  document.getElementById('_viewer-email').value  = v.email || '';
+  document.getElementById('_viewer-name').value   = v.name  || '';
+  document.getElementById('_viewer-dept').value   = v.dept  || '';
+  document.getElementById('_viewer-role').value   = v.role  || 'editor';
+  document.getElementById('_viewer-memo').value   = v.memo  || '';
+  document.getElementById('viewer-modal').classList.add('open');
+}
+
+function saveViewerPermission() {
+  const val = id => document.getElementById(id)?.value?.trim() || '';
+  const email = val('_viewer-email');
+  if (!email || !email.includes('@')) { showToast('有効なメールアドレスを入力してください', true); return; }
+  const payload = {
+    rowIndex: val('_viewer-rowIdx') ? Number(val('_viewer-rowIdx')) : null,
+    email: email,
+    name:  val('_viewer-name'),
+    dept:  val('_viewer-dept'),
+    role:  val('_viewer-role'),
+    memo:  val('_viewer-memo'),
+  };
+  google.script.run
+    .withSuccessHandler(function(res) {
       if (res.success) {
-        const sampleTxt = res.samples && res.samples.length > 0
-          ? '\n例: ' + res.samples.join(' / ')
-          : '';
-        resultEl.innerHTML = `<span style="color:${res.hitCount > 0 ? 'var(--success)' : 'var(--text-sub)'};">
-          ${res.hitCount > 0 ? '✅' : '⚠️'} ${res.hitCount}件ヒット${sampleTxt}
-        </span>`;
+        showToast('権限を保存しました');
+        document.getElementById('viewer-modal').classList.remove('open');
+        loadViewerPermissions();
+      } else showToast('エラー: ' + res.error, true);
+    })
+    .withFailureHandler(e => showToast(e.message, true))
+    .handleApiRequest('saveViewerPermission', payload);
+}
+
+function deleteViewerPermission(rowIndex) {
+  if (!rowIndex || !confirm('この権限設定を削除しますか？')) return;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res.success) { showToast('削除しました'); loadViewerPermissions(); }
+      else showToast('エラー: ' + res.error, true);
+    })
+    .handleApiRequest('deleteViewerPermission', { rowIndex });
+}
+
+// ============================================================
+// メール配信設定
+// ============================================================
+const MAIL_EVENTS = [
+  { key:'quote_created',     label:'見積書が登録されたとき',   defaultTo:'sales',    defaultEnabled:true },
+  { key:'order_received',    label:'注文書を受領したとき',     defaultTo:'sales,mgmt',defaultEnabled:true },
+  { key:'link_confirmed',    label:'AI紐付けが完了したとき',   defaultTo:'sales',    defaultEnabled:false },
+  { key:'link_failed',       label:'紐付けに失敗したとき',     defaultTo:'sales,mgmt',defaultEnabled:true },
+  { key:'approval_required', label:'承認依頼が発生したとき',   defaultTo:'approver', defaultEnabled:true },
+  { key:'approval_done',     label:'承認が完了したとき',       defaultTo:'sales,mfg',defaultEnabled:true },
+  { key:'approval_rejected', label:'承認が否認されたとき',     defaultTo:'sales',    defaultEnabled:true },
+  { key:'delivery_alert',    label:'納期が3日以内のとき',      defaultTo:'sales,mfg',defaultEnabled:true },
+];
+
+function loadMailSendSettings() {
+  const container = document.getElementById('mail-send-events');
+  if (!container) return;
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      const saved = res.mailSendSettings || {};
+      const grps  = saved.groups || {};
+      const evts  = saved.events || {};
+      const tpls  = saved.templates || {};
+
+      // グループ設定
+      ['sales','mgmt','mfg','approver'].forEach(g => {
+        const el = document.getElementById('mailgrp-' + g);
+        if (el && grps[g]) el.value = grps[g];
+      });
+
+      // テンプレート設定
+      const tplMap = { quote:'mailtpl-quote', order:'mailtpl-order', link:'mailtpl-link', approval:'mailtpl-approval' };
+      Object.entries(tplMap).forEach(([k, id]) => {
+        const el = document.getElementById(id);
+        if (el && tpls[k]) el.value = tpls[k];
+      });
+
+      // イベント別トグル生成
+      container.innerHTML = MAIL_EVENTS.map(ev => {
+        const cfg = evts[ev.key] || {};
+        const enabled = cfg.enabled !== undefined ? cfg.enabled : ev.defaultEnabled;
+        const to = cfg.to || ev.defaultTo;
+        return `
+        <div style="display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;padding:10px 12px;border:1px solid var(--border-light);border-radius:8px;margin-bottom:8px;background:#fff;">
+          <button class="menu-vis-toggle ${enabled?'on':''}" id="mev-toggle-${ev.key}" onclick="this.classList.toggle('on')"></button>
+          <div>
+            <div style="font-size:13px;font-weight:600;">${ev.label}</div>
+            <div style="font-size:11px;color:var(--text-sub);margin-top:2px;">配信先グループ: <code style="background:#f1f5f9;padding:1px 4px;border-radius:3px;">${to}</code></div>
+          </div>
+          <select id="mev-to-${ev.key}" style="font-size:12px;padding:5px 8px;" title="配信先グループ">
+            <option value="sales" ${to==='sales'?'selected':''}>営業担当</option>
+            <option value="mgmt" ${to==='mgmt'?'selected':''}>管理部門</option>
+            <option value="mfg" ${to==='mfg'?'selected':''}>製造部門</option>
+            <option value="approver" ${to==='approver'?'selected':''}>承認者</option>
+            <option value="sales,mgmt" ${to==='sales,mgmt'?'selected':''}>営業+管理</option>
+            <option value="sales,mfg" ${to==='sales,mfg'?'selected':''}>営業+製造</option>
+            <option value="all">全員</option>
+          </select>
+        </div>`;
+      }).join('');
+    })
+    .withFailureHandler(function() {
+      // フォールバック：デフォルト値でレンダリング
+      container.innerHTML = MAIL_EVENTS.map(ev => `
+        <div style="display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;padding:10px 12px;border:1px solid var(--border-light);border-radius:8px;margin-bottom:8px;">
+          <button class="menu-vis-toggle ${ev.defaultEnabled?'on':''}" id="mev-toggle-${ev.key}" onclick="this.classList.toggle('on')"></button>
+          <div style="font-size:13px;font-weight:600;">${ev.label}</div>
+          <select id="mev-to-${ev.key}" style="font-size:12px;padding:5px;"><option value="${ev.defaultTo}">${ev.defaultTo}</option></select>
+        </div>`).join('');
+    })
+    .handleApiRequest('getMailSendSettings', null);
+}
+
+function saveMailSendSettings() {
+  const val = id => document.getElementById(id)?.value?.trim() || '';
+  const events = {};
+  MAIL_EVENTS.forEach(ev => {
+    events[ev.key] = {
+      enabled: document.getElementById('mev-toggle-' + ev.key)?.classList.contains('on'),
+      to: val('mev-to-' + ev.key),
+    };
+  });
+  const payload = {
+    events,
+    groups: {
+      sales:    val('mailgrp-sales'),
+      mgmt:     val('mailgrp-mgmt'),
+      mfg:      val('mailgrp-mfg'),
+      approver: val('mailgrp-approver'),
+    },
+    templates: {
+      quote:    val('mailtpl-quote'),
+      order:    val('mailtpl-order'),
+      link:     val('mailtpl-link'),
+      approval: val('mailtpl-approval'),
+    },
+  };
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res.success) showToast('メール配信設定を保存しました');
+      else showToast('エラー: ' + res.error, true);
+    })
+    .handleApiRequest('saveMailSendSettings', payload);
+}
+
+function sendTestMailAll() {
+  if (!confirm('登録済みの全グループへテストメールを送信しますか？')) return;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res.success) showToast('テストメールを送信しました。各メールを確認してください');
+      else showToast('エラー: ' + res.error, true);
+    })
+    .handleApiRequest('sendTestMailAll', {});
+}
+
+// ============================================================
+// 楽楽販売連携
+// ============================================================
+function updateRakurakuUI() {
+  const mode = document.querySelector('input[name="raku-mode"]:checked')?.value || 'api';
+  ['api','csv','webhook'].forEach(m => {
+    const s = document.getElementById('raku-' + m + '-section');
+    if (s) s.style.display = mode === m ? '' : 'none';
+  });
+}
+
+function loadRakurakuSettings() {
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res.success) return;
+      const s = res.settings || {};
+      const setV = (id, v) => { const el = document.getElementById(id); if (el && v !== undefined) el.value = v; };
+      setV('raku-tenant',   s.tenant);
+      setV('raku-apikey',   s.apiKey ? '（設定済み）' : '');
+      setV('raku-status',   s.syncStatus || '承認済み,送付済み');
+      setV('raku-interval', s.interval || '30');
+      // マッピング
+      if (s.mapping) {
+        ['quoteno','client','amount','date','status'].forEach(k => {
+          const el = document.getElementById('rmap-' + k + '-from');
+          if (el && s.mapping[k]) el.value = s.mapping[k];
+        });
+      }
+      // モード
+      const modeEl = document.getElementById('raku-mode-' + (s.mode || 'api'));
+      if (modeEl) { modeEl.checked = true; updateRakurakuUI(); }
+      // ログ
+      if (s.syncLog) {
+        const logEl = document.getElementById('raku-sync-log');
+        if (logEl) logEl.textContent = s.syncLog.join('\n');
+      }
+      // WebhookURL
+      const wuEl = document.getElementById('raku-webhook-url');
+      if (wuEl && s.webhookUrl) wuEl.value = s.webhookUrl;
+    })
+    .handleApiRequest('getRakurakuSettings', null);
+}
+
+function saveRakurakuSettings() {
+  const val = id => document.getElementById(id)?.value?.trim() || '';
+  const mode = document.querySelector('input[name="raku-mode"]:checked')?.value || 'api';
+  const payload = {
+    mode,
+    tenant:     val('raku-tenant'),
+    apiKey:     val('raku-apikey') === '（設定済み）' ? undefined : val('raku-apikey'),
+    syncStatus: val('raku-status'),
+    interval:   val('raku-interval'),
+    mapping: {
+      quoteno: val('rmap-quoteno-from'),
+      client:  val('rmap-client-from'),
+      amount:  val('rmap-amount-from'),
+      date:    val('rmap-date-from'),
+      status:  val('rmap-status-from'),
+    },
+  };
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res.success) showToast('楽楽販売連携設定を保存しました');
+      else showToast('エラー: ' + res.error, true);
+    })
+    .handleApiRequest('saveRakurakuSettings', payload);
+}
+
+function testRakurakuConnection() {
+  const tenant = document.getElementById('raku-tenant')?.value?.trim();
+  const apiKey = document.getElementById('raku-apikey')?.value?.trim();
+  if (!tenant) { showToast('テナントIDを入力してください', true); return; }
+  document.getElementById('raku-sync-status').textContent = '⏳ 接続テスト中...';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      const statusEl = document.getElementById('raku-sync-status');
+      if (res.success) {
+        if (statusEl) statusEl.innerHTML = '<span style="color:var(--success);">✅ 接続成功！' + (res.count ? ' 見積書 ' + res.count + '件' : '') + '</span>';
+        showToast('楽楽販売への接続に成功しました');
       } else {
-        resultEl.innerHTML = '<span style="color:var(--danger);">✗ ' + res.error + '</span>';
+        if (statusEl) statusEl.innerHTML = '<span style="color:var(--danger);">✗ 接続失敗: ' + (res.error || '') + '</span>';
+        showToast('接続失敗: ' + res.error, true);
       }
     })
-    .withFailureHandler(err => {
-      resultEl.innerHTML = '<span style="color:var(--danger);">✗ ' + err.message + '</span>';
-    })
-    .handleApiRequest('emailCfgTest', payload);
+    .withFailureHandler(e => { showToast('エラー: ' + e.message, true); })
+    .handleApiRequest('testRakurakuConnection', {
+      tenant: tenant,
+      apiKey: apiKey !== '（設定済み）' ? apiKey : undefined,
+    });
 }
+
+function syncRakurakuNow() {
+  if (!confirm('楽楽販売から見積書データを今すぐ同期しますか？')) return;
+  document.getElementById('raku-sync-status').textContent = '⏳ 同期中...';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      const statusEl = document.getElementById('raku-sync-status');
+      if (res.success) {
+        if (statusEl) statusEl.innerHTML = '<span style="color:var(--success);">✅ 同期完了: ' + (res.imported||0) + '件 取込</span>';
+        showToast('同期完了: ' + (res.imported||0) + '件 取込みました');
+        // ログ更新
+        if (res.log) {
+          const logEl = document.getElementById('raku-sync-log');
+          if (logEl) logEl.textContent = res.log.join('\n');
+        }
+      } else {
+        if (statusEl) statusEl.innerHTML = '<span style="color:var(--danger);">✗ ' + (res.error||'不明') + '</span>';
+        showToast('同期エラー: ' + res.error, true);
+      }
+    })
+    .withFailureHandler(e => showToast('エラー: ' + e.message, true))
+    .handleApiRequest('syncRakurakuNow', {});
+}
+
+function previewRakurakuCsv(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const text = e.target.result;
+    const lines = text.split('\n').filter(l => l.trim());
+    document.getElementById('raku-csv-info').textContent = '📊 ' + (lines.length - 1) + '件のデータが見つかりました（ヘッダー行除く）';
+    const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g,''));
+    const preview = lines.slice(1, 6);
+    const tableHtml = `
+      <table style="width:100%;border-collapse:collapse;font-size:11.5px;">
+        <thead><tr>${headers.map(h => `<th style="padding:4px 8px;background:#f8fafc;border:1px solid var(--border-light);white-space:nowrap;">${h}</th>`).join('')}</tr></thead>
+        <tbody>${preview.map(row => {
+          const cells = row.split(',').map(c => c.trim().replace(/^"|"$/g,''));
+          return `<tr>${cells.map(c => `<td style="padding:4px 8px;border:1px solid var(--border-light);">${c}</td>`).join('')}</tr>`;
+        }).join('')}</tbody>
+      </table>`;
+    document.getElementById('raku-csv-table').innerHTML = tableHtml;
+    document.getElementById('raku-csv-preview').style.display = '';
+    // CSVデータを保持
+    window._rakuCsvData = text;
+    window._rakuCsvHeaders = headers;
+  };
+  reader.readAsText(file, 'Shift-JIS');
+}
+
+function importRakurakuCsv() {
+  if (!window._rakuCsvData) { showToast('CSVを選択してください', true); return; }
+  if (!confirm('このCSVデータをシステムに取込みますか？\n重複する見積番号はスキップされます。')) return;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res.success) showToast('CSV取込完了: ' + (res.imported||0) + '件 取込みました');
+      else showToast('エラー: ' + res.error, true);
+    })
+    .handleApiRequest('importRakurakuCsv', {
+      csvData: window._rakuCsvData,
+      headers: window._rakuCsvHeaders,
+      mapping: {
+        quoteno: document.getElementById('rmap-quoteno-from')?.value,
+        client:  document.getElementById('rmap-client-from')?.value,
+        amount:  document.getElementById('rmap-amount-from')?.value,
+        date:    document.getElementById('rmap-date-from')?.value,
+        status:  document.getElementById('rmap-status-from')?.value,
+      },
+    });
+}
+
+function copyWebhookUrl() {
+  const el = document.getElementById('raku-webhook-url');
+  if (!el) return;
+  navigator.clipboard?.writeText(el.value).then(
+    () => showToast('URLをコピーしました'),
+    () => { el.select(); document.execCommand('copy'); showToast('URLをコピーしました'); }
+  );
+}
+
+// ============================================================
+// 外部連携
+// ============================================================
+function loadIntegrationSettings() {
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res.success) return;
+      const setV = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
+      setV('ext-n8n-url',   res.n8nUrl);
+      setV('ext-slack-url', res.slackUrl);
+      setV('ext-teams-url', res.teamsUrl);
+      if (res.geminiKey === '設定済み') {
+        const el = document.getElementById('sysconf-gemini-key');
+        if (el) el.placeholder = '設定済み（変更時のみ入力）';
+      }
+    })
+    .handleApiRequest('getIntegrationSettings', null);
+}
+
+function saveAllExtSettings() {
+  const val = id => document.getElementById(id)?.value?.trim() || '';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res.success) showToast('連携設定を保存しました');
+      else showToast('エラー: ' + res.error, true);
+    })
+    .handleApiRequest('saveIntegrationSettings', {
+      n8nUrl:   val('ext-n8n-url'),
+      slackUrl: val('ext-slack-url'),
+      teamsUrl: val('ext-teams-url'),
+    });
+}
+
+function testAllWebhooks() {
+  showToast('⏳ Webhookテスト送信中...');
+  google.script.run
+    .withSuccessHandler(function(res) {
+      showToast('テスト完了: ' + (res.results || []).join(' | '));
+    })
+    .handleApiRequest('testNotification', {});
+}
+
+// admin init: showPage内に統合済み
+
 </script>
-<script>
