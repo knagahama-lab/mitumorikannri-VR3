@@ -137,6 +137,21 @@ function handleApiRequest(action, payload) {
       case 'confirmOrderLink':    res = _apiConfirmOrderLink(payload); break;
       case 'getMatchingCandidates': res = _apiGetMatchingCandidates(payload); break;
       case 'runBatchMatching':    res = _apiRunBatchMatching(payload); break;
+      // ===== BOM管理API（スプレッドシート共有） =====
+      case 'bomGetAll':           return apiBomGetAll();
+      case 'bomSavePart':         return apiBomSavePart(payload);
+      case 'bomDeletePart':       return apiBomDeletePart(payload.id);
+      case 'bomSaveProduct':      return apiBomSaveProduct(payload);
+      case 'bomDeleteProduct':    return apiBomDeleteProduct(payload.id);
+      case 'bomSaveBoard':        return apiBomSaveBoard(payload);
+      case 'bomDeleteBoard':      return apiBomDeleteBoard(payload.id);
+      case 'bomSaveBomRow':       return apiBomSaveBomRow(payload);
+      case 'bomDeleteBomRow':     return apiBomDeleteBomRow(payload.id);
+      case 'bomImportFinalList':  return apiBomImportFinalList(payload.rows);
+      case 'bomImportK10Parts':   return apiBomImportK10Parts(payload.rows);
+      case 'reregisterTriggers':
+        try { _registerTriggers(); return { success: true }; }
+        catch(e) { return { success: false, error: e.message }; }
       default: return { success: false, error: '不明なアクション: ' + action };
     }
     
@@ -1221,25 +1236,19 @@ function _apiLoadSettings() {
     var props = PropertiesService.getScriptProperties();
     var s = _loadSettingsObj();
     return {
-      success:     true,
-      settings:    s,
-      adminEmails: props.getProperty('ADMIN_EMAILS')            || '',
-      chatWebhook: props.getProperty('GOOGLE_CHAT_WEBHOOK_URL') || s.webhookUrl || '',
+      success:        true,
+      settings:       s,
+      adminEmails:    props.getProperty('ADMIN_EMAILS')            || '',
+      chatWebhook:    props.getProperty('GOOGLE_CHAT_WEBHOOK_URL') || s.webhookUrl || '',
+      spreadsheetId:  props.getProperty('SPREADSHEET_ID')          || '',  // ★追加
+      notifyEmails:   props.getProperty('NOTIFY_EMAILS')           || '',  // ★追加
+      rakurakuCompany:  props.getProperty('RAKURAKU_COMPANY')      || '',  // ★追加
+      rakurakuEndpoint: props.getProperty('RAKURAKU_ENDPOINT')     || '',  // ★追加
+      n8nOrderWebhook:  props.getProperty('N8N_ORDER_WEBHOOK')     || '',  // ★追加
+      n8nQuoteWebhook:  props.getProperty('N8N_QUOTE_WEBHOOK')     || '',  // ★追加
+      customWebhook:    props.getProperty('CUSTOM_WEBHOOK')        || '',  // ★追加
     };
   } catch(e) { return { success: false, error: e.message }; }
-}
-
-function _loadSettingsObj() {
-  var raw = PropertiesService.getScriptProperties().getProperty(SETTINGS_KEY);
-  var defaults = {
-    webhookUrl:  PropertiesService.getScriptProperties().getProperty('GOOGLE_CHAT_WEBHOOK_URL') || CONFIG.GOOGLE_CHAT_WEBHOOK_URL || '',
-    notifyOrder: true,
-    notifyQuote: true,
-    notifyDl:    true,
-    alertDays:   3,
-  };
-  if (!raw) return defaults;
-  try { return Object.assign(defaults, JSON.parse(raw)); } catch(e) { return defaults; }
 }
 
 function _getChatWebhookUrl() {
