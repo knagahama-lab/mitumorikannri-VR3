@@ -893,14 +893,9 @@ tr:hover td{background:#f8fafc;}
 <body>
 <div id="app-shell">
 
-<!-- ============================================================
-     LEFT SIDEBAR
-============================================================ -->
 <nav id="sidebar">
-  <!-- Toggle -->
   <button class="sidebar-toggle" onclick="toggleSidebar()" title="メニューを折り畳む">‹</button>
 
-  <!-- Logo -->
   <div class="sidebar-logo" onclick="showPage('list')">
     <div class="sidebar-logo-icon">📋</div>
     <div class="sidebar-logo-text">
@@ -909,12 +904,9 @@ tr:hover td{background:#f8fafc;}
     </div>
   </div>
 
-  <!-- Navigation -->
   <div class="sidebar-nav" id="sidebar-nav-container">
-    <!-- JS で動的生成 -->
-  </div>
+    </div>
 
-  <!-- User Footer -->
   <div class="sidebar-footer">
     <div class="sidebar-user">
       <div class="sidebar-avatar" id="sidebar-avatar-icon">U</div>
@@ -928,11 +920,7 @@ tr:hover td{background:#f8fafc;}
   </div>
 </nav>
 
-<!-- ============================================================
-     MAIN CONTENT
-============================================================ -->
 <div id="main">
-  <!-- Topbar -->
   <header id="topbar">
     <div class="topbar-breadcrumb">
       <span>見積・注文管理</span>
@@ -946,7 +934,6 @@ tr:hover td{background:#f8fafc;}
     </div>
   </header>
 
-  <!-- Page Content -->
   <div id="content">
     <div id="toast"></div>
 
@@ -961,7 +948,6 @@ tr:hover td{background:#f8fafc;}
     </div>
   </div>
 
-  <!-- 管理コンソールタブ -->
   <div style="display:flex;gap:0;border-bottom:2px solid var(--border-light);margin-bottom:20px;overflow-x:auto;">
     <button class="settings-tab active" onclick="switchAdminTab('env')"      id="atab-env">🔧 基本設定</button>
     <button class="settings-tab"        onclick="switchAdminTab('viewer')"   id="atab-viewer">👁️ 閲覧権限</button>
@@ -971,7 +957,6 @@ tr:hover td{background:#f8fafc;}
     <button class="settings-tab"        onclick="switchAdminTab('ext-api')"  id="atab-ext-api">⚡ 外部連携</button>
   </div>
 
-  <!-- ① 基本設定タブ -->
   <div id="apanel-env" class="admin-panel">
     <div class="card" style="border-left:4px solid var(--primary);">
       <h3 style="font-size:14px;font-weight:700;margin-bottom:12px;color:var(--primary);">🔧 デプロイ環境設定</h3>
@@ -1005,7 +990,6 @@ tr:hover td{background:#f8fafc;}
     </div>
   </div>
 
-  <!-- ② 閲覧権限タブ -->
   <div id="apanel-viewer" class="admin-panel" style="display:none;">
     <div class="card" style="border-left:4px solid #7c3aed;">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px;">
@@ -1040,7 +1024,6 @@ tr:hover td{background:#f8fafc;}
     </div>
   </div>
 
-  <!-- ③ メール監視設定タブ -->
   <div id="apanel-mail-mon" class="admin-panel" style="display:none;">
     <div class="card" style="border-left:4px solid #f59e0b;">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px;">
@@ -1065,7 +1048,6 @@ tr:hover td{background:#f8fafc;}
     </div>
   </div>
 
-  <!-- ④ メール配信設定タブ（新機能） -->
   <div id="apanel-mail-send" class="admin-panel" style="display:none;">
     <div class="card" style="border-left:4px solid #0891b2;">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px;">
@@ -1076,16 +1058,13 @@ tr:hover td{background:#f8fafc;}
         <button class="topbar-btn" onclick="sendTestMailAll()">🧪 全チャンネルテスト送信</button>
       </div>
 
-      <!-- 配信テンプレート設定 -->
       <div style="margin-bottom:20px;">
         <div style="font-size:13px;font-weight:700;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border-light);">イベント別 自動配信設定</div>
 
         <div id="mail-send-events">
-          <!-- JS生成 -->
-        </div>
+          </div>
       </div>
 
-      <!-- 配信先グループ設定 -->
       <div style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:8px;padding:14px;margin-bottom:16px;">
         <div style="font-weight:700;font-size:13px;color:#0d9488;margin-bottom:10px;">📮 配信先グループ設定</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
@@ -1108,7 +1087,6 @@ tr:hover td{background:#f8fafc;}
         </div>
       </div>
 
-      <!-- メールテンプレート -->
       <div style="background:#f8fafc;border-radius:8px;padding:14px;margin-bottom:16px;">
         <div style="font-weight:700;font-size:13px;margin-bottom:10px;">📝 メール件名テンプレート</div>
         <div style="font-size:11px;color:var(--text-sub);margin-bottom:10px;">
@@ -1141,7 +1119,6 @@ tr:hover td{background:#f8fafc;}
     </div>
   </div>
 
-  <!-- ⑤ 楽楽販売連携タブ（新機能） -->
   <div id="apanel-rakuraku" class="admin-panel" style="display:none;">
     <div class="card" style="border-left:4px solid #dc2626;">
       <h3 style="font-size:14px;font-weight:700;color:#dc2626;margin-bottom:8px;">🔗 楽楽販売 連携設定</h3>
@@ -1157,7 +1134,6 @@ tr:hover td{background:#f8fafc;}
         </div>
       </div>
 
-      <!-- 連携方式選択 -->
       <div style="margin-bottom:16px;">
         <label style="font-size:11.5px;font-weight:700;display:block;margin-bottom:8px;">連携方式</label>
         <div style="display:flex;gap:10px;">
@@ -1173,7 +1149,6 @@ tr:hover td{background:#f8fafc;}
         </div>
       </div>
 
-      <!-- API連携設定 -->
       <div id="raku-api-section">
         <div style="background:#f8fafc;border-radius:8px;padding:14px;margin-bottom:14px;">
           <div style="font-weight:700;font-size:13px;margin-bottom:12px;">🔑 楽楽販売 API設定</div>
@@ -1240,7 +1215,6 @@ tr:hover td{background:#f8fafc;}
         </div>
       </div>
 
-      <!-- CSV取込設定 -->
       <div id="raku-csv-section" style="display:none;">
         <div style="background:#f8fafc;border-radius:8px;padding:14px;margin-bottom:14px;">
           <div style="font-weight:700;font-size:13px;margin-bottom:10px;">📁 楽楽販売CSV取込</div>
@@ -1263,7 +1237,6 @@ tr:hover td{background:#f8fafc;}
         </div>
       </div>
 
-      <!-- Webhook設定 -->
       <div id="raku-webhook-section" style="display:none;">
         <div style="background:#f8fafc;border-radius:8px;padding:14px;margin-bottom:14px;">
           <div style="font-weight:700;font-size:13px;margin-bottom:10px;">🌐 Webhook受信設定</div>
@@ -1285,7 +1258,6 @@ tr:hover td{background:#f8fafc;}
         </div>
       </div>
 
-      <!-- 同期ログ -->
       <div style="margin-top:16px;">
         <div style="font-weight:700;font-size:13px;margin-bottom:8px;">📊 同期履歴</div>
         <div id="raku-sync-log" style="max-height:150px;overflow-y:auto;font-size:11.5px;font-family:monospace;background:#1e293b;color:#e2e8f0;border-radius:8px;padding:12px;">
@@ -1300,7 +1272,6 @@ tr:hover td{background:#f8fafc;}
     </div>
   </div>
 
-  <!-- ⑥ 外部連携タブ -->
   <div id="apanel-ext-api" class="admin-panel" style="display:none;">
     <div class="card" style="border-left:4px solid #7c3aed;">
       <h3 style="font-size:14px;font-weight:700;color:#7c3aed;margin-bottom:8px;">⚡ 外部サービス連携</h3>
@@ -1332,7 +1303,6 @@ tr:hover td{background:#f8fafc;}
       </div>
     </div>
 
-    <!-- メール監視設定のショートカット -->
     <div class="card" style="border-left:4px solid #f59e0b;margin-top:16px;">
       <h3 style="font-size:13px;font-weight:700;color:#d97706;margin-bottom:8px;">📧 メール監視 クイックアクセス</h3>
       <p style="font-size:12px;color:var(--text-sub);margin-bottom:10px;">担当者変更時はこちらからメールアドレスを更新してください</p>
@@ -1340,7 +1310,6 @@ tr:hover td{background:#f8fafc;}
     </div>
   </div>
 
-  <!-- 閲覧権限 追加モーダル -->
   <div class="modal-overlay" id="viewer-modal" onclick="if(event.target===this)this.classList.remove('open')">
     <div class="modal" style="max-width:500px;">
       <div class="modal-head">
@@ -2215,12 +2184,6 @@ tr:hover td{background:#f8fafc;}
   </div>
 </div>
 
-
-<!-- ============================================================
-     新規ページ群（左サイドバーメニューに追加）
-============================================================ -->
-
-<!-- ① ビジネスフロー可視化 -->
 <div id="page-workflow" class="page">
   <div class="page-heading">
     <div>
@@ -2230,11 +2193,9 @@ tr:hover td{background:#f8fafc;}
     <button class="topbar-btn" onclick="refreshWorkflowStatus()">🔄 更新</button>
   </div>
 
-  <!-- フローステップ可視化 -->
   <div style="background:#fff;border-radius:12px;padding:24px;margin-bottom:20px;border:1px solid var(--border-light);box-shadow:var(--shadow-sm);">
     <div style="font-size:12px;font-weight:700;color:var(--text-sub);margin-bottom:16px;letter-spacing:.05em;text-transform:uppercase;">自動化フロー</div>
     <div style="display:flex;align-items:stretch;gap:0;overflow-x:auto;padding-bottom:8px;">
-      <!-- ステップ1 -->
       <div class="flow-step" id="flow-step-1">
         <div class="flow-step-num">①</div>
         <div class="flow-step-icon">📝</div>
@@ -2243,7 +2204,6 @@ tr:hover td{background:#f8fafc;}
         <div class="flow-step-count" id="flow-count-1">—</div>
       </div>
       <div class="flow-arrow">→</div>
-      <!-- ステップ2 -->
       <div class="flow-step" id="flow-step-2">
         <div class="flow-step-num">②</div>
         <div class="flow-step-icon">📧</div>
@@ -2252,7 +2212,6 @@ tr:hover td{background:#f8fafc;}
         <div class="flow-step-count" id="flow-count-2">—</div>
       </div>
       <div class="flow-arrow">→</div>
-      <!-- ステップ3 -->
       <div class="flow-step" id="flow-step-3">
         <div class="flow-step-num">③</div>
         <div class="flow-step-icon">🔍</div>
@@ -2261,7 +2220,6 @@ tr:hover td{background:#f8fafc;}
         <div class="flow-step-count" id="flow-count-3">—</div>
       </div>
       <div class="flow-arrow">→</div>
-      <!-- ステップ4 -->
       <div class="flow-step" id="flow-step-4">
         <div class="flow-step-num">④</div>
         <div class="flow-step-icon">📦</div>
@@ -2270,7 +2228,6 @@ tr:hover td{background:#f8fafc;}
         <div class="flow-step-count" id="flow-count-4">—</div>
       </div>
       <div class="flow-arrow">→</div>
-      <!-- ステップ5 -->
       <div class="flow-step" id="flow-step-5">
         <div class="flow-step-num">⑤</div>
         <div class="flow-step-icon">🔗</div>
@@ -2279,7 +2236,6 @@ tr:hover td{background:#f8fafc;}
         <div class="flow-step-count" id="flow-count-5">—</div>
       </div>
       <div class="flow-arrow">→</div>
-      <!-- ステップ6 -->
       <div class="flow-step" id="flow-step-6">
         <div class="flow-step-num">⑥</div>
         <div class="flow-step-icon">✅</div>
@@ -2288,7 +2244,6 @@ tr:hover td{background:#f8fafc;}
         <div class="flow-step-count" id="flow-count-6">—</div>
       </div>
       <div class="flow-arrow">→</div>
-      <!-- ステップ7 -->
       <div class="flow-step active" id="flow-step-7">
         <div class="flow-step-num">⑦</div>
         <div class="flow-step-icon">🏭</div>
@@ -2299,7 +2254,6 @@ tr:hover td{background:#f8fafc;}
     </div>
   </div>
 
-  <!-- 案件ステータスサマリ -->
   <div class="summary-grid" style="grid-template-columns:repeat(4,1fr);">
     <div class="summary-card" style="border-left:4px solid var(--primary);">
       <div class="lbl">未紐付け注文書</div>
@@ -2323,7 +2277,6 @@ tr:hover td{background:#f8fafc;}
     </div>
   </div>
 
-  <!-- n8n / 自動化モニター -->
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
       <div style="font-weight:700;font-size:14px;">⚡ 自動化ジョブ状況</div>
@@ -2368,7 +2321,6 @@ tr:hover td{background:#f8fafc;}
   </div>
 </div>
 
-<!-- ② 担当者・部署管理 -->
 <div id="page-assignees" class="page">
   <div class="page-heading">
     <div>
@@ -2389,7 +2341,6 @@ tr:hover td{background:#f8fafc;}
   </div>
 </div>
 
-<!-- ③ 承認フロー -->
 <div id="page-approval" class="page">
   <div class="page-heading">
     <div>
@@ -2411,7 +2362,6 @@ tr:hover td{background:#f8fafc;}
   </div>
 </div>
 
-<!-- ④ 通知・連携設定（拡充版） -->
 <div id="page-settings" class="page">
   <div class="page-heading">
     <div>
@@ -2420,7 +2370,6 @@ tr:hover td{background:#f8fafc;}
     </div>
   </div>
 
-  <!-- タブ -->
   <div style="display:flex;gap:0;border-bottom:2px solid var(--border-light);margin-bottom:20px;">
     <button class="settings-tab active" onclick="switchSettingsTab('notification')" id="tab-notification">📢 通知設定</button>
     <button class="settings-tab" onclick="switchSettingsTab('integration')" id="tab-integration">🔗 外部連携</button>
@@ -2430,13 +2379,11 @@ tr:hover td{background:#f8fafc;}
     <button class="settings-tab" onclick="switchSettingsTab('system')" id="tab-system">🔧 システム</button>
   </div>
 
-  <!-- 通知設定タブ -->
   <div id="settings-notification" class="settings-panel">
     <div class="card">
       <h3 style="font-size:14px;font-weight:700;margin-bottom:16px;">📢 通知チャンネル設定</h3>
       <p style="font-size:12px;color:var(--text-sub);margin-bottom:20px;">各チャンネルのオン/オフと設定を個別に管理できます。</p>
 
-      <!-- Google Chat -->
       <div class="notif-channel-card" id="ncfg-gchat">
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
           <span style="font-size:20px;">💬</span>
@@ -2451,12 +2398,10 @@ tr:hover td{background:#f8fafc;}
         <div style="margin-top:10px;">
           <label style="font-size:11.5px;font-weight:600;">通知イベント</label>
           <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;" id="ncfg-gchat-events">
-            <!-- JS生成 -->
-          </div>
+            </div>
         </div>
       </div>
 
-      <!-- Slack -->
       <div class="notif-channel-card" id="ncfg-slack">
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
           <span style="font-size:20px;">🟢</span>
@@ -2476,7 +2421,6 @@ tr:hover td{background:#f8fafc;}
         </div>
       </div>
 
-      <!-- Teams -->
       <div class="notif-channel-card" id="ncfg-teams">
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
           <span style="font-size:20px;">🔵</span>
@@ -2490,7 +2434,6 @@ tr:hover td{background:#f8fafc;}
         </div>
       </div>
 
-      <!-- メール -->
       <div class="notif-channel-card" id="ncfg-email">
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
           <span style="font-size:20px;">📧</span>
@@ -2511,7 +2454,6 @@ tr:hover td{background:#f8fafc;}
     </div>
   </div>
 
-  <!-- 外部連携タブ -->
   <div id="settings-integration" class="settings-panel" style="display:none;">
     <div class="card">
       <h3 style="font-size:14px;font-weight:700;margin-bottom:16px;">🔗 n8n / 外部サービス連携</h3>
@@ -2562,7 +2504,6 @@ tr:hover td{background:#f8fafc;}
     </div>
   </div>
 
-  <!-- メール監視設定タブ（既存を詳細化） -->
   <div id="settings-email-monitor" class="settings-panel" style="display:none;">
     <div class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
@@ -2580,7 +2521,6 @@ tr:hover td{background:#f8fafc;}
     </div>
   </div>
 
-  <!-- マッチング設定タブ -->
   <div id="settings-matching" class="settings-panel" style="display:none;">
     <div class="card">
       <h3 style="font-size:14px;font-weight:700;margin-bottom:16px;">🤖 AI紐付けマッチング設定</h3>
@@ -2630,7 +2570,6 @@ tr:hover td{background:#f8fafc;}
     </div>
   </div>
 
-  <!-- 承認フロー設定タブ -->
   <div id="settings-approval-cfg" class="settings-panel" style="display:none;">
     <div class="card">
       <h3 style="font-size:14px;font-weight:700;margin-bottom:16px;">✅ 承認フロー設定</h3>
@@ -2665,10 +2604,8 @@ tr:hover td{background:#f8fafc;}
     </div>
   </div>
 
-  <!-- システムタブ（既存の管理コンソール） -->
   <div id="settings-system" class="settings-panel" style="display:none;">
     <div id="page-admin-inner">
-      <!-- 既存の管理コンソール内容をここに表示 -->
       <div style="font-size:12px;color:var(--text-sub);margin-bottom:12px;">
         管理コンソール（システム環境設定）は「管理コンソール」タブからもアクセスできます。
       </div>
@@ -2677,9 +2614,6 @@ tr:hover td{background:#f8fafc;}
   </div>
 </div>
 
-<!-- ============================================================
-     追加スタイル
-============================================================ -->
 <style>
 /* フローステップ */
 .flow-step{
@@ -2731,7 +2665,6 @@ tr:hover td{background:#f8fafc;}
 </style>
 
 
-<!-- ===== 担当者編集モーダル ===== -->
 <div class="modal-overlay" id="assignee-modal" onclick="if(event.target===this)this.classList.remove('open')">
   <div class="modal" style="max-width:580px;">
     <div class="modal-head">
@@ -2785,7 +2718,6 @@ tr:hover td{background:#f8fafc;}
   </div>
 </div>
 
-<!-- ===== 引き継ぎモーダル ===== -->
 <div class="modal-overlay" id="handover-modal" onclick="if(event.target===this)this.classList.remove('open')">
   <div class="modal" style="max-width:500px;">
     <div class="modal-head">
@@ -2820,18 +2752,10 @@ tr:hover td{background:#f8fafc;}
   </div>
 </div>
 
-
+<?!= include("Dashboard js") ?>
 <?!= include("Dashboard js2") ?>
 
-
-  </div><!-- /content -->
-</div><!-- /main -->
-</div><!-- /app-shell -->
-
-<!-- ============================================================
-     MENU CONFIG MODAL (左メニュー設定)
-============================================================ -->
-<div class="modal-overlay" id="menu-config-modal" onclick="if(event.target===this)closeMenuConfig()">
+  </div></div></div><div class="modal-overlay" id="menu-config-modal" onclick="if(event.target===this)closeMenuConfig()">
   <div class="modal" style="max-width:520px;">
     <div class="modal-head">
       <h3>⚙️ ナビゲーションメニュー設定</h3>
@@ -2850,9 +2774,6 @@ tr:hover td{background:#f8fafc;}
   </div>
 </div>
 
-<!-- ============================================================
-     SIDEBAR NAVIGATION JAVASCRIPT
-============================================================ -->
 <script>
 // ============================================================
 // デフォルトメニュー定義
