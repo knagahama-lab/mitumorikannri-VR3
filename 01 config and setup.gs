@@ -11,106 +11,106 @@ var CONFIG = {
   GEMINI_FALLBACK_MODEL: 'gemini-2.5-pro',
   GEMINI_API_ENDPOINT:   'https://generativelanguage.googleapis.com/v1beta/models/',
 
-  // ===== 保存先フォルダ =====
   WEB_UPLOAD_FOLDER_ID:  '1sB42xntGKL31GeT9OjOKTxVJwj9IQz-h',
-  ORDER_TRIAL_FOLDER_ID: '1wVeYlt-9GsortfOsUggBsWta8GtXIRvS', // 注文書（試作）の保存先
-  ORDER_MASS_FOLDER_ID:  '1ASyV7PmhYQVH-72rVD3evToYJWxGhMbA', // 注文書（量産）の保存先
+  ORDER_TRIAL_FOLDER_ID: '1wVeYlt-9GsortfOsUggBsWta8GtXIRvS',
+  ORDER_MASS_FOLDER_ID:  '1ASyV7PmhYQVH-72rVD3evToYJWxGhMbA',
   QUOTE_FOLDER_ID:       '1sB42xntGKL31GeT9OjOKTxVJwj9IQz-h',
 
-  // ===== Drive自動監視：インポート用フォルダ =====
-  IMPORT_QUOTE_FOLDER_ID:       '1Y66PDSi35ScuIyS0Jgm0l3p2l7MEM2Jk',  
-  IMPORT_ORDER_TRIAL_FOLDER_ID: '1Ufq4xMjOmZvUQLC_Zp0EAWlHF0mYAGDM', // 注文書（試作）のインポート用
-  IMPORT_ORDER_MASS_FOLDER_ID:  '1ujzCtYzOqU9_a6tiEXOHhDWRv15a0p0k', // 注文書（量産）のインポート用
+  IMPORT_QUOTE_FOLDER_ID:       '1Y66PDSi35ScuIyS0Jgm0l3p2l7MEM2Jk',
+  IMPORT_ORDER_TRIAL_FOLDER_ID: '1Ufq4xMjOmZvUQLC_Zp0EAWlHF0mYAGDM',
+  IMPORT_ORDER_MASS_FOLDER_ID:  '1ujzCtYzOqU9_a6tiEXOHhDWRv15a0p0k',
 
   SHEET_MANAGEMENT: '管理シート',
   SHEET_QUOTES:     '見積書シート',
   SHEET_ORDERS:     '注文書シート',
   SHEET_EMAIL_CFG:  'メール監視設定',
-  SHEET_TODO:       'Todoリスト',   
-  SHEET_LEDGER:     '見積台帳',         
-  SHEET_MODEL_INFO: '基板情報管理',     
+  SHEET_TODO:       'Todoリスト',
+  SHEET_LEDGER:     '見積台帳',
+  SHEET_MODEL_INFO: '基板情報管理',
 
   RATE_LIMIT_WAIT_MS: 20000,
   RATE_LIMIT_RETRIES: 2,
 
-  // ===== Google Chat 通知 =====
   GOOGLE_CHAT_WEBHOOK_URL: PropertiesService.getScriptProperties().getProperty('GOOGLE_CHAT_WEBHOOK_URL') || '',
 
   STATUS: {
     PLANNED:   '作成予定',
     SENT:      '送信済み',
     RECEIVED:  '受領',
-    ORDERED:   '受注済み',   
+    ORDERED:   '受注済み',
     DELIVERED: '納品済み',
   },
   ORDER_TYPE: { TRIAL: '試作', MASS: '量産' },
 };
 
-// ===== 管理シート 列定義（30列）=====
+// ===== 管理シート 列定義（33列）=====
+// ★実際のシートが27列でも、30列以上読み込んでも空欄として処理される
 var MGMT_COLS = {
-  ID:               1,
-  QUOTE_NO:         2,
-  ORDER_NO:         3,
-  SUBJECT:          4,
-  CLIENT:           5,
-  STATUS:           6,
-  QUOTE_DATE:       7,
-  ORDER_DATE:       8,
-  QUOTE_AMOUNT:     9,
-  ORDER_AMOUNT:    10,
-  TAX:             11,
-  TOTAL:           12,
-  QUOTE_PDF_URL:   13,
-  ORDER_PDF_URL:   14,
-  DRIVE_FOLDER_URL:15,
-  QUOTE_SHEET_ROW: 16,
-  ORDER_SHEET_ROW: 17,
-  LINKED:          18,
-  ORDER_TYPE:      19,
-  MODEL_CODE:      20,
-  ORDER_SLIP_NO:   21,
-  ASSIGNEE:        22,
-  DELIVERY_DATE:   23,
-  MEMO:            24,
-  CREATED_AT:      25,
-  UPDATED_AT:      26,
-  GMAIL_MSG_ID:    27,
+  ID:                1,
+  QUOTE_NO:          2,
+  ORDER_NO:          3,
+  SUBJECT:           4,
+  CLIENT:            5,
+  STATUS:            6,
+  QUOTE_DATE:        7,
+  ORDER_DATE:        8,
+  QUOTE_AMOUNT:      9,
+  ORDER_AMOUNT:      10,
+  TAX:               11,
+  TOTAL:             12,
+  QUOTE_PDF_URL:     13,
+  ORDER_PDF_URL:     14,
+  DRIVE_FOLDER_URL:  15,
+  QUOTE_SHEET_ROW:   16,
+  ORDER_SHEET_ROW:   17,
+  LINKED:            18,
+  ORDER_TYPE:        19,
+  MODEL_CODE:        20,
+  ORDER_SLIP_NO:     21,
+  ASSIGNEE:          22,
+  DELIVERY_DATE:     23,
+  MEMO:              24,
+  CREATED_AT:        25,
+  UPDATED_AT:        26,
+  GMAIL_MSG_ID:      27,
   // ★追加：参照されているが未定義だった列
-  IS_LATEST:       28,
-  ORDER_DEADLINE:  29,
-  REVISION_NO:     30,
+  IS_LATEST:         28,
+  ORDER_DEADLINE:    29,
+  REVISION_NO:       30,
+  PARENT_MGMT_ID:    31,  // ★ _apiCreateRevision で参照
+  DEADLINE_NOTIFIED: 32,  // ★ checkOrderDeadlines で参照
 };
 
 // ===== 見積書シート 列定義（15列）=====
 var QUOTE_COLS = {
-  MGMT_ID:         1,
-  QUOTE_NO:        2,
-  ISSUE_DATE:      3,  
-  DEST_COMPANY:    4,  
-  DEST_PERSON:     5,  
-  LINE_NO:         6,
-  ITEM_NAME:       7,
-  SPEC:            8,
-  QTY:             9,
-  UNIT:           10,
-  UNIT_PRICE:     11,
-  AMOUNT:         12,
-  REMARKS:        13,
-  PDF_URL:        14,
-  FOLDER_URL:     15,
+  MGMT_ID:      1,
+  QUOTE_NO:     2,
+  ISSUE_DATE:   3,
+  DEST_COMPANY: 4,
+  DEST_PERSON:  5,
+  LINE_NO:      6,
+  ITEM_NAME:    7,
+  SPEC:         8,
+  QTY:          9,
+  UNIT:         10,
+  UNIT_PRICE:   11,
+  AMOUNT:       12,
+  REMARKS:      13,
+  PDF_URL:      14,
+  FOLDER_URL:   15,
 };
 
 // ===== 注文書シート 列定義（19列）=====
 var ORDER_COLS = {
-  MGMT_ID:         1,
-  ORDER_NO:        2,
-  LINKED_QUOTE:    3,
-  ORDER_TYPE:      4,
-  ORDER_DATE:      5,
-  MODEL_CODE:      6,
-  ORDER_SLIP_NO:   7,
-  LINE_NO:         8,
-  ITEM_NAME:       9,
+  MGMT_ID:        1,
+  ORDER_NO:       2,
+  LINKED_QUOTE:   3,
+  ORDER_TYPE:     4,
+  ORDER_DATE:     5,
+  MODEL_CODE:     6,
+  ORDER_SLIP_NO:  7,
+  LINE_NO:        8,
+  ITEM_NAME:      9,
   SPEC:           10,
   FIRST_DELIVERY: 11,
   DELIVERY_DEST:  12,
@@ -125,14 +125,53 @@ var ORDER_COLS = {
 
 // ===== Todoシート 列定義（8列）=====
 var TODO_COLS = {
-  ID:           1,
-  TITLE:        2,
-  CLIENT:       3,
-  DUE_DATE:     4,
-  PRIORITY:     5,
-  STATUS:       6,
-  LINKED_MGMT:  7,
-  MEMO:         8,
+  ID:          1,
+  TITLE:       2,
+  CLIENT:      3,
+  DUE_DATE:    4,
+  PRIORITY:    5,
+  STATUS:      6,
+  LINKED_MGMT: 7,
+  MEMO:        8,
+};
+
+// ===== 基板情報管理 列定義（10列）=====
+var MODEL_INFO_COLS = {
+  BOARD_ID:         1,
+  MODEL_CODE:       2,
+  QUOTE_URL:        3,
+  ORDER_URL:        4,
+  PURCHASE_URL1:    5,
+  PURCHASE_URL2:    6,
+  PURCHASE_URL3:    7,
+  LOCAL_SERVER_URL: 8,
+  COMMENT:          9,
+  UPDATED_AT:       10,
+};
+
+// ===== 見積台帳 列定義（14列）=====
+var LEDGER_COLS = {
+  LEDGER_ID:    1,
+  QUOTE_NO:     2,
+  ISSUE_DATE:   3,
+  DEST:         4,
+  CATEGORY:     5,
+  SUBJECT:      6,
+  STATUS:       7,
+  SAVE_URL:     8,
+  MACHINE_CODE: 9,
+  BOARD_NAME:   10,
+  MODEL_NO:     11,
+  AMOUNT:       12,
+  SUBMIT_TO:    13,
+  REMARKS:      14,
+};
+
+var LEDGER_STATUS = {
+  DRAFT:   '作成中',
+  PENDING: '作成予定',
+  SENT:    '送信済み',
+  CANCEL:  'キャンセル',
 };
 
 // ============================================================
@@ -186,9 +225,9 @@ function _setupEmailConfigSheet(ss) {
   hr.setFontWeight('bold');
   sheet.setFrozenRows(1);
   var samples = [
-    ['TRUE',  '見積書', '見積,mitsumori,quote,見積書', '',                        'yourcompany@gmail.com', '',   '自社送信済み見積書の自動検知'],
-    ['TRUE',  '注文書', '注文,発注,order,発注書,purchase', 'client@example.com',  '',                        '試作', '得意先Aからの試作注文'],
-    ['FALSE', '注文書', '注文,量産',                 'client2@example.com', '',                        '量産', '※無効化サンプル'],
+    ['TRUE',  '見積書', '見積,mitsumori,quote,見積書', '',                       'yourcompany@gmail.com', '',    '自社送信済み見積書の自動検知'],
+    ['TRUE',  '注文書', '注文,発注,order,発注書,purchase', 'client@example.com', '',                       '試作', '得意先Aからの試作注文'],
+    ['FALSE', '注文書', '注文,量産',                 'client2@example.com',  '',                       '量産', '※無効化サンプル'],
   ];
   sheet.getRange(2, 1, samples.length, headers.length).setValues(samples);
   sheet.setColumnWidth(1, 60);
@@ -201,45 +240,6 @@ function _setupEmailConfigSheet(ss) {
   var lastRow = Math.max(sheet.getLastRow(), 10);
   sheet.getRange(2, 1, lastRow, 1).insertCheckboxes();
 }
-
-// ===== 基板情報管理 列定義（10列）=====
-var MODEL_INFO_COLS = {
-  BOARD_ID:         1,  
-  MODEL_CODE:       2,  
-  QUOTE_URL:        3,  
-  ORDER_URL:        4,  
-  PURCHASE_URL1:    5,  
-  PURCHASE_URL2:    6,  
-  PURCHASE_URL3:    7,  
-  LOCAL_SERVER_URL: 8,  
-  COMMENT:          9,  
-  UPDATED_AT:      10,  
-};
-
-// ===== 見積台帳 列定義（14列）=====
-var LEDGER_COLS = {
-  LEDGER_ID:    1,  
-  QUOTE_NO:     2,  
-  ISSUE_DATE:   3,  
-  DEST:         4,  
-  CATEGORY:     5,  
-  SUBJECT:      6,  
-  STATUS:       7,  
-  SAVE_URL:     8,  
-  MACHINE_CODE: 9,  
-  BOARD_NAME:  10,  
-  MODEL_NO:    11,  
-  AMOUNT:      12,  
-  SUBMIT_TO:   13,  
-  REMARKS:     14,  
-};
-
-var LEDGER_STATUS = {
-  DRAFT:   '作成中',
-  PENDING: '作成予定',
-  SENT:    '送信済み',
-  CANCEL:  'キャンセル',
-};
 
 function _setupTodoSheet(ss) {
   var headers = ['Todo ID', 'タイトル', '顧客名', '期限日', '優先度', 'ステータス', '関連管理ID', 'メモ'];
@@ -255,21 +255,20 @@ function _setupLedgerSheet(ss) {
   var stRule = SpreadsheetApp.newDataValidation()
     .requireValueInList(['作成予定','作成中','送信済み','キャンセル'], true).build();
   sheet.getRange(2, 7, 1000, 1).setDataValidation(stRule);
-  sheet.setColumnWidth(1, 140);
-  sheet.setColumnWidth(2, 110);
-  sheet.setColumnWidth(3, 100);
-  sheet.setColumnWidth(4, 180);
-  sheet.setColumnWidth(5, 80);
-  sheet.setColumnWidth(6, 220);
-  sheet.setColumnWidth(7, 90);
-  sheet.setColumnWidth(8, 300);
-  sheet.setColumnWidth(9, 120);  
-  sheet.setColumnWidth(10, 180); 
-  sheet.setColumnWidth(11, 130); 
+  sheet.setColumnWidth(1,  140);
+  sheet.setColumnWidth(2,  110);
+  sheet.setColumnWidth(3,  100);
+  sheet.setColumnWidth(4,  180);
+  sheet.setColumnWidth(5,  80);
+  sheet.setColumnWidth(6,  220);
+  sheet.setColumnWidth(7,  90);
+  sheet.setColumnWidth(8,  300);
+  sheet.setColumnWidth(9,  120);
+  sheet.setColumnWidth(10, 180);
+  sheet.setColumnWidth(11, 130);
   sheet.setColumnWidth(12, 100);
-  sheet.setColumnWidth(13, 130); 
-  sheet.setColumnWidth(14, 250); 
-  Logger.log('見積台帳シートをセットアップしました');
+  sheet.setColumnWidth(13, 130);
+  sheet.setColumnWidth(14, 250);
 }
 
 function _setupModelInfoSheet(ss) {
@@ -280,17 +279,16 @@ function _setupModelInfoSheet(ss) {
     'ローカルサーバーURL', 'コメント', '最終更新日'
   ];
   var sheet = _createOrSetupSheet(ss, CONFIG.SHEET_MODEL_INFO, headers, '#E8F5E9');
-  sheet.setColumnWidth(1, 120);
-  sheet.setColumnWidth(2, 120);
-  sheet.setColumnWidth(3, 280);
-  sheet.setColumnWidth(4, 280);
-  sheet.setColumnWidth(5, 280);
-  sheet.setColumnWidth(6, 280);
-  sheet.setColumnWidth(7, 280);
-  sheet.setColumnWidth(8, 280);
-  sheet.setColumnWidth(9, 300);
+  sheet.setColumnWidth(1,  120);
+  sheet.setColumnWidth(2,  120);
+  sheet.setColumnWidth(3,  280);
+  sheet.setColumnWidth(4,  280);
+  sheet.setColumnWidth(5,  280);
+  sheet.setColumnWidth(6,  280);
+  sheet.setColumnWidth(7,  280);
+  sheet.setColumnWidth(8,  280);
+  sheet.setColumnWidth(9,  300);
   sheet.setColumnWidth(10, 140);
-  Logger.log('機種情報管理シートをセットアップしました');
 }
 
 function getAllModelInfoData() {
@@ -303,7 +301,7 @@ function getAllModelInfoData() {
 
 function _modelInfoRowToObject(row) {
   return {
-    boardId:        String(row[0] || ''),  
+    boardId:        String(row[0] || ''),
     modelCode:      String(row[1] || ''),
     quoteUrl:       String(row[2] || ''),
     orderUrl:       String(row[3] || ''),
@@ -325,16 +323,13 @@ function getAllLedgerData() {
   var ss    = getSpreadsheet();
   var sheet = ss.getSheetByName(CONFIG.SHEET_LEDGER);
   if (!sheet || sheet.getLastRow() <= 1) return [];
-
   var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 14).getValues();
-  var needsWrite = false;
   data.forEach(function(row, i) {
     var hasContent = row.slice(1).some(function(v) { return String(v).trim() !== ''; });
     if (!hasContent) return;
     if (row[0] === '' || row[0] === null || row[0] === undefined) {
       row[0] = generateLedgerId();
       sheet.getRange(i + 2, 1).setValue(row[0]);
-      needsWrite = true;
     }
   });
   return data.filter(function(r) {
@@ -344,20 +339,20 @@ function getAllLedgerData() {
 
 function _ledgerRowToObject(row) {
   return {
-    ledgerId:    String(row[0] || ''),
-    quoteNo:     String(row[1] || ''),
+    ledgerId:    String(row[0]  || ''),
+    quoteNo:     String(row[1]  || ''),
     issueDate:   _toDateStr(row[2]),
-    dest:        String(row[3] || ''),
-    category:    String(row[4] || ''),
-    subject:     String(row[5] || ''),
-    status:      String(row[6] || ''),
-    saveUrl:     String(row[7] || ''),
-    machineCode: String(row[8] || ''),
-    boardName:   String(row[9] || ''),
-    modelNo:     String(row[10] || ''),   
-    amount:      row[11] !== '' && row[11] !== null && row[11] !== undefined ? Number(row[11]) : null,  
-    submitTo:    String(row[12] || ''),   
-    remarks:     String(row[13] || ''),   
+    dest:        String(row[3]  || ''),
+    category:    String(row[4]  || ''),
+    subject:     String(row[5]  || ''),
+    status:      String(row[6]  || ''),
+    saveUrl:     String(row[7]  || ''),
+    machineCode: String(row[8]  || ''),
+    boardName:   String(row[9]  || ''),
+    modelNo:     String(row[10] || ''),
+    amount:      (row[11] !== '' && row[11] !== null && row[11] !== undefined) ? Number(row[11]) : null,
+    submitTo:    String(row[12] || ''),
+    remarks:     String(row[13] || ''),
   };
 }
 
@@ -367,8 +362,7 @@ function _getMgmtHeaders() {
     'ステータス','見積日','発注日','見積金額','注文金額',
     '消費税','合計金額','見積書PDF URL','注文書PDF URL','保存先フォルダURL',
     '見積書シート行','注文書シート行','紐づけ済み','注文種別',
-    '機種コード','発注伝票番号',
-    '担当者','納期','メモ',
+    '機種コード','発注伝票番号','担当者','納期','メモ',
     '登録日時','更新日時','GmailID',
   ];
 }
@@ -376,7 +370,7 @@ function _getMgmtHeaders() {
 function _getQuoteHeaders() {
   return [
     '管理ID','見積番号',
-    '発行日','送り先会社名','送り先担当者名',  
+    '発行日','送り先会社名','送り先担当者名',
     '行No','品名','仕様','数量','単位','単価','金額','備考','PDF URL','フォルダURL'
   ];
 }
@@ -395,28 +389,26 @@ function _registerTriggers() {
   ScriptApp.newTrigger('processNewEmails').timeBased().everyMinutes(15).create();
   ScriptApp.newTrigger('processDriveImports').timeBased().everyMinutes(5).create();
   ScriptApp.newTrigger('autoMatchNewOrders').timeBased().everyHours(1).create();
-  Logger.log('トリガー登録完了（Gmail15分 + Drive5分 + マッチング1時間）');
+  Logger.log('トリガー登録完了');
 }
-
 
 // ============================================================
 // メール監視設定シート読み込み
 // ============================================================
 
 function getEmailConfigs() {
-  var ss = getSpreadsheet();
+  var ss    = getSpreadsheet();
   var sheet = ss.getSheetByName(CONFIG.SHEET_EMAIL_CFG);
   if (!sheet || sheet.getLastRow() <= 1) return [];
   var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 7).getValues();
   var configs = [];
   data.forEach(function(row) {
-    var enabled    = row[0] === true || row[0] === 'TRUE';
-    var docType    = String(row[1]).trim();
-    var keywords   = String(row[2]).split(',').map(function(k) { return k.trim().toLowerCase(); }).filter(Boolean);
-    var fromEmail  = String(row[3]).trim().toLowerCase();
-    var toEmail    = String(row[4]).trim().toLowerCase();
-    var orderType  = String(row[5]).trim();
-
+    var enabled   = row[0] === true || row[0] === 'TRUE';
+    var docType   = String(row[1]).trim();
+    var keywords  = String(row[2]).split(',').map(function(k) { return k.trim().toLowerCase(); }).filter(Boolean);
+    var fromEmail = String(row[3]).trim().toLowerCase();
+    var toEmail   = String(row[4]).trim().toLowerCase();
+    var orderType = String(row[5]).trim();
     if (enabled && keywords.length > 0) {
       configs.push({
         docType:   docType === '見積書' ? 'quote' : 'order',
@@ -446,19 +438,19 @@ function matchEmailConfig(filename, subject, fromAddr, toAddr) {
   return null;
 }
 
-
 // ============================================================
 // ユーティリティ
 // ============================================================
 
 function getSpreadsheet() {
-  var id = CONFIG.SPREADSHEET_ID || PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
+  var id = CONFIG.SPREADSHEET_ID ||
+           PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
   return SpreadsheetApp.openById(id);
 }
 
 function generateMgmtId() {
-  var date = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyyMMdd');
-  return 'QM-' + date + '-' + (Math.floor(Math.random() * 9000) + 1000);
+  return 'QM-' + Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyyMMdd') + '-' +
+    (Math.floor(Math.random() * 9000) + 1000);
 }
 
 function generateTodoId() {
@@ -478,8 +470,10 @@ function getAllMgmtData() {
   var sheet = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT);
   var last  = sheet.getLastRow();
   if (last <= 1) return [];
-  // ★修正：読み込み列数を27から30に変更
-  return sheet.getRange(2, 1, last - 1, 30).getValues()
+  // ★実際の列数より多く指定してもGASは空欄として返すので安全
+  var actualCols = sheet.getLastColumn();
+  var readCols   = Math.max(actualCols, 27); // 最低27列は読む
+  return sheet.getRange(2, 1, last - 1, readCols).getValues()
     .filter(function(r) { return r[0] !== ''; });
 }
 
@@ -543,24 +537,31 @@ function testGeminiConnection() {
   Logger.log('APIキー先頭8文字: ' + (apiKey ? apiKey.substring(0,8) : 'NULL'));
   var url = CONFIG.GEMINI_API_ENDPOINT + CONFIG.GEMINI_PRIMARY_MODEL + ':generateContent?key=' + apiKey;
   var res = UrlFetchApp.fetch(url, {
-    method:'post', contentType:'application/json',
+    method: 'post', contentType: 'application/json',
     payload: JSON.stringify({contents:[{parts:[{text:'テスト。OKとだけ返して。'}]}]}),
     muteHttpExceptions: true,
   });
   Logger.log('Status: ' + res.getResponseCode());
-  Logger.log('Body: ' + res.getContentText().substring(0,400));
+  Logger.log('Body: '   + res.getContentText().substring(0,400));
 }
 
 function checkAvailableModels() {
   var apiKey = CONFIG.GEMINI_API_KEY;
-  var url = 'https://generativelanguage.googleapis.com/v1beta/models?key=' + apiKey;
-  
-  var res = UrlFetchApp.fetch(url, {muteHttpExceptions: true});
-  var data = JSON.parse(res.getContentText());
+  var url    = 'https://generativelanguage.googleapis.com/v1beta/models?key=' + apiKey;
+  var res    = UrlFetchApp.fetch(url, {muteHttpExceptions: true});
+  var data   = JSON.parse(res.getContentText());
   if (data.models) {
-    var modelNames = data.models.map(function(m) { return m.name; });
-    Logger.log('【あなたのAPIキーで使えるモデル一覧】\n' + modelNames.join('\n'));
+    Logger.log('【使えるモデル一覧】\n' + data.models.map(function(m){ return m.name; }).join('\n'));
   } else {
     Logger.log('エラー: ' + res.getContentText());
   }
+}
+
+// ★診断用：実際のシート列数を確認する関数
+function checkMgmtColumns() {
+  var ss      = getSpreadsheet();
+  var sheet   = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT);
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  Logger.log('管理シート 実際の列数: ' + headers.length);
+  Logger.log('ヘッダー一覧: ' + JSON.stringify(headers));
 }
