@@ -212,6 +212,12 @@ function openDetail(mgmtId) {
 }
 function closeDetailModal(){document.getElementById('detail-modal').classList.remove('open');}
 
+// ============================================================
+// 📋 詳細モーダル表示 ＆ 紐づけ機能
+// ============================================================
+// ============================================================
+// 📋 詳細モーダル表示 ＆ 紐づけ機能
+// ============================================================
 function _buildDetailHtml(item, detail) {
   const orderLinks = [
     item.orderPdfUrl ? `<a href="${item.orderPdfUrl}" target="_blank" class="pdf-link" style="display:inline-block; background:white; padding:2px 8px; border-radius:4px; border:1px solid var(--border); text-decoration:none; font-size:11px;">📄 発注書PDF</a>` : '',
@@ -281,37 +287,108 @@ function _buildDetailHtml(item, detail) {
     </table></div>` : '';
 
   let linkHtml = '';
+  // 注文書番号があって、見積書番号がない（未紐づけ）場合のみ表示
   if (item.orderNo && !item.quoteNo) {
     let candHtml = '';
     if (typeof _allMatchingItems !== 'undefined') {
       const matchData = _allMatchingItems.find(m => String(m.orderMgmtId) === String(item.id) || String(m.orderNo) === String(item.orderNo));
-      if (matchData && matchData.candidates && matchData.candidates.length > 0) {
-        candHtml = `<div style="margin-top:12px;font-size:12px;color:var(--text2);">
-          💡 <b>AIの推測候補:</b><br>
-          <div style="display:flex; gap:6px; margin-top:6px; flex-wrap:wrap;">` + 
-          matchData.candidates.map(c => `
-            <button class="btn btn-outline btn-sm" onclick="confirmLink('${item.id}','${c.quoteId}')" style="background:white; border-color:#fbbc04;">
-              ${c.quoteNo || c.quoteId} (${c.score}点)
-            </button>`).join('') +
-          `</div></div>`;
+      
+      if (matchData) {
+        let cands = [];
+        if (matchData.candidates && matchData.candidates.length > 0) {
+          cands = matchData.candidates;
+        } else {
+          if (matchData.c1Id) cands.push({ id: matchData.c1Id, no: matchData.c1No, score: matchData.c1Score });
+          if (matchData.c2Id) cands.push({ id: matchData.c2Id, no: '', score: matchData.c2Score });
+          if (matchData.c3Id) cands.push({ id: matchData.c3Id, no: '', score: matchData.c3Score });
+        }
+
+        if (cands.length > 0) {
+          const candCards = cands.map(c => {
+             const qId = c.id || c.quoteId;
+             const q = (typeof _allQuotes !== 'undefined') ? _allQuotes.find(aq => String(aq.id) === String(qId)) : null;
+             const qNo = q && q.quoteNo ? q.quoteNo : (c.no || c.quoteNo || qId || '不明');
+             const qDate = q && q.issueDate ? q.issueDate : '—';
+             
+             let itemNames = '—';
+             let unitPrice = '—';
+             if (detail && detail.allQuoteLines && detail.allQuoteLines.length > 0) {
+               const qLines = detail.allQuoteLines.filter(ql => String(ql.mgmtId) === String(qId));
+               if (qLines.length > 0) {
+                 itemNames = qLines.map(ql => ql.itemName).join('、');
+                 unitPrice = '¥' + Number(qLines[0].unitPrice).toLocaleString();
+               }
+             }
+
+             const btnColor = c.score >= 80 ? 'var(--success)' : '#fbbc04';
+
+             return `
+             <div style="background:#fff; border:1px solid var(--border); border-left:4px solid ${btnColor}; border-radius:6px; padding:12px; margin-bottom:8px; display:flex; align-items:center; justify-content:space-between; box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+               <div style="flex:1;">
+                 <div style="font-weight:700; font-size:13px; color:var(--text); margin-bottom:6px; display:flex; align-items:center; gap:8px;">
+                   📄 見積NO: ${qNo} 
+                   <span style="background:${btnColor}; color:#fff; padding:2px 6px; border-radius:4px; font-size:11px;">${c.score}点</span>
+                 </div>
+                 <div style="font-size:11px; color:var(--text-sub); display:flex; flex-wrap:wrap; gap:12px; line-height:1.5;">
+                   <span><b style="color:var(--text);">📅 発行日:</b> ${qDate}</span>
+                   <span><b style="color:var(--text);">💰 単価:</b> <span style="color:var(--danger); font-weight:600;">${unitPrice}</span></span>
+                   <span style="width:100%;"><b style="color:var(--text);">📦 項目名:</b> ${itemNames}</span>
+                 </div>
+               </div>
+               <button class="btn btn-primary" onclick="confirmLink('${item.id}','${qId}')" style="margin-left:12px; white-space:nowrap; height:fit-content;">🔗 確定</button>
+             </div>`;
+          }).join('');
+
+          candHtml = `
+            <div style="margin-top:16px; border-top:1px dashed #b5d4f4; padding-top:12px;">
+              <div style="font-size:12px; font-weight:700; color:var(--info); margin-bottom:10px;">💡 AIが推測した見積書候補:</div>
+              ${candCards}
+            </div>`;
+        }
       }
     }
     
+    // ★ 変更部分：プルダウンの表示を見積NO・項目名・単価・発行日に変更
     let quoteOpts = '';
     if (typeof _allQuotes !== 'undefined') {
       const unlinkedQuotes = _allQuotes.filter(q => !q.linked);
-      quoteOpts = unlinkedQuotes.map(q => `<option value="${q.id}">${q.quoteNo || '見積Noなし'} （${q.client || '顧客不明'} : ¥${q.quoteAmount ? Number(q.quoteAmount).toLocaleString() : 0}）</option>`).join('');
+      
+      quoteOpts = unlinkedQuotes.map(q => {
+        let itemNames = q.subject || '—'; // 基本は件名
+        let unitPrice = '—';
+        
+        // 明細データが存在する場合は、そこから項目名と単価を抽出
+        if (detail && detail.allQuoteLines && detail.allQuoteLines.length > 0) {
+          const qLines = detail.allQuoteLines.filter(ql => String(ql.mgmtId) === String(q.id));
+          if (qLines.length > 0) {
+            const names = qLines.map(ql => ql.itemName).filter(Boolean);
+            if (names.length > 0) itemNames = names.join('、');
+            if (qLines[0].unitPrice != null) unitPrice = '¥' + Number(qLines[0].unitPrice).toLocaleString();
+          } else if (q.quoteAmount != null) {
+            unitPrice = '¥' + Number(q.quoteAmount).toLocaleString();
+          }
+        } else if (q.quoteAmount != null) {
+          unitPrice = '¥' + Number(q.quoteAmount).toLocaleString();
+        }
+        
+        const qDate = q.issueDate || '—';
+        const qNo = q.quoteNo || 'Noなし';
+        
+        // プルダウン内に表示するテキスト
+        const displayText = `NO:${qNo} ｜ 単価:${unitPrice} ｜ 項目:${itemNames} ｜ 発行日:${qDate}`;
+        return `<option value="${q.id}">${displayText}</option>`;
+      }).join('');
     }
 
     linkHtml = `
     <div style="background:var(--info-bg);border:1px solid #b5d4f4;border-radius:8px;padding:16px;margin:20px 0;">
-      <div style="font-size:13px;font-weight:700;margin-bottom:10px;color:var(--info);">🔗 見積書との紐づけ</div>
+      <div style="font-size:13px;font-weight:700;margin-bottom:10px;color:var(--info);">🔗 手動で他の見積書と紐づける</div>
       <div style="display:flex;gap:8px;align-items:center;">
         <select id="manual-link-quote-id" style="flex:1;padding:8px 10px;border-radius:4px;border:1px solid var(--border2);font-size:13px;background:white;outline:none;">
           <option value="">-- 既存の未紐づけ見積書から選択 --</option>
           ${quoteOpts}
         </select>
-        <button class="btn btn-primary" onclick="_manualLinkQuote('${item.id}')">この見積書で確定</button>
+        <button class="btn btn-primary" onclick="_manualLinkQuote('${item.id}')" style="white-space:nowrap;">この見積書で確定</button>
       </div>
       ${candHtml}
     </div>

@@ -781,12 +781,17 @@ function _apiRunMatching(p) {
   return { success: true, result: runBatchMatching() };
 }
 
+// ===== 見積書一覧 API =====
 function _apiQuoteListGetAll() {
   try {
     var ss         = getSpreadsheet();
     var quoteSheet = ss.getSheetByName(CONFIG.SHEET_QUOTES);
     var mgmtData  = getAllMgmtData();
+    
+    // 見積番号がある行だけを抽出
     var allRows   = mgmtData.filter(function(r) { return String(r[MGMT_COLS.QUOTE_NO - 1]).trim() !== ''; });
+    
+    // 重複を排除
     var seenQNo  = {};
     var quoteRows = allRows.filter(function(r) {
       var qNo = String(r[MGMT_COLS.QUOTE_NO - 1]).trim();
@@ -794,6 +799,7 @@ function _apiQuoteListGetAll() {
       seenQNo[qNo] = true;
       return true;
     });
+
     var quoteLineMap = {};
     if (quoteSheet && quoteSheet.getLastRow() > 1) {
       var qData = quoteSheet.getRange(2, 1, quoteSheet.getLastRow() - 1, 15).getValues();
@@ -807,6 +813,7 @@ function _apiQuoteListGetAll() {
         };
       });
     }
+
     var items = quoteRows.map(function(r) {
       var mgmtId  = String(r[MGMT_COLS.ID - 1] || '');
       var lineInfo = quoteLineMap[mgmtId] || {};
@@ -823,13 +830,17 @@ function _apiQuoteListGetAll() {
         linked:      _isLinkedVal(r[MGMT_COLS.LINKED - 1]),
         orderType:   String(r[MGMT_COLS.ORDER_TYPE - 1]    || ''),
         modelCode:   String(r[MGMT_COLS.MODEL_CODE - 1]    || ''),
+        // ★ ここが重要！件名（SUBJECT）をデータに追加
+        subject:     String(r[MGMT_COLS.SUBJECT - 1]       || ''),
       };
     });
+
     items.sort(function(a, b) {
       var da = String(a.issueDate || a.quoteDate || '');
       var db = String(b.issueDate || b.quoteDate || '');
       return db.localeCompare(da);
     });
+
     return { success: true, total: items.length, items: items };
   } catch(e) { return { success: false, error: e.message }; }
 }
