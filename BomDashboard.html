@@ -1,602 +1,675 @@
-<!DOCTYPE html>
-<html>
-<head>
-<base target="_top">
-<meta charset="utf-8">
-<style>
-/* Reset & Base */
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  background-color: #f8fafc;
-  color: #334155;
-  font-size: 14px;
-  line-height: 1.5;
-}
-
-/* Color Variables */
-:root {
-  --primary: #3b82f6;
-  --primary-hover: #2563eb;
-  --danger: #ef4444;
-  --danger-hover: #dc2626;
-  --success: #22c55e;
-  --border: #e2e8f0;
-  --text-main: #1e293b;
-  --text-sub: #64748b;
-  --bg-main: #f8fafc;
-  --bg-card: #ffffff;
-  --text: #1e293b;
-  --text2: #475569;
-  --text3: #64748b;
-  --surface: #ffffff;
-  --surface2: #f8fafc;
-  --accent: #3b82f6;
-  --accent-bg: #eff6ff;
-}
-
-/* Layout */
-#app-container { display: flex; height: 100vh; overflow: hidden; }
-#sidebar { width: 220px; background-color: #1e293b; color: #f8fafc; display: flex; flex-direction: column; }
-.sidebar-header { padding: 20px; font-size: 16px; font-weight: bold; border-bottom: 1px solid #334155; display: flex; align-items: center; gap: 10px; }
-.sidebar-menu { flex: 1; padding: 10px 0; overflow-y: auto; }
-.menu-item { padding: 12px 20px; cursor: pointer; display: flex; align-items: center; gap: 10px; transition: background-color 0.2s; color: #cbd5e1; }
-.menu-item:hover, .menu-item.active { background-color: #334155; color: #ffffff; border-left: 4px solid var(--primary); }
-.menu-icon { width: 20px; text-align: center; }
-
-#main-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-#topbar { height: 60px; background-color: var(--bg-card); border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; padding: 0 24px; }
-#page-title { font-size: 18px; font-weight: 600; color: var(--text-main); }
-#topbar-actions { display: flex; gap: 10px; }
-#content-area { flex: 1; padding: 24px; overflow-y: auto; }
-
-/* Components */
-.card { background-color: var(--bg-card); border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); padding: 24px; margin-bottom: 24px; }
-.card-title { font-size: 16px; font-weight: 600; margin-bottom: 16px; color: var(--text-main); }
-
-/* Buttons */
-.btn { padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; border: 1px solid transparent; transition: all 0.2s; }
-.btn-primary { background-color: var(--primary); color: white; }
-.btn-primary:hover { background-color: var(--primary-hover); }
-.btn-outline { background-color: transparent; border-color: var(--border); color: var(--text-main); }
-.btn-outline:hover { background-color: var(--bg-main); }
-.btn-danger { background-color: transparent; border-color: var(--danger); color: var(--danger); }
-.btn-danger:hover { background-color: var(--danger); color: white; }
-.btn-sm { padding: 4px 10px; font-size: 12px; }
-
-/* Tables */
-.table-container { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; text-align: left; }
-th { background-color: var(--bg-main); color: var(--text-sub); font-size: 12px; font-weight: 600; padding: 12px 16px; border-bottom: 1px solid var(--border); white-space: nowrap; }
-td { padding: 12px 16px; border-bottom: 1px solid var(--border); color: var(--text-main); }
-tr:last-child td { border-bottom: none; }
-tr:hover td { background-color: #f8fafc; }
-
-/* Forms & Inputs */
-.form-group { margin-bottom: 16px; }
-.form-label { display: block; font-size: 13px; font-weight: 500; color: var(--text-sub); margin-bottom: 6px; }
-.form-control { width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; color: var(--text-main); transition: border-color 0.2s; }
-.form-control:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px rgba(59,130,246,0.1); }
-select.form-control { background-color: #fff; cursor: pointer; }
-
-/* Modals */
-.modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(15,23,41,0.6); z-index: 1000; align-items: center; justify-content: center; backdrop-filter: blur(2px); }
-.modal-overlay.active { display: flex; }
-.modal-container { background-color: var(--bg-card); border-radius: 8px; width: 90%; max-width: 500px; max-height: 90vh; display: flex; flex-direction: column; box-shadow: 0 10px 25px rgba(0,0,0,0.2); }
-.modal-header { padding: 16px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
-.modal-title { font-size: 16px; font-weight: 600; }
-.modal-close { background: none; border: none; font-size: 20px; color: var(--text-sub); cursor: pointer; }
-.modal-body { padding: 24px; overflow-y: auto; }
-.modal-footer { padding: 16px 24px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 12px; }
-
-/* Utilities */
-.loading-spinner { display: inline-block; width: 24px; height: 24px; border: 3px solid #e2e8f0; border-radius: 50%; border-top-color: var(--primary); animation: spin 1s ease-in-out infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
-.loading-container { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px; color: var(--text-sub); gap: 12px; }
-.badge { padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
-.badge-gray { background: #f1f5f9; color: #475569; }
-.stat-card { border: 1px solid var(--border); border-radius: 8px; padding: 16px; background: var(--surface); box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
-.stat-label { font-size: 12px; color: var(--text3); margin-bottom: 4px; font-weight: 600; }
-.stat-value { font-size: 24px; font-weight: 700; color: var(--text); }
-.profit-high { color: var(--success); }
-.profit-mid { color: var(--warning); }
-.profit-low { color: var(--danger); }
-.empty-state { text-align: center; padding: 40px 20px; color: var(--text3); background: var(--surface2); border-radius: 8px; border: 1px dashed var(--border); }
-.num { font-family: 'IBM Plex Mono', monospace; }
-</style>
-</head>
-<body>
-
-<div id="app-container">
-  <aside id="sidebar">
-    <div class="sidebar-header">
-      <span>🏭 BOM管理</span>
-    </div>
-    <div class="sidebar-menu">
-      <div class="menu-item active" onclick="switchTab('parts')" id="menu-parts">
-        <span class="menu-icon">🔩</span>部品マスタ
-      </div>
-      <div class="menu-item" onclick="switchTab('products')" id="menu-products">
-        <span class="menu-icon">📱</span>機種・基板
-      </div>
-      <div class="menu-item" onclick="switchTab('bom')" id="menu-bom">
-        <span class="menu-icon">📋</span>部品構成表(BOM)
-      </div>
-      <div style="border-top:1px solid #334155; margin: 10px 0;"></div>
-      <div class="menu-item" onclick="window.open(ScriptApp.getService().getUrl(), '_top')">
-        <span class="menu-icon">⬅️</span>見積管理へ戻る
-      </div>
-    </div>
-  </aside>
-
-  <main id="main-content">
-    <header id="topbar">
-      <div id="page-title">部品マスタ</div>
-      <div id="topbar-actions"></div>
-    </header>
-    
-    <div id="content-area"></div>
-  </main>
-</div>
-
-<div class="modal-overlay" id="modal-parts">
-  <div class="modal-container">
-    <div class="modal-header">
-      <h3 class="modal-title" id="parts-modal-title">部品の追加</h3>
-      <button class="modal-close" onclick="closeModal('parts')">×</button>
-    </div>
-    <div class="modal-body">
-      <input type="hidden" id="f-id">
-      <div class="form-group">
-        <label class="form-label">部品コード (ID) <span style="color:var(--danger)">*</span></label>
-        <input type="text" id="f-id" class="form-control" placeholder="自動生成する場合は空欄">
-      </div>
-      <div class="form-group">
-        <label class="form-label">部品名 <span style="color:var(--danger)">*</span></label>
-        <input type="text" id="f-name" class="form-control">
-      </div>
-      <div class="form-group">
-        <label class="form-label">メーカー</label>
-        <input type="text" id="f-maker" class="form-control">
-      </div>
-      <div style="display:flex; gap:16px;">
-        <div class="form-group" style="flex:1;">
-          <label class="form-label">仕入原価 (円)</label>
-          <input type="number" id="f-cost" class="form-control" placeholder="0">
-        </div>
-        <div class="form-group" style="flex:1;">
-          <label class="form-label">公表単価/売値 (円)</label>
-          <input type="number" id="f-price" class="form-control" placeholder="0">
-        </div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">カテゴリ</label>
-        <input type="text" id="f-cat" class="form-control" value="電子部品">
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-outline" onclick="closeModal('parts')">キャンセル</button>
-      <button class="btn btn-primary" onclick="savePart()">保存</button>
-    </div>
-  </div>
-</div>
-
-<div class="modal-overlay" id="modal-product">
-  <div class="modal-container">
-    <div class="modal-header">
-      <h3 class="modal-title" id="product-modal-title">機種の追加</h3>
-      <button class="modal-close" onclick="closeModal('product')">×</button>
-    </div>
-    <div class="modal-body">
-      <input type="hidden" id="fp-id">
-      <div class="form-group">
-        <label class="form-label">機種コード <span style="color:var(--danger)">*</span></label>
-        <input type="text" id="fp-code" class="form-control">
-      </div>
-      <div class="form-group">
-        <label class="form-label">機種名 <span style="color:var(--danger)">*</span></label>
-        <input type="text" id="fp-name" class="form-control">
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-outline" onclick="closeModal('product')">キャンセル</button>
-      <button class="btn btn-primary" onclick="saveProduct(document.getElementById('fp-id').value)">保存</button>
-    </div>
-  </div>
-</div>
-
-<div class="modal-overlay" id="modal-board">
-  <div class="modal-container">
-    <div class="modal-header">
-      <h3 class="modal-title" id="board-modal-title">基板の追加</h3>
-      <button class="modal-close" onclick="closeModal('board')">×</button>
-    </div>
-    <div class="modal-body">
-      <input type="hidden" id="fb-id">
-      <input type="hidden" id="fb-pid">
-      <div class="form-group">
-        <label class="form-label">基板コード</label>
-        <input type="text" id="fb-code" class="form-control">
-      </div>
-      <div class="form-group">
-        <label class="form-label">基板名 <span style="color:var(--danger)">*</span></label>
-        <input type="text" id="fb-name" class="form-control">
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-outline" onclick="closeModal('board')">キャンセル</button>
-      <button class="btn btn-primary" onclick="saveBoard(document.getElementById('fb-pid').value, document.getElementById('fb-id').value)">保存</button>
-    </div>
-  </div>
-</div>
-
-<div class="modal-overlay" id="modal-bom">
-  <div class="modal-container">
-    <div class="modal-header">
-      <h3 class="modal-title">BOMの追加</h3>
-      <button class="modal-close" onclick="closeModal('bom')">×</button>
-    </div>
-    <div class="modal-body">
-      <input type="hidden" id="fb-bom-id">
-      <input type="hidden" id="fb-bom-bid">
-      <div class="form-group">
-        <label class="form-label">部品 <span style="color:var(--danger)">*</span></label>
-        <select id="fb-part" class="form-control"></select>
-      </div>
-      <div class="form-group">
-        <label class="form-label">数量 <span style="color:var(--danger)">*</span></label>
-        <input type="number" id="fb-qty" class="form-control" value="1">
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-outline" onclick="closeModal('bom')">キャンセル</button>
-      <button class="btn btn-primary" onclick="saveBOM(document.getElementById('fb-bom-id').value, document.getElementById('fb-bom-bid').value)">保存</button>
-    </div>
-  </div>
-</div>
-
 <script>
-// ==========================================
-// DATA STORE — スプレッドシート共有版
-// ==========================================
-let db = { parts: [], products: [], boards: [], bom: [] };
-let _loading = false;
-let currentTab = 'parts';
+// ============================================================
+// グローバル状態・初期化
+// ============================================================
+const S = {
+  all:[], filtered:[], page:1, limit:30,
+  docType:'quote', orderType:'', selectedFile:null,
+  calYear: new Date().getFullYear(), calMonth: new Date().getMonth()+1,
+  calEvents:[],
+};
+let searchTimer=null;
 
-function gasCall(action, payload, onSuccess, onError) {
+window.addEventListener('load', () => {
+  _populateMonthFilter();
+  loadData();
+  loadQuoteList();
+  loadMatchingCandidates();
+});
+
+// --- ▼ 検索用の文字列正規化関数 ▼ ---
+function normalizeSearchText(str) {
+  if (str === null || str === undefined) return '';
+  return String(str).toLowerCase()
+    .replace(/[Ａ-Ｚａ-ｚ０-９]/g, function(s) { return String.fromCharCode(s.charCodeAt(0) - 0xFEE0); })
+    .replace(/[\u3000]/g, ' ');
+}
+
+// ============================================================
+// 案件データ（注文書一覧）
+// ============================================================
+function loadData() {
+  const container = document.getElementById('table-container');
+  if(!container) return;
+  container.innerHTML = '<div class="loading"><div class="spinner"></div><br>データ読み込み中...</div>';
   google.script.run
-    .withSuccessHandler(function(res) {
-      if (res && res.success) { onSuccess(res); }
-      else {
-        const msg = (res && res.error) ? res.error : '不明なエラー';
-        if (onError) onError(msg); else showToast('エラー: ' + msg, true);
+    .withSuccessHandler(res => {
+      if (!res || !res.success) {
+        container.innerHTML = '<div class="loading" style="color:var(--danger);">⚠️ データ取得失敗: ' + (res ? res.error : '不明') + '</div>'; return;
       }
+      S.all = res.items || [];
+      S.filtered = S.all.slice();
+      S.page = 1;
+      _updateSummary();
+      _renderTable();
     })
-    .withFailureHandler(function(err) {
-      const msg = err.message || String(err);
-      if (onError) onError(msg); else showToast('通信エラー: ' + msg, true);
-    })
-    .handleApiRequest(action, payload || {});
+    .withFailureHandler(err => { container.innerHTML = '<div class="loading" style="color:var(--danger);">⚠️ 通信エラー: ' + err.message + '</div>'; })
+    .handleApiRequest('getAll', null);
 }
 
-function showToast(msg, isError) {
-  let t = document.getElementById('bom-toast');
-  if (!t) {
-    t = document.createElement('div');
-    t.id = 'bom-toast';
-    t.style.cssText = 'position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:8px;font-size:13px;font-weight:600;z-index:99999;transition:all 0.3s;box-shadow:0 4px 12px rgba(0,0,0,0.2);';
-    document.body.appendChild(t);
-  }
-  t.textContent = (isError ? '✗ ' : '✓ ') + msg;
-  t.style.background = isError ? '#c0392b' : '#1a6b3a';
-  t.style.color = '#fff';
-  t.style.opacity = '1';
-  clearTimeout(t._timer);
-  t._timer = setTimeout(() => { t.style.opacity = '0'; }, 3000);
+function switchSubTab(tab) {
+  var isOrder   = tab === 'order';
+  var areaOrder = document.getElementById('area-order');
+  var areaQuote = document.getElementById('area-quote');
+  var orderBtn  = document.getElementById('subtab-order');
+  var quoteBtn  = document.getElementById('subtab-quote');
+  if (!areaOrder || !areaQuote || !orderBtn || !quoteBtn) return;
+  areaOrder.style.display = isOrder ? '' : 'none';
+  areaQuote.style.display = isOrder ? 'none' : '';
+  orderBtn.style.color        = isOrder ? 'var(--primary)'  : 'var(--text-sub)';
+  orderBtn.style.borderBottom = isOrder ? '2px solid var(--primary)' : '2px solid transparent';
+  orderBtn.style.fontWeight   = isOrder ? '600' : '500';
+  quoteBtn.style.color        = isOrder ? 'var(--text-sub)'  : 'var(--primary)';
+  quoteBtn.style.borderBottom = isOrder ? '2px solid transparent' : '2px solid var(--primary)';
+  quoteBtn.style.fontWeight   = isOrder ? '500' : '600';
+  if (!isOrder && _allQuotes.length === 0) loadQuoteList();
 }
 
-function loadAllData(callback) {
-  _loading = true;
-  const content = document.getElementById('content-area');
-  if (!db.parts.length) {
-    content.innerHTML = `<div class="loading-container"><div class="loading-spinner"></div><div>全データを読み込み中...</div></div>`;
-  }
-  gasCall('bomGetAll', {}, function(res) {
-    _loading = false;
-    db.parts = (res.parts || []).map(r => ({
-      id: String(r['部品ID']||''), code: String(r['部品ID']||''), name: String(r['部品名']||''),
-      category: String(r['カテゴリ']||''), maker: String(r['メーカー']||''), unit: String(r['単位']||'個'),
-      spec: String(r['仕様']||''), cost: Number(r['原価'])||0, price: Number(r['売値'])||0, stock: Number(r['在庫'])||0
-    }));
-    db.products = (res.products || []).map(r => ({
-      id: String(r['機種ID']||''), name: String(r['機種名']||''), code: String(r['機種コード']||''), desc: String(r['説明']||'')
-    }));
-    db.boards = (res.boards || []).map(r => ({
-      id: String(r['基板ID']||''), productId: String(r['機種ID']||''), name: String(r['基板名']||''), code: String(r['コード']||''),
-      type: String(r['説明']||''), version: String(r['バージョン']||'')
-    }));
-    db.bom = (res.bom || []).map(r => ({
-      id: String(r['BOMID']||''), boardId: String(r['基板ID']||''), partId: String(r['部品ID']||''), qty: Number(r['数量'])||0, note: String(r['備考']||'')
-    }));
-    if (callback) callback();
-    else switchTab(currentTab);
-  });
+function _updateSummary() {
+  const now = new Date(); const ym = now.getFullYear() + '/' + String(now.getMonth()+1).padStart(2,'0');
+  if(document.getElementById('sum-sent')) document.getElementById('sum-sent').textContent = S.all.filter(r=>r.status==='送信済み').length;
+  if(document.getElementById('sum-received')) document.getElementById('sum-received').textContent = S.all.filter(r=>r.status==='受領').length;
+  if(document.getElementById('sum-done')) document.getElementById('sum-done').textContent = S.all.filter(r=>r.status==='納品済み').length;
+  const tot = S.all.filter(r=>String(r.orderDate).startsWith(ym)).reduce((s,r)=>s+(Number(r.orderAmount)||0), 0);
+  if(document.getElementById('sum-amount')) document.getElementById('sum-amount').textContent = tot.toLocaleString();
 }
 
-function genId(prefix) { return prefix + Date.now().toString(36).toUpperCase() + Math.floor(Math.random()*100); }
-window.onload = () => loadAllData();
-
-// ==========================================
-// タブ切り替え
-// ==========================================
-function switchTab(tabId) {
-  currentTab = tabId;
-  document.querySelectorAll('.menu-item').forEach(el => el.classList.remove('active'));
-  document.getElementById('menu-' + tabId).classList.add('active');
-  const content = document.getElementById('content-area');
-  const topbarActions = document.getElementById('topbar-actions');
-  const title = document.getElementById('page-title');
-  content.innerHTML = ''; topbarActions.innerHTML = '';
-  
-  if (tabId === 'parts') {
-    title.textContent = '部品マスタ';
-    topbarActions.innerHTML = `<button class="btn btn-primary" onclick="openPartsModal()">＋ 新規部品</button>`;
-    renderParts(content);
-  } else if (tabId === 'products') {
-    title.textContent = '機種・基板マスタ';
-    topbarActions.innerHTML = `<button class="btn btn-outline" onclick="openProductModal()">＋ 新規機種</button>`;
-    renderProductsAndBoards(content);
-  } else if (tabId === 'bom') {
-    title.textContent = '部品構成表（BOM）';
-    renderBOM(content, topbarActions);
-  }
-}
-
-// ==========================================
-// 描画: 部品マスタ
-// ==========================================
-function renderParts(el) {
-  if (db.parts.length === 0) { el.innerHTML = '<div class="card" style="text-align:center;color:var(--text-sub);">部品がありません</div>'; return; }
-  let html = `<div class="card"><div class="table-container"><table><thead><tr>
-    <th>部品コード</th><th>部品名</th><th>メーカー</th><th style="text-align:right">原価(円)</th><th style="text-align:right">売値(円)</th><th>カテゴリ</th><th>操作</th>
-  </tr></thead><tbody>`;
-  db.parts.forEach(p => {
-    html += `<tr>
-      <td><strong>${p.code}</strong></td><td>${p.name}</td><td>${p.maker || ''}</td>
-      <td style="text-align:right">¥${p.cost.toLocaleString()}</td><td style="text-align:right; color:var(--primary); font-weight:600;">¥${p.price.toLocaleString()}</td>
-      <td><span class="badge badge-gray">${p.category || ''}</span></td>
-      <td>
-        <button class="btn btn-sm btn-outline" onclick="openPartsModal('${p.id}')">編集</button>
-        <button class="btn btn-sm btn-danger" onclick="deletePart('${p.id}')">削除</button>
-      </td>
-    </tr>`;
-  });
-  el.innerHTML = html + `</tbody></table></div></div>`;
-}
-
-// ==========================================
-// 描画: 機種・基板マスタ
-// ==========================================
-function renderProductsAndBoards(el) {
-  if (db.products.length === 0) { el.innerHTML = '<div class="card" style="text-align:center;color:var(--text-sub);">機種がありません</div>'; return; }
-  let html = '';
-  db.products.forEach(prod => {
-    const boards = db.boards.filter(b => b.productId === prod.id);
-    html += `<div class="card" style="margin-bottom:16px;">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding-bottom:12px; border-bottom:2px solid var(--bg-main);">
-        <div><span style="font-size:12px; color:var(--text-sub);">${prod.code}</span><div style="font-size:16px; font-weight:700;">${prod.name}</div></div>
-        <div>
-          <button class="btn btn-sm btn-primary" onclick="openBoardModal(null, '${prod.id}')">＋ 基板追加</button>
-          <button class="btn btn-sm btn-outline" onclick="openProductModal('${prod.id}')">機種編集</button>
-          <button class="btn btn-sm btn-danger" onclick="deleteProduct('${prod.id}')">削除</button>
-        </div>
-      </div>`;
-    if (boards.length > 0) {
-      html += `<div class="table-container"><table><thead><tr><th>基板コード</th><th>基板名</th><th>Ver.</th><th>操作</th></tr></thead><tbody>`;
-      boards.forEach(b => {
-        html += `<tr>
-          <td><strong>${b.code}</strong></td><td>${b.name}</td><td>${b.version || ''}</td>
-          <td>
-            <button class="btn btn-sm btn-outline" onclick="openBoardModal('${b.id}')">編集</button>
-            <button class="btn btn-sm btn-danger" onclick="deleteBoard('${b.id}')">削除</button>
-          </td>
-        </tr>`;
-      });
-      html += `</tbody></table></div>`;
-    } else {
-      html += `<div style="font-size:12px; color:var(--text-sub); text-align:center; padding:10px;">基板なし</div>`;
-    }
-    html += `</div>`;
-  });
-  el.innerHTML = html;
-}
-
-// ==========================================
-// 描画: BOM
-// ==========================================
-let selectedBoardId = null;
-function renderBOM(el, tb) {
-  const board = selectedBoardId ? db.boards.find(b => b.id === selectedBoardId) : null;
-  if (board) {
-    tb.innerHTML = `<button class="btn btn-outline" onclick="selectedBoardId=null;renderBOM(document.getElementById('content-area'),document.getElementById('topbar-actions'))">← 基板選択に戻る</button> <button class="btn btn-primary" onclick="openBOMAddModal('${board.id}')">＋ 部品追加</button>`;
-  } else { tb.innerHTML = ''; }
-
-  if (!board) {
-    el.innerHTML = `<div class="card"><div class="card-title">🔬 基板を選択してください</div>
-      ${db.products.map(prod => {
-        const bds = db.boards.filter(b => b.productId === prod.id);
-        if (!bds.length) return '';
-        return `<div style="margin-bottom:20px;">
-          <div style="font-size:12px;font-weight:700;color:var(--text3);margin-bottom:10px;padding-bottom:4px;border-bottom:1px solid var(--border);">📦 ${prod.name}</div>
-          <div style="display:flex;gap:10px;flex-wrap:wrap;">
-            ${bds.map(b => {
-              const bomCount = db.bom.filter(x => x.boardId === b.id).length;
-              return `<div onclick="selectBoard('${b.id}')" style="padding:14px 18px;border-radius:10px;cursor:pointer;border:2px solid var(--border);background:var(--surface);"><div style="font-weight:700;">${b.name}</div><div style="font-size:11px;color:var(--text3);">${b.code||''}</div><div style="margin-top:8px;"><span class="badge badge-gray">${bomCount} 部品</span></div></div>`;
-            }).join('')}
-          </div></div>`;
-      }).join('')}
-    </div>`;
+function _renderTable() {
+  const start = (S.page-1)*S.limit;
+  const data  = S.filtered.slice(start, start+S.limit);
+  const total = S.filtered.length;
+  if(document.getElementById('result-count')) document.getElementById('result-count').textContent = total+'件中 '+(total>0?start+1:0)+'–'+Math.min(start+S.limit,total)+'件';
+  if (total===0) {
+    document.getElementById('table-container').innerHTML = '<div class="loading" style="color:var(--text-sub);">該当する案件がありません</div>';
+    document.getElementById('pagination').innerHTML='';
     return;
   }
+  const rows = data.map(r=>`
+    <tr onclick="openDetail('${r.id}')" style="cursor:pointer;">
+      <td><span class="text-sub">${r.id||''}</span></td>
+      <td><strong>${r.orderNo||r.quoteNo||'—'}</strong></td>
+      <td>${r.orderSlipNo||'—'}</td>
+      <td>${r.modelCode||'—'}</td>
+      <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.client||''}</td>
+      <td>${_sBadge(r.status)}</td>
+      <td>${r.orderType?_otBadge(r.orderType):''}</td>
+      <td class="text-sub">${r.orderDate||r.quoteDate||''}</td>
+      <td class="text-sub">${r.deliveryDate||''}</td>
+      <td style="text-align:right;white-space:nowrap;">${r.orderAmount?Number(r.orderAmount).toLocaleString()+' 円':'—'}</td>
+      <td>
+        ${r.quotePdfUrl?`<a class="pdf-link" href="${r.quotePdfUrl}" target="_blank" onclick="event.stopPropagation()">見積</a> `:''}
+        ${r.orderPdfUrl?`<a class="pdf-link" href="${r.orderPdfUrl}" target="_blank" onclick="event.stopPropagation()">発注</a>`:''}
+        ${r.driveFolderUrl?`<br><a class="pdf-link" href="${r.driveFolderUrl}" target="_blank" onclick="event.stopPropagation()">📁</a>`:''}
+      </td>
+      <td style="text-align:center; white-space:nowrap;">
+        <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteMgmt('${r.id}', '${(r.orderNo||r.quoteNo||'').replace(/'/g,'')}')">🗑️ 削除</button>
+      </td>
+    </tr>`).join('');
+  document.getElementById('table-container').innerHTML = `
+    <table>
+      <thead><tr>
+        <th>管理ID</th><th>発注書番号</th><th>発注伝票No</th><th>機種</th><th>顧客名</th>
+        <th>ステータス</th><th>種別</th><th>発注日</th><th>納期</th><th>注文金額</th><th>PDF/フォルダ</th><th>操作</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  _renderPagination(total);
+}
 
-  const boms = db.bom.filter(x => x.boardId === board.id);
-  let tCost = 0, tPrice = 0;
-  boms.forEach(x => { const p = db.parts.find(p => p.id === x.partId); if (p) { tCost += p.cost * x.qty; tPrice += p.price * x.qty; } });
-  
-  el.innerHTML = `
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px;">
-      <div class="stat-card"><div class="stat-label">部品種類数</div><div class="stat-value">${boms.length}</div></div>
-      <div class="stat-card"><div class="stat-label">原価合計</div><div class="stat-value">¥${tCost.toLocaleString()}</div></div>
-      <div class="stat-card"><div class="stat-label">売値合計</div><div class="stat-value" style="color:var(--accent);">¥${tPrice.toLocaleString()}</div></div>
-    </div>
-    <div class="card">
-      <div class="table-container">
-        <table>
-          <thead><tr><th>部品ID</th><th>部品名</th><th style="text-align:right">単価(原価)</th><th style="text-align:right">数量</th><th style="text-align:right">小計(原価)</th><th style="text-align:right">小計(売値)</th><th>操作</th></tr></thead>
-          <tbody>
-            ${boms.map(x => {
-              const p = db.parts.find(pt => pt.id === x.partId);
-              if (!p) return `<tr><td colspan="7">エラー部品</td></tr>`;
-              return `<tr>
-                <td><code>${p.id}</code></td><td>${p.name}</td>
-                <td style="text-align:right">¥${p.cost.toLocaleString()}</td>
-                <td style="text-align:right;font-weight:700;">${x.qty}</td>
-                <td style="text-align:right">¥${(p.cost * x.qty).toLocaleString()}</td>
-                <td style="text-align:right;color:var(--accent);">¥${(p.price * x.qty).toLocaleString()}</td>
-                <td>
-                  <button class="btn btn-outline btn-sm" onclick="openBOMEditModal('${x.id}')">編集</button>
-                  <button class="btn btn-danger btn-sm" onclick="deleteBOM('${x.id}')">削除</button>
-                </td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table>
+function _sBadge(s){const m={'作成予定':'planned','送信済み':'sent','受領':'received','納品済み':'done'};return`<span class="badge badge-${m[s]||'planned'}">${s||'—'}</span>`;}
+function _otBadge(t){if(t==='試作')return'<span class="badge badge-trial">試作</span>';if(t==='量産')return'<span class="badge badge-mass">量産</span>';return'';}
+
+function _renderPagination(total) {
+  const pages=Math.ceil(total/S.limit);
+  if(pages<=1){document.getElementById('pagination').innerHTML='';return;}
+  let h='';
+  for(let i=1;i<=Math.min(pages,10);i++) h+=`<button class="page-btn ${i===S.page?'active':''}" onclick="goPage(${i})">${i}</button>`;
+  document.getElementById('pagination').innerHTML=h;
+}
+function goPage(n){S.page=n;_renderTable();}
+
+function debounceSearch(){clearTimeout(searchTimer);searchTimer=setTimeout(applyFilters,300);}
+
+function applyFilters() {
+  const rawKw = document.getElementById('search-input').value;
+  const kws   = normalizeSearchText(rawKw).split(/\s+/).filter(Boolean);
+  const st    = document.getElementById('filter-status').value;
+  const ot    = document.getElementById('filter-order-type').value;
+  const mo    = document.getElementById('filter-month').value;
+  S.filtered = S.all.filter(r => {
+    const targetValues = [ r.quoteNo, r.orderNo, r.orderSlipNo, r.modelCode, r.subject, r.client, r.orderAmount ];
+    const searchableText = normalizeSearchText(targetValues.join(' '));
+    const mk = kws.length === 0 || kws.every(kw => searchableText.includes(kw));
+    const ms = !st || r.status === st;
+    const mo2 = !ot || r.orderType === ot;
+    const mm = !mo || (String(r.orderDate).startsWith(mo) || String(r.quoteDate).startsWith(mo));
+    return mk && ms && mo2 && mm;
+  });
+  S.page = 1;
+  _renderTable();
+}
+
+function clearFilters(){
+  document.getElementById('search-input').value='';
+  ['filter-status','filter-order-type','filter-month'].forEach(id=>document.getElementById(id).value='');
+  S.filtered=S.all.slice();S.page=1;_renderTable();
+}
+
+function _populateMonthFilter(){
+  const sel=document.getElementById('filter-month');
+  if(!sel) return;
+  const now=new Date();
+  for(let i=0;i<12;i++){
+    const d=new Date(now.getFullYear(),now.getMonth()-i,1);
+    const ym=d.getFullYear()+'/'+String(d.getMonth()+1).padStart(2,'0');
+    const o=document.createElement('option');o.value=ym;o.textContent=ym;sel.appendChild(o);
+  }
+}
+
+function _findMgmtItem(mgmtId) {
+  let item = S.all.find(r => r.id === mgmtId);
+  if (item) return item;
+  if(typeof _allQuotes !== 'undefined') item = _allQuotes.find(r => r.id === mgmtId);
+  return item || null;
+}
+
+// ============================================================
+// 詳細モーダル ＆ 紐づけ
+// ============================================================
+function openDetail(mgmtId) {
+  let item = _findMgmtItem(mgmtId);
+  if (!item) item = { id: mgmtId, client: 'データ取得中...', status: '' };
+  document.getElementById('detail-title').textContent = '📋 ' + (item.orderNo || item.quoteNo || mgmtId);
+  document.getElementById('detail-modal').classList.add('open');
+  document.getElementById('detail-body').innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  google.script.run
+    .withSuccessHandler(res => {
+      if (!res.success) { document.getElementById('detail-body').innerHTML = '<div style="color:var(--danger);padding:20px;">エラー: ' + res.error + '</div>'; return; }
+      try {
+        const dataItem = res.mgmt || item;
+        document.getElementById('detail-body').innerHTML = _buildDetailHtml(dataItem, res);
+        if (dataItem.orderNo) document.getElementById('detail-title').textContent = '📦 注文書 ' + dataItem.orderNo;
+      } catch(e) { document.getElementById('detail-body').innerHTML = '<div style="color:var(--danger);padding:20px;">表示エラー: ' + e.message + '</div>'; }
+    })
+    .handleApiRequest('getDetail', { mgmtId });
+}
+function closeDetailModal(){document.getElementById('detail-modal').classList.remove('open');}
+
+function _buildDetailHtml(item, detail) {
+  const orderLinks = [
+    item.orderPdfUrl ? `<a href="${item.orderPdfUrl}" target="_blank" class="pdf-link" style="display:inline-block; background:white; padding:2px 8px; border-radius:4px; border:1px solid var(--border); text-decoration:none; font-size:11px;">📄 発注書PDF</a>` : '',
+    item.driveFolderUrl ? `<a href="${item.driveFolderUrl}" target="_blank" class="pdf-link" style="display:inline-block; background:white; padding:2px 8px; border-radius:4px; border:1px solid var(--border); text-decoration:none; font-size:11px;">📁 フォルダ</a>` : ''
+  ].filter(Boolean).join(' ');
+  const quoteLinks = item.quotePdfUrl ? `<a href="${item.quotePdfUrl}" target="_blank" class="pdf-link" style="display:inline-block; background:white; padding:2px 8px; border-radius:4px; border:1px solid var(--border); text-decoration:none; font-size:11px;">📄 見積書PDF</a>` : '';
+
+  const rows=[
+    ['管理ID', item.id],
+    ['発注書番号', (item.orderNo || '—') + (orderLinks ? `<div style="margin-top:6px;">${orderLinks}</div>` : '')],
+    ['見積書番号', (item.quoteNo || '—') + (quoteLinks ? `<div style="margin-top:6px;">${quoteLinks}</div>` : '')],
+    ['発注伝票番号', item.orderSlipNo || '—'],
+    ['機種コード', item.modelCode || '—'],
+    ['顧客名', item.client || '—'],
+    ['ステータス', _sBadge(item.status)],
+    ['注文種別', item.orderType ? _otBadge(item.orderType) : '—'],
+    ['発注日', item.orderDate || '—'],
+    ['見積日', item.quoteDate || '—'],
+    ['注文金額', item.orderAmount ? Number(item.orderAmount).toLocaleString() + ' 円' : '—'],
+    ['合計金額', item.total ? Number(item.total).toLocaleString() + ' 円' : '—'],
+    ['納期', item.deliveryDate || '—'],
+    ['担当者', item.assignee || '—'],
+    ['メモ', item.memo || '—'],
+  ];
+  const infoHtml='<table style="width:100%;font-size:13px;border-collapse:collapse;">'+
+    rows.map(([k,v])=>`<tr><td style="padding:8px 10px;font-weight:600;width:30%;color:var(--text-sub);border-bottom:1px solid var(--border);background:var(--surface2);">${k}</td><td style="padding:8px 10px;border-bottom:1px solid var(--border);">${v}</td></tr>`).join('')+
+    '</table>';
+  const statusOpts=['作成予定','送信済み','受領','納品済み'].map(s=>`<option value="${s}"${s===item.status?' selected':''}>${s}</option>`).join('');
+  const quoteCellHtml = item.quoteNo 
+    ? `<div style="line-height:1.4;">
+         <span style="font-size:11px; color:var(--text3);">No.</span><a href="javascript:void(0)" onclick="event.stopPropagation(); openQuoteDetail('${item.id}', '${item.quoteNo}')" style="color:var(--primary); font-weight:600; text-decoration:none; font-size:12px;">${item.quoteNo}</a>
+         ${item.quotePdfUrl ? `<br><a href="${item.quotePdfUrl}" target="_blank" onclick="event.stopPropagation()" style="font-size:11px; color:var(--info); text-decoration:none;">📄 PDFを開く</a>` : ''}
+       </div>`
+    : '<span style="font-size:11px; color:var(--text3);">未紐づけ</span>';
+
+  const oTable = detail.orderLines && detail.orderLines.length ? `
+    <div class="detail-section" style="margin-top:20px;"><h4>発注書 明細</h4>
+    <table class="dtable" style="width:100%;border-collapse:collapse;font-size:12px;">
+      <thead>
+        <tr><th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">#</th><th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">品名</th><th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">仕様</th><th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">納品先</th><th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">数量</th><th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">単価</th><th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">金額</th><th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">備考</th><th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">紐づく見積</th></tr>
+      </thead>
+      <tbody>${detail.orderLines.map(l=>`<tr>
+        <td style="padding:6px;border:1px solid var(--border);text-align:center;">${l.lineNo}</td><td style="padding:6px;border:1px solid var(--border);">${l.itemName||''}</td><td style="padding:6px;border:1px solid var(--border);font-size:11px;color:var(--text-sub);">${l.spec||''}</td><td style="padding:6px;border:1px solid var(--border);">${l.deliveryDest||''}</td><td style="padding:6px;border:1px solid var(--border);text-align:right;">${l.qty||''}</td><td style="padding:6px;border:1px solid var(--border);text-align:right;">${l.unitPrice?Number(l.unitPrice).toLocaleString():''}</td><td style="padding:6px;border:1px solid var(--border);text-align:right;font-weight:600;">${l.amount?Number(l.amount).toLocaleString():''}</td><td style="padding:6px;border:1px solid var(--border);">${l.remarks||''}</td><td style="padding:6px;border:1px solid var(--border);vertical-align:middle;text-align:center;">${quoteCellHtml}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>` : '';
+
+  let linkHtml = '';
+  if (item.orderNo && !item.quoteNo) {
+    let candHtml = '';
+    if (typeof _allMatchingItems !== 'undefined') {
+      const matchData = _allMatchingItems.find(m => String(m.orderMgmtId) === String(item.id) || String(m.orderNo) === String(item.orderNo));
+      if (matchData) {
+        let cands = [];
+        if (matchData.candidates && matchData.candidates.length > 0) cands = matchData.candidates;
+        else {
+          if (matchData.c1Id) cands.push({ id: matchData.c1Id, no: matchData.c1No, score: matchData.c1Score });
+          if (matchData.c2Id) cands.push({ id: matchData.c2Id, no: '', score: matchData.c2Score });
+          if (matchData.c3Id) cands.push({ id: matchData.c3Id, no: '', score: matchData.c3Score });
+        }
+        if (cands.length > 0) {
+          const candCards = cands.map(c => {
+             const qId = c.id || c.quoteId;
+             const q = (typeof _allQuotes !== 'undefined') ? _allQuotes.find(aq => String(aq.id) === String(qId)) : null;
+             const qNo = q && q.quoteNo ? q.quoteNo : (c.no || c.quoteNo || qId || '不明');
+             const qDate = q && q.issueDate ? q.issueDate : '—';
+             let itemNames = '—', unitPrice = '—';
+             if (detail && detail.allQuoteLines && detail.allQuoteLines.length > 0) {
+               const qLines = detail.allQuoteLines.filter(ql => String(ql.mgmtId) === String(qId));
+               if (qLines.length > 0) { itemNames = qLines.map(ql => ql.itemName).join('、'); unitPrice = '¥' + Number(qLines[0].unitPrice).toLocaleString(); }
+             }
+             const btnColor = c.score >= 80 ? 'var(--success)' : '#fbbc04';
+             return `
+             <div style="background:#fff; border:1px solid var(--border); border-left:4px solid ${btnColor}; border-radius:6px; padding:12px; margin-bottom:8px; display:flex; align-items:center; justify-content:space-between; box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+               <div style="flex:1;">
+                 <div style="font-weight:700; font-size:13px; color:var(--text); margin-bottom:6px; display:flex; align-items:center; gap:8px;">
+                   📄 見積NO: ${qNo} <span style="background:${btnColor}; color:#fff; padding:2px 6px; border-radius:4px; font-size:11px;">${c.score}点</span>
+                 </div>
+                 <div style="font-size:11px; color:var(--text-sub); display:flex; flex-wrap:wrap; gap:12px; line-height:1.5;">
+                   <span><b style="color:var(--text);">📅 発行日:</b> ${qDate}</span><span><b style="color:var(--text);">💰 単価:</b> <span style="color:var(--danger); font-weight:600;">${unitPrice}</span></span><span style="width:100%;"><b style="color:var(--text);">📦 項目名:</b> ${itemNames}</span>
+                 </div>
+               </div>
+               <button class="btn btn-primary" onclick="confirmLink('${item.id}','${qId}')" style="margin-left:12px; white-space:nowrap; height:fit-content;">🔗 確定</button>
+             </div>`;
+          }).join('');
+          candHtml = `<div style="margin-top:16px; border-top:1px dashed #b5d4f4; padding-top:12px;"><div style="font-size:12px; font-weight:700; color:var(--info); margin-bottom:10px;">💡 AIが推測した見積書候補:</div>${candCards}</div>`;
+        }
+      }
+    }
+    
+    let quoteOpts = '';
+    if (typeof _allQuotes !== 'undefined') {
+      const unlinkedQuotes = _allQuotes.filter(q => !q.linked);
+      quoteOpts = unlinkedQuotes.map(q => {
+        let itemNames = q.subject || '—'; let unitPrice = '—';
+        if (detail && detail.allQuoteLines && detail.allQuoteLines.length > 0) {
+          const qLines = detail.allQuoteLines.filter(ql => String(ql.mgmtId) === String(q.id));
+          if (qLines.length > 0) { const names = qLines.map(ql => ql.itemName).filter(Boolean); if (names.length > 0) itemNames = names.join('、'); if (qLines[0].unitPrice != null) unitPrice = '¥' + Number(qLines[0].unitPrice).toLocaleString(); }
+          else if (q.quoteAmount != null) unitPrice = '¥' + Number(q.quoteAmount).toLocaleString();
+        } else if (q.quoteAmount != null) unitPrice = '¥' + Number(q.quoteAmount).toLocaleString();
+        const qDate = q.issueDate || '—'; const qNo = q.quoteNo || 'Noなし';
+        const displayText = `NO:${qNo} ｜ 単価:${unitPrice} ｜ 項目:${itemNames} ｜ 発行日:${qDate}`;
+        return `<option value="${q.id}">${displayText}</option>`;
+      }).join('');
+    }
+    linkHtml = `
+    <div style="background:var(--info-bg);border:1px solid #b5d4f4;border-radius:8px;padding:16px;margin:20px 0;">
+      <div style="font-size:13px;font-weight:700;margin-bottom:10px;color:var(--info);">🔗 手動で他の見積書と紐づける</div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <select id="manual-link-quote-id" style="flex:1;padding:8px 10px;border-radius:4px;border:1px solid var(--border2);font-size:13px;background:white;outline:none;">
+          <option value="">-- 既存の未紐づけ見積書から選択 --</option>${quoteOpts}
+        </select>
+        <button class="btn btn-primary" onclick="_manualLinkQuote('${item.id}')" style="white-space:nowrap;">この見積書で確定</button>
       </div>
+      ${candHtml}
     </div>`;
-}
-
-function selectBoard(boardId) {
-  selectedBoardId = boardId;
-  renderBOM(document.getElementById('content-area'), document.getElementById('topbar-actions'));
-}
-
-// ==========================================
-// モーダル・API呼び出し
-// ==========================================
-function closeModal(id) { document.getElementById('modal-' + id).classList.remove('active'); }
-
-function openPartsModal(id) {
-  const isEdit = !!id;
-  if(isEdit) {
-    const p = db.parts.find(x => x.id === id);
-    document.getElementById('f-id').value = p.id;
-    document.getElementById('f-name').value = p.name;
-    document.getElementById('f-maker').value = p.maker;
-    document.getElementById('f-cost').value = p.cost;
-    document.getElementById('f-price').value = p.price;
-    document.getElementById('f-cat').value = p.category;
-  } else {
-    document.getElementById('f-id').value = genId('P');
-    ['f-name','f-maker','f-cost','f-price'].forEach(k=>document.getElementById(k).value='');
   }
-  document.getElementById('modal-parts').classList.add('active');
+
+  return `${infoHtml}${linkHtml}
+    <div style="display:flex;align-items:center;gap:8px;margin-top:20px;margin-bottom:16px;">
+      <span style="font-size:12px;font-weight:600;color:var(--text-sub);">ステータス変更:</span>
+      <select id="status-sel" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;outline:none;">${statusOpts}</select>
+      <button class="btn btn-primary btn-sm" onclick="updateStatus('${item.id}')">更新</button>
+      <span style="margin:0 8px; color:var(--border);">|</span>
+      <button class="btn btn-outline btn-sm" onclick="openEditModal('${item.id}')">✏️ 案件情報を直接編集</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteMgmt('${item.id}','${(item.orderNo||item.quoteNo||'').replace(/'/g,'')}')" style="margin-left:auto;">🗑️ 削除</button>
+    </div>${oTable}`;
 }
 
-function savePart() {
-  const data = {
-    id: document.getElementById('f-id').value.trim(),
-    name: document.getElementById('f-name').value.trim(),
-    category: document.getElementById('f-cat').value.trim(),
-    maker: document.getElementById('f-maker').value.trim(),
-    unit: '個', spec: '',
-    cost: parseFloat(document.getElementById('f-cost').value) || 0,
-    price: parseFloat(document.getElementById('f-price').value) || 0,
-    stock: 0,
+function _manualLinkQuote(orderMgmtId) {
+  const quoteMgmtId = document.getElementById('manual-link-quote-id').value;
+  if(!quoteMgmtId) { showToast('プルダウンから見積書を選択してください', true); return; }
+  confirmLink(orderMgmtId, quoteMgmtId);
+}
+
+function updateStatus(mgmtId){
+  const ns=document.getElementById('status-sel').value;
+  google.script.run.withSuccessHandler(res=>{
+    if(res.success){ showToast('ステータスを「'+ns+'」に変更しました'); const it=S.all.find(r=>r.id===mgmtId);if(it)it.status=ns; S.filtered=S.filtered.map(r=>r.id===mgmtId?{...r,status:ns}:r); _renderTable();_updateSummary();closeDetailModal(); }
+    else showToast('更新失敗: '+res.error,true);
+  }).handleApiRequest('updateStatus',{mgmtId,newStatus:ns});
+}
+
+// ============================================================
+// ファイルアップロード (OCR)
+// ============================================================
+function openUploadModal(){
+  S.selectedFile=null;S.orderType='';
+  document.getElementById('upload-status').innerHTML='';
+  document.getElementById('upload-btn').disabled=true;
+  document.getElementById('file-input').value='';
+  document.getElementById('order-type-section').style.display='none';
+  document.getElementById('upload-modal').classList.add('open');
+}
+function closeUploadModal(){document.getElementById('upload-modal').classList.remove('open');}
+function setDocType(t){
+  S.docType=t;S.orderType='';
+  document.getElementById('type-quote').classList.toggle('active',t==='quote');
+  document.getElementById('type-order').classList.toggle('active',t==='order');
+  document.getElementById('order-type-section').style.display=t==='order'?'block':'none';
+}
+function setOrderType(t){ S.orderType=t; }
+function handleFileSelect(e){const f=e.target.files[0];if(f)_setFile(f);}
+function _setFile(file){
+  if(!file.name.toLowerCase().endsWith('.pdf')){showToast('PDFのみ対応',true);return;}
+  S.selectedFile=file;
+  document.getElementById('upload-status').innerHTML=`<p style="color:var(--success);font-size:13px;">✓ ${file.name} (${(file.size/1024).toFixed(1)} KB)</p>`;
+  document.getElementById('upload-btn').disabled=false;
+}
+function uploadFile(){
+  if(!S.selectedFile)return;
+  if(S.docType==='order'&&!S.orderType){showToast('注文種別を選択してください',true);return;}
+  const btn=document.getElementById('upload-btn'); btn.disabled=true;btn.textContent='解析中...';
+  document.getElementById('upload-status').innerHTML='<div class="loading" style="padding:16px;"><div class="spinner"></div> Gemini OCR 解析中...</div>';
+  const reader=new FileReader();
+  reader.onload=e=>{
+    const b64=e.target.result.split(',')[1];
+    const action = S.docType==='order' ? 'uploadOrderWithLink' : 'uploadPdf';
+    google.script.run
+      .withSuccessHandler(res=>{
+        btn.textContent='解析・登録';btn.disabled=false;
+        if(res.success){ showToast('登録完了しました'); loadData(); closeUploadModal(); }
+        else{ document.getElementById('upload-status').innerHTML=`<p style="color:var(--danger);font-size:13px;">✗ ${res.error}</p>`; }
+      })
+      .withFailureHandler(err=>{
+        document.getElementById('upload-status').innerHTML=`<p style="color:var(--danger);font-size:13px;">✗ 通信エラー</p>`;
+        btn.textContent='解析・登録';btn.disabled=false;
+      })
+      .handleApiRequest(action,{base64Data:b64,fileName:S.selectedFile.name,docType:S.docType,orderType:S.orderType});
   };
-  closeModal('parts'); showToast('保存中...');
-  gasCall('bomSavePart', data, function() { showToast('部品を保存しました'); loadAllData(); });
-}
-function deletePart(id) {
-  if (!confirm('削除しますか？')) return;
-  gasCall('bomDeletePart', { id }, function() { showToast('削除しました'); loadAllData(); });
+  reader.readAsDataURL(S.selectedFile);
 }
 
-function openProductModal(id) {
-  if(id) {
-    const p = db.products.find(x => x.id === id);
-    document.getElementById('fp-id').value = p.id;
-    document.getElementById('fp-code').value = p.code;
-    document.getElementById('fp-name').value = p.name;
-  } else {
-    document.getElementById('fp-id').value = '';
-    ['fp-code','fp-name'].forEach(k=>document.getElementById(k).value='');
+// ============================================================
+// 見積書一覧
+// ============================================================
+let _allQuotes = [];
+let _filteredQuotes = [];
+let _quotePage = 1;
+const _quoteLimit = 30;
+
+function openDriveFolder() { window.open('https://drive.google.com/drive/folders/1sB42xntGKL31GeT9OjOKTxVJwj9IQz-h', '_blank'); }
+
+function loadQuoteList() {
+  const container = document.getElementById('quotelist-container');
+  if(!container) return;
+  container.innerHTML = '<div class="loading"><div class="spinner"></div><br>読み込み中...</div>';
+  google.script.run
+    .withSuccessHandler(res => {
+      if (!res.success) { container.innerHTML = '<div class="loading" style="color:var(--danger);">⚠️ ' + res.error + '</div>'; return; }
+      _allQuotes = res.items || [];
+      _filteredQuotes = _allQuotes.slice();
+      _quotePage = 1;
+      if(document.getElementById('qs-total')) document.getElementById('qs-total').textContent = _allQuotes.length;
+      if(document.getElementById('qs-linked')) document.getElementById('qs-linked').textContent = _allQuotes.filter(r => r.linked).length;
+      if(document.getElementById('qs-amount')) document.getElementById('qs-amount').textContent = _allQuotes.reduce((s, r) => s + (Number(r.quoteAmount) || 0), 0).toLocaleString();
+      _renderQuoteTable();
+    })
+    .handleApiRequest('quoteListGetAll', null);
+}
+
+function applyQuoteFilter() {
+  const rawKw  = document.getElementById('qs-search').value;
+  const kws    = normalizeSearchText(rawKw).split(/\s+/).filter(Boolean); 
+  const st     = document.getElementById('qs-filter-status').value;
+  const linked = document.getElementById('qs-filter-linked').value;
+  _filteredQuotes = _allQuotes.filter(r => {
+    const targetValues = [ r.quoteNo, r.subject, r.destCompany, r.destPerson, r.modelCode, r.quoteAmount, r.orderNo ];
+    const searchableText = normalizeSearchText(targetValues.join(' '));
+    const mk = kws.length === 0 || kws.every(kw => searchableText.includes(kw));
+    const ms = !st || r.status === st;
+    const ml = !linked || (linked === 'linked' && r.linked) || (linked === 'unlinked' && !r.linked);
+    return mk && ms && ml;
+  });
+  _filteredQuotes.sort((a, b) => String(b.issueDate||'').localeCompare(String(a.issueDate||'')));
+  _quotePage = 1;
+  _renderQuoteTable();
+}
+
+function clearQuoteFilter() {
+  document.getElementById('qs-search').value = '';
+  document.getElementById('qs-filter-status').value = '';
+  document.getElementById('qs-filter-linked').value = '';
+  _filteredQuotes = _allQuotes.slice();
+  _quotePage = 1;
+  _renderQuoteTable();
+}
+
+function _renderQuoteTable() {
+  const start = (_quotePage - 1) * _quoteLimit;
+  const data  = _filteredQuotes.slice(start, start + _quoteLimit);
+  const total = _filteredQuotes.length;
+  if(document.getElementById('qs-count')) document.getElementById('qs-count').textContent = total + '件中 ' + (total > 0 ? start + 1 : 0) + '–' + Math.min(start + _quoteLimit, total) + '件';
+  if (total === 0) {
+    document.getElementById('quotelist-container').innerHTML = '<div class="loading" style="color:var(--text-sub);">該当する見積書がありません</div>';
+    document.getElementById('qs-pagination').innerHTML = ''; return;
   }
-  document.getElementById('modal-product').classList.add('active');
-}
-function saveProduct(id) {
-  const data = { id: id || genId('M'), name: document.getElementById('fp-name').value, code: document.getElementById('fp-code').value, desc: '' };
-  closeModal('product');
-  gasCall('bomSaveProduct', data, function() { showToast('保存しました'); loadAllData(); });
-}
-function deleteProduct(id) {
-  if (!confirm('削除しますか？')) return;
-  gasCall('bomDeleteProduct', { id }, function() { showToast('削除しました'); loadAllData(); });
+  const rows = data.map(r => `
+    <tr onclick="openQuoteDetail('${r.id}')" style="cursor:pointer;">
+      <td><strong>${r.quoteNo || '—'}</strong></td>
+      <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.subject || ''}">${r.subject || '—'}</td>
+      <td style="font-size:12px;color:var(--text-sub);">${r.issueDate || '—'}</td>
+      <td style="text-align:right;white-space:nowrap;">${r.quoteAmount ? Number(r.quoteAmount).toLocaleString() + ' 円' : '—'}</td>
+      <td>${_sBadge(r.status)}</td>
+      <td>${r.linked ? '<span class="badge badge-linked">✓ 注文書あり</span>' : '<span style="font-size:11px;color:var(--text-sub);">未受注</span>'}${r.orderNo ? '<br><span style="font-size:11px;color:var(--text-sub);">No.' + r.orderNo + '</span>' : ''}</td>
+      <td>${r.quotePdfUrl ? '<a class="pdf-link" href="' + r.quotePdfUrl + '" target="_blank" onclick="event.stopPropagation()">📄 PDF</a>' : ''}</td>
+      <td style="text-align:center; white-space:nowrap;">
+        <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteMgmt('${r.id}', '${(r.quoteNo||'').replace(/'/g,'')}')">🗑️ 削除</button>
+      </td>
+    </tr>`).join('');
+  document.getElementById('quotelist-container').innerHTML = `<table><thead><tr><th>見積No.</th><th>件名（ファイル名）</th><th>発行日</th><th>金額</th><th>ステータス</th><th>紐づけ状況</th><th>PDF</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table>`;
+  const pages = Math.ceil(total / _quoteLimit);
+  if (pages <= 1) { document.getElementById('qs-pagination').innerHTML = ''; return; }
+  let pHtml = '';
+  for (let i = 1; i <= Math.min(pages, 10); i++) pHtml += `<button class="page-btn ${i === _quotePage ? 'active' : ''}" onclick="goQuotePage(${i})">${i}</button>`;
+  document.getElementById('qs-pagination').innerHTML = pHtml;
 }
 
-function openBoardModal(id, prodId) {
-  if(id) {
-    const b = db.boards.find(x => x.id === id);
-    document.getElementById('fb-id').value = b.id;
-    document.getElementById('fb-pid').value = b.productId;
-    document.getElementById('fb-code').value = b.code;
-    document.getElementById('fb-name').value = b.name;
-  } else {
-    document.getElementById('fb-id').value = '';
-    document.getElementById('fb-pid').value = prodId;
-    ['fb-code','fb-name'].forEach(k=>document.getElementById(k).value='');
+function goQuotePage(n) { _quotePage = n; _renderQuoteTable(); }
+
+function openQuoteDetail(mgmtId, quoteNo) {
+  let item = _findMgmtItem(mgmtId);
+  if (!item) item = { id: mgmtId, quoteNo: quoteNo || mgmtId, client: '', status: '' };
+  document.getElementById('quote-detail-title').textContent = '📄 見積書 ' + (item.quoteNo || mgmtId);
+  document.getElementById('quote-detail-modal').classList.add('open');
+  document.getElementById('quote-detail-body').innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  google.script.run
+    .withSuccessHandler(res => {
+      if (!res.success) { document.getElementById('quote-detail-body').innerHTML = '<div style="color:var(--danger);padding:20px;">エラー: ' + res.error + '</div>'; return; }
+      if (!res.mgmt) res.mgmt = item; 
+      document.getElementById('quote-detail-body').innerHTML = _buildQuoteDetailHtml(res);
+    })
+    .handleApiRequest('getQuoteDetail', { mgmtId });
+}
+function closeQuoteDetail() { document.getElementById('quote-detail-modal').classList.remove('open'); }
+
+function _buildQuoteDetailHtml(res) {
+  const m = res.mgmt || {};
+  const lines = res.quoteLines || [];
+  const pdfUrl = lines.length ? lines[0].pdfUrl : m.quotePdfUrl;
+  const lineRows = lines.map((l, i) => `<tr><td>${i+1}</td><td><strong style="font-size:12px;">${l.itemName||''}</strong></td><td class="r">${l.qty||''}</td><td class="r">${l.amount?Number(l.amount).toLocaleString():''}</td></tr>`).join('');
+  return `
+    <table style="width:100%;font-size:13px;border-collapse:collapse;margin-bottom:16px;">
+      <tbody><tr><td style="padding:6px;width:30%;border-bottom:1px solid var(--border);">見積番号</td><td style="padding:6px;border-bottom:1px solid var(--border);">${m.quoteNo||'—'}</td></tr>
+      <tr><td style="padding:6px;border-bottom:1px solid var(--border);">見積金額</td><td style="padding:6px;border-bottom:1px solid var(--border);">${m.quoteAmount?Number(m.quoteAmount).toLocaleString()+' 円':'—'}</td></tr></tbody>
+    </table>
+    ${pdfUrl ? `<div style="margin-bottom:16px;"><a href="${pdfUrl}" target="_blank" class="btn btn-outline btn-sm">📄 見積書PDFを開く</a></div>` : ''}
+    <div class="detail-section"><h4>見積書 明細</h4>${lineRows ? `<table class="dtable"><thead><tr><th>#</th><th>品名</th><th>数量</th><th>金額</th></tr></thead><tbody>${lineRows}</tbody></table>` : '<div style="font-size:13px;color:var(--text-sub);">明細データなし</div>'}</div>`;
+}
+
+// ============================================================
+// AI紐づけ候補・マッチング
+// ============================================================
+let _allMatchingItems = [];
+
+function loadMatchingCandidates() {
+  const container = document.getElementById('matching-container');
+  if(!container) return;
+  container.innerHTML = '<div class="loading"><div class="spinner"></div><br>AIが抽出した紐づけ候補を読み込み中...</div>';
+  google.script.run
+    .withSuccessHandler(res => {
+      if (!res.success) { container.innerHTML = '<div class="alert alert-danger" style="color:var(--danger);">エラー: ' + res.error + '</div>'; return; }
+      _allMatchingItems = res.items || [];
+      _renderMatchingCandidates(_allMatchingItems);
+    })
+    .withFailureHandler(err => { container.innerHTML = '<div class="alert alert-danger" style="color:var(--danger);">通信エラー: ' + err.message + '</div>'; })
+    .handleApiRequest('getCandidates', null);
+}
+
+function runBatchMatching() {
+  showToast('Gemini AIによる全件マッチングを開始しました...');
+  document.getElementById('matching-container').innerHTML = '<div class="loading"><div class="spinner"></div><br>🤖 Gemini AIが未紐づけの注文書と見積書を解析中...<br><span style="font-size:12px;color:var(--text-sub)">※数十秒〜数分かかります</span></div>';
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res.success) {
+        showToast('完了！ 自動確定: ' + (res.result.autoCount||0) + '件 / 要確認候補: ' + (res.result.candidateCount||0) + '件');
+        loadMatchingCandidates();
+        if (typeof loadData === 'function') loadData();
+      } else { showToast('エラー: ' + res.error, true); loadMatchingCandidates(); }
+    })
+    .withFailureHandler(err => { showToast('通信エラー: ' + err.message, true); loadMatchingCandidates(); })
+    .handleApiRequest('runMatching', {});
+}
+
+function _renderMatchingCandidates(items) {
+  const container = document.getElementById('matching-container');
+  if(!container) return;
+  if (items.length === 0) {
+    container.innerHTML = '<div style="text-align:center; padding:40px; background:var(--surface2); border-radius:8px;"><strong style="color:var(--success); font-size:16px;">✓ 要確認の紐づけ候補はありません</strong></div>';
+    return;
   }
-  document.getElementById('modal-board').classList.add('active');
-}
-function saveBoard(pId, bId) {
-  const data = { id: bId || genId('B'), productId: pId, name: document.getElementById('fb-name').value, code: document.getElementById('fb-code').value, desc: '', version: '' };
-  closeModal('board');
-  gasCall('bomSaveBoard', data, function() { showToast('保存しました'); loadAllData(); });
-}
-function deleteBoard(id) {
-  if (!confirm('削除しますか？')) return;
-  gasCall('bomDeleteBoard', { id }, function() { showToast('削除しました'); loadAllData(); });
+  const scoreBar = (s) => {
+    const w = Math.min(s, 100); const c = s >= 80 ? 'var(--success)' : s >= 50 ? '#fbbc04' : 'var(--danger)';
+    return `<div style="display:flex;align-items:center;gap:6px;"><div style="flex:1;height:8px;background:var(--border);border-radius:4px;overflow:hidden;min-width:100px;"><div style="width:${w}%;height:100%;background:${c};border-radius:4px;"></div></div><span style="font-size:14px;font-weight:700;color:${c};min-width:36px;text-align:right;">${s}点</span></div>`;
+  };
+  const cards = items.map(item => {
+    const candidates = item.candidates || [];
+    const candRows = candidates.map(c => {
+      const itemsHtml = (c.items && c.items.length > 0) ? `<div style="margin-top:8px;border-top:1px dashed var(--border);padding-top:8px;"><div style="font-size:11px;font-weight:600;color:var(--text-sub);margin-bottom:4px;">📋 明細項目</div><table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="background:#f8f9fa;"><th style="padding:3px 8px;text-align:left;border:1px solid var(--border);">品名</th><th style="padding:3px 8px;text-align:right;border:1px solid var(--border);">数量</th><th style="padding:3px 8px;text-align:right;border:1px solid var(--border);">単価</th><th style="padding:3px 8px;text-align:right;border:1px solid var(--border);">金額</th></tr></thead><tbody>${c.items.map(it => `<tr><td style="padding:3px 8px;border:1px solid var(--border);">${it.itemName||'—'}</td><td style="padding:3px 8px;border:1px solid var(--border);text-align:right;">${it.qty||'—'}</td><td style="padding:3px 8px;border:1px solid var(--border);text-align:right;">${it.unitPrice!=null?'¥'+Number(it.unitPrice).toLocaleString():'—'}</td><td style="padding:3px 8px;border:1px solid var(--border);text-align:right;font-weight:600;">${it.amount!=null?'¥'+Number(it.amount).toLocaleString():'—'}</td></tr>`).join('')}</tbody></table></div>` : '';
+      return `<div style="display:flex;flex-direction:column;gap:6px;padding:12px 16px;background:var(--card);border:1px solid var(--border);border-radius:8px;margin-bottom:8px;"><div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;"><div style="flex:1;min-width:200px;"><div style="font-size:13px;font-weight:700;">📄 見積書No: ${c.quoteNo || c.quoteId || '—'}</div><div style="font-size:12px;color:var(--text-sub);margin-top:2px;">宛先: ${c.client || '—'} ｜ 発行日: <strong>${c.issueDate || '—'}</strong></div></div><div style="min-width:160px;">${scoreBar(c.score)}</div><button class="btn btn-primary" onclick="confirmLink('${item.orderMgmtId}','${c.quoteId}')">この見積書で確定</button></div>${itemsHtml}</div>`;
+    }).join('');
+    return `<div style="background:var(--bg);border-radius:var(--radius);border:1px solid var(--border);margin-bottom:24px;box-shadow:var(--shadow);overflow:hidden;"><div style="background:#fce8e6;padding:14px 20px;border-bottom:1px solid #f9d5d1;display:flex;align-items:center;gap:16px;flex-wrap:wrap;"><span class="badge" style="background:#c0392b;color:white;font-size:12px;padding:4px 10px;">📦 未紐づけ 注文書</span><strong style="font-size:16px;color:#c0392b;">${item.orderNo || item.orderMgmtId}</strong><span style="font-size:13px;color:var(--text-sub); border-left:1px solid #f9d5d1; padding-left:16px;">顧客: ${item.orderClient || '—'}</span><span style="margin-left:auto;font-size:16px;font-weight:800;color:var(--danger);">¥${item.orderAmount ? Number(item.orderAmount).toLocaleString() : '—'}</span></div><div style="padding:16px 20px;"><div style="font-size:13px;font-weight:700;color:var(--text-sub);margin-bottom:12px;">↓ AIが見つけた見積書候補（スコア順）</div>${candRows || '<div style="padding:10px; background:#fff8e1; color:#e65100; border:1px solid #f5d9b8; border-radius:6px; font-size:12px;">候補が見つかりませんでした。</div>'}</div></div>`;
+  }).join('');
+  container.innerHTML = `<div>${cards}</div>`;
 }
 
-function openBOMAddModal(boardId) {
-  document.getElementById('fb-bom-id').value = '';
-  document.getElementById('fb-bom-bid').value = boardId;
-  document.getElementById('fb-qty').value = '1';
+function confirmLink(orderMgmtId, quoteMgmtId) {
+  if (!confirm('この注文書と見積書の紐づけを確定しますか？')) return;
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res.success) { showToast('✅ 紐づけが完了しました'); loadMatchingCandidates(); loadData(); }
+      else { showToast('失敗: ' + res.error, true); }
+    })
+    .handleApiRequest('confirmOrderLink', { orderMgmtId, quoteMgmtId });
+}
+
+// ============================================================
+// 管理コンソール 関連スクリプト
+// ============================================================
+function switchAdminTab(tab) {
+  document.querySelectorAll('.admin-tab').forEach(function(t) { t.classList.remove('active'); });
+  document.querySelectorAll('.admin-tab-content').forEach(function(c) { c.style.display = 'none'; });
+  var tabEl = document.getElementById('atab-' + tab);
+  var contentEl = document.getElementById('admin-tab-' + tab);
+  if (tabEl) tabEl.classList.add('active');
+  if (contentEl) contentEl.style.display = 'block';
+}
+
+function loadAdminSettings() {
+  var btn = document.getElementById('admin-reload-btn');
+  if (btn) btn.textContent = '読み込み中...';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (btn) btn.textContent = '📥 全設定を読み込む';
+      if (!res || !res.success) { showToast('設定の読み込みに失敗しました', true); return; }
+      var s = res.settings || {};
+      _setVal('cfg-admin-emails',       res.adminEmails || '');
+      _setVal('cfg-chat-webhook',       res.chatWebhook || s.webhookUrl || '');
+      _setVal('cfg-gemini-key',         '');  
+      _setVal('cfg-spreadsheet-id',     res.spreadsheetId || '');
+      _setVal('cfg-admin-emails-access', res.adminEmails || '');
+      _setCheck('cfg-notify-order',    s.notifyOrder !== false);
+      _setCheck('cfg-notify-quote',    s.notifyQuote !== false);
+      _setCheck('cfg-notify-deadline', s.notifyDl    !== false);
+      _setVal('cfg-alert-days',         s.alertDays || 3);
+      _setVal('cfg-notify-emails', res.notifyEmails || '');
+      _setVal('cfg-rakuraku-company',  res.rakurakuCompany  || '');
+      _setVal('cfg-rakuraku-endpoint', res.rakurakuEndpoint || '');
+      _setVal('cfg-n8n-order-webhook',  res.n8nOrderWebhook  || '');
+      _setVal('cfg-n8n-quote-webhook',  res.n8nQuoteWebhook  || '');
+      _setVal('cfg-custom-webhook',     res.customWebhook    || '');
+      showToast('設定を読み込みました');
+    })
+    .handleApiRequest('loadSettings', {});
+}
+
+function _setVal(id, val) { var el = document.getElementById(id); if (el) el.value = val; }
+function _setCheck(id, checked) { var el = document.getElementById(id); if (el) el.checked = !!checked; }
+function _getVal(id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; }
+function _getCheck(id) { var el = document.getElementById(id); return el ? el.checked : false; }
+
+function saveAdminBasic() {
+  var payload = { adminEmails: _getVal('cfg-admin-emails'), chatWebhook: _getVal('cfg-chat-webhook'), notifyOrder: _getCheck('cfg-notify-order'), notifyQuote: _getCheck('cfg-notify-quote'), notifyDl: _getCheck('cfg-notify-deadline'), alertDays: parseInt(_getVal('cfg-alert-days')) || 3 };
+  var geminiKey = _getVal('cfg-gemini-key'); if (geminiKey) payload.geminiKey = geminiKey;
+  var ssId = _getVal('cfg-spreadsheet-id'); if (ssId) payload.spreadsheetId = ssId;
   
-  const sel = document.getElementById('fb-part');
-  sel.innerHTML = db.parts.map(p => `<option value="${p.id}">${p.code} - ${p.name}</option>`).join('');
-  document.getElementById('modal-bom').classList.add('active');
+  // Directly save avoiding _loadSettingsObj error on backend
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) { showToast('基本設定を保存しました'); }
+      else { showToast('保存失敗: ' + (res ? res.error : '不明'), true); }
+    })
+    .handleApiRequest('saveSettings', payload);
 }
-function openBOMEditModal(bomId) {
-  const b = db.bom.find(x => x.id === bomId);
-  document.getElementById('fb-bom-id').value = b.id;
-  document.getElementById('fb-bom-bid').value = b.boardId;
-  const sel = document.getElementById('fb-part');
-  sel.innerHTML = `<option value="${b.partId}" selected>${db.parts.find(p=>p.id===b.partId)?.name}</option>`;
-  document.getElementById('fb-qty').value = b.qty;
-  document.getElementById('modal-bom').classList.add('active');
+
+function saveAdminNotify() { 
+  google.script.run
+    .withSuccessHandler(function(res) { if (res && res.success) showToast('通知設定を保存しました'); else showToast('保存失敗', true); })
+    .handleApiRequest('saveSettings', { notifyOrder: _getCheck('cfg-notify-order'), notifyQuote: _getCheck('cfg-notify-quote'), notifyDl: _getCheck('cfg-notify-deadline'), alertDays: parseInt(_getVal('cfg-alert-days')) || 3 });
 }
-function saveBOM(bomId, boardId) {
-  const data = {
-    id: bomId || genId('BOM'), boardId: boardId, partId: document.getElementById('fb-part').value,
-    qty: parseInt(document.getElementById('fb-qty').value) || 1, note: ''
-  };
-  closeModal('bom');
-  gasCall('bomSaveBomRow', data, function() { showToast('保存しました'); loadAllData(); });
+
+function saveAdminAccess() { 
+  google.script.run
+    .withSuccessHandler(function(res) { if (res && res.success) showToast('閲覧権限を保存しました'); else showToast('保存失敗', true); })
+    .handleApiRequest('saveSettings', { adminEmails: _getVal('cfg-admin-emails-access') }); 
 }
-function deleteBOM(id) {
-  if (!confirm('削除しますか？')) return;
-  gasCall('bomDeleteBomRow', { id }, function() { showToast('削除しました'); loadAllData(); });
+
+function saveAdminMailSend() { 
+  // FIX: This calls the dedicated Mail Send API if the rich UI is restored, 
+  // but if the simple UI is used, we save it here.
+  google.script.run
+    .withSuccessHandler(function(res) { if (res && res.success) showToast('メール配信設定を保存しました'); else showToast('保存失敗', true); })
+    .handleApiRequest('saveSettings', { notifyEmails: _getVal('cfg-notify-emails') }); 
 }
+
+function saveAdminRakuraku() { 
+  var payload = { rakurakuCompany: _getVal('cfg-rakuraku-company'), rakurakuEndpoint: _getVal('cfg-rakuraku-endpoint') }; 
+  var apiKey = _getVal('cfg-rakuraku-apikey'); if (apiKey) payload.rakurakuApiKey = apiKey; 
+  google.script.run
+    .withSuccessHandler(function(res) { if (res && res.success) showToast('楽楽販売設定を保存しました'); else showToast('保存失敗', true); })
+    .handleApiRequest('saveSettings', payload);
+}
+
+function saveAdminExternal() { 
+  google.script.run
+    .withSuccessHandler(function(res) { if (res && res.success) showToast('外部連携設定を保存しました'); else showToast('保存失敗', true); })
+    .handleApiRequest('saveSettings', { n8nOrderWebhook: _getVal('cfg-n8n-order-webhook'), n8nQuoteWebhook: _getVal('cfg-n8n-quote-webhook'), customWebhook: _getVal('cfg-custom-webhook') }); 
+}
+
+var _adminLoaded = false;
+function _onShowAdmin() { if (!_adminLoaded) { _adminLoaded = true; loadAdminSettings(); } }
+
+// showPage フック追加（元の機能を維持しつつ拡張）
+const _originalShowPage = window.showPage || function(){};
+window.showPage = function(name) {
+  _originalShowPage(name);
+  if (name === 'admin') _onShowAdmin();
+};
 </script>
-</body>
-</html>
