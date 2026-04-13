@@ -4,13 +4,13 @@
 // ============================================================
 
 function doGet(e) {
-  var userEmail = Session.getActiveUser().getEmail() || '';
+  var userEmail     = Session.getActiveUser().getEmail() || '';
   var adminEmailsStr = PropertiesService.getScriptProperties().getProperty('ADMIN_EMAILS') || '';
-  var isAdmin = false;
+  var isAdmin       = false;
   if (!adminEmailsStr || adminEmailsStr.trim() === '') {
     isAdmin = true;
   } else {
-    var adminEmails = adminEmailsStr.split(',').map(function(s){return s.trim();});
+    var adminEmails = adminEmailsStr.split(',').map(function(s){ return s.trim(); });
     isAdmin = (adminEmails.indexOf(userEmail) >= 0);
   }
 
@@ -27,7 +27,7 @@ function doGet(e) {
     var fileId = e.parameter.fileId;
     if (!fileId) return HtmlService.createHtmlOutput('Error: No file ID provided');
     try {
-      var file = DriveApp.getFileById(fileId);
+      var file    = DriveApp.getFileById(fileId);
       var content = file.getBlob().getDataAsString('utf-8');
       return HtmlService.createHtmlOutput(content);
     } catch(err) {
@@ -36,7 +36,7 @@ function doGet(e) {
   }
 
   var dashboardTmpl = HtmlService.createTemplateFromFile('Dashboard');
-  dashboardTmpl.isAdmin = isAdmin;
+  dashboardTmpl.isAdmin  = isAdmin;
   dashboardTmpl.userEmail = userEmail;
   return dashboardTmpl.evaluate()
     .setTitle('見積・注文 管理システム')
@@ -48,13 +48,15 @@ function include(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
 
+// ============================================================
+// API ルーター
+// ============================================================
 function handleApiRequest(action, payload) {
   try {
     payload = payload || {};
     switch (action) {
-      // ★修正：エラーを安全にキャッチして止まらないようにする
       case 'getAll':
-        try { return _apiGetAll(); } 
+        try { return _apiGetAll(); }
         catch(ex) { return { success: false, error: '[getAll] ' + ex.message }; }
       case 'search':        return _apiSearch(payload);
       case 'uploadPdf':     return _apiUploadPdf(payload);
@@ -76,13 +78,13 @@ function handleApiRequest(action, payload) {
       case 'ledgerUploadFile':    return _apiLedgerUploadFile(payload);
       case 'ledgerGetMachines':   return _apiLedgerGetMachines();
       case 'ledgerCreateMachine': return _apiLedgerCreateMachine(payload);
-      case 'appendBoardRow':   return _apiAppendBoardRow(payload);
-      case 'updateMgmt':       return _apiUpdateMgmt(payload);
-      case 'deleteMgmt':       return _apiDeleteMgmt(payload);
-      case 'chatbotQuery':     return apiChatbotQuery(payload);
-      case 'modelInfoGet':     return _apiModelInfoGet(payload);
-      case 'modelInfoSave':    return _apiModelInfoSave(payload);
-      case 'modelInfoUpload':  return _apiModelInfoUpload(payload);
+      case 'appendBoardRow':  return _apiAppendBoardRow(payload);
+      case 'updateMgmt':      return _apiUpdateMgmt(payload);
+      case 'deleteMgmt':      return _apiDeleteMgmt(payload);
+      case 'chatbotQuery':    return apiChatbotQuery(payload);
+      case 'modelInfoGet':    return _apiModelInfoGet(payload);
+      case 'modelInfoSave':   return _apiModelInfoSave(payload);
+      case 'modelInfoUpload': return _apiModelInfoUpload(payload);
       case 'driveSearch':       return _apiDriveSearch(payload);
       case 'driveRefreshCache': return { success: true, count: refreshDrivePdfCache() };
       case 'driveDeleteFile':   return _apiDriveDeleteFile(payload);
@@ -91,16 +93,16 @@ function handleApiRequest(action, payload) {
       case 'qsDelete':      return _apiQsDelete(payload);
       case 'qsUploadFile':  return _apiQsUploadFile(payload);
       case 'qsGetMachines': return _apiQsGetMachines();
-      case 'partsGetAll':      return _apiPartsGetAll(payload);
-      case 'partsSave':        return _apiPartsSave(payload);
-      case 'partsDelete':      return _apiPartsDelete(payload);
-      case 'partsImportCSV':   return _apiPartsImportCSV(payload);
-      case 'partsExportCSV':   return _apiPartsExportCSV(payload);
-      case 'pcbGetAll':        return _apiPcbGetAll(payload);
-      case 'pcbSave':          return _apiPcbSave(payload);
-      case 'pcbDelete':        return _apiPcbDelete(payload);
-      case 'pcbImportCSV':     return _apiPcbImportCSV(payload);
-      case 'pcbExportCSV':     return _apiPcbExportCSV(payload);
+      case 'partsGetAll':    return _apiPartsGetAll(payload);
+      case 'partsSave':      return _apiPartsSave(payload);
+      case 'partsDelete':    return _apiPartsDelete(payload);
+      case 'partsImportCSV': return _apiPartsImportCSV(payload);
+      case 'partsExportCSV': return _apiPartsExportCSV(payload);
+      case 'pcbGetAll':    return _apiPcbGetAll(payload);
+      case 'pcbSave':      return _apiPcbSave(payload);
+      case 'pcbDelete':    return _apiPcbDelete(payload);
+      case 'pcbImportCSV': return _apiPcbImportCSV(payload);
+      case 'pcbExportCSV': return _apiPcbExportCSV(payload);
       case 'ensurePartsSheets': return ensurePartsSheets() || { success: true };
       case 'boardGetAll':       return apiBoardGetAll();
       case 'boardGetParts':     return apiBoardGetParts();
@@ -149,7 +151,7 @@ function _apiGetAll() {
     // IS_LATEST フィルター（列が存在しない場合も安全に処理）
     rows = rows.filter(function(r) {
       var colIdx = (MGMT_COLS.IS_LATEST || 0) - 1;
-      if (colIdx < 0 || colIdx >= r.length) return true; // 列がなければ全件通す
+      if (colIdx < 0 || colIdx >= r.length) return true;
       var v = String(r[colIdx] || '');
       return v === '' || v.toUpperCase() === 'TRUE';
     });
@@ -167,7 +169,6 @@ function _apiGetAll() {
 
     var items = _deduplicateMgmtRows(orderRows);
 
-    // 発注日の新しい順
     items.sort(function(a, b) {
       var da = String(a.orderDate || a.quoteDate || '');
       var db = String(b.orderDate || b.quoteDate || '');
@@ -186,21 +187,21 @@ function _deduplicateMgmtRows(rows) {
   var result = [];
   rows.forEach(function(r) {
     var obj     = _rowToObject(r);
-    var orderNo = String(obj.orderNo  || '').trim();
-    var quoteNo = String(obj.quoteNo  || '').trim();
-    var key = orderNo || quoteNo || obj.id;
+    var orderNo = String(obj.orderNo || '').trim();
+    var quoteNo = String(obj.quoteNo || '').trim();
+    var key     = orderNo || quoteNo || obj.id;
     if (!key) return;
     if (seen[key]) {
-      var existing = seen[key];
-      if (!existing.orderNo     && obj.orderNo)     existing.orderNo     = obj.orderNo;
-      if (!existing.quoteNo     && obj.quoteNo)     existing.quoteNo     = obj.quoteNo;
-      if (!existing.orderAmount && obj.orderAmount) existing.orderAmount = obj.orderAmount;
-      if (!existing.quoteAmount && obj.quoteAmount) existing.quoteAmount = obj.quoteAmount;
-      if (!existing.orderDate   && obj.orderDate)   existing.orderDate   = obj.orderDate;
-      if (!existing.quoteDate   && obj.quoteDate)   existing.quoteDate   = obj.quoteDate;
-      if (!existing.modelCode   && obj.modelCode)   existing.modelCode   = obj.modelCode;
-      if (!existing.orderSlipNo && obj.orderSlipNo) existing.orderSlipNo = obj.orderSlipNo;
-      if (!existing.deliveryDate && obj.deliveryDate) existing.deliveryDate = obj.deliveryDate;
+      var ex = seen[key];
+      if (!ex.orderNo     && obj.orderNo)     ex.orderNo     = obj.orderNo;
+      if (!ex.quoteNo     && obj.quoteNo)     ex.quoteNo     = obj.quoteNo;
+      if (!ex.orderAmount && obj.orderAmount) ex.orderAmount = obj.orderAmount;
+      if (!ex.quoteAmount && obj.quoteAmount) ex.quoteAmount = obj.quoteAmount;
+      if (!ex.orderDate   && obj.orderDate)   ex.orderDate   = obj.orderDate;
+      if (!ex.quoteDate   && obj.quoteDate)   ex.quoteDate   = obj.quoteDate;
+      if (!ex.modelCode   && obj.modelCode)   ex.modelCode   = obj.modelCode;
+      if (!ex.orderSlipNo && obj.orderSlipNo) ex.orderSlipNo = obj.orderSlipNo;
+      if (!ex.deliveryDate && obj.deliveryDate) ex.deliveryDate = obj.deliveryDate;
     } else {
       seen[key] = obj;
       result.push(obj);
@@ -215,7 +216,7 @@ function _apiSearch(p) {
   var ot    = p.orderType || '';
   var month = p.yearMonth || '';
   var showHidden = p.showHidden || false;
-  var data = getAllMgmtData();
+  var data  = getAllMgmtData();
   if (!showHidden) {
     data = data.filter(function(r) {
       var hidden = CONFIG.STATUS_HIDDEN || [];
@@ -223,11 +224,11 @@ function _apiSearch(p) {
     });
   }
   if (kw) data = data.filter(function(r) {
-    return [MGMT_COLS.QUOTE_NO,MGMT_COLS.ORDER_NO,MGMT_COLS.ORDER_SLIP_NO,
-            MGMT_COLS.MODEL_CODE,MGMT_COLS.SUBJECT,MGMT_COLS.CLIENT]
+    return [MGMT_COLS.QUOTE_NO, MGMT_COLS.ORDER_NO, MGMT_COLS.ORDER_SLIP_NO,
+            MGMT_COLS.MODEL_CODE, MGMT_COLS.SUBJECT, MGMT_COLS.CLIENT]
       .some(function(col) { return normalizeText(String(r[col-1])).indexOf(kw) >= 0; });
   });
-  if (st)    data = data.filter(function(r) { return String(r[MGMT_COLS.STATUS-1])      === st; });
+  if (st)    data = data.filter(function(r) { return String(r[MGMT_COLS.STATUS-1])     === st; });
   if (ot)    data = data.filter(function(r) { return String(r[MGMT_COLS.ORDER_TYPE-1]) === ot; });
   if (month) data = data.filter(function(r) {
     return String(r[MGMT_COLS.QUOTE_DATE-1]).indexOf(month) === 0 ||
@@ -238,9 +239,7 @@ function _apiSearch(p) {
   });
   var items = _deduplicateMgmtRows(data);
   items.sort(function(a, b) {
-    var da = String(a.orderDate || '');
-    var db = String(b.orderDate || '');
-    return db.localeCompare(da);
+    return String(b.orderDate || '').localeCompare(String(a.orderDate || ''));
   });
   return { success: true, total: items.length, items: items };
 }
@@ -274,10 +273,8 @@ function _apiAppendBoardRow(p) {
     var sheet = ss.getSheetByName(p.sheetName);
     if (!sheet) return { success: false, error: 'シート「' + p.sheetName + '」が見つかりません' };
     sheet.appendRow(p.rowData);
-    Logger.log('[APPEND ROW] ' + p.sheetName + ': ' + JSON.stringify(p.rowData));
     return { success: true };
   } catch(e) {
-    Logger.log('[APPEND ROW ERROR] ' + e.message);
     return { success: false, error: e.message };
   }
 }
@@ -294,24 +291,24 @@ function _apiUpdateMgmt(p) {
     if (idx < 0) return { success: false, error: '管理ID未発見: ' + p.mgmtId };
     var row = idx + 2;
     var fields = {
-      quoteNo:      MGMT_COLS.QUOTE_NO,
-      orderNo:      MGMT_COLS.ORDER_NO,
-      subject:      MGMT_COLS.SUBJECT,
-      client:       MGMT_COLS.CLIENT,
-      status:       MGMT_COLS.STATUS,
-      quoteDate:    MGMT_COLS.QUOTE_DATE,
-      orderDate:    MGMT_COLS.ORDER_DATE,
-      quoteAmount:  MGMT_COLS.QUOTE_AMOUNT,
-      orderAmount:  MGMT_COLS.ORDER_AMOUNT,
-      orderType:    MGMT_COLS.ORDER_TYPE,
-      modelCode:    MGMT_COLS.MODEL_CODE,
-      orderSlipNo:  MGMT_COLS.ORDER_SLIP_NO,
-      assignee:     MGMT_COLS.ASSIGNEE,
+      quoteNo:       MGMT_COLS.QUOTE_NO,
+      orderNo:       MGMT_COLS.ORDER_NO,
+      subject:       MGMT_COLS.SUBJECT,
+      client:        MGMT_COLS.CLIENT,
+      status:        MGMT_COLS.STATUS,
+      quoteDate:     MGMT_COLS.QUOTE_DATE,
+      orderDate:     MGMT_COLS.ORDER_DATE,
+      quoteAmount:   MGMT_COLS.QUOTE_AMOUNT,
+      orderAmount:   MGMT_COLS.ORDER_AMOUNT,
+      orderType:     MGMT_COLS.ORDER_TYPE,
+      modelCode:     MGMT_COLS.MODEL_CODE,
+      orderSlipNo:   MGMT_COLS.ORDER_SLIP_NO,
+      assignee:      MGMT_COLS.ASSIGNEE,
       deliveryDate:  MGMT_COLS.DELIVERY_DATE,
       orderDeadline: MGMT_COLS.ORDER_DEADLINE,
       revisionNo:    MGMT_COLS.REVISION_NO,
-      memo:         MGMT_COLS.MEMO,
-      linked:       MGMT_COLS.LINKED,
+      memo:          MGMT_COLS.MEMO,
+      linked:        MGMT_COLS.LINKED,
     };
     Object.keys(fields).forEach(function(key) {
       if (p[key] !== undefined) {
@@ -380,7 +377,7 @@ function _deleteRelatedRows(ss, sheetName, mgmtId) {
 
 function _apiGetDetail(p) {
   if (!p.mgmtId) return { success: false, error: '管理IDが必要' };
-  var ss = getSpreadsheet();
+  var ss         = getSpreadsheet();
   var allMgmt    = getAllMgmtData();
   var targetRow  = allMgmt.find(function(r) { return String(r[MGMT_COLS.ID-1]) === String(p.mgmtId); });
   var relatedIds = [String(p.mgmtId)];
@@ -388,7 +385,7 @@ function _apiGetDetail(p) {
     var orderNo = String(targetRow[MGMT_COLS.ORDER_NO-1] || '').trim();
     var quoteNo = String(targetRow[MGMT_COLS.QUOTE_NO-1] || '').trim();
     allMgmt.forEach(function(r) {
-      var id  = String(r[MGMT_COLS.ID-1] || '');
+      var id  = String(r[MGMT_COLS.ID-1]       || '');
       var oNo = String(r[MGMT_COLS.ORDER_NO-1] || '').trim();
       var qNo = String(r[MGMT_COLS.QUOTE_NO-1] || '').trim();
       if (id === p.mgmtId) return;
@@ -398,7 +395,7 @@ function _apiGetDetail(p) {
     });
   }
   var qs    = ss.getSheetByName(CONFIG.SHEET_QUOTES);
-  var qLast = qs.getLastRow();
+  var qLast = qs ? qs.getLastRow() : 0;
   var quoteLines = [];
   if (qLast > 1) {
     var seenQLines = {};
@@ -416,7 +413,7 @@ function _apiGetDetail(p) {
       });
   }
   var os    = ss.getSheetByName(CONFIG.SHEET_ORDERS);
-  var oLast = os.getLastRow();
+  var oLast = os ? os.getLastRow() : 0;
   var orderLines = [];
   if (oLast > 1) {
     var seenLines = {};
@@ -488,30 +485,30 @@ function _apiModelInfoSave(p) {
 function _apiModelInfoUpload(p) {
   try {
     if (!p.base64Data || !p.fileName) return { success: false, error: 'ファイルデータが必要です' };
-    var folder   = DriveApp.getFolderById(CONFIG.WEB_UPLOAD_FOLDER_ID);
-    var blob     = Utilities.newBlob(Utilities.base64Decode(p.base64Data), 'application/pdf', p.fileName);
-    var file     = folder.createFile(blob);
+    var folder = DriveApp.getFolderById(CONFIG.WEB_UPLOAD_FOLDER_ID);
+    var blob   = Utilities.newBlob(Utilities.base64Decode(p.base64Data), 'application/pdf', p.fileName);
+    var file   = folder.createFile(blob);
     return { success: true, url: file.getUrl(), fileName: p.fileName };
   } catch(e) {
     return { success: false, error: e.message };
   }
 }
 
-// Drive検索関連
+// ===== Drive検索 =====
 var DRIVE_SEARCH_FOLDER_ID = '1oAkPV-O4FZezbGmv7sTlNA4wFljMOyv6';
-var DRIVE_CACHE_KEY     = 'DRIVE_PDF_CACHE';
-var DRIVE_CACHE_TS_KEY  = 'DRIVE_PDF_CACHE_TS';
-var DRIVE_CACHE_TTL_MS  = 60 * 60 * 1000;
+var DRIVE_CACHE_KEY        = 'DRIVE_PDF_CACHE';
+var DRIVE_CACHE_TS_KEY     = 'DRIVE_PDF_CACHE_TS';
+var DRIVE_CACHE_TTL_MS     = 60 * 60 * 1000;
 
 function _apiDriveSearch(p) {
   try {
-    var keyword  = String(p.keyword  || '').trim().toLowerCase();
-    var dateFrom = String(p.dateFrom || '').trim();
-    var dateTo   = String(p.dateTo   || '').trim();
+    var keyword      = String(p.keyword  || '').trim().toLowerCase();
+    var dateFrom     = String(p.dateFrom || '').trim();
+    var dateTo       = String(p.dateTo   || '').trim();
     var forceRefresh = p.forceRefresh === true;
     var allFiles = _getDrivePdfCache(forceRefresh);
     var filtered = allFiles.filter(function(f) {
-      if (keyword && f.name.toLowerCase().indexOf(keyword) < 0) return false;
+      if (keyword  && f.name.toLowerCase().indexOf(keyword)  < 0) return false;
       if (dateFrom && f.updatedAt < dateFrom) return false;
       if (dateTo   && f.updatedAt > dateTo + 'z') return false;
       return true;
@@ -519,7 +516,8 @@ function _apiDriveSearch(p) {
     filtered.sort(function(a, b) {
       return String(b.updatedAt).localeCompare(String(a.updatedAt));
     });
-    return { success: true, total: filtered.length, items: filtered.slice(0, 200), cacheTotal: allFiles.length, cached: true };
+    return { success: true, total: filtered.length, items: filtered.slice(0, 200),
+             cacheTotal: allFiles.length, cached: true };
   } catch(e) {
     return { success: false, error: e.message };
   }
@@ -534,19 +532,18 @@ function _getDrivePdfCache(forceRefresh) {
       try {
         var cached = props.getProperty(DRIVE_CACHE_KEY);
         if (cached) return JSON.parse(cached);
-      } catch(e) { }
+      } catch(e) {}
     }
   }
   var files = _buildDrivePdfIndex();
-  var slim = files.map(function(f) {
+  var slim  = files.map(function(f) {
     return { id:f.id, name:f.name, url:f.url, updatedAt:f.updatedAt, createdAt:f.createdAt, size:f.size };
   });
   try {
     props.setProperty(DRIVE_CACHE_KEY, JSON.stringify(slim));
     props.setProperty(DRIVE_CACHE_TS_KEY, String(new Date().getTime()));
   } catch(e) {
-    var trimmed = slim.slice(0, 2000);
-    props.setProperty(DRIVE_CACHE_KEY, JSON.stringify(trimmed));
+    props.setProperty(DRIVE_CACHE_KEY, JSON.stringify(slim.slice(0, 2000)));
     props.setProperty(DRIVE_CACHE_TS_KEY, String(new Date().getTime()));
   }
   return slim;
@@ -560,13 +557,17 @@ function _buildDrivePdfIndex() {
   var seen     = {};
   var batchSize = 10;
   for (var i = 0; i < allFolderIds.length; i += batchSize) {
-    var batch    = allFolderIds.slice(i, i + batchSize);
-    var orParts  = batch.map(function(id) { return "'" + id + "' in parents"; });
+    var batch   = allFolderIds.slice(i, i + batchSize);
+    var orParts = batch.map(function(id) { return "'" + id + "' in parents"; });
     var q = '(' + orParts.join(' or ') + ') and mimeType = "application/pdf" and trashed = false';
     try {
       var pageToken = null;
       do {
-        var params = { q: q, pageSize: 200, fields: 'nextPageToken, files(id, name, webViewLink, size, modifiedTime, createdTime)', orderBy: 'modifiedTime desc' };
+        var params = {
+          q: q, pageSize: 200,
+          fields: 'nextPageToken, files(id, name, webViewLink, size, modifiedTime, createdTime)',
+          orderBy: 'modifiedTime desc'
+        };
         if (pageToken) params.pageToken = pageToken;
         var resp = Drive.Files.list(params);
         (resp.files || []).forEach(function(f) {
@@ -583,7 +584,7 @@ function _buildDrivePdfIndex() {
         });
         pageToken = resp.nextPageToken;
       } while (pageToken);
-    } catch(fe) { }
+    } catch(fe) {}
   }
   return results;
 }
@@ -600,17 +601,12 @@ function refreshDrivePdfCache() {
   return slim.length;
 }
 
-function _apiDriveSearchFallback(p) {
-  return { success: false, error: "Not supported" };
-}
-
 function _getAllSubFolderIds(rootFolderId) {
-  var allIds   = [];
-  var queue    = [rootFolderId];
-  var visited  = {};
+  var allIds  = [];
+  var queue   = [rootFolderId];
+  var visited = {};
   visited[rootFolderId] = true;
-  var maxDepth = 4;
-  var depth    = 0;
+  var maxDepth = 4, depth = 0;
   while (queue.length > 0 && depth < maxDepth) {
     var currentBatch = queue.slice();
     queue = [];
@@ -625,7 +621,7 @@ function _getAllSubFolderIds(rootFolderId) {
         (resp.files || []).forEach(function(f) {
           if (!visited[f.id]) { visited[f.id] = true; allIds.push(f.id); queue.push(f.id); }
         });
-      } catch(e) { }
+      } catch(e) {}
     }
   }
   return allIds;
@@ -649,61 +645,54 @@ function _apiDriveDeleteFile(p) {
 function _apiGetQuoteDetail(p) {
   try {
     if (!p || !p.mgmtId) return { success: false, error: '管理IDが必要です' };
-    var ss = getSpreadsheet();
+    var ss       = getSpreadsheet();
     var mgmtData = getAllMgmtData();
     var targetRow = mgmtData.find(function(r) {
       return String(r[MGMT_COLS.ID - 1]) === String(p.mgmtId);
     });
     if (!targetRow) return { success: false, error: '管理IDが見つかりません: ' + p.mgmtId };
-    var quoteNo = String(targetRow[MGMT_COLS.QUOTE_NO - 1] || '').trim();
+    var mgmt       = _rowToObject(targetRow);
+    var quoteNo    = String(targetRow[MGMT_COLS.QUOTE_NO - 1] || '').trim();
     var relatedIds = [String(p.mgmtId)];
     if (quoteNo) {
       mgmtData.forEach(function(r) {
         var id = String(r[MGMT_COLS.ID - 1] || '');
         if (id === String(p.mgmtId)) return;
-        if (String(r[MGMT_COLS.QUOTE_NO - 1] || '').trim() === quoteNo) {
-          relatedIds.push(id);
-        }
+        if (String(r[MGMT_COLS.QUOTE_NO - 1] || '').trim() === quoteNo) relatedIds.push(id);
       });
     }
-    var mgmt = _rowToObject(targetRow);
     var quoteSheet = ss.getSheetByName(CONFIG.SHEET_QUOTES);
     var quoteLines = [];
     if (quoteSheet && quoteSheet.getLastRow() > 1) {
-      var qData = quoteSheet.getRange(2, 1, quoteSheet.getLastRow() - 1, 15).getValues();
       var seen = {};
-      qData.filter(function(r) {
-        return relatedIds.indexOf(String(r[0])) >= 0;
-      }).forEach(function(r) {
-        var key = [r[6], r[7], r[8], r[10]].join('|');
-        if (seen[key]) return;
-        seen[key] = true;
-        quoteLines.push({
-          mgmtId:     String(r[0]),
-          quoteNo:    String(r[1] || ''),
-          issueDate:  _toDateStr(r[2]),
-          destCompany:String(r[3] || ''),
-          destPerson: String(r[4] || ''),
-          lineNo:     r[5],
-          itemName:   String(r[6] || ''),
-          spec:       String(r[7] || ''),
-          qty:        r[8],
-          unit:       String(r[9] || ''),
-          unitPrice:  r[10],
-          amount:     r[11],
-          remarks:    String(r[12] || ''),
-          pdfUrl:     String(r[13] || ''),
-          folderUrl:  String(r[14] || ''),
+      quoteSheet.getRange(2, 1, quoteSheet.getLastRow() - 1, 15).getValues()
+        .filter(function(r) { return relatedIds.indexOf(String(r[0])) >= 0; })
+        .forEach(function(r) {
+          var key = [r[6], r[7], r[8], r[10]].join('|');
+          if (seen[key]) return;
+          seen[key] = true;
+          quoteLines.push({
+            mgmtId:      String(r[0]),
+            quoteNo:     String(r[1]  || ''),
+            issueDate:   _toDateStr(r[2]),
+            destCompany: String(r[3]  || ''),
+            destPerson:  String(r[4]  || ''),
+            lineNo:      r[5],
+            itemName:    String(r[6]  || ''),
+            spec:        String(r[7]  || ''),
+            qty:         r[8],
+            unit:        String(r[9]  || ''),
+            unitPrice:   r[10],
+            amount:      r[11],
+            remarks:     String(r[12] || ''),
+            pdfUrl:      String(r[13] || ''),
+            folderUrl:   String(r[14] || ''),
+          });
         });
-      });
     }
-    return {
-      success:    true,
-      mgmt:       mgmt,
-      quoteLines: quoteLines,
-    };
+    return { success: true, mgmt: mgmt, quoteLines: quoteLines };
   } catch(e) {
-    Logger.log('[GET QUOTE DETAIL ERROR] ' + e.message + '\n' + e.stack);
+    Logger.log('[GET QUOTE DETAIL ERROR] ' + e.message);
     return { success: false, error: e.message };
   }
 }
@@ -717,14 +706,14 @@ function _apiGetCandidates() {
     .filter(function(r) { return r[0] && r[15] !== '手動確定済み' && r[11] !== 'auto_linked'; })
     .map(function(r) {
       return {
-        orderMgmtId:  String(r[0]),  orderNo:    String(r[1]),
-        orderClient:  String(r[2]),  orderDate:  _toDateStr(r[3]),
-        orderAmount:  r[4],
-        c1Id:    String(r[5]),  c1No:    String(r[6]),
-        c1Client:String(r[7]), c1Score: r[8],   c1Detail: String(r[9]),
-        c2Id:    String(r[10]), c2Score: r[11],
-        c3Id:    String(r[12]), c3Score: r[13],
-        status:  String(r[15]), updatedAt: _toDateStr(r[16]),
+        orderMgmtId: String(r[0]),  orderNo:    String(r[1]),
+        orderClient: String(r[2]),  orderDate:  _toDateStr(r[3]),
+        orderAmount: r[4],
+        c1Id: String(r[5]),  c1No:    String(r[6]),
+        c1Client: String(r[7]), c1Score: r[8], c1Detail: String(r[9]),
+        c2Id: String(r[10]), c2Score: r[11],
+        c3Id: String(r[12]), c3Score: r[13],
+        status: String(r[15]), updatedAt: _toDateStr(r[16]),
       };
     });
   return { success: true, items: items };
@@ -745,10 +734,10 @@ function _apiQuoteListGetAll() {
   try {
     var ss         = getSpreadsheet();
     var quoteSheet = ss.getSheetByName(CONFIG.SHEET_QUOTES);
-    var mgmtData  = getAllMgmtData();
-    var allRows   = mgmtData.filter(function(r) { return String(r[MGMT_COLS.QUOTE_NO - 1]).trim() !== ''; });
-    var seenQNo  = {};
-    var quoteRows = allRows.filter(function(r) {
+    var mgmtData   = getAllMgmtData();
+    var allRows    = mgmtData.filter(function(r) { return String(r[MGMT_COLS.QUOTE_NO - 1]).trim() !== ''; });
+    var seenQNo    = {};
+    var quoteRows  = allRows.filter(function(r) {
       var qNo = String(r[MGMT_COLS.QUOTE_NO - 1]).trim();
       if (seenQNo[qNo]) return false;
       seenQNo[qNo] = true;
@@ -768,27 +757,25 @@ function _apiQuoteListGetAll() {
       });
     }
     var items = quoteRows.map(function(r) {
-      var mgmtId  = String(r[MGMT_COLS.ID - 1] || '');
+      var mgmtId   = String(r[MGMT_COLS.ID - 1] || '');
       var lineInfo = quoteLineMap[mgmtId] || {};
       return {
         id:          mgmtId,
-        quoteNo:     String(r[MGMT_COLS.QUOTE_NO - 1]      || ''),
+        quoteNo:     String(r[MGMT_COLS.QUOTE_NO  - 1] || ''),
         issueDate:   lineInfo.issueDate   || _toDateStr(r[MGMT_COLS.QUOTE_DATE - 1]),
         destCompany: lineInfo.destCompany || String(r[MGMT_COLS.CLIENT - 1] || ''),
         destPerson:  lineInfo.destPerson  || '',
         quoteAmount: _toNum(r[MGMT_COLS.QUOTE_AMOUNT - 1]),
-        status:      String(r[MGMT_COLS.STATUS - 1]        || ''),
+        status:      String(r[MGMT_COLS.STATUS       - 1] || ''),
         quotePdfUrl: String(r[MGMT_COLS.QUOTE_PDF_URL - 1] || ''),
-        orderNo:     String(r[MGMT_COLS.ORDER_NO - 1]      || ''),
-        linked:      _isLinkedVal(r[MGMT_COLS.LINKED - 1]),
-        orderType:   String(r[MGMT_COLS.ORDER_TYPE - 1]    || ''),
-        modelCode:   String(r[MGMT_COLS.MODEL_CODE - 1]    || ''),
+        orderNo:     String(r[MGMT_COLS.ORDER_NO     - 1] || ''),
+        linked:      _isLinkedVal(r[MGMT_COLS.LINKED  - 1]),
+        orderType:   String(r[MGMT_COLS.ORDER_TYPE   - 1] || ''),
+        modelCode:   String(r[MGMT_COLS.MODEL_CODE   - 1] || ''),
       };
     });
     items.sort(function(a, b) {
-      var da = String(a.issueDate || a.quoteDate || '');
-      var db = String(b.issueDate || b.quoteDate || '');
-      return db.localeCompare(da);
+      return String(b.issueDate || '').localeCompare(String(a.issueDate || ''));
     });
     return { success: true, total: items.length, items: items };
   } catch(e) { return { success: false, error: e.message }; }
@@ -810,7 +797,8 @@ function _apiLedgerSave(p) {
         ledgerId, p.quoteNo || '', p.issueDate || '', p.dest || '',
         p.category || '', p.subject || '', p.status || LEDGER_STATUS.PENDING,
         p.saveUrl || '', p.machineCode || '', p.boardName || '',
-        p.modelNo || '', p.amount !== undefined && p.amount !== '' ? Number(p.amount) : '',
+        p.modelNo || '',
+        (p.amount !== undefined && p.amount !== '') ? Number(p.amount) : '',
         p.submitTo || '', p.remarks || '',
       ]);
     } else {
@@ -821,12 +809,13 @@ function _apiLedgerSave(p) {
       if (idx < 0) return { success: false, error: '台帳IDが見つかりません' };
       var row = idx + 2;
       var fields = {
-        quoteNo: LEDGER_COLS.QUOTE_NO, issueDate: LEDGER_COLS.ISSUE_DATE,
-        dest: LEDGER_COLS.DEST, category: LEDGER_COLS.CATEGORY,
-        subject: LEDGER_COLS.SUBJECT, status: LEDGER_COLS.STATUS,
-        saveUrl: LEDGER_COLS.SAVE_URL, machineCode: LEDGER_COLS.MACHINE_CODE,
-        boardName: LEDGER_COLS.BOARD_NAME, modelNo: LEDGER_COLS.MODEL_NO,
-        amount: LEDGER_COLS.AMOUNT, submitTo: LEDGER_COLS.SUBMIT_TO, remarks: LEDGER_COLS.REMARKS,
+        quoteNo:     LEDGER_COLS.QUOTE_NO,   issueDate: LEDGER_COLS.ISSUE_DATE,
+        dest:        LEDGER_COLS.DEST,       category:  LEDGER_COLS.CATEGORY,
+        subject:     LEDGER_COLS.SUBJECT,    status:    LEDGER_COLS.STATUS,
+        saveUrl:     LEDGER_COLS.SAVE_URL,   machineCode: LEDGER_COLS.MACHINE_CODE,
+        boardName:   LEDGER_COLS.BOARD_NAME, modelNo:   LEDGER_COLS.MODEL_NO,
+        amount:      LEDGER_COLS.AMOUNT,     submitTo:  LEDGER_COLS.SUBMIT_TO,
+        remarks:     LEDGER_COLS.REMARKS,
       };
       Object.keys(fields).forEach(function(key) {
         if (p[key] !== undefined) sheet.getRange(row, fields[key]).setValue(p[key]);
@@ -838,12 +827,12 @@ function _apiLedgerSave(p) {
 
 function _apiLedgerDelete(p) {
   try {
-    var ss = getSpreadsheet();
+    var ss    = getSpreadsheet();
     var sheet = ss.getSheetByName(CONFIG.SHEET_LEDGER);
     if (!sheet || !p.ledgerId) return { success: false, error: 'パラメータ不足' };
     var last = sheet.getLastRow();
-    var ids = sheet.getRange(2, 1, last - 1, 1).getValues().flat();
-    var idx = ids.indexOf(String(p.ledgerId));
+    var ids  = sheet.getRange(2, 1, last - 1, 1).getValues().flat();
+    var idx  = ids.indexOf(String(p.ledgerId));
     if (idx < 0) return { success: false, error: '対象行が見つかりません' };
     sheet.deleteRow(idx + 2);
     return { success: true };
@@ -855,17 +844,17 @@ function _apiLedgerUpdateUrl(p) {
     var ss    = getSpreadsheet();
     var sheet = ss.getSheetByName(CONFIG.SHEET_LEDGER);
     if (!sheet || sheet.getLastRow() <= 1) return { success: true, matched: false };
-    var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 10).getValues();
-    var bestIdx = -1, bestScore = 0;
+    var data        = sheet.getRange(2, 1, sheet.getLastRow() - 1, 10).getValues();
+    var bestIdx     = -1, bestScore = 0;
     var normSubject = _normStr(p.subject || '');
     var normDest    = _normStr(p.dest    || '');
     data.forEach(function(row, i) {
       if (String(row[LEDGER_COLS.STATUS - 1]) === LEDGER_STATUS.SENT) return;
-      var rowSubject = _normStr(String(row[LEDGER_COLS.SUBJECT - 1]  || ''));
-      var rowDest    = _normStr(String(row[LEDGER_COLS.DEST - 1]     || ''));
+      var rowSubject = _normStr(String(row[LEDGER_COLS.SUBJECT - 1] || ''));
+      var rowDest    = _normStr(String(row[LEDGER_COLS.DEST    - 1] || ''));
       var score = 0;
       if (normSubject && rowSubject && _strIncludes(normSubject, rowSubject)) score += 50;
-      if (normDest    && rowDest    && _strIncludes(normDest,    rowDest))    score += 40;
+      if (normDest    && rowDest    && _strIncludes(normDest, rowDest))       score += 40;
       if (p.quoteNo && String(row[LEDGER_COLS.QUOTE_NO - 1]) === String(p.quoteNo)) score += 30;
       if (score > bestScore) { bestScore = score; bestIdx = i; }
     });
@@ -878,7 +867,10 @@ function _apiLedgerUpdateUrl(p) {
   } catch(e) { return { success: false, error: e.message }; }
 }
 
-function _normStr(s) { return String(s).replace(/\s+/g,'').replace(/　/g,'').toLowerCase().replace(/株式会社|有限会社|（株）|\(株\)/g,''); }
+function _normStr(s) {
+  return String(s).replace(/\s+/g,'').replace(/　/g,'').toLowerCase()
+    .replace(/株式会社|有限会社|（株）|\(株\)/g,'');
+}
 function _strIncludes(a, b) { return a.indexOf(b) >= 0 || b.indexOf(a) >= 0; }
 
 function _apiLedgerUploadFile(p) {
@@ -899,9 +891,12 @@ function _apiLedgerGetMachines() {
     var ss    = getSpreadsheet();
     var sheet = ss.getSheetByName(CONFIG.SHEET_LEDGER);
     if (!sheet || sheet.getLastRow() <= 1) return { success: true, machines: [] };
-    var col = sheet.getRange(2, LEDGER_COLS.MACHINE_CODE, sheet.getLastRow() - 1, 1).getValues().flat();
+    var col  = sheet.getRange(2, LEDGER_COLS.MACHINE_CODE, sheet.getLastRow() - 1, 1).getValues().flat();
     var seen = {}, machines = [];
-    col.forEach(function(v) { var m = String(v||'').trim(); if (m && !seen[m]) { seen[m] = true; machines.push(m); } });
+    col.forEach(function(v) {
+      var m = String(v||'').trim();
+      if (m && !seen[m]) { seen[m] = true; machines.push(m); }
+    });
     return { success: true, machines: machines.sort() };
   } catch(e) { return { success: false, error: e.message }; }
 }
@@ -922,13 +917,17 @@ function _apiLedgerCreateMachine(p) {
       }
     }
     var ledgerId = generateLedgerId();
-    sheet.appendRow([ledgerId, '', '', '', '', '（機種フォルダ）', '__MACHINE_FOLDER__', '', machineCode, '', '', '', '', p.remarks || '']);
+    sheet.appendRow([ledgerId, '', '', '', '', '（機種フォルダ）', '__MACHINE_FOLDER__', '',
+                     machineCode, '', '', '', '', p.remarks || '']);
     return { success: true, ledgerId: ledgerId, machineCode: machineCode };
   } catch(e) { return { success: false, error: e.message }; }
 }
 
 function _apiGetTodos() {
-  var items = getAllTodoData().map(function(r) { return { id:r[0], title:r[1], client:r[2], dueDate:r[3], priority:r[4], status:r[5], linkedMgmt:r[6], memo:r[7] }; });
+  var items = getAllTodoData().map(function(r) {
+    return { id:r[0], title:r[1], client:r[2], dueDate:r[3],
+             priority:r[4], status:r[5], linkedMgmt:r[6], memo:r[7] };
+  });
   return { success: true, items: items };
 }
 
@@ -942,19 +941,24 @@ function _apiSaveTodo(p) {
       var ids = sheet.getRange(2,1,last-1,1).getValues().flat();
       var idx = ids.findIndex(function(v) { return String(v) === String(p.id); });
       if (idx >= 0) {
-        sheet.getRange(idx+2, 1, 1, 8).setValues([[p.id, p.title||'', p.client||'', p.dueDate||'', p.priority||'中', p.status||'未着手', p.linkedMgmt||'', p.memo||'']]);
+        sheet.getRange(idx+2, 1, 1, 8).setValues([[
+          p.id, p.title||'', p.client||'', p.dueDate||'',
+          p.priority||'中', p.status||'未着手', p.linkedMgmt||'', p.memo||''
+        ]]);
         return { success: true, id: p.id };
       }
     }
   }
   var newId = generateTodoId();
-  sheet.appendRow([newId, p.title||'', p.client||'', p.dueDate||'', p.priority||'中', p.status||'未着手', p.linkedMgmt||'', p.memo||'']);
+  sheet.appendRow([newId, p.title||'', p.client||'', p.dueDate||'',
+                   p.priority||'中', p.status||'未着手', p.linkedMgmt||'', p.memo||'']);
   return { success: true, id: newId };
 }
 
 function _apiDeleteTodo(p) {
-  var ss = getSpreadsheet();
+  var ss    = getSpreadsheet();
   var sheet = ss.getSheetByName(CONFIG.SHEET_TODO);
+  if (!sheet || sheet.getLastRow() <= 1) return { success: true };
   var ids = sheet.getRange(2,1,sheet.getLastRow()-1,1).getValues().flat();
   var idx = ids.findIndex(function(v) { return String(v) === String(p.id); });
   if (idx >= 0) sheet.deleteRow(idx + 2);
@@ -966,25 +970,42 @@ function _apiGetCalendar(p) {
   var month = p.month || (new Date().getMonth() + 1);
   var ym    = year + '/' + String(month).padStart(2,'0');
   var all   = getAllMgmtData().map(_rowToObject);
-  var todos = getAllTodoData().map(function(r) { return { id:r[0], title:r[1], client:r[2], dueDate:r[3], priority:r[4], status:r[5], linkedMgmt:r[6], type:'todo' }; });
+  var todos = getAllTodoData().map(function(r) {
+    return { id:r[0], title:r[1], client:r[2], dueDate:r[3],
+             priority:r[4], status:r[5], linkedMgmt:r[6], type:'todo' };
+  });
   var events = [];
   all.forEach(function(item) {
-    if (item.orderDate    && String(item.orderDate).indexOf(ym)    === 0) events.push({ date: item.orderDate,    label: item.client || item.orderNo,           type: 'order',    status: item.status, mgmtId: item.id });
-    if (item.deliveryDate && String(item.deliveryDate).indexOf(ym) === 0) events.push({ date: item.deliveryDate, label: '納期: ' + (item.client || item.orderNo), type: 'delivery', status: item.status, mgmtId: item.id });
-    if (item.quoteDate    && String(item.quoteDate).indexOf(ym)    === 0) events.push({ date: item.quoteDate,    label: '見積: ' + (item.client || item.quoteNo), type: 'quote',    status: item.status, mgmtId: item.id });
+    if (item.orderDate    && String(item.orderDate).indexOf(ym)    === 0)
+      events.push({ date: item.orderDate,    label: item.client || item.orderNo,             type:'order',    status:item.status, mgmtId:item.id });
+    if (item.deliveryDate && String(item.deliveryDate).indexOf(ym) === 0)
+      events.push({ date: item.deliveryDate, label: '納期: ' + (item.client || item.orderNo), type:'delivery', status:item.status, mgmtId:item.id });
+    if (item.quoteDate    && String(item.quoteDate).indexOf(ym)    === 0)
+      events.push({ date: item.quoteDate,    label: '見積: ' + (item.client || item.quoteNo), type:'quote',    status:item.status, mgmtId:item.id });
   });
   todos.forEach(function(t) {
-    if (t.dueDate && String(t.dueDate).indexOf(ym) === 0) events.push({ date: t.dueDate, label: '📝 ' + t.title, type: 'todo', status: t.status, todoId: t.id });
+    if (t.dueDate && String(t.dueDate).indexOf(ym) === 0)
+      events.push({ date: t.dueDate, label: '📝 ' + t.title, type:'todo', status:t.status, todoId:t.id });
   });
   return { success: true, year: year, month: month, events: events };
 }
 
+// ===== ユーティリティ（GASファイル内で使用）=====
+
 function _toDateStr(val) {
   if (!val || val === '') return '';
-  if (val instanceof Date) { if (isNaN(val.getTime())) return ''; return Utilities.formatDate(val, 'Asia/Tokyo', 'yyyy/MM/dd'); }
+  if (val instanceof Date) {
+    if (isNaN(val.getTime())) return '';
+    return Utilities.formatDate(val, 'Asia/Tokyo', 'yyyy/MM/dd');
+  }
   var s = String(val).trim();
   if (s === '') return '';
-  if (s.indexOf('T') > 0 && s.indexOf('Z') > 0) { try { var d = new Date(s); if (!isNaN(d.getTime())) return Utilities.formatDate(d, 'Asia/Tokyo', 'yyyy/MM/dd'); } catch(e) {} }
+  if (s.indexOf('T') > 0 && s.indexOf('Z') > 0) {
+    try {
+      var d = new Date(s);
+      if (!isNaN(d.getTime())) return Utilities.formatDate(d, 'Asia/Tokyo', 'yyyy/MM/dd');
+    } catch(e) {}
+  }
   return s;
 }
 
@@ -996,31 +1017,31 @@ function _toNum(val) {
 
 function _rowToObject(row) {
   return {
-    id:             String(row[MGMT_COLS.ID - 1] || ''),
-    quoteNo:        String(row[MGMT_COLS.QUOTE_NO - 1] || ''),
-    orderNo:        String(row[MGMT_COLS.ORDER_NO - 1] || ''),
-    subject:        String(row[MGMT_COLS.SUBJECT - 1] || ''),
-    client:         String(row[MGMT_COLS.CLIENT - 1] || ''),
-    status:         String(row[MGMT_COLS.STATUS - 1] || ''),
+    id:             String(row[MGMT_COLS.ID             - 1] || ''),
+    quoteNo:        String(row[MGMT_COLS.QUOTE_NO       - 1] || ''),
+    orderNo:        String(row[MGMT_COLS.ORDER_NO       - 1] || ''),
+    subject:        String(row[MGMT_COLS.SUBJECT        - 1] || ''),
+    client:         String(row[MGMT_COLS.CLIENT         - 1] || ''),
+    status:         String(row[MGMT_COLS.STATUS         - 1] || ''),
     quoteDate:      _toDateStr(row[MGMT_COLS.QUOTE_DATE - 1]),
     orderDate:      _toDateStr(row[MGMT_COLS.ORDER_DATE - 1]),
-    quoteAmount:    _toNum(row[MGMT_COLS.QUOTE_AMOUNT - 1]),
-    orderAmount:    _toNum(row[MGMT_COLS.ORDER_AMOUNT - 1]),
-    tax:            _toNum(row[MGMT_COLS.TAX - 1]),
-    total:          _toNum(row[MGMT_COLS.TOTAL - 1]),
-    quotePdfUrl:    String(row[MGMT_COLS.QUOTE_PDF_URL - 1] || ''),
-    orderPdfUrl:    String(row[MGMT_COLS.ORDER_PDF_URL - 1] || ''),
+    quoteAmount:    _toNum(row[MGMT_COLS.QUOTE_AMOUNT   - 1]),
+    orderAmount:    _toNum(row[MGMT_COLS.ORDER_AMOUNT   - 1]),
+    tax:            _toNum(row[MGMT_COLS.TAX            - 1]),
+    total:          _toNum(row[MGMT_COLS.TOTAL          - 1]),
+    quotePdfUrl:    String(row[MGMT_COLS.QUOTE_PDF_URL  - 1] || ''),
+    orderPdfUrl:    String(row[MGMT_COLS.ORDER_PDF_URL  - 1] || ''),
     driveFolderUrl: String(row[MGMT_COLS.DRIVE_FOLDER_URL - 1] || ''),
-    linked:         String(row[MGMT_COLS.LINKED - 1] || ''),
-    orderType:      String(row[MGMT_COLS.ORDER_TYPE - 1] || ''),
-    modelCode:      String(row[MGMT_COLS.MODEL_CODE - 1] || ''),
-    orderSlipNo:    String(row[MGMT_COLS.ORDER_SLIP_NO - 1] || ''),
-    assignee:       String(row[MGMT_COLS.ASSIGNEE - 1] || ''),
+    linked:         String(row[MGMT_COLS.LINKED         - 1] || ''),
+    orderType:      String(row[MGMT_COLS.ORDER_TYPE     - 1] || ''),
+    modelCode:      String(row[MGMT_COLS.MODEL_CODE     - 1] || ''),
+    orderSlipNo:    String(row[MGMT_COLS.ORDER_SLIP_NO  - 1] || ''),
+    assignee:       String(row[MGMT_COLS.ASSIGNEE       - 1] || ''),
     deliveryDate:   _toDateStr(row[MGMT_COLS.DELIVERY_DATE  - 1]),
     orderDeadline:  _toDateStr(row[MGMT_COLS.ORDER_DEADLINE - 1]),
-    revisionNo:     String(row[MGMT_COLS.REVISION_NO      - 1] || ''),
-    isLatest:       String(row[MGMT_COLS.IS_LATEST        - 1] || 'TRUE'),
-    memo:           String(row[MGMT_COLS.MEMO - 1] || ''),
+    revisionNo:     String(row[MGMT_COLS.REVISION_NO    - 1] || ''),
+    isLatest:       String(row[MGMT_COLS.IS_LATEST      - 1] || 'TRUE'),
+    memo:           String(row[MGMT_COLS.MEMO           - 1] || ''),
     createdAt:      _toDateStr(row[MGMT_COLS.CREATED_AT - 1]),
     updatedAt:      _toDateStr(row[MGMT_COLS.UPDATED_AT - 1]),
   };
@@ -1029,16 +1050,16 @@ function _rowToObject(row) {
 function _apiSearchDetail(p) {
   var kw = normalizeText(p.keyword || '');
   if (!kw) return { success: true, total: 0, items: [] };
-  var ss = getSpreadsheet();
-  var qs = ss.getSheetByName(CONFIG.SHEET_QUOTES);
-  var os = ss.getSheetByName(CONFIG.SHEET_ORDERS);
+  var ss  = getSpreadsheet();
+  var qs  = ss.getSheetByName(CONFIG.SHEET_QUOTES);
+  var os  = ss.getSheetByName(CONFIG.SHEET_ORDERS);
   var hitIds = {};
   if (qs && qs.getLastRow() > 1) {
     qs.getRange(2,1,qs.getLastRow()-1,16).getValues().forEach(function(r) {
       var mid = String(r[0]||''); if (!mid) return;
       if (normalizeText([r[6],r[7],r[12]].join(' ')).indexOf(kw) >= 0) {
-        if (!hitIds[mid]) hitIds[mid]=[];
-        hitIds[mid].push({sheet:'見積書',itemName:String(r[6]||''),spec:String(r[7]||'')});
+        if (!hitIds[mid]) hitIds[mid] = [];
+        hitIds[mid].push({ sheet:'見積書', itemName:String(r[6]||''), spec:String(r[7]||'') });
       }
     });
   }
@@ -1046,117 +1067,148 @@ function _apiSearchDetail(p) {
     os.getRange(2,1,os.getLastRow()-1,20).getValues().forEach(function(r) {
       var mid = String(r[0]||''); if (!mid) return;
       if (normalizeText([r[8],r[9],r[16]].join(' ')).indexOf(kw) >= 0) {
-        if (!hitIds[mid]) hitIds[mid]=[];
-        hitIds[mid].push({sheet:'注文書',itemName:String(r[8]||''),spec:String(r[9]||'')});
+        if (!hitIds[mid]) hitIds[mid] = [];
+        hitIds[mid].push({ sheet:'注文書', itemName:String(r[8]||''), spec:String(r[9]||'') });
       }
     });
   }
   var ids = Object.keys(hitIds);
-  if (!ids.length) return { success:true, total:0, items:[] };
+  if (!ids.length) return { success: true, total: 0, items: [] };
   var items = getAllMgmtData()
-    .filter(function(r){ return ids.indexOf(String(r[MGMT_COLS.ID-1]))>=0; })
-    .map(function(r){ var o=_rowToObject(r); o.hitDetails=hitIds[o.id]||[]; return o; });
-  return { success:true, total:items.length, items:items };
+    .filter(function(r) { return ids.indexOf(String(r[MGMT_COLS.ID-1])) >= 0; })
+    .map(function(r) { var o = _rowToObject(r); o.hitDetails = hitIds[o.id] || []; return o; });
+  return { success: true, total: items.length, items: items };
 }
 
 function _apiUpdateLineStatus(p) {
   try {
-    if (!p.mgmtId||!p.lineNo||!p.sheetType||p.newStatus===undefined) return {success:false,error:'mgmtId/lineNo/sheetType/newStatus required'};
-    var ss = getSpreadsheet();
-    var sheetName = p.sheetType==='quote' ? CONFIG.SHEET_QUOTES : CONFIG.SHEET_ORDERS;
-    var sheet = ss.getSheetByName(sheetName);
-    if (!sheet||sheet.getLastRow()<=1) return {success:false,error:'empty sheet'};
-    var colCount = p.sheetType==='quote' ? 16 : 20;
-    var lineNoCol = p.sheetType==='quote' ? 5 : 7;
-    var updated = 0;
-    sheet.getRange(2,1,sheet.getLastRow()-1,colCount).getValues().forEach(function(r,i){
-      if (String(r[0])===String(p.mgmtId) && String(r[lineNoCol])===String(p.lineNo)) {
-        sheet.getRange(i+2,colCount).setValue(p.newStatus); updated++;
+    if (!p.mgmtId || !p.lineNo || !p.sheetType || p.newStatus === undefined)
+      return { success: false, error: 'mgmtId/lineNo/sheetType/newStatus required' };
+    var ss        = getSpreadsheet();
+    var sheetName = p.sheetType === 'quote' ? CONFIG.SHEET_QUOTES : CONFIG.SHEET_ORDERS;
+    var sheet     = ss.getSheetByName(sheetName);
+    if (!sheet || sheet.getLastRow() <= 1) return { success: false, error: 'empty sheet' };
+    var colCount  = p.sheetType === 'quote' ? 16 : 20;
+    var lineNoCol = p.sheetType === 'quote' ?  5 :  7;
+    var updated   = 0;
+    sheet.getRange(2,1,sheet.getLastRow()-1,colCount).getValues().forEach(function(r, i) {
+      if (String(r[0]) === String(p.mgmtId) && String(r[lineNoCol]) === String(p.lineNo)) {
+        sheet.getRange(i+2, colCount).setValue(p.newStatus);
+        updated++;
       }
     });
-    return updated>0 ? {success:true} : {success:false,error:'row not found'};
-  } catch(e){ return {success:false,error:e.message}; }
+    return updated > 0 ? { success: true } : { success: false, error: 'row not found' };
+  } catch(e) { return { success: false, error: e.message }; }
 }
 
 function _apiCreateRevision(p) {
   try {
-    if (!p.mgmtId) return {success:false,error:'mgmtId required'};
-    var ss = getSpreadsheet();
-    var mgmtSheet = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT);
-    var last = mgmtSheet.getLastRow();
-    if (last<=1) return {success:false,error:'no data'};
-    var ids = mgmtSheet.getRange(2,MGMT_COLS.ID,last-1,1).getValues().flat().map(String);
+    if (!p.mgmtId) return { success: false, error: 'mgmtId required' };
+    var ss         = getSpreadsheet();
+    var mgmtSheet  = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT);
+    var last       = mgmtSheet.getLastRow();
+    if (last <= 1) return { success: false, error: 'no data' };
+    var ids = mgmtSheet.getRange(2, MGMT_COLS.ID, last-1, 1).getValues().flat().map(String);
     var idx = ids.indexOf(String(p.mgmtId));
-    if (idx<0) return {success:false,error:'not found'};
-    var srcRow = idx+2;
-    var src = mgmtSheet.getRange(srcRow,1,1,27).getValues()[0];
-    var curRev = String(src[MGMT_COLS.REVISION_NO-1]||'A');
-    var nextRev = String.fromCharCode(Math.min(curRev.charCodeAt(0)+1,90));
-    mgmtSheet.getRange(srcRow,MGMT_COLS.IS_LATEST).setValue('FALSE');
-    mgmtSheet.getRange(srcRow,MGMT_COLS.UPDATED_AT).setValue(nowJST());
-    var newId = generateMgmtId();
+    if (idx < 0) return { success: false, error: 'not found' };
+    var srcRow  = idx + 2;
+    var readCols = Math.max(mgmtSheet.getLastColumn(), 27);
+    var src      = mgmtSheet.getRange(srcRow, 1, 1, readCols).getValues()[0];
+    var curRev   = String(src[MGMT_COLS.REVISION_NO - 1] || 'A');
+    var nextRev  = String.fromCharCode(Math.min(curRev.charCodeAt(0) + 1, 90));
+
+    // 元行を IS_LATEST = FALSE に
+    if (MGMT_COLS.IS_LATEST <= readCols) {
+      mgmtSheet.getRange(srcRow, MGMT_COLS.IS_LATEST).setValue('FALSE');
+    }
+    mgmtSheet.getRange(srcRow, MGMT_COLS.UPDATED_AT).setValue(nowJST());
+
+    var newId  = generateMgmtId();
     var newRow = src.slice();
-    while(newRow.length<33) newRow.push('');
-    newRow[MGMT_COLS.ID-1]            = newId;
-    newRow[MGMT_COLS.IS_LATEST-1]     = 'TRUE';
-    newRow[MGMT_COLS.PARENT_MGMT_ID-1]= p.mgmtId;
-    newRow[MGMT_COLS.REVISION_NO-1]   = nextRev;
-    newRow[MGMT_COLS.STATUS-1]        = CONFIG.STATUS.PLANNED;
-    newRow[MGMT_COLS.LINKED-1]        = 'FALSE';
-    newRow[MGMT_COLS.CREATED_AT-1]    = nowJST();
-    newRow[MGMT_COLS.UPDATED_AT-1]    = nowJST();
-    newRow[MGMT_COLS.GMAIL_MSG_ID-1]  = '';
+    // 配列を必要な長さに拡張
+    while (newRow.length < 33) newRow.push('');
+
+    newRow[MGMT_COLS.ID          - 1] = newId;
+    newRow[MGMT_COLS.REVISION_NO - 1] = nextRev;
+    newRow[MGMT_COLS.STATUS      - 1] = CONFIG.STATUS.PLANNED;
+    newRow[MGMT_COLS.LINKED      - 1] = 'FALSE';
+    newRow[MGMT_COLS.CREATED_AT  - 1] = nowJST();
+    newRow[MGMT_COLS.UPDATED_AT  - 1] = nowJST();
+    newRow[MGMT_COLS.GMAIL_MSG_ID - 1] = '';
+
+    // IS_LATEST, PARENT_MGMT_ID（列が定義されていれば設定）
+    if (MGMT_COLS.IS_LATEST     <= newRow.length) newRow[MGMT_COLS.IS_LATEST     - 1] = 'TRUE';
+    if (MGMT_COLS.PARENT_MGMT_ID <= newRow.length) newRow[MGMT_COLS.PARENT_MGMT_ID - 1] = p.mgmtId;
+
     mgmtSheet.appendRow(newRow);
-    return {success:true, newMgmtId:newId, revision:nextRev};
-  } catch(e){ return {success:false,error:e.message}; }
+    return { success: true, newMgmtId: newId, revision: nextRev };
+  } catch(e) { return { success: false, error: e.message }; }
 }
 
-function _apiCheckDeadlines() { checkOrderDeadlines(); return {success:true}; }
+function _apiCheckDeadlines() {
+  checkOrderDeadlines();
+  return { success: true };
+}
 
 function checkOrderDeadlines() {
   var webhookUrl = _getChatWebhookUrl();
   var ss    = getSpreadsheet();
   var sheet = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT);
   var last  = sheet.getLastRow();
-  if (last<=1) return;
+  if (last <= 1) return;
   var today = new Date(); today.setHours(0,0,0,0);
-  sheet.getRange(2,1,last-1,29).getValues().forEach(function(row,i){
-    var orderNo = String(row[MGMT_COLS.ORDER_NO-1]||'');
-    var dlVal   = row[MGMT_COLS.ORDER_DEADLINE-1];
-    if (!orderNo||!dlVal) return;
-    var dl = new Date(dlVal); dl.setHours(0,0,0,0);
-    var diff = Math.round((dl-today)/86400000);
-    var flagStr = String(row[MGMT_COLS.DEADLINE_NOTIFIED-1]||'');
-    var level = diff<0&&flagStr.indexOf('over')<0?'over':diff===0&&flagStr.indexOf('due')<0?'due':diff<=3&&flagStr.indexOf('3day')<0?'3day':'';
+  var readCols = Math.max(sheet.getLastColumn(), 27);
+  sheet.getRange(2, 1, last-1, readCols).getValues().forEach(function(row, i) {
+    var orderNo = String(row[MGMT_COLS.ORDER_NO     - 1] || '');
+    var dlVal   =        row[MGMT_COLS.ORDER_DEADLINE - 1];
+    if (!orderNo || !dlVal) return;
+    var dl   = new Date(dlVal); dl.setHours(0,0,0,0);
+    var diff = Math.round((dl - today) / 86400000);
+    // DEADLINE_NOTIFIED 列が存在する場合のみ参照
+    var flagStr = '';
+    if (MGMT_COLS.DEADLINE_NOTIFIED <= row.length) {
+      flagStr = String(row[MGMT_COLS.DEADLINE_NOTIFIED - 1] || '');
+    }
+    var level = '';
+    if      (diff < 0 && flagStr.indexOf('over')  < 0) level = 'over';
+    else if (diff === 0 && flagStr.indexOf('due')  < 0) level = 'due';
+    else if (diff <= 3 && flagStr.indexOf('3day') < 0) level = '3day';
     if (!level) return;
-    var subj = String(row[MGMT_COLS.SUBJECT-1]||orderNo);
-    var label = level==='over'?('期限超過('+Math.abs(diff)+'日)'):level==='due'?'本日が期限':(diff+'日後が期限');
+    var subj  = String(row[MGMT_COLS.SUBJECT - 1] || orderNo);
+    var label = level === 'over' ? ('期限超過(' + Math.abs(diff) + '日)') :
+                level === 'due'  ? '本日が期限' : (diff + '日後が期限');
     if (webhookUrl) {
       try {
-        UrlFetchApp.fetch(webhookUrl,{method:'post',contentType:'application/json',
-          payload:JSON.stringify({text:'⚠️ *注文書期限アラート*\n• '+subj+'\n• '+label+'\n• 期限: '+Utilities.formatDate(dl,'Asia/Tokyo','yyyy/MM/dd')}),
-          muteHttpExceptions:true});
-      } catch(e){}
+        UrlFetchApp.fetch(webhookUrl, {
+          method: 'post', contentType: 'application/json',
+          payload: JSON.stringify({ text: '⚠️ *注文書期限アラート*\n• ' + subj + '\n• ' + label +
+                                          '\n• 期限: ' + Utilities.formatDate(dl, 'Asia/Tokyo', 'yyyy/MM/dd') }),
+          muteHttpExceptions: true
+        });
+      } catch(e) {}
     }
-    var newFlag = flagStr ? flagStr+','+level : level;
-    sheet.getRange(i+2,MGMT_COLS.DEADLINE_NOTIFIED).setValue(newFlag);
-    sheet.getRange(i+2,MGMT_COLS.UPDATED_AT).setValue(nowJST());
+    if (MGMT_COLS.DEADLINE_NOTIFIED <= row.length) {
+      var newFlag = flagStr ? flagStr + ',' + level : level;
+      sheet.getRange(i+2, MGMT_COLS.DEADLINE_NOTIFIED).setValue(newFlag);
+    }
+    sheet.getRange(i+2, MGMT_COLS.UPDATED_AT).setValue(nowJST());
   });
 }
 
 var SETTINGS_KEY = 'SYS_SETTINGS';
+
 function _apiSaveSettings(p) {
   try {
     var props = PropertiesService.getScriptProperties();
     if (p.adminEmails !== undefined) props.setProperty('ADMIN_EMAILS', p.adminEmails);
     if (p.chatWebhook !== undefined) props.setProperty('GOOGLE_CHAT_WEBHOOK_URL', p.chatWebhook);
     var current = _loadSettingsObj();
-    var merged = {
-      webhookUrl:  p.chatWebhook  !== undefined ? String(p.chatWebhook)  : (p.webhookUrl !== undefined ? String(p.webhookUrl) : current.webhookUrl),
-      notifyOrder: p.notifyOrder  !== undefined ? !!p.notifyOrder        : current.notifyOrder,
-      notifyQuote: p.notifyQuote  !== undefined ? !!p.notifyQuote        : current.notifyQuote,
-      notifyDl:    p.notifyDl     !== undefined ? !!p.notifyDl           : current.notifyDl,
-      alertDays:   p.alertDays    !== undefined ? Number(p.alertDays)||3  : current.alertDays,
+    var merged  = {
+      webhookUrl:  p.chatWebhook  !== undefined ? String(p.chatWebhook)   : (p.webhookUrl !== undefined ? String(p.webhookUrl) : current.webhookUrl),
+      notifyOrder: p.notifyOrder  !== undefined ? !!p.notifyOrder          : current.notifyOrder,
+      notifyQuote: p.notifyQuote  !== undefined ? !!p.notifyQuote          : current.notifyQuote,
+      notifyDl:    p.notifyDl     !== undefined ? !!p.notifyDl             : current.notifyDl,
+      alertDays:   p.alertDays    !== undefined ? (Number(p.alertDays)||3) : current.alertDays,
     };
     props.setProperty(SETTINGS_KEY, JSON.stringify(merged));
     if (merged.webhookUrl) props.setProperty('GOOGLE_CHAT_WEBHOOK_URL', merged.webhookUrl);
@@ -1178,7 +1230,6 @@ function _apiLoadSettings() {
 }
 
 function _loadSettingsObj() {
-  var raw = PropertiesService.getScriptProperties().getProperty(SETTINGS_KEY);
   var defaults = {
     webhookUrl:  PropertiesService.getScriptProperties().getProperty('GOOGLE_CHAT_WEBHOOK_URL') || CONFIG.GOOGLE_CHAT_WEBHOOK_URL || '',
     notifyOrder: true,
@@ -1186,6 +1237,7 @@ function _loadSettingsObj() {
     notifyDl:    true,
     alertDays:   3,
   };
+  var raw = PropertiesService.getScriptProperties().getProperty(SETTINGS_KEY);
   if (!raw) return defaults;
   try { return Object.assign(defaults, JSON.parse(raw)); } catch(e) { return defaults; }
 }
@@ -1217,26 +1269,19 @@ function notifyQuoteImported(info) {
     var settings   = _loadSettingsObj();
     var webhookUrl = _getChatWebhookUrl();
     if (!webhookUrl || !settings.notifyQuote) return;
-
     var amountStr = info.amount ? '¥' + Number(info.amount).toLocaleString() : '—';
-    var rowUrl    = _getMgmtRowUrl(info.mgmtId);
     var appUrl    = ScriptApp.getService().getUrl();
     var lines = [
       '【📄 見積書を登録しました】',
       '案件名: ' + (info.subject || '—'),
       '顧客名: ' + (info.client  || '—'),
       '金額: '   + amountStr,
-      '',
-      '🌐 システムで確認（転記された行）',
-      rowUrl || appUrl,
+      '', '🌐 ' + appUrl,
     ];
     if (info.pdfUrl)    lines.push('📎 PDF: '     + info.pdfUrl);
     if (info.folderUrl) lines.push('📁 フォルダ: ' + info.folderUrl);
-
     _postToChat(webhookUrl, lines.join('\n'));
-  } catch(e) {
-    Logger.log('[NOTIFY QUOTE ERROR] ' + e.message);
-  }
+  } catch(e) { Logger.log('[NOTIFY QUOTE ERROR] ' + e.message); }
 }
 
 function notifyOrderImported(info) {
@@ -1244,9 +1289,7 @@ function notifyOrderImported(info) {
     var settings   = _loadSettingsObj();
     var webhookUrl = _getChatWebhookUrl();
     if (!webhookUrl || !settings.notifyOrder) return;
-
     var amountStr = info.amount ? '¥' + Number(info.amount).toLocaleString() : '—';
-    var rowUrl    = _getMgmtRowUrl(info.mgmtId);
     var appUrl    = ScriptApp.getService().getUrl();
     var lr        = info.linkResult || {};
     var lines = [
@@ -1254,78 +1297,32 @@ function notifyOrderImported(info) {
       '発注書番号: ' + (info.orderNo || '—'),
       '顧客名: '    + (info.client  || '—'),
       '金額: '      + amountStr,
-      '',
-      '🌐 システムで確認（転記された行）',
-      rowUrl || appUrl,
+      '', '🌐 ' + appUrl,
     ];
     if (info.pdfUrl)    lines.push('📎 PDF: '     + info.pdfUrl);
     if (info.folderUrl) lines.push('📁 フォルダ: ' + info.folderUrl);
-    lines.push('');
-
     if (lr.status === 'auto_linked') {
-      lines.push('✅ 見積書と自動紐づけ済み（スコア: ' + (lr.score || '—') + '点）');
-      lines.push('見積No: ' + (lr.quoteNo || '—'));
-      if (lr.quoteUrl) lines.push('📄 紐づく見積書PDF: ' + lr.quoteUrl);
+      lines.push('✅ 自動紐づけ済み（スコア: ' + (lr.score || '—') + '点）');
     } else if (lr.status === 'candidates_found' || lr.status === 'forced_candidate') {
       lines.push('⚠️ 紐づく見積書の候補があります（要確認）');
-      var candidates = lr.candidates || [];
-      candidates.slice(0, 3).forEach(function(c, i) {
-        lines.push('');
-        lines.push('候補' + (i + 1) + ': 見積No.' + (c.quoteNo || '—') +
-                   '  スコア: ' + (c.score || '—') + '点' +
-                   (c.keywords ? '  品名: ' + String(c.keywords).substring(0, 20) : ''));
-        if (c.quoteUrl) lines.push('  📄 見積書PDF: ' + c.quoteUrl);
-      });
-      lines.push('');
-      lines.push('▶ 紐づけ確定はシステムから行ってください');
-      lines.push(appUrl);
-
-    } else if (lr.status === 'no_quotes') {
-      lines.push('❌ 紐づく見積書が見つかりませんでした');
-    } else if (lr.status === 'already_linked') {
-      lines.push('✅ 既に見積書と紐づけ済みです');
-      if (lr.quoteUrl) lines.push('📄 紐づく見積書PDF: ' + lr.quoteUrl);
     }
-
     _postToChat(webhookUrl, lines.join('\n'));
-  } catch(e) {
-    Logger.log('[NOTIFY ORDER ERROR] ' + e.message);
-  }
-}
-
-function _getMgmtRowUrl(mgmtId) {
-  try {
-    if (!mgmtId) return '';
-    var ss    = getSpreadsheet();
-    var sheet = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT);
-    if (!sheet || sheet.getLastRow() <= 1) return '';
-    var ids = sheet.getRange(2, MGMT_COLS.ID, sheet.getLastRow() - 1, 1)
-                   .getValues().flat();
-    var idx = ids.map(String).indexOf(String(mgmtId));
-    if (idx < 0) return '';
-    return ss.getUrl() + '&gid=' + sheet.getSheetId() + '&range=A' + (idx + 2);
-  } catch(e) {
-    Logger.log('[GET ROW URL ERROR] ' + e.message);
-    return '';
-  }
+  } catch(e) { Logger.log('[NOTIFY ORDER ERROR] ' + e.message); }
 }
 
 function _postToChat(webhookUrl, text) {
   try {
     UrlFetchApp.fetch(webhookUrl, {
-      method:          'post',
-      contentType:     'application/json',
-      payload:         JSON.stringify({ text: text }),
+      method: 'post', contentType: 'application/json',
+      payload: JSON.stringify({ text: text }),
       muteHttpExceptions: true,
     });
-    Logger.log('[CHAT NOTIFY] 送信: ' + text.substring(0, 80));
-  } catch(e) {
-    Logger.log('[CHAT POST ERROR] ' + e.message);
-  }
+  } catch(e) { Logger.log('[CHAT POST ERROR] ' + e.message); }
 }
 
 function _apiGetMatchingCandidates(p) {
-  return getMatchingCandidates();
+  try { return getMatchingCandidates(); }
+  catch(e) { return { success: false, error: e.message }; }
 }
 
 function _apiConfirmOrderLink(p) {
@@ -1334,14 +1331,20 @@ function _apiConfirmOrderLink(p) {
 }
 
 function _apiRunBatchMatching(p) {
-  return runBatchMatching();
+  try { return runBatchMatching(); }
+  catch(e) { return { success: false, error: e.message }; }
 }
 
+// ★ const → var に修正（GAS互換）
 function _apiUploadOrderWithLink(p) {
-  const res = _apiUploadPdf(p);
-  if (res.success && res.mgmtId) {
-    const aiRes = aiLinkOrderToQuote(res.mgmtId);
-    res.linkResult = aiRes;
+  var res = _apiUploadPdf(p);
+  if (res && res.success && res.mgmtId) {
+    try {
+      var aiRes    = aiLinkOrderToQuote(res.mgmtId);
+      res.linkResult = aiRes;
+    } catch(e) {
+      res.linkResult = { status: 'error', error: e.message };
+    }
   }
   return res;
 }
