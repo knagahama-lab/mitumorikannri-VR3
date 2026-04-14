@@ -156,40 +156,53 @@ tr:hover td{background:#f8fafc;}
 <body>
 <div id="app-shell">
 
-<nav id="sidebar">
-  <button class="sidebar-toggle" onclick="toggleSidebar()">‹</button>
-  <div class="sidebar-logo" onclick="showPage('list')">
-    <div class="sidebar-logo-icon">📋</div>
-    <div class="sidebar-logo-text">
-      <span class="sidebar-logo-title">見積・注文管理</span>
-      <span class="sidebar-logo-sub">Management System</span>
-    </div>
-  </div>
-  <div class="sidebar-nav" id="sidebar-nav-container"></div>
-  <div class="sidebar-footer">
-    <div class="sidebar-user">
-      <div class="sidebar-avatar" id="sidebar-avatar-icon">U</div>
-      <div class="sidebar-user-info">
-        <div class="sidebar-user-name" id="sidebar-user-name">
-          <? if (userEmail) { ?><?= userEmail ?><? } else { ?>ゲスト<? } ?>
+  <header id="topbar" style="height: 56px; background: var(--card); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 24px; gap: 16px; flex-shrink: 0; position: sticky; top: 0; z-index: 50;">
+    <div style="font-weight: 700; font-size: 16px; color: var(--text); margin-right:20px;">📋 見積・注文管理システム</div>
+    
+    <div class="nav-left" style="display:flex;gap:4px;flex:1;">
+      <div class="dropdown" style="position: relative; display: inline-block;">
+        <button class="topbar-btn" onclick="event.stopPropagation(); this.nextElementSibling.classList.toggle('show');" style="background:transparent;border:none;font-size:13px;font-weight:600;padding:8px;cursor:pointer;color:var(--text);display:flex;align-items:center;">💼 営業・進行管理 ▼</button>
+        <div class="dropdown-content" style="display: none; position: absolute; background-color: white; min-width: 220px; box-shadow: 0px 8px 24px rgba(0,0,0,0.15); border-radius: 8px; overflow: hidden; z-index: 300; top: 100%; left: 0; border: 1px solid var(--border);">
+          <a onclick="showPage('list')" style="padding:12px 16px; display:block; cursor:pointer; color:var(--text); font-size:13px; font-weight:500; border-bottom:1px solid #f1f3f4; text-decoration:none;">📋 自動進行ダッシュボード (案件一覧)</a>
+          <a onclick="showPage('ledger')" style="padding:12px 16px; display:block; cursor:pointer; color:var(--text); font-size:13px; font-weight:500; border-bottom:1px solid #f1f3f4; text-decoration:none;">📝 見積台帳 (ツリー管理)</a>
+          <a onclick="showPage('calendar')" style="padding:12px 16px; display:block; cursor:pointer; color:var(--text); font-size:13px; font-weight:500; border-bottom:1px solid #f1f3f4; text-decoration:none;">📅 スケジュール・タイムライン</a>
+          <a onclick="showPage('ocr')" style="padding:12px 16px; display:block; cursor:pointer; color:var(--text); font-size:13px; font-weight:500; text-decoration:none;">🔍 簡易OCR (NDL OCR)</a>
         </div>
-        <div class="sidebar-user-role"><? if (isAdmin) { ?>管理者<? } else { ?>一般ユーザー<? } ?></div>
       </div>
+      <? if (isAdmin) { ?>
+      <button class="topbar-btn" style="background:transparent;border:none;font-size:13px;font-weight:600;padding:8px;cursor:pointer;color:var(--text);" onclick="window.open('https://script.google.com/a/sun-denshi.co.jp/macros/s/AKfycbxk-6hM0VDR-iWToBvOhuaEd6pZcZTXW53tXZUzHl7AucIWvRgt-S_gTpFd1foRSf5Ung/exec?page=bom','_blank')">🏭 BOM・原価管理 ↗</button>
+      <button class="topbar-btn" style="background:transparent;border:none;font-size:13px;font-weight:600;padding:8px;cursor:pointer;color:var(--text);" onclick="showPage('admin')">⚙️ 管理コンソール・システム設定</button>
+      <? } ?>
     </div>
-  </div>
-</nav>
-
-<div id="main">
-  <header id="topbar">
-    <div class="topbar-breadcrumb">
-      <span>見積・注文管理</span><span class="topbar-breadcrumb-sep">›</span>
-      <span class="topbar-breadcrumb-current" id="topbar-page-title">案件一覧</span>
+    
+    <div class="nav-right" style="display:flex;gap:12px;align-items:center;">
+       <? if (userEmail) { ?>
+         <span style="color:var(--text-sub);font-size:12px;margin-right:8px;"><?= userEmail ?></span>
+       <? } ?>
+       <button class="topbar-btn" onclick="showPage('drivesearch')">🔍 全文検索</button>
+       <button class="topbar-btn primary" onclick="openUploadModal()">＋ PDF登録</button>
     </div>
-    <div class="topbar-spacer"></div>
-    <div class="topbar-actions">
-      <button class="topbar-btn" onclick="showPage('drivesearch')">🔍 全文検索</button>
-      <button class="topbar-btn primary" onclick="openUploadModal()">＋ PDF登録</button>
-    </div>
+    
+    <script>
+      document.addEventListener('click', function(e) {
+        var dropdowns = document.getElementsByClassName("dropdown-content");
+        for (var i = 0; i < dropdowns.length; i++) {
+            if (dropdowns[i].classList.contains('show')) {
+                dropdowns[i].classList.remove('show');
+            }
+        }
+      });
+      document.addEventListener('mouseover', function(e) {
+        if(e.target.matches('.dropdown-content a')) { e.target.style.backgroundColor = 'var(--primary-light)'; e.target.style.color = 'var(--primary)'; }
+      });
+      document.addEventListener('mouseout', function(e) {
+        if(e.target.matches('.dropdown-content a')) { e.target.style.backgroundColor = 'transparent'; e.target.style.color = 'var(--text)'; }
+      });
+    </script>
+    <style>
+      .dropdown:hover .dropdown-content { display: block; }
+      .dropdown-content.show { display: block !important; }
+    </style>
   </header>
 
   <div id="content">

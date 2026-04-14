@@ -251,7 +251,7 @@ function _buildOrderGroups(mgmtData, headers) {
   return mgmtData.slice(1).filter(r => String(r[0]).startsWith('MO')).map(r => ({ mgmtId: r[0], orderNo: r[headers.indexOf('注文書番号')] }));
 }
 
-function _sendChatNotification(mgmtId, docType) {
+function _sendChatNotification(mgmtId, docType, actionType) {
   const webhookUrl = _getChatWebhookUrl();
   if (!webhookUrl) return;
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -262,14 +262,44 @@ function _sendChatNotification(mgmtId, docType) {
   if (!row) return;
   
   const getVal = (h) => row[headers.indexOf(h)] || 'なし';
-  const title = docType === 'quote' ? "📄 見積書を登録" : "📦 注文書を受領";
-  let text = `【${title}】\n案件: ${getVal('件名')}\n顧客: ${getVal('顧客名')}\n金額: ¥${Number(getVal(docType==='quote'?'見積金額':'注文金額')).toLocaleString()}\nURL: ${getVal(docType==='quote'?'見積書PDF':'注文書PDF')}`;
+  const action = actionType || 'new';
+
+  let title = docType === 'quote' ? "📄 見積書を登録" : "📦 注文書を受領";
+  let icon = "🔹";
   
-  if (getVal('紐付け済み') === 'TRUE') {
-    text += `\n✅ AI紐付け完了: ${docType==='quote'?getVal('注文書番号'):getVal('見積書番号')}`;
+  if (action === 'revision') {
+    title = "🔄 注文書の差し替え受領";
+    icon = "⚠️";
+  } else if (action === 'cancellation') {
+    title = "❌ 注文書のキャンセル";
+    icon = "🚫";
+  }
+
+  let text = `【${title}】\n`;
+  text += `━━━━━━━━━━━━━━\n`;
+  text += `${icon} 案件: ${getVal('件名')}\n`;
+  text += `${icon} 顧客: ${getVal('顧客名')}\n`;
+  
+  if (action !== 'cancellation') {
+    text += `${icon} 金額: ¥${Number(getVal(docType==='quote'?'見積金額':'注文金額')).toLocaleString()}\n`;
+    text += `${icon} URL: ${getVal(docType==='quote'?'見積書PDF':'注文書PDF')}\n`;
+  } else {
+    text += `🚨 この注文はキャンセルとして処理されました。\n`;
+    text += `理由: ${getVal('備考')}\n`;
   }
   
-  UrlFetchApp.fetch(webhookUrl, { method:"post", contentType:"application/json", payload: JSON.stringify({ "text": text }), muteHttpExceptions: true });
+  if (getVal('紐付け済み') === 'TRUE' && action !== 'cancellation') {
+    text += `\n✅ AI紐付け完了: ${docType==='quote'?getVal('注文書番号'):getVal('見積書番号')}\n`;
+  }
+  
+  text += `\n🌐 システムで確認: ${ScriptApp.getService().getUrl()}`;
+  
+  UrlFetchApp.fetch(webhookUrl, { 
+    method: "post", 
+    contentType: "application/json", 
+    payload: JSON.stringify({ "text": text }), 
+    muteHttpExceptions: true 
+  });
 }
 
 function _getChatWebhookUrl() {

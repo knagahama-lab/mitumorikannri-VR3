@@ -179,27 +179,53 @@ function _processOrderPdf(attachment, gmailMsg, msgId, orderType) {
 }
 
 function _saveOrderData(ocr, orderType, pdfUrl, folderUrl, msgId, fallbackSubject) {
-  var linkedQuoteNo = ocr.linkedQuoteNo || '';
-  var mgmtRow       = linkedQuoteNo ? findMgmtRowByQuoteNo(linkedQuoteNo) : -1;
   var ss            = getSpreadsheet();
   var mgmtSheet     = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT);
+  var action        = ocr.actionType || 'new'; // new, revision, cancellation
+  var linkedQuoteNo = ocr.linkedQuoteNo || '';
   var finalMgmtId, updateRow;
+
+  // 既存レコードの探索（修正・キャンセルの場合、または見積番号紐付けがある場合）
+  var mgmtRow = -1;
+  if (action === 'revision' || action === 'cancellation') {
+    mgmtRow = _findExistingMgmtRowForOrder(ss, ocr.documentNo, ocr.subject || fallbackSubject);
+  } else if (linkedQuoteNo) {
+    mgmtRow = findMgmtRowByQuoteNo(linkedQuoteNo);
+  }
 
   if (mgmtRow > 0) {
     finalMgmtId = mgmtSheet.getRange(mgmtRow, MGMT_COLS.ID).getValue();
     updateRow   = mgmtRow;
-    mgmtSheet.getRange(mgmtRow, MGMT_COLS.ORDER_NO).setValue(ocr.documentNo    || '');
-    mgmtSheet.getRange(mgmtRow, MGMT_COLS.ORDER_DATE).setValue(ocr.documentDate || '');
-    mgmtSheet.getRange(mgmtRow, MGMT_COLS.ORDER_AMOUNT).setValue(ocr.subtotal   || 0);
-    mgmtSheet.getRange(mgmtRow, MGMT_COLS.ORDER_PDF_URL).setValue(pdfUrl);
-    mgmtSheet.getRange(mgmtRow, MGMT_COLS.DRIVE_FOLDER_URL).setValue(folderUrl);
-    mgmtSheet.getRange(mgmtRow, MGMT_COLS.STATUS).setValue(CONFIG.STATUS.RECEIVED);
-    mgmtSheet.getRange(mgmtRow, MGMT_COLS.LINKED).setValue('TRUE');
-    mgmtSheet.getRange(mgmtRow, MGMT_COLS.ORDER_TYPE).setValue(orderType);
-    mgmtSheet.getRange(mgmtRow, MGMT_COLS.MODEL_CODE).setValue(ocr.modelCode    || '');
-    mgmtSheet.getRange(mgmtRow, MGMT_COLS.ORDER_SLIP_NO).setValue(ocr.orderSlipNo || '');
+    
+    if (action === 'cancellation') {
+      mgmtSheet.getRange(mgmtRow, MGMT_COLS.STATUS).setValue(CONFIG.STATUS.CANCELLED);
+      var currentMemo = mgmtSheet.getRange(mgmtRow, MGMT_COLS.MEMO).getValue();
+      mgmtSheet.getRange(mgmtRow, MGMT_COLS.MEMO).setValue(currentMemo + "\n[CANCEL] " + (ocr.reason || 'キャンセル通知受領'));
+    } else {
+      // 差し替えまたは通常更新
+      var status = (action === 'revision') ? CONFIG.STATUS.REVISED : CONFIG.STATUS.RECEIVED;
+      mgmtSheet.getRange(mgmtRow, MGMT_COLS.ORDER_NO).setValue(ocr.documentNo    || '');
+      mgmtSheet.getRange(mgmtRow, MGMT_COLS.ORDER_DATE).setValue(ocr.documentDate || '');
+      mgmtSheet.getRange(mgmtRow, MGMT_COLS.ORDER_AMOUNT).setValue(ocr.subtotal   || 0);
+      
+      // 旧PDFをメモに保存
+      var oldPdf = mgmtSheet.getRange(mgmtRow, MGMT_COLS.ORDER_PDF_URL).getValue();
+      if (oldPdf && oldPdf !== pdfUrl) {
+         var currentMemo = mgmtSheet.getRange(mgmtRow, MGMT_COLS.MEMO).getValue();
+         mgmtSheet.getRange(mgmtRow, MGMT_COLS.MEMO).setValue(currentMemo + "\n[OLD PDF] " + oldPdf);
+      }
+      
+      mgmtSheet.getRange(mgmtRow, MGMT_COLS.ORDER_PDF_URL).setValue(pdfUrl);
+      mgmtSheet.getRange(mgmtRow, MGMT_COLS.DRIVE_FOLDER_URL).setValue(folderUrl);
+      mgmtSheet.getRange(mgmtRow, MGMT_COLS.STATUS).setValue(status);
+      mgmtSheet.getRange(mgmtRow, MGMT_COLS.LINKED).setValue('TRUE');
+      mgmtSheet.getRange(mgmtRow, MGMT_COLS.ORDER_TYPE).setValue(orderType);
+      mgmtSheet.getRange(mgmtRow, MGMT_COLS.MODEL_CODE).setValue(ocr.modelCode    || '');
+      mgmtSheet.getRange(mgmtRow, MGMT_COLS.ORDER_SLIP_NO).setValue(ocr.orderSlipNo || '');
+    }
     mgmtSheet.getRange(mgmtRow, MGMT_COLS.UPDATED_AT).setValue(nowJST());
   } else {
+    // 新規作成
     finalMgmtId = generateMgmtId();
     var newRow  = mgmtSheet.getLastRow() + 1;
     updateRow   = newRow;
@@ -208,7 +234,7 @@ function _saveOrderData(ocr, orderType, pdfUrl, folderUrl, msgId, fallbackSubjec
     row[MGMT_COLS.ORDER_NO - 1]         = ocr.documentNo    || '';
     row[MGMT_COLS.SUBJECT - 1]          = ocr.subject       || fallbackSubject;
     row[MGMT_COLS.CLIENT - 1]           = ocr.clientName    || '';
-    row[MGMT_COLS.STATUS - 1]           = CONFIG.STATUS.PLANNED;  // ★紐づけ完了後にORDERED/RECEIVEDに変更
+    row[MGMT_COLS.STATUS - 1]           = CONFIG.STATUS.RECEIVED; 
     row[MGMT_COLS.ORDER_DATE - 1]       = ocr.documentDate  || '';
     row[MGMT_COLS.ORDER_AMOUNT - 1]     = ocr.subtotal      || 0;
     row[MGMT_COLS.ORDER_PDF_URL - 1]    = pdfUrl;
@@ -223,19 +249,36 @@ function _saveOrderData(ocr, orderType, pdfUrl, folderUrl, msgId, fallbackSubjec
     mgmtSheet.getRange(newRow, 1, 1, 27).setValues([row]);
   }
 
-  _writeOrderLines(ss, mgmtSheet, updateRow, finalMgmtId, ocr, orderType, pdfUrl, folderUrl);
-  
-  // ★AI紐付け試行
-  try {
-    aiLinkOrderToQuote(finalMgmtId);
-  } catch(e) {
-    Logger.log('[AI LINK ERROR] ' + e.message);
+  // キャンセル以外は明細を書き込む
+  if (action !== 'cancellation') {
+    _writeOrderLines(ss, mgmtSheet, updateRow, finalMgmtId, ocr, orderType, pdfUrl, folderUrl);
+    
+    // AI紐付け試行 (新規または差し替え時)
+    try {
+      aiLinkOrderToQuote(finalMgmtId);
+    } catch(e) {
+      Logger.log('[AI LINK ERROR] ' + e.message);
+    }
   }
 
   // ★チャット通知の送信
-  _sendChatNotification(finalMgmtId, 'order');
+  _sendChatNotification(finalMgmtId, 'order', action);
 
   return finalMgmtId;
+}
+
+/**
+ * 既存の案件を探す（発注番号または件名でマッチング）
+ */
+function _findExistingMgmtRowForOrder(ss, orderNo, subject) {
+  var sheet = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT);
+  var data  = sheet.getDataRange().getValues();
+  // 最新のものを優先するため後ろから探索
+  for (var i = data.length - 1; i >= 1; i--) {
+    if (orderNo && data[i][MGMT_COLS.ORDER_NO - 1] === orderNo) return i + 1;
+    if (subject && data[i][MGMT_COLS.SUBJECT - 1] === subject) return i + 1;
+  }
+  return -1;
 }
 
 function _writeOrderLines(ss, mgmtSheet, mgmtRow, mgmtId, ocr, orderType, pdfUrl, folderUrl) {
@@ -328,8 +371,10 @@ function _buildOcrPrompt(docType) {
       '}\n' +
       'ルール: 有効なJSONのみ。金額は数値。不明は空文字か0。合計行はlineItemsに含めない。';
   } else {
-    return 'あなたはOCR専門家です。添付PDF（発注書）を解析し、以下のJSON形式のみで返してください。説明文不要。\n' +
+    return 'あなたはOCR専門家であり、業務フローの判定官です。添付PDF（発注書・注文書）を解析し、以下のJSON形式のみで返してください。\n' +
       '{\n' +
+      '  "actionType": "new" または "revision" または "cancellation" (書類が新規ならnew、差し替え/更新ならrevision、取消通知ならcancellation),\n' +
+      '  "reason": "差し替えやキャンセルの理由（あれば。なければ空文字）",\n' +
       '  "documentNo": "発注書番号",\n' +
       '  "documentDate": "発注日(YYYY/MM/DD)",\n' +
       '  "clientName": "発注先企業名",\n' +
@@ -345,7 +390,8 @@ function _buildOcrPrompt(docType) {
       '    {"itemName":"品名","spec":"仕様","firstDelivery":"初回納入日(YYYY/MM/DD)","deliveryDest":"納入先","qty":数量,"unit":"単位","unitPrice":単価,"amount":金額,"remarks":"備考（取消線行はキャンセルと記載）"}\n' +
       '  ]\n' +
       '}\n' +
-      'ルール: 有効なJSONのみ。金額は数値。不明は空文字か0。合計行はlineItemsに含めない。取消線行もlineItemsに含めremarksにキャンセルと記載。';
+      '※重要: 書類内に「差し替え」「訂正」「版数更新」等の文言があればrevision、「中止」「取消」「キャンセル」等があればcancellationと判定してください。\n' +
+      'ルール: 有効なJSONのみ。金額は数値。不明は空文字か0。合計行はlineItemsに含めない。';
   }
 }
 

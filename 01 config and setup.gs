@@ -39,6 +39,8 @@ var CONFIG = {
     RECEIVED:  '受領',
     ORDERED:   '受注済み',
     DELIVERED: '納品済み',
+    CANCELLED: 'キャンセル',
+    REVISED:   '受領（差し替え）',
   },
   ORDER_TYPE: { TRIAL: '試作', MASS: '量産' },
 };
