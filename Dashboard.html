@@ -156,9 +156,31 @@ tr:hover td{background:#f8fafc;}
 <body>
 <div id="app-shell">
 
-  <header id="topbar" style="height: 56px; background: var(--card); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 24px; gap: 16px; flex-shrink: 0; position: sticky; top: 0; z-index: 50;">
-    <div style="font-weight: 700; font-size: 16px; color: var(--text); margin-right:20px;">📋 見積・注文管理システム</div>
-    
+<nav id="sidebar">
+  <button class="sidebar-toggle" onclick="toggleSidebar()">‹</button>
+  <div class="sidebar-logo" onclick="showPage('list')">
+    <div class="sidebar-logo-icon">📋</div>
+    <div class="sidebar-logo-text">
+      <span class="sidebar-logo-title">見積・注文管理</span>
+      <span class="sidebar-logo-sub">Management System</span>
+    </div>
+  </div>
+  <div class="sidebar-nav" id="sidebar-nav-container"></div>
+  <div class="sidebar-footer">
+    <div class="sidebar-user">
+      <div class="sidebar-avatar" id="sidebar-avatar-icon">U</div>
+      <div class="sidebar-user-info">
+        <div class="sidebar-user-name" id="sidebar-user-name">
+          <? if (userEmail) { ?><?= userEmail ?><? } else { ?>ゲスト<? } ?>
+        </div>
+        <div class="sidebar-user-role"><? if (isAdmin) { ?>管理者<? } else { ?>一般ユーザー<? } ?></div>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<div id="main">
+  <header id="topbar" style="justify-content: space-between;">
     <div class="nav-left" style="display:flex;gap:4px;flex:1;">
       <div class="dropdown" style="position: relative; display: inline-block;">
         <button class="topbar-btn" onclick="event.stopPropagation(); this.nextElementSibling.classList.toggle('show');" style="background:transparent;border:none;font-size:13px;font-weight:600;padding:8px;cursor:pointer;color:var(--text);display:flex;align-items:center;">💼 営業・進行管理 ▼</button>
@@ -175,7 +197,7 @@ tr:hover td{background:#f8fafc;}
       <? } ?>
     </div>
     
-    <div class="nav-right" style="display:flex;gap:12px;align-items:center;">
+    <div class="topbar-actions">
        <? if (userEmail) { ?>
          <span style="color:var(--text-sub);font-size:12px;margin-right:8px;"><?= userEmail ?></span>
        <? } ?>
