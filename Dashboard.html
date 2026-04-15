@@ -17,18 +17,12 @@
   --sidebar-active-bar: #4a90e2; --sidebar-text: rgba(255,255,255,0.65);
   --sidebar-text-active: #fff; --sidebar-text-sub: rgba(255,255,255,0.35);
   --sidebar-border: rgba(255,255,255,0.06); --sidebar-logo-bg: #0a1020;
-
   --bg: #f4f6fb; --card: #ffffff; --border: #e8eaed; --border-light: #f0f2f5;
   --primary: #2563eb; --primary-light: #eff6ff; --primary-dark: #1d4ed8;
   --success: #16a34a; --danger: #dc2626; --warning: #d97706; --info: #0891b2;
-
-  --s-planned-bg:#f1f5f9;--s-planned-fg:#475569;
-  --s-sent-bg:#eff6ff;--s-sent-fg:#2563eb;
-  --s-received-bg:#fef2f2;--s-received-fg:#dc2626;
-  --s-done-bg:#f0fdf4;--s-done-fg:#16a34a;
-  --trial-bg:#fff7ed;--trial-fg:#c2410c;
-  --mass-bg:#f0fdf4;--mass-fg:#15803d;
-
+  --s-planned-bg:#f1f5f9;--s-planned-fg:#475569; --s-sent-bg:#eff6ff;--s-sent-fg:#2563eb;
+  --s-received-bg:#fef2f2;--s-received-fg:#dc2626; --s-done-bg:#f0fdf4;--s-done-fg:#16a34a;
+  --trial-bg:#fff7ed;--trial-fg:#c2410c; --mass-bg:#f0fdf4;--mass-fg:#15803d;
   --text: #1e293b; --text-sub: #64748b; --text-muted: #94a3b8;
   --shadow-sm: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
   --shadow: 0 4px 12px rgba(0,0,0,.06), 0 1px 3px rgba(0,0,0,.04);
@@ -80,7 +74,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);color:var(--text
 .topbar-breadcrumb-sep{ color:var(--border); }
 .topbar-spacer{flex:1;}
 .topbar-actions{ display:flex; align-items:center; gap:8px; }
-.topbar-btn{ height:32px; padding:0 14px; border-radius:var(--radius-sm); border:1px solid var(--border); background:var(--card); color:var(--text); font-size:12px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px; transition:all .15s; font-family:inherit; }
+.topbar-btn{ height:32px; padding:0 14px; border-radius:var(--radius-sm); border:1px solid var(--border); background:var(--card); color:var(--text); font-size:12px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px; transition:all .15s; }
 .topbar-btn:hover{ background:var(--bg); border-color:#c5cdd9; }
 .topbar-btn.primary{ background:var(--primary); color:#fff; border-color:var(--primary); }
 .topbar-btn.primary:hover{ background:var(--primary-dark); }
@@ -99,19 +93,16 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);color:var(--text
 .c-blue{color:var(--primary);} .c-red{color:var(--danger);} .c-green{color:var(--success);}
 .filter-bar{ background:var(--card); border-radius:var(--radius); padding:12px 16px; margin-bottom:16px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; box-shadow:var(--shadow-sm); border:1px solid var(--border-light); }
 .search-box{position:relative;flex:1;min-width:200px;}
-.search-box input{ width:100%; padding:7px 12px 7px 32px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:12px; background:#f8fafc; outline:none; color:var(--text); }
-.search-box input:focus{border-color:var(--primary);background:#fff;}
+.search-box input{ width:100%; padding:7px 12px 7px 32px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:12px; outline:none; }
+.search-box input:focus{border-color:var(--primary);}
 .search-box::before{ content:'🔍'; position:absolute; left:9px; top:50%; transform:translateY(-50%); font-size:11px; pointer-events:none; }
-select{ padding:7px 10px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:12px; background:#f8fafc; cursor:pointer; outline:none; color:var(--text); }
-select:focus{border-color:var(--primary);}
-
+select{ padding:7px 10px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:12px; outline:none; }
 .table-wrap{ background:var(--card); border-radius:var(--radius); box-shadow:var(--shadow-sm); overflow:hidden; border:1px solid var(--border-light); }
 .table-toolbar{ padding:12px 16px; border-bottom:1px solid var(--border-light); display:flex; align-items:center; justify-content:space-between; }
 .table-toolbar h2{font-size:14px;font-weight:700;color:var(--text);}
 table{width:100%; border-collapse:collapse;}
 th{ padding:9px 12px; text-align:left; font-size:10.5px; font-weight:700; color:var(--text-sub); border-bottom:1px solid var(--border-light); background:#f8fafc; white-space:nowrap; }
 td{ padding:10px 12px; border-bottom:1px solid var(--border-light); font-size:12.5px; vertical-align:middle; }
-tr:last-child td{border-bottom:none;}
 tr:hover td{background:#f8fafc;}
 .pagination{ display:flex; align-items:center; justify-content:flex-end; gap:4px; padding:10px 16px; }
 .page-btn{ padding:4px 10px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--card); cursor:pointer; font-size:11px; color:var(--text-sub); transition:all .15s; }
@@ -169,11 +160,8 @@ tr:hover td{background:#f8fafc;}
 <body>
 <div id="app-shell">
 
-<!-- ============================================================
-     LEFT SIDEBAR
-============================================================ -->
 <nav id="sidebar">
-  <button class="sidebar-toggle" onclick="toggleSidebar()" title="メニューを折り畳む">‹</button>
+  <button class="sidebar-toggle" onclick="toggleSidebar()">‹</button>
   <div class="sidebar-logo" onclick="showPage('list')">
     <div class="sidebar-logo-icon">📋</div>
     <div class="sidebar-logo-text">
@@ -181,9 +169,7 @@ tr:hover td{background:#f8fafc;}
       <span class="sidebar-logo-sub">Management System</span>
     </div>
   </div>
-  <div class="sidebar-nav" id="sidebar-nav-container">
-    <!-- JS で動的生成 -->
-  </div>
+  <div class="sidebar-nav" id="sidebar-nav-container"></div>
   <div class="sidebar-footer">
     <div class="sidebar-user">
       <div class="sidebar-avatar" id="sidebar-avatar-icon">U</div>
@@ -197,9 +183,6 @@ tr:hover td{background:#f8fafc;}
   </div>
 </nav>
 
-<!-- ============================================================
-     MAIN CONTENT
-============================================================ -->
 <div id="main">
   <header id="topbar">
     <div class="topbar-breadcrumb">
@@ -216,7 +199,6 @@ tr:hover td{background:#f8fafc;}
   <div id="content">
     <div id="toast"></div>
 
-    <!-- ページ：案件一覧 -->
     <div id="page-list" class="page active">
       <div style="display:flex;gap:8px;margin-bottom:16px;border-bottom:2px solid var(--border);padding-bottom:0;">
         <button id="subtab-order" onclick="switchSubTab('order')" style="padding:8px 20px;border:none;background:none;font-size:14px;font-weight:600;color:var(--primary);border-bottom:2px solid var(--primary);margin-bottom:-2px;cursor:pointer;">📦 注文書一覧</button>
@@ -244,7 +226,7 @@ tr:hover td{background:#f8fafc;}
         </div>
         <div class="table-wrap">
           <div class="table-toolbar"><h2>案件一覧</h2><span class="pg-info" id="result-count"></span></div>
-          <div id="table-container"><div class="loading"><div class="spinner"></div><br>読み込み中...</div></div>
+          <div id="table-container"><div class="loading"><div class="spinner"></div></div></div>
           <div class="pagination" id="pagination"></div>
         </div>
       </div>
@@ -274,7 +256,6 @@ tr:hover td{background:#f8fafc;}
       </div>
     </div>
 
-    <!-- ページ：システム管理コンソール -->
     <div id="page-admin" class="page">
       <div class="page-heading">
         <div>
@@ -369,14 +350,28 @@ tr:hover td{background:#f8fafc;}
       </div>
     </div>
 
-    <!-- プレースホルダーページ群 -->
     <div id="page-ledger" class="page">
       <div class="page-heading"><div><h2>📝 見積台帳</h2></div></div>
       <div class="filter-bar"><div class="search-box"><input type="text" id="ledger-search" placeholder="検索..." oninput="applyLedgerFilter()"></div><button class="btn btn-outline btn-sm" onclick="loadLedger()">🔄 更新</button></div>
       <div id="ledger-tree-container"><div class="loading"><div class="spinner"></div></div></div>
     </div>
+
+    <div id="page-drivesearch" class="page">
+      <div class="page-heading"><div><h2>💾 全文検索</h2><p>Google Drive内のPDFを検索します</p></div></div>
+      <div class="filter-bar">
+        <div class="search-box"><input type="text" id="drive-search-input" placeholder="キーワード..." onkeypress="if(event.keyCode===13)runDriveSearch()"></div>
+        <input type="date" id="drive-date-from" style="padding:6px;border:1px solid var(--border);border-radius:4px;">
+        <span>〜</span>
+        <input type="date" id="drive-date-to" style="padding:6px;border:1px solid var(--border);border-radius:4px;">
+        <button class="btn btn-primary" id="drive-search-btn" onclick="runDriveSearch()">🔍 検索</button>
+        <button class="btn btn-outline" onclick="clearDriveSearch()">クリア</button>
+      </div>
+      <div class="table-wrap">
+        <div class="table-toolbar"><h2>検索結果 <span id="drive-result-count" style="font-weight:normal;font-size:12px;color:var(--text-sub);margin-left:8px;"></span></h2></div>
+        <div id="drive-search-container" style="padding:16px;">ここに結果が表示されます</div>
+      </div>
+    </div>
     
-    <!-- ★ 紐づけページ（最新版 UI 適用） -->
     <div id="page-matching" class="page">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
         <h2 style="font-size:18px;font-weight:600;">🔗 紐づけ候補 一覧</h2>
@@ -395,9 +390,12 @@ tr:hover td{background:#f8fafc;}
       <div id="matching-container"><div class="loading"><div class="spinner"></div></div></div>
     </div>
 
+    <div id="page-calendar" class="page">
+      <div class="page-heading"><div><h2>📅 スケジュール</h2></div></div>
+      <div id="cal-container" style="background:#fff;padding:16px;border-radius:8px;box-shadow:var(--shadow-sm);"></div>
+    </div>
+
     <div id="page-todo" class="page"><div class="loading"><div class="spinner"></div></div></div>
-    <div id="page-calendar" class="page"><div id="cal-container"></div></div>
-    <div id="page-drivesearch" class="page"><div id="drive-search-container"></div></div>
     <div id="page-ocr" class="page">
       <div style="text-align:center;padding:40px;">
         <h2>簡易OCRシステム</h2>
@@ -411,12 +409,7 @@ tr:hover td{background:#f8fafc;}
     <div id="page-board" class="page"><div id="board-container"></div></div>
     <div id="page-analysis" class="page"><div id="analysis-container"></div></div>
 
-  </div><!-- /content -->
-</div><!-- /main -->
-</div><!-- /app-shell -->
-
-<!-- 各種モーダル -->
-<div class="modal-overlay" id="upload-modal">
+  </div></div></div><div class="modal-overlay" id="upload-modal">
   <div class="modal">
     <div class="modal-head"><h3>📎 PDF アップロード</h3><button class="modal-close" onclick="closeUploadModal()">✕</button></div>
     <div class="modal-body">
@@ -492,9 +485,28 @@ tr:hover td{background:#f8fafc;}
   </div>
 </div>
 
-<!-- ============================================================
-     JSの読み込み (これ1つだけをインクルード)
-============================================================ -->
+<div class="modal-overlay" id="ledger-modal" onclick="if(event.target===this)closeLedgerModal()">
+  <div class="modal" style="max-width:500px;">
+    <div class="modal-head"><h3 id="ledger-modal-title">見積登録</h3><button class="modal-close" onclick="closeLedgerModal()">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="ledger-id">
+      <div class="form-field" style="margin-bottom:12px;"><label>機種コード</label><input type="text" id="ledger-machine-code"></div>
+      <div class="form-field" style="margin-bottom:12px;"><label>基板名</label><input type="text" id="ledger-board-name"></div>
+      <div class="form-field" style="margin-bottom:12px;"><label>見積No.</label><input type="text" id="ledger-quote-no"></div>
+      <div class="form-field" style="margin-bottom:12px;"><label>件名</label><input type="text" id="ledger-subject"></div>
+      <div class="form-field" style="margin-bottom:12px;"><label>金額</label><input type="number" id="ledger-amount"></div>
+      <div style="text-align:right;margin-top:16px;">
+        <button class="btn btn-outline" onclick="closeLedgerModal()">キャンセル</button>
+        <button class="btn btn-primary" onclick="saveLedger()">💾 保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  window.APP_IS_ADMIN = <?!= (typeof isAdmin !== 'undefined' && isAdmin) ? 'true' : 'false' ?>;
+</script>
+
 <?!= include("Dashboard js") ?>
 
 </body>
