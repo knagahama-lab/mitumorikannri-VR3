@@ -13,7 +13,7 @@
 ============================================================ */
 :root{
   --sidebar-w: 240px; --sidebar-collapsed-w: 60px; --sidebar-bg: #0f1729;
-  --sidebar-hover: rgba(255,255,255,0.07 ); --sidebar-active: rgba(74,144,226,0.18);
+  --sidebar-hover: rgba(255,255,255,0.07); --sidebar-active: rgba(74,144,226,0.18);
   --sidebar-active-bar: #4a90e2; --sidebar-text: rgba(255,255,255,0.65);
   --sidebar-text-active: #fff; --sidebar-text-sub: rgba(255,255,255,0.35);
   --sidebar-border: rgba(255,255,255,0.06); --sidebar-logo-bg: #0a1020;
@@ -123,178 +123,338 @@ tr:hover td{background:#f8fafc;}
 .btn-outline{background:transparent;border:1px solid var(--border);}
 .btn-sm{padding:4px 10px;font-size:11px;}
 .btn-danger{background:var(--danger);color:#fff;border-color:var(--danger);}
-
-/* Modals */
-.modal-overlay{ position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(15,23,42,.6); backdrop-filter:blur(3px); display:none; align-items:center; justify-content:center; z-index:200; }
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px;}
+.form-field{display:flex;flex-direction:column;gap:5px;}
+.form-field label{font-size:11.5px;font-weight:600;}
+.form-field input,.form-field textarea,.form-field select{ padding:8px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:12.5px; outline:none; }
+.form-field input:focus{ border-color:var(--primary); box-shadow:0 0 0 3px rgba(37,99,235,.08); }
+.modal-overlay{ display:none; position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:400; align-items:center; justify-content:center; backdrop-filter:blur(2px); }
 .modal-overlay.open{display:flex;}
-.modal{ background:var(--card); width:90%; max-width:600px; border-radius:var(--radius-lg); box-shadow:var(--shadow-lg); overflow:hidden; animation:modalPop .25s cubic-bezier(.16,1,.3,1); }
-@keyframes modalPop{ from{opacity:0;transform:scale(.95) translateY(10px);} to{opacity:1;transform:scale(1) translateY(0);} }
-.modal-head{ padding:16px 20px; border-bottom:1px solid var(--border-light); display:flex; align-items:center; justify-content:space-between; }
+.modal{ background:var(--card); border-radius:var(--radius-lg); max-width:600px; width:90%; max-height:90vh; overflow:auto; box-shadow:var(--shadow-lg); animation:modalIn .2s ease-out; }
+@keyframes modalIn{ from{opacity:0;transform:scale(.96)translateY(8px);} to{opacity:1;transform:scale(1)translateY(0);} }
+.modal-head{ padding:18px 22px 14px; border-bottom:1px solid var(--border-light); display:flex; justify-content:space-between; align-items:center; }
 .modal-head h3{font-size:15px;font-weight:700;}
-.modal-close{ width:32px; height:32px; border-radius:50%; border:none; background:var(--bg); cursor:pointer; display:flex; align-items:center; justify-content:center; color:var(--text-sub); transition:all .15s; }
-.modal-close:hover{background:var(--border-light);color:var(--danger);}
-.modal-body{padding:20px;}
-
-/* Toast */
-#toast{ position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(100px); background:#1e293b; color:#fff; padding:10px 20px; border-radius:30px; font-size:13px; font-weight:500; box-shadow:var(--shadow-lg); z-index:300; transition:transform .3s cubic-bezier(.16,1,.3,1); display:flex; align-items:center; gap:8px; }
-#toast.show{transform:translateX(-50%) translateY(0);}
-
-/* Admin Tabs */
-.admin-tab{ padding:10px 20px; cursor:pointer; border:none; background:none; font-size:13px; font-weight:600; color:var(--text-sub); position:relative; transition:all .2s; white-space:nowrap; }
-.admin-tab:hover{color:var(--primary);}
-.admin-tab.active{color:var(--primary);}
-.admin-tab.active::after{ content:''; position:absolute; bottom:-2px; left:0; width:100%; height:2px; background:var(--primary); }
+.modal-close{ background:none;border:none;font-size:18px; cursor:pointer;color:var(--text-sub); width:28px;height:28px; border-radius:6px; }
+.modal-close:hover{background:var(--bg);}
+.modal-body{padding:20px 22px;}
+.loading{display:flex;flex-direction:column;align-items:center;gap:10px;padding:40px;color:var(--text-sub);}
+.spinner{ width:24px;height:24px; border:2px solid var(--border); border-top-color:var(--primary); border-radius:50%; animation:spin .7s linear infinite; }
+@keyframes spin{to{transform:rotate(360deg);}}
+#toast{ position:fixed;bottom:24px;left:50%;transform:translateX(-50%); background:#1e293b;color:#fff;padding:10px 20px; border-radius:8px;font-size:13px;font-weight:500; opacity:0;transition:opacity .3s;z-index:9999; pointer-events:none; box-shadow:var(--shadow-lg); }
+#toast.show{opacity:1;}
+.upload-area{ border:2px dashed var(--border); border-radius:var(--radius); padding:28px; text-align:center; cursor:pointer; background:#fafbff; }
+.upload-area:hover{border-color:var(--primary);background:#f0f5ff;}
+.admin-tab { padding: 10px 20px; border: none; background: none; font-size: 13px; font-weight: 600; color: var(--text-sub); border-bottom: 3px solid transparent; margin-bottom: -2px; cursor: pointer; transition: all 0.15s; }
+.admin-tab:hover { color: var(--primary); background: var(--primary-light); }
+.admin-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+.admin-tab-content { display: none; animation: fadeSlideIn .15s ease-out; }
+.page-heading{ display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; }
+.page-heading h2{ font-size:19px; font-weight:700; color:var(--text); }
+.page-heading p{ font-size:12px; color:var(--text-sub); margin-top:3px; }
 </style>
 </head>
 <body>
-
 <div id="app-shell">
-  <aside id="sidebar">
-    <div class="sidebar-logo" onclick="showPage('list')">
-      <div class="sidebar-logo-icon">☀️</div>
-      <div class="sidebar-logo-text">
-        <span class="sidebar-logo-title">見積・注文管理</span>
-        <span class="sidebar-logo-sub">Version 3.0</span>
-      </div>
+
+<nav id="sidebar">
+  <button class="sidebar-toggle" onclick="toggleSidebar()">‹</button>
+  <div class="sidebar-logo" onclick="showPage('list')">
+    <div class="sidebar-logo-icon">📋</div>
+    <div class="sidebar-logo-text">
+      <span class="sidebar-logo-title">見積・注文管理</span>
+      <span class="sidebar-logo-sub">Management System</span>
     </div>
-    <div class="sidebar-toggle" onclick="toggleSidebar()">◀</div>
-    <nav class="sidebar-nav" id="sidebar-nav-container">
-      <!-- JavaScriptで動的に生成されます -->
-    </nav>
-    <div class="sidebar-footer">
-      <div class="sidebar-user">
-        <div class="sidebar-avatar" id="user-avatar">U</div>
-        <div class="sidebar-user-info">
-          <div class="sidebar-user-name" id="user-email-label">user@example.com</div>
-          <div class="sidebar-user-role" id="user-role-label">管理者</div>
+  </div>
+  <div class="sidebar-nav" id="sidebar-nav-container"></div>
+  <div class="sidebar-footer">
+    <div class="sidebar-user">
+      <div class="sidebar-avatar" id="sidebar-avatar-icon">U</div>
+      <div class="sidebar-user-info">
+        <div class="sidebar-user-name" id="sidebar-user-name">
+          <? if (userEmail) { ?><?= userEmail ?><? } else { ?>ゲスト<? } ?>
         </div>
+        <div class="sidebar-user-role"><? if (isAdmin) { ?>管理者<? } else { ?>一般ユーザー<? } ?></div>
       </div>
     </div>
-  </aside>
+  </div>
+</nav>
 
-  <main id="main">
-    <header id="topbar">
-      <div class="topbar-breadcrumb">
-        <span>見積・注文管理</span>
-        <span class="topbar-breadcrumb-sep">/</span>
-        <span class="topbar-breadcrumb-current" id="topbar-page-title">案件一覧</span>
-      </div>
-      <div class="topbar-spacer"></div>
-      <div class="topbar-actions">
-        <button class="topbar-btn primary" onclick="openUploadModal()">➕ PDFアップロード</button>
-      </div>
-    </header>
+<div id="main">
+  <header id="topbar">
+    <div class="topbar-breadcrumb">
+      <span>見積・注文管理</span><span class="topbar-breadcrumb-sep">›</span>
+      <span class="topbar-breadcrumb-current" id="topbar-page-title">案件一覧</span>
+    </div>
+    <div class="topbar-spacer"></div>
+    <div class="topbar-actions">
+      <button class="topbar-btn" onclick="showPage('drivesearch')">🔍 全文検索</button>
+      <button class="topbar-btn primary" onclick="openUploadModal()">＋ PDF登録</button>
+    </div>
+  </header>
 
-    <div id="content">
-      <!-- 1. 案件一覧ページ -->
-      <div id="page-list" class="page active">
+  <div id="content">
+    <div id="toast"></div>
+
+    <div id="page-list" class="page active">
+      <div style="display:flex;gap:8px;margin-bottom:16px;border-bottom:2px solid var(--border);padding-bottom:0;">
+        <button id="subtab-order" onclick="switchSubTab('order')" style="padding:8px 20px;border:none;background:none;font-size:14px;font-weight:600;color:var(--primary);border-bottom:2px solid var(--primary);margin-bottom:-2px;cursor:pointer;">📦 注文書一覧</button>
+        <button id="subtab-quote" onclick="switchSubTab('quote')" style="padding:8px 20px;border:none;background:none;font-size:14px;font-weight:500;color:var(--text-sub);border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;">📄 見積書一覧</button>
+      </div>
+
+      <div id="area-order">
         <div class="summary-grid">
-          <div class="summary-card"><div class="lbl">今月の受注総額</div><div class="val c-blue">¥<span id="sum-amount">0</span></div><div class="sub">今月分のみ集計</div></div>
-          <div class="summary-card"><div class="lbl">送信済み見積</div><div class="val"><span id="sum-sent">0</span></div><div class="sub">回答待ち案件</div></div>
-          <div class="summary-card"><div class="lbl">受領済み注文</div><div class="val c-red"><span id="sum-received">0</span></div><div class="sub">未納品案件</div></div>
-          <div class="summary-card"><div class="lbl">納品完了</div><div class="val c-green"><span id="sum-done">0</span></div><div class="sub">完了済み案件</div></div>
+          <div class="summary-card"><div class="lbl">送信済み（未受領）</div><div class="val c-blue" id="sum-sent">—</div><div class="sub">件</div></div>
+          <div class="summary-card"><div class="lbl">注文受領</div><div class="val c-red" id="sum-received">—</div><div class="sub">件</div></div>
+          <div class="summary-card"><div class="lbl">納品済み</div><div class="val c-green" id="sum-done">—</div><div class="sub">件</div></div>
+          <div class="summary-card"><div class="lbl">今月の注文合計</div><div class="val" id="sum-amount">—</div><div class="sub">円（税抜）</div></div>
         </div>
-
-        <div style="display:flex;gap:24px;border-bottom:2px solid var(--border-light);margin-bottom:16px;">
-          <button id="subtab-order" onclick="switchSubTab('order')" style="padding:10px 4px;background:none;border:none;border-bottom:2px solid var(--primary);color:var(--primary);font-weight:600;cursor:pointer;">📦 注文書一覧</button>
-          <button id="subtab-quote" onclick="switchSubTab('quote')" style="padding:10px 4px;background:none;border:none;border-bottom:2px solid transparent;color:var(--text-sub);font-weight:500;cursor:pointer;">📄 見積書リスト</button>
+        <div class="filter-bar">
+          <div class="search-box"><input type="text" id="search-input" placeholder="発注番号・機種・顧客・件名で検索..." oninput="debounceSearch()"></div>
+          <select id="filter-status" onchange="applyFilters()"><option value="">すべてのステータス</option><option value="作成予定">作成予定</option><option value="送信済み">送信済み</option><option value="受領">受領</option><option value="納品済み">納品済み</option></select>
+          <select id="filter-order-type" onchange="applyFilters()"><option value="">すべての種別</option><option value="試作">試作</option><option value="量産">量産</option></select>
+          <select id="filter-month" onchange="applyFilters()"><option value="">すべての月</option></select>
+          <button class="btn btn-outline btn-sm" onclick="clearFilters()">クリア</button>
+          <button class="btn btn-outline btn-sm" onclick="loadData()">🔄</button>
         </div>
-
-        <!-- 注文書一覧エリア -->
-        <div id="area-order">
-          <div class="filter-bar">
-            <div class="search-box"><input type="text" id="search-input" placeholder="注文番号・顧客名・機種名で検索..." oninput="debounceSearch()"></div>
-            <select id="filter-status" onchange="applyFilters()"><option value="">すべてのステータス</option><option value="作成予定">作成予定</option><option value="送信済み">送信済み</option><option value="受領">受領</option><option value="納品済み">納品済み</option></select>
-            <select id="filter-order-type" onchange="applyFilters()"><option value="">すべての種別</option><option value="試作">試作</option><option value="量産">量産</option></select>
-            <select id="filter-month" onchange="applyFilters()"><option value="">すべての月</option></select>
-            <button class="btn btn-outline" onclick="clearFilters()">クリア</button>
-            <button class="btn btn-outline" onclick="loadData()">🔄 更新</button>
-          </div>
-          <div class="table-wrap">
-            <div class="table-toolbar"><h2>案件データ <span id="result-count" style="font-weight:normal;font-size:12px;color:var(--text-sub);margin-left:8px;"></span></h2></div>
-            <div id="table-container"></div>
-            <div class="pagination" id="pagination"></div>
-          </div>
-        </div>
-
-        <!-- 見積書リストエリア -->
-        <div id="area-quote" style="display:none;">
-          <div class="summary-grid" style="grid-template-columns: repeat(3, 1fr);">
-            <div class="summary-card"><div class="lbl">総見積件数</div><div class="val"><span id="qs-total">0</span></div></div>
-            <div class="summary-card"><div class="lbl">紐づけ済み</div><div class="val c-green"><span id="qs-linked">0</span></div></div>
-            <div class="summary-card"><div class="lbl">総見積金額</div><div class="val c-blue">¥<span id="qs-amount">0</span></div></div>
-          </div>
-          <div class="filter-bar">
-            <div class="search-box"><input type="text" id="qs-search" placeholder="見積No・件名で検索..." oninput="applyQuoteFilter()"></div>
-            <select id="qs-filter-status" onchange="applyQuoteFilter()"><option value="">すべてのステータス</option><option value="送信済み">送信済み</option><option value="受領">受領</option></select>
-            <select id="qs-filter-linked" onchange="applyQuoteFilter()"><option value="">すべての紐づけ</option><option value="linked">注文書あり</option><option value="unlinked">未受注</option></select>
-            <button class="btn btn-outline" onclick="clearQuoteFilter()">クリア</button>
-            <button class="btn btn-outline" onclick="loadQuoteList()">🔄 更新</button>
-          </div>
-          <div class="table-wrap">
-            <div class="table-toolbar"><h2>見積書データ <span id="qs-count" style="font-weight:normal;font-size:12px;color:var(--text-sub);margin-left:8px;"></span></h2></div>
-            <div id="quotelist-container"></div>
-            <div class="pagination" id="qs-pagination"></div>
-          </div>
+        <div class="table-wrap">
+          <div class="table-toolbar"><h2>案件一覧</h2><span class="pg-info" id="result-count"></span></div>
+          <div id="table-container"><div class="loading"><div class="spinner"></div></div></div>
+          <div class="pagination" id="pagination"></div>
         </div>
       </div>
 
-      <!-- 2. 管理コンソールページ -->
-      <div id="page-admin" class="page">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
-          <div>
-            <h2>⚙️ システム管理コンソール</h2>
-            <p>権限管理・メール監視・メール配信・外部連携などシステム全体の設定を行います</p>
-          </div>
-          <button class="btn btn-outline" onclick="loadAdminSettings()" id="admin-reload-btn">📥 全設定を読み込む</button>
+      <div id="area-quote" style="display:none;">
+        <div class="summary-grid" style="grid-template-columns:repeat(3,1fr);">
+          <div class="summary-card"><div class="lbl">見積書総件数</div><div class="val c-blue" id="qs-total">—</div><div class="sub">件</div></div>
+          <div class="summary-card"><div class="lbl">注文書紐づけ済み</div><div class="val c-green" id="qs-linked">—</div><div class="sub">件</div></div>
+          <div class="summary-card"><div class="lbl">見積合計金額</div><div class="val" id="qs-amount" style="font-size:18px;">—</div><div class="sub">円（税抜）</div></div>
         </div>
-
-        <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:24px;overflow-x:auto;">
-          <button class="admin-tab active" onclick="switchAdminTab('basic')" id="atab-basic">🔧 基本設定</button>
-          <button class="admin-tab" onclick="switchAdminTab('access')" id="atab-access">👁️ 閲覧権限</button>
-          <button class="admin-tab" onclick="switchAdminTab('mailwatch')" id="atab-mailwatch">📧 メール監視</button>
-          <button class="admin-tab" onclick="switchAdminTab('mailsend')" id="atab-mailsend">✉️ メール配信</button>
-          <button class="admin-tab" onclick="switchAdminTab('rakuraku')" id="atab-rakuraku">🛒 楽楽販売連携</button>
-          <button class="admin-tab" onclick="switchAdminTab('external')" id="atab-external">⚡ 外部連携</button>
-          <button class="admin-tab" onclick="switchAdminTab('menu')" id="atab-menu">📱 メニュー設定</button>
+        <div class="filter-bar">
+          <div class="search-box"><input type="text" id="qs-search" placeholder="見積番号・宛先・担当者で検索..." oninput="applyQuoteFilter()"></div>
+          <select id="qs-filter-status" onchange="applyQuoteFilter()"><option value="">すべてのステータス</option><option value="送信済み">送信済み</option><option value="受領">受領</option><option value="作成予定">作成予定</option><option value="納品済み">納品済み</option></select>
+          <select id="qs-filter-linked" onchange="applyQuoteFilter()"><option value="">紐づき状況</option><option value="linked">注文書あり</option><option value="unlinked">注文書なし</option></select>
+          <button class="btn btn-outline btn-sm" onclick="clearQuoteFilter()">クリア</button>
+          <button class="btn btn-outline btn-sm" onclick="loadQuoteList()">🔄</button>
         </div>
-
-        <div id="admin-tab-basic" class="admin-tab-content" style="display:block;">
-          <!-- 基本設定の内容（中略） -->
+        <div class="table-wrap">
+          <div class="table-toolbar"><h2>見積書一覧</h2><span class="pg-info" id="qs-count"></span></div>
+          <div id="quotelist-container"><div class="loading"><div class="spinner"></div></div></div>
+          <div class="pagination" id="qs-pagination"></div>
         </div>
-        
-        <div id="admin-tab-menu" class="admin-tab-content" style="display:none;">
-          <!-- ここに JavaScript でメニュー編集 UI が生成されます -->
-        </div>
-        <!-- 他のタブ（access, mailwatch等）のコンテナもここに配置 -->
-        <div id="admin-tab-access" class="admin-tab-content" style="display:none;"></div>
-        <div id="admin-tab-mailwatch" class="admin-tab-content" style="display:none;"></div>
-        <div id="admin-tab-mailsend" class="admin-tab-content" style="display:none;"></div>
-        <div id="admin-tab-rakuraku" class="admin-tab-content" style="display:none;"></div>
-        <div id="admin-tab-external" class="admin-tab-content" style="display:none;"></div>
       </div>
-
-      <!-- その他のページコンテナ -->
-      <div id="page-ledger" class="page"></div>
-      <div id="page-matching" class="page"></div>
-      <div id="page-calendar" class="page"></div>
-      <div id="page-todo" class="page"></div>
-      <div id="page-drivesearch" class="page"></div>
-      <div id="page-workflow" class="page"></div>
-      <div id="page-assignees" class="page"></div>
-      <div id="page-approval" class="page"></div>
-      <div id="page-board" class="page"></div>
-      <div id="page-analysis" class="page"></div>
     </div>
-  </main>
+
+    <div id="page-admin" class="page">
+      <div class="page-heading">
+        <div>
+          <h2>⚙️ システム管理コンソール</h2>
+          <p>権限管理・メール監視・メール配信・外部連携などシステム全体の設定を行います</p>
+        </div>
+        <button class="btn btn-outline" onclick="loadAdminSettings()" id="admin-reload-btn">📥 全設定を読み込む</button>
+      </div>
+
+      <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:24px;overflow-x:auto;">
+        <button class="admin-tab active" onclick="switchAdminTab('basic')" id="atab-basic">🔧 基本設定</button>
+        <button class="admin-tab" onclick="switchAdminTab('access')" id="atab-access">👁️ 閲覧権限</button>
+        <button class="admin-tab" onclick="switchAdminTab('mailwatch')" id="atab-mailwatch">📧 メール監視</button>
+        <button class="admin-tab" onclick="switchAdminTab('mailsend')" id="atab-mailsend">✉️ メール配信</button>
+        <button class="admin-tab" onclick="switchAdminTab('rakuraku')" id="atab-rakuraku">🛒 楽楽販売連携</button>
+        <button class="admin-tab" onclick="switchAdminTab('external')" id="atab-external">⚡ 外部連携</button>
+      </div>
+
+      <div id="admin-tab-basic" class="admin-tab-content" style="display:block;">
+        <div style="background:white;border-radius:12px;padding:24px;box-shadow:var(--shadow);margin-bottom:20px;border-left:4px solid var(--primary);">
+          <h3 style="font-size:15px;font-weight:700;color:var(--primary);margin-bottom:4px;">🔧 デプロイ環境設定</h3>
+          <div class="form-row">
+            <div class="form-field"><label>管理者アカウント (Admin Emails)</label><input type="text" id="cfg-admin-emails" placeholder="admin@example.com"></div>
+            <div class="form-field"><label>Google Chat Webhook URL</label><input type="text" id="cfg-chat-webhook" placeholder="https://chat.googleapis.com/v1/spaces/..."></div>
+          </div>
+          <div class="form-row">
+            <div class="form-field"><label>Gemini API Key</label><input type="password" id="cfg-gemini-key" placeholder="変更時のみ入力"></div>
+            <div class="form-field"><label>スプレッドシートID</label><input type="text" id="cfg-spreadsheet-id"></div>
+          </div>
+          <div style="text-align:right;"><button class="btn btn-primary" onclick="saveAdminBasic()">💾 保存</button><span id="cfg-save-msg"></span></div>
+        </div>
+        <div style="background:white;border-radius:12px;padding:24px;box-shadow:var(--shadow);border-left:4px solid var(--warning);">
+          <h3 style="font-size:15px;font-weight:700;color:#e65100;margin-bottom:4px;">🔔 通知設定</h3>
+          <div style="display:flex;flex-direction:column;gap:12px;">
+            <label><input type="checkbox" id="cfg-notify-order"> 注文書登録時に通知する</label>
+            <label><input type="checkbox" id="cfg-notify-quote"> 見積書登録時に通知する</label>
+            <label><input type="checkbox" id="cfg-notify-deadline"> 期限アラートを通知する</label>
+            <div><label>アラート通知の日数:</label> <input type="number" id="cfg-alert-days" value="3" style="width:60px;"> 日前から通知</div>
+          </div>
+          <div style="text-align:right;margin-top:16px;"><button class="btn btn-primary" onclick="saveAdminNotify()">💾 通知設定を保存</button></div>
+        </div>
+      </div>
+
+      <div id="admin-tab-access" class="admin-tab-content">
+        <div style="background:white;border-radius:12px;padding:24px;box-shadow:var(--shadow);border-left:4px solid #6a1b9a;">
+          <h3 style="font-size:15px;font-weight:700;color:#6a1b9a;margin-bottom:4px;">👁 閲覧権限設定</h3>
+          <div class="form-field"><textarea id="cfg-admin-emails-access" rows="4" style="width:100%;"></textarea></div>
+          <div style="text-align:right;margin-top:16px;"><button class="btn btn-primary" onclick="saveAdminAccess()">💾 権限設定を保存</button></div>
+        </div>
+      </div>
+
+      <div id="admin-tab-mailwatch" class="admin-tab-content">
+        <div style="background:white;border-radius:12px;padding:24px;box-shadow:var(--shadow);border-left:4px solid var(--info);">
+          <h3 style="font-size:15px;font-weight:700;color:var(--info);margin-bottom:4px;">📧 メール監視設定</h3>
+          <p>詳細はスプレッドシートの「メール監視設定」シートで設定してください。</p>
+          <div style="margin-top:16px;">
+            <button class="btn btn-outline" onclick="openEmailConfigSheet()">📊 シートを開く</button>
+            <button class="btn btn-outline" onclick="triggerEmailCheck()">▶ 今すぐメールチェック</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="admin-tab-mailsend" class="admin-tab-content">
+        <div style="background:white;border-radius:12px;padding:24px;box-shadow:var(--shadow);border-left:4px solid var(--success);">
+          <h3 style="font-size:15px;font-weight:700;color:var(--success);margin-bottom:4px;">✉️ メール配信設定</h3>
+          <div class="form-field"><label>通知先メールアドレス（カンマ区切り）</label><textarea id="cfg-notify-emails" rows="3" style="width:100%;"></textarea></div>
+          <div style="text-align:right;margin-top:16px;"><button class="btn btn-primary" onclick="saveAdminMailSend()">💾 保存</button><span id="mailsend-save-msg"></span></div>
+        </div>
+      </div>
+
+      <div id="admin-tab-rakuraku" class="admin-tab-content">
+        <div style="background:white;border-radius:12px;padding:24px;box-shadow:var(--shadow);border-left:4px solid #e91e63;">
+          <h3 style="font-size:15px;font-weight:700;color:#e91e63;margin-bottom:4px;">🛒 楽楽販売 連携設定</h3>
+          <div class="form-row">
+            <div class="form-field"><label>APIキー</label><input type="password" id="cfg-rakuraku-apikey"></div>
+            <div class="form-field"><label>会社コード</label><input type="text" id="cfg-rakuraku-company"></div>
+          </div>
+          <div class="form-field"><label>APIエンドポイントURL</label><input type="text" id="cfg-rakuraku-endpoint"></div>
+          <div style="text-align:right;margin-top:16px;"><button class="btn btn-primary" onclick="saveAdminRakuraku()">💾 保存</button><span id="rakuraku-save-msg"></span></div>
+        </div>
+      </div>
+
+      <div id="admin-tab-external" class="admin-tab-content">
+        <div style="background:white;border-radius:12px;padding:24px;box-shadow:var(--shadow);border-left:4px solid #ff6f00;">
+          <h3 style="font-size:15px;font-weight:700;color:#ff6f00;margin-bottom:4px;">⚡ 外部連携設定</h3>
+          <div class="form-field"><label>n8n Webhook URL（注文書登録）</label><input type="text" id="cfg-n8n-order-webhook"></div>
+          <div class="form-field" style="margin-top:12px;"><label>n8n Webhook URL（見積書登録）</label><input type="text" id="cfg-n8n-quote-webhook"></div>
+          <div class="form-field" style="margin-top:12px;"><label>カスタム Webhook URL（汎用）</label><input type="text" id="cfg-custom-webhook"></div>
+          <div style="margin-top:16px;"><button class="btn btn-outline btn-sm" onclick="reregisterTriggers()">🔄 トリガーを再登録する</button></div>
+          <div style="text-align:right;margin-top:16px;"><button class="btn btn-primary" onclick="saveAdminExternal()">💾 保存</button><span id="external-save-msg"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="page-ledger" class="page">
+      <div class="page-heading"><div><h2>📝 見積台帳</h2></div></div>
+      <div class="filter-bar"><div class="search-box"><input type="text" id="ledger-search" placeholder="検索..." oninput="applyLedgerFilter()"></div><button class="btn btn-outline btn-sm" onclick="loadLedger()">🔄 更新</button></div>
+      <div id="ledger-tree-container"><div class="loading"><div class="spinner"></div></div></div>
+    </div>
+
+    <div id="page-matching" class="page">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
+        <h2 style="font-size:18px;font-weight:600;">🔗 紐づけ候補 一覧</h2>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <div class="search-box" style="min-width:200px;">
+            <input type="text" id="matching-search" placeholder="注文番号・顧客名で検索..." oninput="filterMatchingCandidates()">
+          </div>
+          <button class="btn btn-outline" onclick="loadMatchingCandidates()">🔄 更新</button>
+          <button class="btn btn-primary" onclick="runBatchMatching()">⚡ 全件マッチング実行</button>
+        </div>
+      </div>
+      <div style="background:var(--primary-light);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;font-size:13px;color:var(--primary);">
+        💡 注文書ごとにAIが類似する見積候補をスコア順に<strong>最大20件</strong>表示します。候補が見つからない場合も参考として未紐づけの見積書を最低1件表示します。<br>
+        スコア80点以上は自動紐づけ済みです。候補を確認して「確定」ボタンで紐づけしてください。
+      </div>
+      <div id="matching-container"><div class="loading"><div class="spinner"></div></div></div>
+    </div>
+
+    <div id="page-todo" class="page"><div class="loading"><div class="spinner"></div></div></div>
+    <div id="page-calendar" class="page"><div id="cal-container"></div></div>
+    <div id="page-drivesearch" class="page"><div id="drive-search-container"></div></div>
+    <div id="page-ocr" class="page">
+      <div style="text-align:center;padding:40px;">
+        <h2>簡易OCRシステム</h2>
+        <button class="btn btn-primary" onclick="window.open('https://ndlocr-liteweb.netlify.app/','_blank')">🚀 起動する</button>
+      </div>
+    </div>
+    
+    <div id="page-workflow" class="page"><div class="loading"><div class="spinner"></div></div></div>
+    <div id="page-assignees" class="page"><div id="assignee-container"></div></div>
+    <div id="page-approval" class="page"><div id="approval-container"></div></div>
+    <div id="page-board" class="page"><div id="board-container"></div></div>
+    <div id="page-analysis" class="page"><div id="analysis-container"></div></div>
+
+  </div></div></div><div class="modal-overlay" id="upload-modal">
+  <div class="modal">
+    <div class="modal-head"><h3>📎 PDF アップロード</h3><button class="modal-close" onclick="closeUploadModal()">✕</button></div>
+    <div class="modal-body">
+      <div class="type-toggle" style="display:flex;gap:10px;margin-bottom:16px;">
+        <button class="btn btn-outline" id="type-quote" onclick="setDocType('quote')">📄 見積書</button>
+        <button class="btn btn-outline" id="type-order" onclick="setDocType('order')">📦 注文書・発注書</button>
+      </div>
+      <div id="order-type-section" style="display:none;margin-bottom:16px;">
+        <button class="btn btn-outline btn-sm" id="ot-trial" onclick="setOrderType('試作')">試作</button>
+        <button class="btn btn-outline btn-sm" id="ot-mass" onclick="setOrderType('量産')">量産</button>
+      </div>
+      <div class="upload-area" id="drop-zone" onclick="document.getElementById('file-input').click()">
+        📂 クリックまたはドラッグでPDFを選択
+      </div>
+      <input type="file" id="file-input" accept=".pdf" style="display:none" onchange="handleFileSelect(event)">
+      <div id="upload-status" style="margin-top:12px;"></div>
+      <div style="text-align:right;margin-top:16px;">
+        <button class="btn btn-outline" onclick="closeUploadModal()">キャンセル</button>
+        <button class="btn btn-primary" id="upload-btn" onclick="uploadFile()" disabled>解析・登録</button>
+      </div>
+    </div>
+  </div>
 </div>
 
-<!-- モーダル・トースト -->
-<div id="toast"></div>
+<div class="modal-overlay" id="detail-modal" onclick="if(event.target===this)closeDetailModal()"><div class="modal" style="max-width:950px;"><div class="modal-head"><h3 id="detail-title">案件詳細</h3><button class="modal-close" onclick="closeDetailModal()">✕</button></div><div class="modal-body" id="detail-body"></div></div></div>
+<div class="modal-overlay" id="quote-detail-modal" onclick="if(event.target===this)closeQuoteDetail()"><div class="modal"><div class="modal-head"><h3 id="quote-detail-title">見積書詳細</h3><button class="modal-close" onclick="closeQuoteDetail()">✕</button></div><div class="modal-body" id="quote-detail-body"></div></div></div>
 
-<!-- JavaScript インクルード -->
-<!-- ★ここを Dashboard js の1つだけに絞ります -->
-<?!= include("Dashboard js") ?>
+<div class="modal-overlay" id="edit-mgmt-modal" onclick="if(event.target===this)this.classList.remove('open');">
+  <div class="modal" style="max-width:700px;">
+    <div class="modal-head">
+      <h3 id="edit-mgmt-title">✏️ 案件を編集</h3>
+      <button class="modal-close" onclick="document.getElementById('edit-mgmt-modal').classList.remove('open')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="edit-mgmt-id">
+      <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div class="form-field"><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">見積番号</label><input type="text" id="edit-quote-no" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
+        <div class="form-field"><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">発注書番号</label><input type="text" id="edit-order-no" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
+      </div>
+      <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div class="form-field"><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">顧客名</label><input type="text" id="edit-client" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
+        <div class="form-field"><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">機種コード</label><input type="text" id="edit-model-code" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
+      </div>
+      <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div class="form-field"><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">ステータス</label>
+          <select id="edit-status" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;">
+            <option value="作成予定">作成予定</option><option value="送信済み">送信済み</option><option value="受領">受領</option><option value="納品済み">納品済み</option>
+          </select>
+        </div>
+        <div class="form-field"><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">注文種別</label>
+          <select id="edit-order-type" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;">
+            <option value="">（未設定）</option><option value="試作">試作</option><option value="量産">量産</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div class="form-field"><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">発注日</label><input type="date" id="edit-order-date" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
+        <div class="form-field"><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">納期</label><input type="date" id="edit-delivery-date" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">件名</label>
+        <input type="text" id="edit-subject" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;">
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">メモ</label>
+        <textarea id="edit-memo" rows="2" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;resize:vertical;"></textarea>
+      </div>
+      <div style="text-align:right;margin-top:8px;">
+        <button class="btn btn-outline" onclick="document.getElementById('edit-mgmt-modal').classList.remove('open')">キャンセル</button>
+        <button class="btn btn-primary" onclick="saveMgmtEdit()" style="margin-left:8px;">💾 保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<?!= include("Dashboard js.html") ?>
 
 </body>
 </html>

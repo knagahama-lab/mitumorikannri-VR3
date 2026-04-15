@@ -1406,29 +1406,3 @@ function _apiUploadOrderWithLink(p) {
   }
   return res;
 }
-
-// ============================================================
-// メニュー設定の保存・読み込み API (追加分)
-// ============================================================
-
-function _apiSaveMenuSettings(payload) {
-  try {
-    if (!payload.menu || !Array.isArray(payload.menu)) {
-      return { success: false, error: '無効なメニューデータです' };
-    }
-    PropertiesService.getScriptProperties().setProperty('SIDEBAR_MENU_CONFIG', JSON.stringify(payload.menu));
-    return { success: true, message: 'メニュー設定を保存しました' };
-  } catch (e) {
-    return { success: false, error: e.message };
-  }
-}
-
-function _apiLoadMenuSettings() {
-  try {
-    var raw = PropertiesService.getScriptProperties().getProperty('SIDEBAR_MENU_CONFIG');
-    var menu = raw ? JSON.parse(raw) : null;
-    return { success: true, menu: menu };
-  } catch (e) {
-    return { success: false, error: e.message };
-  }
-}
