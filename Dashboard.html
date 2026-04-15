@@ -12,31 +12,15 @@
    CSS Variables & Reset
 ============================================================ */
 :root{
-  --sidebar-w: 240px;
-  --sidebar-collapsed-w: 60px;
-  --sidebar-bg: #0f1729;
-  --sidebar-hover: rgba(255,255,255,0.07);
-  --sidebar-active: rgba(74,144,226,0.18);
-  --sidebar-active-bar: #4a90e2;
-  --sidebar-text: rgba(255,255,255,0.65);
-  --sidebar-text-active: #fff;
-  --sidebar-text-sub: rgba(255,255,255,0.35);
-  --sidebar-border: rgba(255,255,255,0.06);
-  --sidebar-logo-bg: #0a1020;
+  --sidebar-w: 240px; --sidebar-collapsed-w: 60px; --sidebar-bg: #0f1729;
+  --sidebar-hover: rgba(255,255,255,0.07); --sidebar-active: rgba(74,144,226,0.18);
+  --sidebar-active-bar: #4a90e2; --sidebar-text: rgba(255,255,255,0.65);
+  --sidebar-text-active: #fff; --sidebar-text-sub: rgba(255,255,255,0.35);
+  --sidebar-border: rgba(255,255,255,0.06); --sidebar-logo-bg: #0a1020;
 
-  --bg: #f4f6fb;
-  --card: #ffffff;
-  --border: #e8eaed;
-  --border-light: #f0f2f5;
-
-  --primary: #2563eb;
-  --primary-light: #eff6ff;
-  --primary-dark: #1d4ed8;
-
-  --success: #16a34a;
-  --danger: #dc2626;
-  --warning: #d97706;
-  --info: #0891b2;
+  --bg: #f4f6fb; --card: #ffffff; --border: #e8eaed; --border-light: #f0f2f5;
+  --primary: #2563eb; --primary-light: #eff6ff; --primary-dark: #1d4ed8;
+  --success: #16a34a; --danger: #dc2626; --warning: #d97706; --info: #0891b2;
 
   --s-planned-bg:#f1f5f9;--s-planned-fg:#475569;
   --s-sent-bg:#eff6ff;--s-sent-fg:#2563eb;
@@ -45,52 +29,29 @@
   --trial-bg:#fff7ed;--trial-fg:#c2410c;
   --mass-bg:#f0fdf4;--mass-fg:#15803d;
 
-  --text: #1e293b;
-  --text-sub: #64748b;
-  --text-muted: #94a3b8;
-
+  --text: #1e293b; --text-sub: #64748b; --text-muted: #94a3b8;
   --shadow-sm: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
   --shadow: 0 4px 12px rgba(0,0,0,.06), 0 1px 3px rgba(0,0,0,.04);
   --shadow-lg: 0 10px 30px rgba(0,0,0,.10), 0 4px 8px rgba(0,0,0,.04);
-
-  --radius: 10px;
-  --radius-sm: 6px;
-  --radius-lg: 14px;
+  --radius: 10px; --radius-sm: 6px; --radius-lg: 14px;
 }
 *{box-sizing:border-box;margin:0;padding:0;}
 html,body{height:100%;overflow:hidden;}
-body{
-  font-family:'Noto Sans JP',sans-serif;
-  background:var(--bg);
-  color:var(--text);
-  font-size:13px;
-  line-height:1.5;
-}
-
-/* ============================================================
-   Layout Shell
-============================================================ */
+body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);color:var(--text);font-size:13px;line-height:1.5;}
 #app-shell{ display:flex; height:100vh; overflow:hidden; }
-#sidebar{
-  width:var(--sidebar-w); min-width:var(--sidebar-w); background:var(--sidebar-bg);
-  display:flex; flex-direction:column; height:100vh; position:relative;
-  transition:width .25s cubic-bezier(.4,0,.2,1),min-width .25s; z-index:100; overflow:hidden;
-}
-#sidebar.collapsed{ width:var(--sidebar-collapsed-w); min-width:var(--sidebar-collapsed-w); }
 
+/* Sidebar */
+#sidebar{ width:var(--sidebar-w); min-width:var(--sidebar-w); background:var(--sidebar-bg); display:flex; flex-direction:column; height:100vh; position:relative; transition:width .25s cubic-bezier(.4,0,.2,1),min-width .25s; z-index:100; overflow:hidden; }
+#sidebar.collapsed{ width:var(--sidebar-collapsed-w); min-width:var(--sidebar-collapsed-w); }
 .sidebar-logo{ display:flex; align-items:center; gap:10px; padding:18px 16px 16px; border-bottom:1px solid var(--sidebar-border); background:var(--sidebar-logo-bg); flex-shrink:0; min-height:64px; cursor:pointer; user-select:none; }
 .sidebar-logo-icon{ width:32px; height:32px; border-radius:8px; background:linear-gradient(135deg,#4a90e2,#2563eb); display:flex; align-items:center; justify-content:center; font-size:16px; flex-shrink:0; box-shadow:0 2px 8px rgba(74,144,226,.4); }
 .sidebar-logo-text{ display:flex; flex-direction:column; overflow:hidden; transition:opacity .2s,width .2s; white-space:nowrap; }
 .sidebar-logo-title{ font-size:13px; font-weight:700; color:#fff; letter-spacing:0.02em; line-height:1.2; }
 .sidebar-logo-sub{ font-size:10px; color:var(--sidebar-text-sub); margin-top:1px; }
 #sidebar.collapsed .sidebar-logo-text{ opacity:0; width:0; overflow:hidden; }
-
 .sidebar-nav{ flex:1; overflow-y:auto; overflow-x:hidden; padding:8px 0; scrollbar-width:thin; scrollbar-color:rgba(255,255,255,.1) transparent; }
-.sidebar-nav::-webkit-scrollbar{width:3px;}
-.sidebar-nav::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:2px;}
 .sidebar-section-label{ font-size:9px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--sidebar-text-sub); padding:14px 18px 5px; white-space:nowrap; transition:opacity .2s; }
 #sidebar.collapsed .sidebar-section-label{ opacity:0; pointer-events:none; }
-
 .nav-item{ display:flex; align-items:center; gap:10px; padding:9px 14px 9px 16px; margin:1px 8px; border-radius:var(--radius-sm); cursor:pointer; color:var(--sidebar-text); font-size:12.5px; font-weight:500; transition:all .15s; text-decoration:none; position:relative; white-space:nowrap; user-select:none; }
 .nav-item:hover{ background:var(--sidebar-hover); color:var(--sidebar-text-active); }
 .nav-item.active{ background:var(--sidebar-active); color:var(--sidebar-text-active); }
@@ -100,20 +61,18 @@ body{
 #sidebar.collapsed .nav-item-label{ opacity:0; width:0; overflow:hidden; }
 #sidebar.collapsed .nav-item{ justify-content:center; padding:9px; }
 #sidebar.collapsed .nav-item.active::before{ left:-8px; }
-
 .sidebar-footer{ padding:12px 8px; border-top:1px solid var(--sidebar-border); flex-shrink:0; }
-.sidebar-user{ display:flex; align-items:center; gap:10px; padding:8px; border-radius:var(--radius-sm); cursor:pointer; transition:background .15s; }
-.sidebar-user:hover{background:var(--sidebar-hover);}
+.sidebar-user{ display:flex; align-items:center; gap:10px; padding:8px; border-radius:var(--radius-sm); cursor:pointer; transition:background .15s; color:#fff;}
 .sidebar-avatar{ width:28px; height:28px; border-radius:50%; background:linear-gradient(135deg,#4a90e2,#7c3aed); display:flex; align-items:center; justify-content:center; font-size:12px; color:#fff; font-weight:700; flex-shrink:0; }
 .sidebar-user-info{ overflow:hidden; flex:1; transition:opacity .2s; }
-.sidebar-user-name{ font-size:11.5px; font-weight:600; color:rgba(255,255,255,.85); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.sidebar-user-name{ font-size:11.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .sidebar-user-role{ font-size:10px; color:var(--sidebar-text-sub); }
 #sidebar.collapsed .sidebar-user-info{ opacity:0; width:0; overflow:hidden; }
-
 .sidebar-toggle{ position:absolute; top:20px; right:-12px; width:24px; height:24px; background:var(--card); border:1px solid var(--border); border-radius:50%; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:10px; color:var(--text-sub); box-shadow:var(--shadow-sm); z-index:101; transition:transform .25s,box-shadow .15s; }
 .sidebar-toggle:hover{ box-shadow:var(--shadow); color:var(--primary); }
 #sidebar.collapsed .sidebar-toggle{ transform:rotate(180deg); }
 
+/* Main & Topbar */
 #main{ flex:1; display:flex; flex-direction:column; height:100vh; overflow:hidden; min-width:0; }
 #topbar{ height:56px; background:var(--card); border-bottom:1px solid var(--border); display:flex; align-items:center; padding:0 24px; gap:16px; flex-shrink:0; position:sticky; top:0; z-index:50; }
 .topbar-breadcrumb{ display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-sub); }
@@ -126,20 +85,18 @@ body{
 .topbar-btn.primary{ background:var(--primary); color:#fff; border-color:var(--primary); }
 .topbar-btn.primary:hover{ background:var(--primary-dark); }
 
-#content{ flex:1; overflow-y:auto; overflow-x:hidden; }
-.page{display:none;padding:24px;max-width:1600px;margin:0 auto;}
+/* Pages & Components */
+#content{ flex:1; overflow-y:auto; overflow-x:hidden; padding:24px; }
+.page{display:none;max-width:1600px;margin:0 auto;}
 .page.active{display:block;animation:fadeSlideIn .2s ease-out;}
 @keyframes fadeSlideIn{ from{opacity:0;transform:translateY(6px);} to{opacity:1;transform:translateY(0);} }
-
-/* Cards & Comps */
-.summary-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;}
+.summary-grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:14px;margin-bottom:20px;}
 .summary-card{ background:var(--card); border-radius:var(--radius); padding:18px 20px; box-shadow:var(--shadow-sm); border:1px solid var(--border-light); transition:box-shadow .2s,transform .2s; }
 .summary-card:hover{ box-shadow:var(--shadow); transform:translateY(-1px); }
-.summary-card .lbl{font-size:11px;color:var(--text-sub);margin-bottom:4px;font-weight:500;letter-spacing:.02em;}
-.summary-card .val{font-size:26px;font-weight:700;letter-spacing:-.02em;}
+.summary-card .lbl{font-size:11px;color:var(--text-sub);margin-bottom:4px;font-weight:500;}
+.summary-card .val{font-size:26px;font-weight:700;}
 .summary-card .sub{font-size:11px;color:var(--text-muted);margin-top:3px;}
 .c-blue{color:var(--primary);} .c-red{color:var(--danger);} .c-green{color:var(--success);}
-
 .filter-bar{ background:var(--card); border-radius:var(--radius); padding:12px 16px; margin-bottom:16px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; box-shadow:var(--shadow-sm); border:1px solid var(--border-light); }
 .search-box{position:relative;flex:1;min-width:200px;}
 .search-box input{ width:100%; padding:7px 12px 7px 32px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:12px; background:#f8fafc; outline:none; color:var(--text); }
@@ -151,16 +108,15 @@ select:focus{border-color:var(--primary);}
 .table-wrap{ background:var(--card); border-radius:var(--radius); box-shadow:var(--shadow-sm); overflow:hidden; border:1px solid var(--border-light); }
 .table-toolbar{ padding:12px 16px; border-bottom:1px solid var(--border-light); display:flex; align-items:center; justify-content:space-between; }
 .table-toolbar h2{font-size:14px;font-weight:700;color:var(--text);}
-th{ padding:9px 12px; text-align:left; font-size:10.5px; font-weight:700; color:var(--text-sub); border-bottom:1px solid var(--border-light); white-space:nowrap; background:#f8fafc; letter-spacing:.04em; text-transform:uppercase; }
+table{width:100%; border-collapse:collapse;}
+th{ padding:9px 12px; text-align:left; font-size:10.5px; font-weight:700; color:var(--text-sub); border-bottom:1px solid var(--border-light); background:#f8fafc; white-space:nowrap; }
 td{ padding:10px 12px; border-bottom:1px solid var(--border-light); font-size:12.5px; vertical-align:middle; }
 tr:last-child td{border-bottom:none;}
 tr:hover td{background:#f8fafc;}
-
-.pagination{ display:flex; align-items:center; justify-content:flex-end; gap:4px; padding:10px 16px; border-top:1px solid var(--border-light); }
+.pagination{ display:flex; align-items:center; justify-content:flex-end; gap:4px; padding:10px 16px; }
 .page-btn{ padding:4px 10px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--card); cursor:pointer; font-size:11px; color:var(--text-sub); transition:all .15s; }
 .page-btn:hover{background:var(--bg);color:var(--text);}
 .page-btn.active{background:var(--primary);color:#fff;border-color:var(--primary);}
-
 .badge{ display:inline-flex; align-items:center; padding:2px 8px; border-radius:20px; font-size:10.5px; font-weight:600; white-space:nowrap; }
 .badge-planned{background:var(--s-planned-bg);color:var(--s-planned-fg);}
 .badge-sent{background:var(--s-sent-bg);color:var(--s-sent-fg);}
@@ -169,7 +125,6 @@ tr:hover td{background:#f8fafc;}
 .badge-trial{background:var(--trial-bg);color:var(--trial-fg);}
 .badge-mass{background:var(--mass-bg);color:var(--mass-fg);}
 .badge-linked{background:var(--s-done-bg);color:var(--s-done-fg);}
-
 .btn{ padding:7px 14px; border-radius:var(--radius-sm); border:1px solid var(--border); cursor:pointer; font-size:12px; font-weight:600; display:inline-flex; align-items:center; gap:5px; transition:all .15s; background:var(--card); color:var(--text); }
 .btn:hover{background:var(--bg);}
 .btn-primary{background:var(--primary);color:#fff;border-color:var(--primary);}
@@ -177,12 +132,10 @@ tr:hover td{background:#f8fafc;}
 .btn-outline{background:transparent;border:1px solid var(--border);}
 .btn-sm{padding:4px 10px;font-size:11px;}
 .btn-danger{background:var(--danger);color:#fff;border-color:var(--danger);}
-.btn-danger:hover{background:#b91c1c;}
-
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px;}
 .form-field{display:flex;flex-direction:column;gap:5px;}
-.form-field label{font-size:11.5px;font-weight:600;color:var(--text);}
-.form-field input,.form-field textarea,.form-field select{ padding:8px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:12.5px; outline:none; color:var(--text); background:var(--card); transition:border .15s; }
+.form-field label{font-size:11.5px;font-weight:600;}
+.form-field input,.form-field textarea,.form-field select{ padding:8px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:12.5px; outline:none; }
 .form-field input:focus,.form-field textarea:focus,.form-field select:focus{ border-color:var(--primary); box-shadow:0 0 0 3px rgba(37,99,235,.08); }
 
 /* Modal */
@@ -195,31 +148,30 @@ tr:hover td{background:#f8fafc;}
 .modal-close{ background:none;border:none;font-size:18px; cursor:pointer;color:var(--text-sub); width:28px;height:28px; display:flex;align-items:center;justify-content:center; border-radius:6px; transition:background .15s; }
 .modal-close:hover{background:var(--bg);}
 .modal-body{padding:20px 22px;}
-
 .loading{display:flex;flex-direction:column;align-items:center;gap:10px;padding:40px;color:var(--text-sub);}
 .spinner{ width:24px;height:24px; border:2px solid var(--border); border-top-color:var(--primary); border-radius:50%; animation:spin .7s linear infinite; }
 @keyframes spin{to{transform:rotate(360deg);}}
-
-#toast{ position:fixed;bottom:24px;left:50%;transform:translateX(-50%); background:#1e293b;color:#fff;padding:10px 20px; border-radius:8px;font-size:13px;font-weight:500; opacity:0;transition:opacity .3s;z-index:9999; pointer-events:none;white-space:nowrap; box-shadow:var(--shadow-lg); }
+#toast{ position:fixed;bottom:24px;left:50%;transform:translateX(-50%); background:#1e293b;color:#fff;padding:10px 20px; border-radius:8px;font-size:13px;font-weight:500; opacity:0;transition:opacity .3s;z-index:9999; pointer-events:none; box-shadow:var(--shadow-lg); }
 #toast.show{opacity:1;}
-
-.upload-area{ border:2px dashed var(--border); border-radius:var(--radius); padding:28px; text-align:center; cursor:pointer; transition:all .2s; background:#fafbff; }
+.upload-area{ border:2px dashed var(--border); border-radius:var(--radius); padding:28px; text-align:center; cursor:pointer; background:#fafbff; }
 .upload-area:hover{border-color:var(--primary);background:#f0f5ff;}
 
 /* Admin Tabs CSS */
-.admin-tab { padding: 10px 20px; border: none; background: none; font-size: 13px; font-weight: 600; color: var(--text-sub); border-bottom: 3px solid transparent; margin-bottom: -2px; cursor: pointer; white-space: nowrap; transition: all 0.15s; }
+.admin-tab { padding: 10px 20px; border: none; background: none; font-size: 13px; font-weight: 600; color: var(--text-sub); border-bottom: 3px solid transparent; margin-bottom: -2px; cursor: pointer; transition: all 0.15s; }
 .admin-tab:hover { color: var(--primary); background: var(--primary-light); }
 .admin-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
 .admin-tab-content { display: none; animation: fadeSlideIn .15s ease-out; }
-
 .page-heading{ display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; }
-.page-heading h2{ font-size:19px; font-weight:700; color:var(--text); letter-spacing:-.01em; }
+.page-heading h2{ font-size:19px; font-weight:700; color:var(--text); }
 .page-heading p{ font-size:12px; color:var(--text-sub); margin-top:3px; }
 </style>
 </head>
 <body>
 <div id="app-shell">
 
+<!-- ============================================================
+     LEFT SIDEBAR
+============================================================ -->
 <nav id="sidebar">
   <button class="sidebar-toggle" onclick="toggleSidebar()" title="メニューを折り畳む">‹</button>
   <div class="sidebar-logo" onclick="showPage('list')">
@@ -230,20 +182,24 @@ tr:hover td{background:#f8fafc;}
     </div>
   </div>
   <div class="sidebar-nav" id="sidebar-nav-container">
-    </div>
+    <!-- JS で動的生成 -->
+  </div>
   <div class="sidebar-footer">
     <div class="sidebar-user">
       <div class="sidebar-avatar" id="sidebar-avatar-icon">U</div>
       <div class="sidebar-user-info">
         <div class="sidebar-user-name" id="sidebar-user-name">
-          <? if (userEmail) { ?><?= userEmail ?><? } else { ?>ゲスト<? } ?>
+          <? if (typeof userEmail !== 'undefined' && userEmail) { ?><?= userEmail ?><? } else { ?>ゲスト<? } ?>
         </div>
-        <div class="sidebar-user-role"><? if (isAdmin) { ?>管理者<? } else { ?>一般ユーザー<? } ?></div>
+        <div class="sidebar-user-role"><? if (typeof isAdmin !== 'undefined' && isAdmin) { ?>管理者<? } else { ?>一般ユーザー<? } ?></div>
       </div>
     </div>
   </div>
 </nav>
 
+<!-- ============================================================
+     MAIN CONTENT
+============================================================ -->
 <div id="main">
   <header id="topbar">
     <div class="topbar-breadcrumb">
@@ -260,6 +216,7 @@ tr:hover td{background:#f8fafc;}
   <div id="content">
     <div id="toast"></div>
 
+    <!-- ページ：案件一覧 -->
     <div id="page-list" class="page active">
       <div style="display:flex;gap:8px;margin-bottom:16px;border-bottom:2px solid var(--border);padding-bottom:0;">
         <button id="subtab-order" onclick="switchSubTab('order')" style="padding:8px 20px;border:none;background:none;font-size:14px;font-weight:600;color:var(--primary);border-bottom:2px solid var(--primary);margin-bottom:-2px;cursor:pointer;">📦 注文書一覧</button>
@@ -317,6 +274,7 @@ tr:hover td{background:#f8fafc;}
       </div>
     </div>
 
+    <!-- ページ：システム管理コンソール -->
     <div id="page-admin" class="page">
       <div class="page-heading">
         <div>
@@ -411,8 +369,14 @@ tr:hover td{background:#f8fafc;}
       </div>
     </div>
 
-    <div id="page-ledger" class="page"><div class="loading"><div class="spinner"></div></div></div>
+    <!-- プレースホルダーページ群 -->
+    <div id="page-ledger" class="page">
+      <div class="page-heading"><div><h2>📝 見積台帳</h2></div></div>
+      <div class="filter-bar"><div class="search-box"><input type="text" id="ledger-search" placeholder="検索..." oninput="applyLedgerFilter()"></div><button class="btn btn-outline btn-sm" onclick="loadLedger()">🔄 更新</button></div>
+      <div id="ledger-tree-container"><div class="loading"><div class="spinner"></div></div></div>
+    </div>
     
+    <!-- ★ 紐づけページ（最新版 UI 適用） -->
     <div id="page-matching" class="page">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
         <h2 style="font-size:18px;font-weight:600;">🔗 紐づけ候補 一覧</h2>
@@ -425,7 +389,8 @@ tr:hover td{background:#f8fafc;}
         </div>
       </div>
       <div style="background:var(--primary-light);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;font-size:13px;color:var(--primary);">
-        💡 注文書ごとにAIが類似する見積候補をスコア順に<strong>最大20件</strong>表示します。スコア80点以上は自動紐づけ済みです。候補を確認して「確定」ボタンで紐づけしてください。
+        💡 注文書ごとにAIが類似する見積候補をスコア順に<strong>最大20件</strong>表示します。候補が見つからない場合も参考として未紐づけの見積書を最低1件表示します。<br>
+        スコア80点以上は自動紐づけ済みです。候補を確認して「確定」ボタンで紐づけしてください。
       </div>
       <div id="matching-container"><div class="loading"><div class="spinner"></div></div></div>
     </div>
@@ -439,8 +404,19 @@ tr:hover td{background:#f8fafc;}
         <button class="btn btn-primary" onclick="window.open('https://ndlocr-liteweb.netlify.app/','_blank')">🚀 起動する</button>
       </div>
     </div>
+    
+    <div id="page-workflow" class="page"><div class="loading"><div class="spinner"></div></div></div>
+    <div id="page-assignees" class="page"><div id="assignee-container"></div></div>
+    <div id="page-approval" class="page"><div id="approval-container"></div></div>
+    <div id="page-board" class="page"><div id="board-container"></div></div>
+    <div id="page-analysis" class="page"><div id="analysis-container"></div></div>
 
-  </div></div></div><div class="modal-overlay" id="upload-modal">
+  </div><!-- /content -->
+</div><!-- /main -->
+</div><!-- /app-shell -->
+
+<!-- 各種モーダル -->
+<div class="modal-overlay" id="upload-modal">
   <div class="modal">
     <div class="modal-head"><h3>📎 PDF アップロード</h3><button class="modal-close" onclick="closeUploadModal()">✕</button></div>
     <div class="modal-body">
@@ -465,7 +441,7 @@ tr:hover td{background:#f8fafc;}
   </div>
 </div>
 
-<div class="modal-overlay" id="detail-modal" onclick="if(event.target===this)closeDetailModal()"><div class="modal" style="max-width:900px;"><div class="modal-head"><h3 id="detail-title">案件詳細</h3><button class="modal-close" onclick="closeDetailModal()">✕</button></div><div class="modal-body" id="detail-body"></div></div></div>
+<div class="modal-overlay" id="detail-modal" onclick="if(event.target===this)closeDetailModal()"><div class="modal" style="max-width:950px;"><div class="modal-head"><h3 id="detail-title">案件詳細</h3><button class="modal-close" onclick="closeDetailModal()">✕</button></div><div class="modal-body" id="detail-body"></div></div></div>
 <div class="modal-overlay" id="quote-detail-modal" onclick="if(event.target===this)closeQuoteDetail()"><div class="modal"><div class="modal-head"><h3 id="quote-detail-title">見積書詳細</h3><button class="modal-close" onclick="closeQuoteDetail()">✕</button></div><div class="modal-body" id="quote-detail-body"></div></div></div>
 
 <div class="modal-overlay" id="edit-mgmt-modal" onclick="if(event.target===this)this.classList.remove('open');">
@@ -516,100 +492,10 @@ tr:hover td{background:#f8fafc;}
   </div>
 </div>
 
-<?!= include("Dashboard js2") ?>
+<!-- ============================================================
+     JSの読み込み (これ1つだけをインクルード)
+============================================================ -->
+<?!= include("Dashboard js") ?>
 
-<script>
-// ============================================================
-// メニュー定義
-// ============================================================
-const DEFAULT_MENU = [
-  { id:'list',       icon:'📋', label:'案件一覧',         section:'営業・進行管理', visible:true },
-  { id:'ledger',     icon:'📝', label:'見積台帳',         section:'営業・進行管理', visible:true },
-  { id:'matching',   icon:'🔗', label:'AI紐づけ',         section:'営業・進行管理', visible:true },
-  { id:'calendar',   icon:'📅', label:'スケジュール',     section:'営業・進行管理', visible:true },
-  { id:'ocr',        icon:'🔍', label:'簡易OCR',          section:'営業・進行管理', visible:true },
-  { id:'todo',       icon:'✅', label:'ToDo',             section:'ツール',         visible:true },
-  { id:'drivesearch',icon:'💾', label:'全文検索',         section:'ツール',         visible:true },
-  { id:'admin',      icon:'⚙️', label:'管理コンソール',   section:'設定',           visible:true, adminOnly:true },
-  { id:'bom_ext',    icon:'🏭', label:'BOM・原価管理',    section:'設定',           visible:true, adminOnly:true, external:'https://script.google.com/a/sun-denshi.co.jp/macros/s/AKfycbxk-6hM0VDR-iWToBvOhuaEd6pZcZTXW53tXZUzHl7AucIWvRgt-S_gTpFd1foRSf5Ung/exec?page=bom' }
-];
-
-const IS_ADMIN = (function(){
-  try{ const val = "<? if (isAdmin) { ?>true<? } else { ?>false<? } ?>"; return val === 'true'; }catch(e){return false;}
-})();
-
-const PAGE_TITLES = {
-  list:'案件一覧', ledger:'見積台帳', matching:'AI紐づけ', calendar:'スケジュール',
-  ocr:'簡易OCR', todo:'ToDo', drivesearch:'全文検索', admin:'システム管理コンソール'
-};
-
-function renderSidebar(){
-  const container = document.getElementById('sidebar-nav-container');
-  if(!container) return;
-  const sections = {};
-  DEFAULT_MENU.forEach(item=>{
-    if(!item.visible) return;
-    if(item.adminOnly && !IS_ADMIN) return;
-    if(!sections[item.section]) sections[item.section]=[];
-    sections[item.section].push(item);
-  });
-
-  let html='';
-  Object.keys(sections).forEach(section=>{
-    html += `<div class="sidebar-section-label">${section}</div>`;
-    sections[section].forEach(item=>{
-      if(item.external){
-        html += `<a class="nav-item nav-item-ext" href="${item.external}" target="_blank">
-          <span class="nav-item-icon">${item.icon}</span><span class="nav-item-label">${item.label}</span></a>`;
-      } else {
-        html += `<div class="nav-item" data-id="${item.id}" onclick="showPage('${item.id}')">
-          <span class="nav-item-icon">${item.icon}</span><span class="nav-item-label">${item.label}</span></div>`;
-      }
-    });
-  });
-  container.innerHTML = html;
-}
-
-function showPage(name){
-  document.querySelectorAll('.nav-item[data-id]').forEach(t=>{ t.classList.toggle('active', t.dataset.id===name); });
-  const titleEl = document.getElementById('topbar-page-title');
-  if(titleEl) titleEl.textContent = PAGE_TITLES[name] || name;
-  const contentEl = document.getElementById('content');
-  if(contentEl) contentEl.scrollTop=0;
-
-  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  const target = document.getElementById('page-'+name);
-  if(target) target.classList.add('active');
-
-  if(name==='list'){
-    const ao=document.getElementById('area-order'); const aq=document.getElementById('area-quote');
-    if(ao) ao.style.display=''; if(aq) aq.style.display='none';
-  }
-  
-  if(name==='ledger'  && typeof loadLedger==='function')    loadLedger();
-  if(name==='todo'    && typeof loadTodos==='function')      loadTodos();
-  if(name==='calendar'&& typeof loadCalendar==='function')  loadCalendar();
-  if(name==='matching'&& typeof loadMatchingCandidates==='function') loadMatchingCandidates();
-  if(name==='admin')   _onShowAdmin();
-}
-
-function toggleSidebar(){
-  document.getElementById('sidebar').classList.toggle('collapsed');
-}
-
-function showToast(msg, isError=false){
-  const t=document.getElementById('toast');
-  if(!t) return;
-  t.textContent=(isError?'✗ ':'✓ ')+msg;
-  t.style.background=isError?'#dc2626':'#1e293b';
-  t.classList.add('show');
-  setTimeout(()=>t.classList.remove('show'),3500);
-}
-
-document.addEventListener('DOMContentLoaded', function(){
-  renderSidebar();
-  showPage('list');
-});
-</script>
 </body>
 </html>
