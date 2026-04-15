@@ -36,6 +36,9 @@ const S = {
 };
 let searchTimer=null;
 let _allQuotes = [];
+let _filteredQuotes = [];  // ★ バグ修正: 未宣言だった変数を追加
+let _quotePage = 1;        // ★ バグ修正: 未宣言だった変数を追加
+const _quoteLimit = 20;    // ★ バグ修正: 未宣言だった変数を追加
 let _allMatchingItems = [];
 
 window.addEventListener('load', () => {
@@ -561,6 +564,19 @@ function openUploadModal(){
   document.getElementById('upload-btn').disabled=true;
   document.getElementById('file-input').value='';
   document.getElementById('order-type-section').style.display='none';
+  // ★ バグ修正: モーダルを開く時にボタンのactive状態をリセット
+  var trialBtn = document.getElementById('ot-trial');
+  var massBtn  = document.getElementById('ot-mass');
+  if(trialBtn) { trialBtn.classList.remove('active'); trialBtn.classList.remove('btn-primary'); trialBtn.classList.add('btn-outline'); }
+  if(massBtn)  { massBtn.classList.remove('active');  massBtn.classList.remove('btn-primary');  massBtn.classList.add('btn-outline'); }
+  var lbl = document.getElementById('ot-selected-label');
+  if(lbl) lbl.style.display = 'none';
+  // ★ バグ修正: ドキュメントタイプを見積書にリセット
+  S.docType='quote';
+  var typeQuote = document.getElementById('type-quote');
+  var typeOrder = document.getElementById('type-order');
+  if(typeQuote) typeQuote.classList.add('active');
+  if(typeOrder) typeOrder.classList.remove('active');
   document.getElementById('upload-modal').classList.add('open');
 }
 function closeUploadModal(){document.getElementById('upload-modal').classList.remove('open');}
@@ -570,7 +586,19 @@ function setDocType(t){
   document.getElementById('type-order').classList.toggle('active',t==='order');
   document.getElementById('order-type-section').style.display=t==='order'?'block':'none';
 }
-function setOrderType(t){ S.orderType=t; }
+function setOrderType(t){
+  S.orderType=t;
+  // ★ バグ修正: ボタンのactive状態を更新
+  var trialBtn = document.getElementById('ot-trial');
+  var massBtn  = document.getElementById('ot-mass');
+  if(trialBtn) { trialBtn.classList.toggle('active', t==='試作'); trialBtn.classList.toggle('btn-primary', t==='試作'); trialBtn.classList.toggle('btn-outline', t!=='試作'); }
+  if(massBtn)  { massBtn.classList.toggle('active',  t==='量産'); massBtn.classList.toggle('btn-primary', t==='量産'); massBtn.classList.toggle('btn-outline', t!=='量産'); }
+  // 選択済みラベル表示
+  var lbl = document.getElementById('ot-selected-label');
+  if(lbl) { lbl.style.display = 'inline'; lbl.textContent = '✓ ' + t + ' を選択'; }
+  // 種別選択後にアップロードボタンを有効化（ファイル選択済みの場合）
+  if(S.selectedFile) document.getElementById('upload-btn').disabled = false;
+}
 function handleFileSelect(e){const f=e.target.files[0];if(f)_setFile(f);}
 function _setFile(file){
   if(!file.name.toLowerCase().endsWith('.pdf')){showToast('PDFのみ対応',true);return;}
@@ -675,7 +703,12 @@ function loadQuoteList() {
   container.innerHTML = '<div class="loading"><div class="spinner"></div><br>読み込み中...</div>';
   google.script.run
     .withSuccessHandler(res => {
-      if (!res.success) { container.innerHTML = '<div class="loading" style="color:var(--danger);">⚠️ ' + res.error + '</div>'; return; }
+      if (!res || !res.success) {
+        container.innerHTML = '<div class="loading" style="color:var(--danger);">⚠️ ' + (res ? res.error : '通信エラー') + '</div>';
+        _allQuotes = [];
+        _filteredQuotes = [];
+        return;
+      }
       _allQuotes = res.items || [];
       _filteredQuotes = _allQuotes.slice();
       _quotePage = 1;
@@ -683,6 +716,12 @@ function loadQuoteList() {
       if(document.getElementById('qs-linked')) document.getElementById('qs-linked').textContent = _allQuotes.filter(r => r.linked).length;
       if(document.getElementById('qs-amount')) document.getElementById('qs-amount').textContent = _allQuotes.reduce((s, r) => s + (Number(r.quoteAmount) || 0), 0).toLocaleString();
       _renderQuoteTable();
+    })
+    .withFailureHandler(err => {
+      const container2 = document.getElementById('quotelist-container');
+      if(container2) container2.innerHTML = '<div class="loading" style="color:var(--danger);">⚠️ 通信エラー: ' + (err ? err.message : '不明') + '</div>';
+      _allQuotes = [];
+      _filteredQuotes = [];
     })
     .handleApiRequest('quoteListGetAll', null);
 }
@@ -1059,6 +1098,74 @@ function switchAdminTab(tab) {
   var contentEl = document.getElementById('admin-tab-' + tab);
   if (tabEl) tabEl.classList.add('active');
   if (contentEl) contentEl.style.display = 'block';
+  // ★ メニュー管理タブ表示時に初期化
+  if (tab === 'menu') _renderMenuEditor();
+}
+
+// ============================================================
+// メニュー管理 (管理コンソール)
+// ============================================================
+// DEFAULT_MENUのコピーを保持（編集用）
+var _menuDraft = null;
+
+function _getMenuDraft() {
+  if (!_menuDraft) {
+    _menuDraft = DEFAULT_MENU.map(function(item) {
+      return Object.assign({}, item);
+    });
+  }
+  return _menuDraft;
+}
+
+function _renderMenuEditor() {
+  var list = document.getElementById('menu-editor-list');
+  if (!list) return;
+  var draft = _getMenuDraft();
+  var html = '';
+  draft.forEach(function(item, idx) {
+    var isProtected = item.id === 'admin'; // 管理コンソールは保護
+    html += '<div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:' + (item.visible ? 'white' : '#f9f9f9') + ';">'
+      + '<span style="font-size:18px;width:28px;text-align:center;">' + (item.icon || '') + '</span>'
+      + '<input type="text" value="' + (item.label || '') + '" id="menu-label-' + idx + '" style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;"' + (isProtected ? ' disabled' : '') + '>'
+      + '<span style="font-size:11px;color:var(--text-sub);white-space:nowrap;min-width:60px;">' + (item.section || '') + '</span>'
+      + (isProtected
+        ? '<span style="font-size:11px;color:#999;padding:4px 8px;">保護済み</span>'
+        : '<label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;white-space:nowrap;">'
+          + '<input type="checkbox" id="menu-visible-' + idx + '"' + (item.visible ? ' checked' : '') + ' onchange=""> 表示'
+          + '</label>'
+        )
+      + '</div>';
+  });
+  list.innerHTML = html;
+}
+
+function applyMenuChanges() {
+  var draft = _getMenuDraft();
+  draft.forEach(function(item, idx) {
+    if (item.id === 'admin') return; // 保護
+    var labelEl   = document.getElementById('menu-label-' + idx);
+    var visibleEl = document.getElementById('menu-visible-' + idx);
+    if (labelEl)   item.label   = labelEl.value.trim() || item.label;
+    if (visibleEl) item.visible = visibleEl.checked;
+  });
+  // DEFAULT_MENUに反映
+  draft.forEach(function(draftItem) {
+    var orig = DEFAULT_MENU.find(function(m) { return m.id === draftItem.id; });
+    if (orig) { orig.label = draftItem.label; orig.visible = draftItem.visible; }
+  });
+  // PAGE_TITLESも更新
+  draft.forEach(function(item) {
+    PAGE_TITLES[item.id] = item.label;
+  });
+  renderSidebar();
+  showToast('メニューを反映しました');
+}
+
+function resetMenuChanges() {
+  _menuDraft = null;
+  // DEFAULT_MENUを元に戻すためページをリロードが必要だが、
+  // 元の定義を記憶していないのでトーストで案内
+  showToast('ページを再読み込みすると初期値に戻ります');
 }
 
 function loadAdminSettings() {
@@ -1139,8 +1246,35 @@ function saveAdminExternal() {
     .handleApiRequest('saveSettings', { n8nOrderWebhook: _getVal('cfg-n8n-order-webhook'), n8nQuoteWebhook: _getVal('cfg-n8n-quote-webhook'), customWebhook: _getVal('cfg-custom-webhook') }); 
 }
 
+// ★ バグ修正: reregisterTriggers未定義バグを修正
+function reregisterTriggers() {
+  if (!confirm('GASトリガーを再登録します。よろしいですか？')) return;
+  var btn = event && event.target;
+  if (btn) { btn.disabled = true; btn.textContent = '登録中...'; }
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (btn) { btn.disabled = false; btn.textContent = '🔄 トリガーを再登録する'; }
+      if (res && res.success) showToast('トリガーを再登録しました');
+      else showToast('再登録失敗: ' + (res ? res.error : '不明'), true);
+    })
+    .withFailureHandler(function(err) {
+      if (btn) { btn.disabled = false; btn.textContent = '🔄 トリガーを再登録する'; }
+      showToast('通信エラー: ' + (err ? err.message : '不明'), true);
+    })
+    .handleApiRequest('reregisterTriggers', {});
+}
+
 var _adminLoaded = false;
-function _onShowAdmin() { if (!_adminLoaded) { _adminLoaded = true; loadAdminSettings(); } }
+function _onShowAdmin() {
+  // ★ バグ修正: 初回表示時に基本設定タブをアクティブにする
+  if (!document.querySelector('.admin-tab.active')) {
+    var basicTab = document.getElementById('atab-basic');
+    var basicContent = document.getElementById('admin-tab-basic');
+    if (basicTab) basicTab.classList.add('active');
+    if (basicContent) basicContent.style.display = 'block';
+  }
+  if (!_adminLoaded) { _adminLoaded = true; loadAdminSettings(); }
+}
 
 const _originalShowPage = window.showPage || function(){};
 window.showPage = function(name) {
