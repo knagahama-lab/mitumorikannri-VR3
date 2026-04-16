@@ -26,7 +26,6 @@
   --text: #1e293b; --text-sub: #64748b; --text-muted: #94a3b8;
   --shadow-sm: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
   --shadow: 0 4px 12px rgba(0,0,0,.06), 0 1px 3px rgba(0,0,0,.04);
-  --shadow-lg: 0 10px 30px rgba(0,0,0,.10), 0 4px 8px rgba(0,0,0,.04);
   --radius: 10px; --radius-sm: 6px; --radius-lg: 14px;
 }
 *{box-sizing:border-box;margin:0;padding:0;}
@@ -74,7 +73,7 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);color:var(--text
 .topbar-breadcrumb-sep{ color:var(--border); }
 .topbar-spacer{flex:1;}
 .topbar-actions{ display:flex; align-items:center; gap:8px; }
-.topbar-btn{ height:32px; padding:0 14px; border-radius:var(--radius-sm); border:1px solid var(--border); background:var(--card); color:var(--text); font-size:12px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px; transition:all .15s; }
+.topbar-btn{ height:32px; padding:0 14px; border-radius:var(--radius-sm); border:1px solid var(--border); background:var(--card); color:var(--text); font-size:12px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px; transition:all .15s; font-family:inherit; }
 .topbar-btn:hover{ background:var(--bg); border-color:#c5cdd9; }
 .topbar-btn.primary{ background:var(--primary); color:#fff; border-color:var(--primary); }
 .topbar-btn.primary:hover{ background:var(--primary-dark); }
@@ -93,21 +92,25 @@ body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);color:var(--text
 .c-blue{color:var(--primary);} .c-red{color:var(--danger);} .c-green{color:var(--success);}
 .filter-bar{ background:var(--card); border-radius:var(--radius); padding:12px 16px; margin-bottom:16px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; box-shadow:var(--shadow-sm); border:1px solid var(--border-light); }
 .search-box{position:relative;flex:1;min-width:200px;}
-.search-box input{ width:100%; padding:7px 12px 7px 32px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:12px; outline:none; }
-.search-box input:focus{border-color:var(--primary);}
+.search-box input{ width:100%; padding:7px 12px 7px 32px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:12px; background:#f8fafc; outline:none; color:var(--text); }
+.search-box input:focus{border-color:var(--primary);background:#fff;}
 .search-box::before{ content:'🔍'; position:absolute; left:9px; top:50%; transform:translateY(-50%); font-size:11px; pointer-events:none; }
-select{ padding:7px 10px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:12px; outline:none; }
+select{ padding:7px 10px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:12px; background:#f8fafc; cursor:pointer; outline:none; color:var(--text); }
+select:focus{border-color:var(--primary);}
+
 .table-wrap{ background:var(--card); border-radius:var(--radius); box-shadow:var(--shadow-sm); overflow:hidden; border:1px solid var(--border-light); }
 .table-toolbar{ padding:12px 16px; border-bottom:1px solid var(--border-light); display:flex; align-items:center; justify-content:space-between; }
 .table-toolbar h2{font-size:14px;font-weight:700;color:var(--text);}
 table{width:100%; border-collapse:collapse;}
 th{ padding:9px 12px; text-align:left; font-size:10.5px; font-weight:700; color:var(--text-sub); border-bottom:1px solid var(--border-light); background:#f8fafc; white-space:nowrap; }
 td{ padding:10px 12px; border-bottom:1px solid var(--border-light); font-size:12.5px; vertical-align:middle; }
+tr:last-child td{border-bottom:none;}
 tr:hover td{background:#f8fafc;}
-.pagination{ display:flex; align-items:center; justify-content:flex-end; gap:4px; padding:10px 16px; }
+.pagination{ display:flex; align-items:center; justify-content:flex-end; gap:4px; padding:10px 16px; border-top:1px solid var(--border-light); }
 .page-btn{ padding:4px 10px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--card); cursor:pointer; font-size:11px; color:var(--text-sub); transition:all .15s; }
 .page-btn:hover{background:var(--bg);color:var(--text);}
 .page-btn.active{background:var(--primary);color:#fff;border-color:var(--primary);}
+
 .badge{ display:inline-flex; align-items:center; padding:2px 8px; border-radius:20px; font-size:10.5px; font-weight:600; white-space:nowrap; }
 .badge-planned{background:var(--s-planned-bg);color:var(--s-planned-fg);}
 .badge-sent{background:var(--s-sent-bg);color:var(--s-sent-fg);}
@@ -116,6 +119,7 @@ tr:hover td{background:#f8fafc;}
 .badge-trial{background:var(--trial-bg);color:var(--trial-fg);}
 .badge-mass{background:var(--mass-bg);color:var(--mass-fg);}
 .badge-linked{background:var(--s-done-bg);color:var(--s-done-fg);}
+
 .btn{ padding:7px 14px; border-radius:var(--radius-sm); border:1px solid var(--border); cursor:pointer; font-size:12px; font-weight:600; display:inline-flex; align-items:center; gap:5px; transition:all .15s; background:var(--card); color:var(--text); }
 .btn:hover{background:var(--bg);}
 .btn-primary{background:var(--primary);color:#fff;border-color:var(--primary);}
@@ -123,41 +127,55 @@ tr:hover td{background:#f8fafc;}
 .btn-outline{background:transparent;border:1px solid var(--border);}
 .btn-sm{padding:4px 10px;font-size:11px;}
 .btn-danger{background:var(--danger);color:#fff;border-color:var(--danger);}
+.btn-danger:hover{background:#b91c1c;}
+
+/* Forms */
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px;}
 .form-field{display:flex;flex-direction:column;gap:5px;}
-.form-field label{font-size:11.5px;font-weight:600;}
-.form-field input,.form-field textarea,.form-field select{ padding:8px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:12.5px; outline:none; }
-.form-field input:focus{ border-color:var(--primary); box-shadow:0 0 0 3px rgba(37,99,235,.08); }
+.form-field label{font-size:11.5px;font-weight:600;color:var(--text);}
+.form-field input,.form-field textarea,.form-field select{ padding:8px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:12.5px; outline:none; color:var(--text); background:var(--card); transition:border .15s; }
+.form-field input:focus,.form-field textarea:focus,.form-field select:focus{ border-color:var(--primary); box-shadow:0 0 0 3px rgba(37,99,235,.08); }
+
+/* Modal */
 .modal-overlay{ display:none; position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:400; align-items:center; justify-content:center; backdrop-filter:blur(2px); }
 .modal-overlay.open{display:flex;}
 .modal{ background:var(--card); border-radius:var(--radius-lg); max-width:600px; width:90%; max-height:90vh; overflow:auto; box-shadow:var(--shadow-lg); animation:modalIn .2s ease-out; }
 @keyframes modalIn{ from{opacity:0;transform:scale(.96)translateY(8px);} to{opacity:1;transform:scale(1)translateY(0);} }
 .modal-head{ padding:18px 22px 14px; border-bottom:1px solid var(--border-light); display:flex; justify-content:space-between; align-items:center; }
 .modal-head h3{font-size:15px;font-weight:700;}
-.modal-close{ background:none;border:none;font-size:18px; cursor:pointer;color:var(--text-sub); width:28px;height:28px; border-radius:6px; }
+.modal-close{ background:none;border:none;font-size:18px; cursor:pointer;color:var(--text-sub); width:28px;height:28px; display:flex;align-items:center;justify-content:center; border-radius:6px; transition:background .15s; }
 .modal-close:hover{background:var(--bg);}
 .modal-body{padding:20px 22px;}
+
 .loading{display:flex;flex-direction:column;align-items:center;gap:10px;padding:40px;color:var(--text-sub);}
 .spinner{ width:24px;height:24px; border:2px solid var(--border); border-top-color:var(--primary); border-radius:50%; animation:spin .7s linear infinite; }
 @keyframes spin{to{transform:rotate(360deg);}}
-#toast{ position:fixed;bottom:24px;left:50%;transform:translateX(-50%); background:#1e293b;color:#fff;padding:10px 20px; border-radius:8px;font-size:13px;font-weight:500; opacity:0;transition:opacity .3s;z-index:9999; pointer-events:none; box-shadow:var(--shadow-lg); }
+
+#toast{ position:fixed;bottom:24px;left:50%;transform:translateX(-50%); background:#1e293b;color:#fff;padding:10px 20px; border-radius:8px;font-size:13px;font-weight:500; opacity:0;transition:opacity .3s;z-index:9999; pointer-events:none;white-space:nowrap; box-shadow:var(--shadow-lg); }
 #toast.show{opacity:1;}
-.upload-area{ border:2px dashed var(--border); border-radius:var(--radius); padding:28px; text-align:center; cursor:pointer; background:#fafbff; }
+
+.upload-area{ border:2px dashed var(--border); border-radius:var(--radius); padding:28px; text-align:center; cursor:pointer; transition:all .2s; background:#fafbff; }
 .upload-area:hover{border-color:var(--primary);background:#f0f5ff;}
-.admin-tab { padding: 10px 20px; border: none; background: none; font-size: 13px; font-weight: 600; color: var(--text-sub); border-bottom: 3px solid transparent; margin-bottom: -2px; cursor: pointer; transition: all 0.15s; }
+
+/* Admin Tabs CSS */
+.admin-tab { padding: 10px 20px; border: none; background: none; font-size: 13px; font-weight: 600; color: var(--text-sub); border-bottom: 3px solid transparent; margin-bottom: -2px; cursor: pointer; white-space: nowrap; transition: all 0.15s; }
 .admin-tab:hover { color: var(--primary); background: var(--primary-light); }
 .admin-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
 .admin-tab-content { display: none; animation: fadeSlideIn .15s ease-out; }
+
 .page-heading{ display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; }
-.page-heading h2{ font-size:19px; font-weight:700; color:var(--text); }
+.page-heading h2{ font-size:19px; font-weight:700; color:var(--text); letter-spacing:-.01em; }
 .page-heading p{ font-size:12px; color:var(--text-sub); margin-top:3px; }
 </style>
 </head>
 <body>
 <div id="app-shell">
 
+<!-- ============================================================
+     LEFT SIDEBAR
+============================================================ -->
 <nav id="sidebar">
-  <button class="sidebar-toggle" onclick="toggleSidebar()">‹</button>
+  <button class="sidebar-toggle" onclick="toggleSidebar()" title="メニューを折り畳む">‹</button>
   <div class="sidebar-logo" onclick="showPage('list')">
     <div class="sidebar-logo-icon">📋</div>
     <div class="sidebar-logo-text">
@@ -170,15 +188,18 @@ tr:hover td{background:#f8fafc;}
     <div class="sidebar-user">
       <div class="sidebar-avatar" id="sidebar-avatar-icon">U</div>
       <div class="sidebar-user-info">
-        <div class="sidebar-user-name" id="sidebar-user-name">
-          <? if (userEmail) { ?><?= userEmail ?><? } else { ?>ゲスト<? } ?>
+        <div class="sidebar-user-name">
+          <? if (typeof userEmail !== 'undefined' && userEmail) { ?><?= userEmail ?><? } else { ?>ゲスト<? } ?>
         </div>
-        <div class="sidebar-user-role"><? if (isAdmin) { ?>管理者<? } else { ?>一般ユーザー<? } ?></div>
+        <div class="sidebar-user-role"><? if (typeof isAdmin !== 'undefined' && isAdmin) { ?>管理者<? } else { ?>一般ユーザー<? } ?></div>
       </div>
     </div>
   </div>
 </nav>
 
+<!-- ============================================================
+     MAIN CONTENT
+============================================================ -->
 <div id="main">
   <header id="topbar">
     <div class="topbar-breadcrumb">
@@ -195,6 +216,7 @@ tr:hover td{background:#f8fafc;}
   <div id="content">
     <div id="toast"></div>
 
+    <!-- ページ：案件一覧 -->
     <div id="page-list" class="page active">
       <div style="display:flex;gap:8px;margin-bottom:16px;border-bottom:2px solid var(--border);padding-bottom:0;">
         <button id="subtab-order" onclick="switchSubTab('order')" style="padding:8px 20px;border:none;background:none;font-size:14px;font-weight:600;color:var(--primary);border-bottom:2px solid var(--primary);margin-bottom:-2px;cursor:pointer;">📦 注文書一覧</button>
@@ -218,7 +240,7 @@ tr:hover td{background:#f8fafc;}
         </div>
         <div class="table-wrap">
           <div class="table-toolbar"><h2>案件一覧</h2><span class="pg-info" id="result-count"></span></div>
-          <div id="table-container"><div class="loading"><div class="spinner"></div></div></div>
+          <div id="table-container"><div class="loading"><div class="spinner"></div><br>読み込み中...</div></div>
           <div class="pagination" id="pagination"></div>
         </div>
       </div>
@@ -238,29 +260,27 @@ tr:hover td{background:#f8fafc;}
         </div>
         <div class="table-wrap">
           <div class="table-toolbar"><h2>見積書一覧</h2><span class="pg-info" id="qs-count"></span></div>
-          <div id="quotelist-container"><div class="loading"><div class="spinner"></div></div></div>
+          <div id="quotelist-container"><div class="loading" style="color:var(--text-sub);">「見積書一覧」タブをクリックして読み込んでください</div></div>
           <div class="pagination" id="qs-pagination"></div>
         </div>
       </div>
     </div>
 
+    <!-- ページ：システム管理コンソール -->
     <div id="page-admin" class="page">
       <div class="page-heading">
-        <div>
-          <h2>⚙️ システム管理コンソール</h2>
-          <p>権限管理・メール監視・メール配信・外部連携などシステム全体の設定を行います</p>
-        </div>
+        <div><h2>⚙️ システム管理コンソール</h2><p>権限管理・メール監視・メール配信・外部連携などシステム全体の設定を行います</p></div>
         <button class="btn btn-outline" onclick="loadAdminSettings()" id="admin-reload-btn">📥 全設定を読み込む</button>
       </div>
 
       <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:24px;overflow-x:auto;">
-        <button class="admin-tab" onclick="switchAdminTab('basic')" id="atab-basic">🔧 基本設定</button>
+        <button class="admin-tab active" onclick="switchAdminTab('basic')" id="atab-basic">🔧 基本設定</button>
         <button class="admin-tab" onclick="switchAdminTab('access')" id="atab-access">👁️ 閲覧権限</button>
         <button class="admin-tab" onclick="switchAdminTab('mailwatch')" id="atab-mailwatch">📧 メール監視</button>
         <button class="admin-tab" onclick="switchAdminTab('mailsend')" id="atab-mailsend">✉️ メール配信</button>
         <button class="admin-tab" onclick="switchAdminTab('rakuraku')" id="atab-rakuraku">🛒 楽楽販売連携</button>
         <button class="admin-tab" onclick="switchAdminTab('external')" id="atab-external">⚡ 外部連携</button>
-        <button class="admin-tab" onclick="switchAdminTab('menu')" id="atab-menu">🗂️ メニュー管理</button>
+        <button class="admin-tab" onclick="switchAdminTab('menu')" id="atab-menu">🗂️ メニュー設定</button>
       </div>
 
       <div id="admin-tab-basic" class="admin-tab-content" style="display:block;">
@@ -338,34 +358,45 @@ tr:hover td{background:#f8fafc;}
         </div>
       </div>
 
-      <!-- ★ メニュー管理タブ (新規追加) -->
       <div id="admin-tab-menu" class="admin-tab-content">
-        <div style="background:white;border-radius:12px;padding:24px;box-shadow:var(--shadow);border-left:4px solid #7c3aed;">
-          <h3 style="font-size:15px;font-weight:700;color:#7c3aed;margin-bottom:4px;">🗂️ メニュー管理</h3>
-          <p style="font-size:12px;color:var(--text-sub);margin-bottom:16px;">サイドバーのメニュー項目の表示名変更・非表示・並べ替えができます。変更はこのセッション中のみ有効です（再読み込み後リセットされます）。</p>
-          <div id="menu-editor-list" style="display:flex;flex-direction:column;gap:8px;"></div>
-          <div style="margin-top:16px;display:flex;gap:8px;">
-            <button class="btn btn-primary btn-sm" onclick="applyMenuChanges()">✅ メニューに反映</button>
-            <button class="btn btn-outline btn-sm" onclick="resetMenuChanges()">🔄 初期値に戻す</button>
+        <div style="background:white;border-radius:12px;padding:24px;box-shadow:var(--shadow);border-left:4px solid var(--primary);">
+          <h3 style="font-size:15px;font-weight:700;color:var(--primary);margin-bottom:4px;">🗂️ メニュー設定</h3>
+          <p style="font-size:12px;color:var(--text-sub);margin-bottom:16px;">サイドバーのメニュー項目を自由にカスタマイズできます。※変更はこのブラウザにのみ保存されます。</p>
+          <div style="display:flex; font-size:11px; font-weight:bold; color:var(--text-sub); padding:0 12px 4px 12px;">
+            <div style="width:50px;">移動</div><div style="width:50px; text-align:center;">アイコン</div>
+            <div style="flex:1; min-width:120px; padding-left:8px;">メニュー名</div>
+            <div style="width:120px; padding-left:8px;">セクション名</div>
+            <div style="width:180px; padding-left:8px;">URL(外部リンク用)</div>
+            <div style="width:140px; padding-left:8px;">権限・表示</div><div style="width:30px;"></div>
           </div>
-          <p style="font-size:11px;color:var(--text-sub);margin-top:8px;">※ 管理コンソール自体は常に表示されます</p>
+          <div id="menu-editor-list" style="display:flex; flex-direction:column; gap:8px; max-height: 50vh; overflow-y: auto; padding: 4px; margin-bottom:12px;"></div>
+          <button class="btn btn-outline btn-sm" onclick="addMenuConfigItem()" style="width:100%; margin-bottom:16px;">＋ 新しいメニュー項目を追加</button>
+          <div style="text-align:right; border-top: 1px solid var(--border); padding-top: 16px;">
+            <button class="btn btn-danger btn-sm" onclick="resetMenuConfig()" style="float:left;">初期状態にリセット</button>
+            <button class="btn btn-primary" onclick="saveMenuConfig()">💾 保存して反映</button>
+          </div>
         </div>
       </div>
     </div>
 
+    <!-- ページ：見積台帳 -->
     <div id="page-ledger" class="page">
       <div class="page-heading"><div><h2>📝 見積台帳</h2></div></div>
+      <div style="display:flex;gap:8px;margin-bottom:16px;border-bottom:2px solid var(--border);padding-bottom:0;">
+        <button id="subtab-ledger-tree" onclick="switchLedgerTab('tree')" style="padding:8px 20px;border:none;background:none;font-size:14px;font-weight:600;color:var(--primary);border-bottom:2px solid var(--primary);margin-bottom:-2px;cursor:pointer;">📁 フォルダ分け</button>
+        <button id="subtab-ledger-flat" onclick="switchLedgerTab('flat')" style="padding:8px 20px;border:none;background:none;font-size:14px;font-weight:500;color:var(--text-sub);border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;">📄 全て表示</button>
+      </div>
       <div class="filter-bar"><div class="search-box"><input type="text" id="ledger-search" placeholder="検索..." oninput="applyLedgerFilter()"></div><button class="btn btn-outline btn-sm" onclick="loadLedger()">🔄 更新</button></div>
       <div id="ledger-tree-container"><div class="loading"><div class="spinner"></div></div></div>
+      <div id="ledger-flat-container" style="display:none;"><div class="loading"><div class="spinner"></div></div></div>
     </div>
-
+    
+    <!-- ページ：AI紐づけ候補 -->
     <div id="page-matching" class="page">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
         <h2 style="font-size:18px;font-weight:600;">🔗 紐づけ候補 一覧</h2>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <div class="search-box" style="min-width:200px;">
-            <input type="text" id="matching-search" placeholder="注文番号・顧客名で検索..." oninput="filterMatchingCandidates()">
-          </div>
+          <div class="search-box" style="min-width:200px;"><input type="text" id="matching-search" placeholder="注文番号・顧客名で検索..." oninput="filterMatchingCandidates()"></div>
           <button class="btn btn-outline" onclick="loadMatchingCandidates()">🔄 更新</button>
           <button class="btn btn-primary" onclick="runBatchMatching()">⚡ 全件マッチング実行</button>
         </div>
@@ -377,23 +408,45 @@ tr:hover td{background:#f8fafc;}
       <div id="matching-container"><div class="loading"><div class="spinner"></div></div></div>
     </div>
 
-    <div id="page-todo" class="page"><div class="loading"><div class="spinner"></div></div></div>
-    <div id="page-calendar" class="page"><div id="cal-container"></div></div>
-    <div id="page-drivesearch" class="page"><div id="drive-search-container"></div></div>
-    <div id="page-ocr" class="page">
-      <div style="text-align:center;padding:40px;">
-        <h2>簡易OCRシステム</h2>
-        <button class="btn btn-primary" onclick="window.open('https://ndlocr-liteweb.netlify.app/','_blank')">🚀 起動する</button>
-      </div>
+    <!-- ページ：スケジュール -->
+    <div id="page-calendar" class="page">
+      <div class="page-heading"><div><h2>📅 スケジュール</h2></div></div>
+      <div id="cal-container" style="background:#fff;padding:16px;border-radius:8px;box-shadow:var(--shadow-sm);"></div>
     </div>
     
-    <div id="page-workflow" class="page"><div class="loading"><div class="spinner"></div></div></div>
-    <div id="page-assignees" class="page"><div id="assignee-container"></div></div>
-    <div id="page-approval" class="page"><div id="approval-container"></div></div>
-    <div id="page-board" class="page"><div id="board-container"></div></div>
-    <div id="page-analysis" class="page"><div id="analysis-container"></div></div>
+    <!-- ページ：全文検索 -->
+    <div id="page-drivesearch" class="page">
+      <div class="page-heading"><div><h2>💾 全文検索</h2><p>Google Drive内のPDFを検索します</p></div></div>
+      <div class="filter-bar">
+        <div class="search-box"><input type="text" id="drive-search-input" placeholder="キーワード..." onkeypress="if(event.key==='Enter')runDriveSearch()"></div>
+        <input type="date" id="drive-date-from" style="padding:6px;border:1px solid var(--border);border-radius:4px;"> <span>〜</span>
+        <input type="date" id="drive-date-to" style="padding:6px;border:1px solid var(--border);border-radius:4px;">
+        <button class="btn btn-primary" id="drive-search-btn" onclick="runDriveSearch()">🔍 検索</button>
+        <button class="btn btn-outline" onclick="clearDriveSearch()">クリア</button>
+      </div>
+      <div class="table-wrap">
+        <div class="table-toolbar"><h2>検索結果 <span id="drive-result-count" style="font-weight:normal;font-size:12px;color:var(--text-sub);margin-left:8px;"></span></h2></div>
+        <div id="drive-search-container" style="padding:16px;">ここに結果が表示されます</div>
+      </div>
+    </div>
 
-  </div></div></div><div class="modal-overlay" id="upload-modal">
+    <div id="page-ocr" class="page">
+      <div style="text-align:center;padding:40px;"><h2>簡易OCRシステム</h2><button class="btn btn-primary" onclick="window.open('https://ndlocr-liteweb.netlify.app/','_blank')">🚀 起動する</button></div>
+    </div>
+
+    <div id="page-todo" class="page"><div class="loading">準備中</div></div>
+    <div id="page-workflow" class="page"><div class="loading">準備中</div></div>
+    <div id="page-assignees" class="page"><div class="loading">準備中</div></div>
+    <div id="page-approval" class="page"><div class="loading">準備中</div></div>
+    <div id="page-board" class="page"><div class="loading">準備中</div></div>
+    <div id="page-analysis" class="page"><div class="loading">準備中</div></div>
+
+  </div><!-- /content -->
+</div><!-- /main -->
+</div><!-- /app-shell -->
+
+<!-- 各種モーダル -->
+<div class="modal-overlay" id="upload-modal">
   <div class="modal">
     <div class="modal-head"><h3>📎 PDF アップロード</h3><button class="modal-close" onclick="closeUploadModal()">✕</button></div>
     <div class="modal-body">
@@ -402,20 +455,13 @@ tr:hover td{background:#f8fafc;}
         <button class="btn btn-outline" id="type-order" onclick="setDocType('order')">📦 注文書・発注書</button>
       </div>
       <div id="order-type-section" style="display:none;margin-bottom:16px;">
-        <p style="font-size:12px;color:var(--text-sub);margin-bottom:8px;">注文種別を選択してください：</p>
-        <button class="btn btn-outline btn-sm" id="ot-trial" onclick="setOrderType('試作')" style="margin-right:8px;min-width:80px;">🔬 試作</button>
-        <button class="btn btn-outline btn-sm" id="ot-mass" onclick="setOrderType('量産')" style="min-width:80px;">🏭 量産</button>
-        <span id="ot-selected-label" style="font-size:12px;color:var(--success);margin-left:10px;display:none;">✓ 選択済み</span>
+        <button class="btn btn-outline btn-sm" id="ot-trial" onclick="setOrderType('試作')">試作</button>
+        <button class="btn btn-outline btn-sm" id="ot-mass" onclick="setOrderType('量産')">量産</button>
       </div>
-      <div class="upload-area" id="drop-zone" onclick="document.getElementById('file-input').click()">
-        📂 クリックまたはドラッグでPDFを選択
-      </div>
+      <div class="upload-area" id="drop-zone" onclick="document.getElementById('file-input').click()">📂 クリックまたはドラッグでPDFを選択</div>
       <input type="file" id="file-input" accept=".pdf" style="display:none" onchange="handleFileSelect(event)">
       <div id="upload-status" style="margin-top:12px;"></div>
-      <div style="text-align:right;margin-top:16px;">
-        <button class="btn btn-outline" onclick="closeUploadModal()">キャンセル</button>
-        <button class="btn btn-primary" id="upload-btn" onclick="uploadFile()" disabled>解析・登録</button>
-      </div>
+      <div style="text-align:right;margin-top:16px;"><button class="btn btn-outline" onclick="closeUploadModal()">キャンセル</button><button class="btn btn-primary" id="upload-btn" onclick="uploadFile()" disabled>解析・登録</button></div>
     </div>
   </div>
 </div>
@@ -425,53 +471,44 @@ tr:hover td{background:#f8fafc;}
 
 <div class="modal-overlay" id="edit-mgmt-modal" onclick="if(event.target===this)this.classList.remove('open');">
   <div class="modal" style="max-width:700px;">
-    <div class="modal-head">
-      <h3 id="edit-mgmt-title">✏️ 案件を編集</h3>
-      <button class="modal-close" onclick="document.getElementById('edit-mgmt-modal').classList.remove('open')">✕</button>
-    </div>
+    <div class="modal-head"><h3 id="edit-mgmt-title">✏️ 案件を編集</h3><button class="modal-close" onclick="document.getElementById('edit-mgmt-modal').classList.remove('open')">✕</button></div>
     <div class="modal-body">
       <input type="hidden" id="edit-mgmt-id">
-      <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
-        <div class="form-field"><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">見積番号</label><input type="text" id="edit-quote-no" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
-        <div class="form-field"><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">発注書番号</label><input type="text" id="edit-order-no" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
+      <div class="form-row"><div class="form-field"><label>見積番号</label><input type="text" id="edit-quote-no"></div><div class="form-field"><label>発注書番号</label><input type="text" id="edit-order-no"></div></div>
+      <div class="form-row"><div class="form-field"><label>顧客名</label><input type="text" id="edit-client"></div><div class="form-field"><label>機種コード</label><input type="text" id="edit-model-code"></div></div>
+      <div class="form-row">
+        <div class="form-field"><label>ステータス</label><select id="edit-status"><option value="作成予定">作成予定</option><option value="送信済み">送信済み</option><option value="受領">受領</option><option value="納品済み">納品済み</option></select></div>
+        <div class="form-field"><label>注文種別</label><select id="edit-order-type"><option value="">（未設定）</option><option value="試作">試作</option><option value="量産">量産</option></select></div>
       </div>
-      <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
-        <div class="form-field"><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">顧客名</label><input type="text" id="edit-client" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
-        <div class="form-field"><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">機種コード</label><input type="text" id="edit-model-code" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
-      </div>
-      <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
-        <div class="form-field"><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">ステータス</label>
-          <select id="edit-status" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;">
-            <option value="作成予定">作成予定</option><option value="送信済み">送信済み</option><option value="受領">受領</option><option value="納品済み">納品済み</option>
-          </select>
-        </div>
-        <div class="form-field"><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">注文種別</label>
-          <select id="edit-order-type" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;">
-            <option value="">（未設定）</option><option value="試作">試作</option><option value="量産">量産</option>
-          </select>
-        </div>
-      </div>
-      <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
-        <div class="form-field"><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">発注日</label><input type="date" id="edit-order-date" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
-        <div class="form-field"><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">納期</label><input type="date" id="edit-delivery-date" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;"></div>
-      </div>
-      <div style="margin-bottom:12px;">
-        <label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">件名</label>
-        <input type="text" id="edit-subject" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;">
-      </div>
-      <div style="margin-bottom:12px;">
-        <label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">メモ</label>
-        <textarea id="edit-memo" rows="2" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;resize:vertical;"></textarea>
-      </div>
-      <div style="text-align:right;margin-top:8px;">
-        <button class="btn btn-outline" onclick="document.getElementById('edit-mgmt-modal').classList.remove('open')">キャンセル</button>
-        <button class="btn btn-primary" onclick="saveMgmtEdit()" style="margin-left:8px;">💾 保存</button>
-      </div>
+      <div class="form-row"><div class="form-field"><label>発注日</label><input type="date" id="edit-order-date"></div><div class="form-field"><label>納期</label><input type="date" id="edit-delivery-date"></div></div>
+      <div class="form-field" style="margin-bottom:12px;"><label>件名</label><input type="text" id="edit-subject"></div>
+      <div class="form-field" style="margin-bottom:12px;"><label>メモ</label><textarea id="edit-memo" rows="2" style="resize:vertical;"></textarea></div>
+      <div style="text-align:right;margin-top:8px;"><button class="btn btn-outline" onclick="document.getElementById('edit-mgmt-modal').classList.remove('open')">キャンセル</button><button class="btn btn-primary" onclick="saveMgmtEdit()" style="margin-left:8px;">💾 保存</button></div>
     </div>
   </div>
 </div>
 
-<?!= include("Dashboard js.html") ?>
+<div class="modal-overlay" id="ledger-modal" onclick="if(event.target===this)closeLedgerModal()">
+  <div class="modal" style="max-width:500px;">
+    <div class="modal-head"><h3 id="ledger-modal-title">見積登録</h3><button class="modal-close" onclick="closeLedgerModal()">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="ledger-id">
+      <div class="form-field" style="margin-bottom:12px;"><label>機種コード</label><input type="text" id="ledger-machine-code"></div>
+      <div class="form-field" style="margin-bottom:12px;"><label>基板名</label><input type="text" id="ledger-board-name"></div>
+      <div class="form-field" style="margin-bottom:12px;"><label>見積No.</label><input type="text" id="ledger-quote-no"></div>
+      <div class="form-field" style="margin-bottom:12px;"><label>件名</label><input type="text" id="ledger-subject"></div>
+      <div class="form-field" style="margin-bottom:12px;"><label>金額</label><input type="number" id="ledger-amount"></div>
+      <div style="text-align:right;margin-top:16px;"><button class="btn btn-outline" onclick="closeLedgerModal()">キャンセル</button><button class="btn btn-primary" onclick="saveLedger()">💾 保存</button></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  window.APP_IS_ADMIN = <?!= (typeof isAdmin !== 'undefined' && isAdmin) ? 'true' : 'false' ?>;
+</script>
+
+<?!= include("js") ?>
+<?!= include("Dashboard js2") ?>
 
 </body>
 </html>
