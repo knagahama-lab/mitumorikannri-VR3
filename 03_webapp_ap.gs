@@ -152,6 +152,26 @@ function handleApiRequest(action, payload) {
       case 'reregisterTriggers':
         try { _registerTriggers(); return { success: true }; }
         catch(e) { return { success: false, error: e.message }; }
+
+      // ===== 単価比較・正規化DB API（11_db_normalize.gs / 12_price_compare_v2.gs）=====
+      case 'orderPriceCompare':       res = apiOrderPriceCompare(payload); break;
+      case 'batchOrderPriceCompare':  res = apiBatchOrderPriceCompare(payload); break;
+      case 'searchUnitPrice':
+        res = { success: true, results: searchUnitPrice(payload.itemName, payload.spec, payload.client) };
+        break;
+      case 'searchCaseSummary':
+        var _kws = String(payload.keywords || '').split(/[\s,　]+/).filter(Boolean);
+        res = { success: true, results: searchCaseSummary(_kws) };
+        break;
+      case 'syncDetailDB':
+        syncAllDetailDB();
+        res = { success: true, message: '明細DB同期完了' };
+        break;
+      case 'rebuildUnitPrice':
+        rebuildUnitPriceMaster();
+        res = { success: true, message: '単価マスタ再構築完了' };
+        break;
+
       default: return { success: false, error: '不明なアクション: ' + action };
     }
     
