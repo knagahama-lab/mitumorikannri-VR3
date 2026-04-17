@@ -310,13 +310,59 @@ tr:hover td{background:#f8fafc;}
           <div class="summary-card"><div class="lbl">納品済み</div><div class="val c-green" id="sum-done">—</div><div class="sub">件</div></div>
           <div class="summary-card"><div class="lbl">今月の注文合計</div><div class="val" id="sum-amount">—</div><div class="sub">円（税抜）</div></div>
         </div>
-        <div class="filter-bar">
+        <div class="filter-bar" id="filter-row">
           <div class="search-box"><input type="text" id="search-input" placeholder="発注番号・機種・顧客・件名で検索..." oninput="debounceSearch()"></div>
           <select id="filter-status" onchange="applyFilters()"><option value="">すべてのステータス</option><option value="作成予定">作成予定</option><option value="送信済み">送信済み</option><option value="受領">受領</option><option value="納品済み">納品済み</option></select>
           <select id="filter-order-type" onchange="applyFilters()"><option value="">すべての種別</option><option value="試作">試作</option><option value="量産">量産</option></select>
           <select id="filter-month" onchange="applyFilters()"><option value="">すべての月</option></select>
+          <button class="btn btn-outline btn-sm" onclick="toggleAdvancedFilter()" id="adv-filter-btn" title="詳細フィルター">🔍 詳細</button>
           <button class="btn btn-outline btn-sm" onclick="clearFilters()">クリア</button>
           <button class="btn btn-outline btn-sm" onclick="loadData()">🔄</button>
+        </div>
+        <!-- ★ 高度フィルター（日付・金額範囲） -->
+        <div id="advanced-filter-panel" style="display:none; background:var(--card); border:1px solid var(--border-light); border-radius:var(--radius); padding:14px 16px; margin-bottom:12px; animation:fadeSlideIn .15s ease-out;">
+          <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end;">
+            <div>
+              <label style="font-size:11px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">📅 受注日（From）</label>
+              <input type="date" id="filter-date-from" onchange="applyFilters()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;min-width:140px;">
+            </div>
+            <div>
+              <label style="font-size:11px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">📅 受注日（To）</label>
+              <input type="date" id="filter-date-to" onchange="applyFilters()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;min-width:140px;">
+            </div>
+            <div>
+              <label style="font-size:11px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">💰 金額（下限）</label>
+              <input type="number" id="filter-amount-min" placeholder="例: 100000" oninput="applyFilters()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;min-width:130px;">
+            </div>
+            <div>
+              <label style="font-size:11px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">💰 金額（上限）</label>
+              <input type="number" id="filter-amount-max" placeholder="例: 500000" oninput="applyFilters()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;min-width:130px;">
+            </div>
+            <div>
+              <label style="font-size:11px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">👤 担当者</label>
+              <input type="text" id="filter-assignee" placeholder="担当者名" oninput="applyFilters()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;min-width:120px;">
+            </div>
+            <div>
+              <label style="font-size:11px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">🔗 紐づき</label>
+              <select id="filter-linked" onchange="applyFilters()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+                <option value="">すべて</option>
+                <option value="linked">紐づき済み</option>
+                <option value="unlinked">未紐づき</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size:11px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">📋 承認状況</label>
+              <select id="filter-approval" onchange="applyFilters()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+                <option value="">すべて</option>
+                <option value="pending">承認待ち</option>
+                <option value="approved">承認済み</option>
+                <option value="rejected">却下</option>
+              </select>
+            </div>
+            <div style="margin-left:auto;">
+              <span id="filter-result-badge" style="font-size:12px;color:var(--primary);font-weight:600;"></span>
+            </div>
+          </div>
         </div>
         <div class="table-wrap">
           <div class="table-toolbar"><h2>案件一覧</h2><span class="pg-info" id="result-count"></span></div>
@@ -591,6 +637,22 @@ tr:hover td{background:#f8fafc;}
         </div>
       </div>
 
+      <!-- ★ 単価トレンド分析グラフ -->
+      <div style="margin-top:24px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <h3 style="font-size:14px;font-weight:700;">📈 顧客別単価トレンド分析</h3>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <span id="price-alert-badge" style="display:none;background:#fef2f2;color:#ef4444;border:1px solid #fecaca;border-radius:20px;padding:3px 12px;font-size:11px;font-weight:700;">⚠️ 単価上昇あり</span>
+            <select id="trend-client-select" onchange="loadPriceTrend()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;"><option value="">顧客を選択...</option></select>
+            <button class="btn btn-outline btn-sm" onclick="loadPriceTrend()">🔄</button>
+          </div>
+        </div>
+        <div style="background:var(--card);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow-sm);border:1px solid var(--border-light);">
+          <canvas id="chart-price-trend" height="150"></canvas>
+          <div id="price-trend-summary" style="margin-top:16px;display:flex;gap:16px;flex-wrap:wrap;"></div>
+        </div>
+      </div>
+
       <!-- ロード中標示 -->
       <div id="analytics-loading" style="display:none;text-align:center;padding:60px;">
         <div class="spinner"></div><br>データを分析中...
@@ -600,7 +662,79 @@ tr:hover td{background:#f8fafc;}
     <div id="page-todo" class="page"><div class="loading">準備中</div></div>
     <div id="page-workflow" class="page"><div class="loading">準備中</div></div>
     <div id="page-assignees" class="page"><div class="loading">準備中</div></div>
-    <div id="page-approval" class="page"><div class="loading">準備中</div></div>
+    <!-- ★ 承認ワークフローページ -->
+    <div id="page-approval" class="page">
+      <div class="page-heading">
+        <div><h2>✅ 製造承認ワークフロー</h2><p>見積・注文の承認リクエストを管理します</p></div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-outline" onclick="loadApprovalList()">🔄 更新</button>
+          <button class="btn btn-primary" onclick="openApprovalRequestModal()">＋ 承認申請</button>
+        </div>
+      </div>
+      <div class="summary-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px;">
+        <div class="summary-card"><div class="lbl">承認待ち</div><div class="val c-red" id="apv-pending">—</div><div class="sub">件</div></div>
+        <div class="summary-card"><div class="lbl">承認済み</div><div class="val c-green" id="apv-approved">—</div><div class="sub">件</div></div>
+        <div class="summary-card"><div class="lbl">却下</div><div class="val" id="apv-rejected">—</div><div class="sub">件</div></div>
+        <div class="summary-card"><div class="lbl">今月の承認率</div><div class="val c-blue" id="apv-rate">—</div><div class="sub">%</div></div>
+      </div>
+      <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px;">
+        <button class="admin-tab active" id="apv-tab-pending" onclick="switchApvTab('pending')">⏳ 承認待ち</button>
+        <button class="admin-tab" id="apv-tab-approved" onclick="switchApvTab('approved')">✅ 承認済み</button>
+        <button class="admin-tab" id="apv-tab-rejected" onclick="switchApvTab('rejected')">❌ 却下</button>
+        <button class="admin-tab" id="apv-tab-all" onclick="switchApvTab('all')">📋 すべて</button>
+      </div>
+      <div id="approval-list-container"><div class="loading"><div class="spinner"></div><br>読み込み中...</div></div>
+    </div>
+    <!-- 承認申請モーダル -->
+    <div class="modal-overlay" id="approval-request-modal" onclick="if(event.target===this)closeApprovalRequestModal()">
+      <div class="modal" style="max-width:500px;">
+        <div class="modal-head"><h3>＋ 承認申請</h3><button class="modal-close" onclick="closeApprovalRequestModal()">✕</button></div>
+        <div class="modal-body" style="padding:20px;display:flex;flex-direction:column;gap:14px;">
+          <div>
+            <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">案件ID / 見積No</label>
+            <input type="text" id="apv-req-case-id" placeholder="例: M-2024-001" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">申請種別</label>
+            <select id="apv-req-type" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+              <option value="quote_approval">見積書承認</option>
+              <option value="order_approval">注文書承認</option>
+              <option value="delivery_approval">納品承認</option>
+              <option value="discount_approval">値引き承認</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">承認者メールアドレス</label>
+            <input type="email" id="apv-req-approver" placeholder="approver@example.com" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box;">
+          </div>
+          <div>
+            <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">コメント・承認理由</label>
+            <textarea id="apv-req-comment" rows="3" placeholder="承認が必要な理由を記入..." style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;resize:vertical;box-sizing:border-box;font-size:13px;font-family:inherit;"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-outline" onclick="closeApprovalRequestModal()">キャンセル</button>
+          <button class="btn btn-primary" onclick="submitApprovalRequest()">📤 申請する</button>
+        </div>
+      </div>
+    </div>
+    <!-- 承認/却下コメントモーダル -->
+    <div class="modal-overlay" id="approval-action-modal" onclick="if(event.target===this)closeApprovalActionModal()">
+      <div class="modal" style="max-width:420px;">
+        <div class="modal-head"><h3 id="apv-action-title">承認確認</h3><button class="modal-close" onclick="closeApprovalActionModal()">✕</button></div>
+        <div class="modal-body" style="padding:20px;">
+          <input type="hidden" id="apv-action-id">
+          <input type="hidden" id="apv-action-type">
+          <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">コメント（任意）</label>
+          <textarea id="apv-action-comment" rows="3" placeholder="コメントを入力..." style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;resize:vertical;box-sizing:border-box;font-size:13px;font-family:inherit;"></textarea>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-outline" onclick="closeApprovalActionModal()">キャンセル</button>
+          <button class="btn btn-primary" id="apv-action-confirm-btn" onclick="confirmApprovalAction()">確定</button>
+        </div>
+      </div>
+    </div>
+
     <div id="page-board" class="page"><div class="loading">準備中</div></div>
     <div id="page-analysis" class="page"><div class="loading">準備中</div></div>
 

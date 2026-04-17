@@ -1571,3 +1571,335 @@ function loadAuditLog() {
     })
     .handleApiRequest('getAuditLog', { limit: 100 });
 }
+
+// ============================================================
+// ★ 高度フィルター（日付・金額・担当者・紐づき・承認）
+// ============================================================
+function toggleAdvancedFilter() {
+  var panel = document.getElementById('advanced-filter-panel');
+  var btn   = document.getElementById('adv-filter-btn');
+  if (!panel) return;
+  var open = panel.style.display !== 'none';
+  panel.style.display = open ? 'none' : 'block';
+  if (btn) btn.style.background = open ? '' : 'var(--primary-light)';
+}
+
+// applyFilters を拡張（既存関数を上書き）
+var _originalApplyFilters = typeof applyFilters === 'function' ? applyFilters : null;
+function applyFilters() {
+  if (typeof S === 'undefined') return;
+  var kw         = (document.getElementById('search-input')     || {}).value || '';
+  var status     = (document.getElementById('filter-status')    || {}).value || '';
+  var orderType  = (document.getElementById('filter-order-type')|| {}).value || '';
+  var month      = (document.getElementById('filter-month')     || {}).value || '';
+  var dateFrom   = (document.getElementById('filter-date-from') || {}).value || '';
+  var dateTo     = (document.getElementById('filter-date-to')   || {}).value || '';
+  var amtMin     = parseFloat((document.getElementById('filter-amount-min') || {}).value || '') || null;
+  var amtMax     = parseFloat((document.getElementById('filter-amount-max') || {}).value || '') || null;
+  var assignee   = ((document.getElementById('filter-assignee') || {}).value || '').trim().toLowerCase();
+  var linked     = (document.getElementById('filter-linked')    || {}).value || '';
+  var approval   = (document.getElementById('filter-approval')  || {}).value || '';
+  var kwL = kw.toLowerCase();
+
+  S.filtered = S.all.filter(function(item) {
+    // キーワード
+    if (kwL) {
+      var hay = [item.orderNo, item.quoteNo, item.client, item.subject, item.modelCode, item.assignee].join(' ').toLowerCase();
+      if (hay.indexOf(kwL) < 0) return false;
+    }
+    // ステータス
+    if (status && item.status !== status) return false;
+    // 種別
+    if (orderType && item.orderType !== orderType) return false;
+    // 月
+    if (month && item.orderDate && String(item.orderDate).substring(0, 7) !== month) return false;
+    // 日付From
+    if (dateFrom && item.orderDate && item.orderDate < dateFrom) return false;
+    // 日付To
+    if (dateTo && item.orderDate && item.orderDate > dateTo) return false;
+    // 金額下限
+    if (amtMin !== null && (Number(item.orderAmount) || 0) < amtMin) return false;
+    // 金額上限
+    if (amtMax !== null && (Number(item.orderAmount) || 0) > amtMax) return false;
+    // 担当者
+    if (assignee && (item.assignee || '').toLowerCase().indexOf(assignee) < 0) return false;
+    // 紐づき
+    if (linked === 'linked'   && !item.linked)  return false;
+    if (linked === 'unlinked' &&  item.linked)  return false;
+    // 承認状況（approvalStatusフィールドがある場合）
+    if (approval && (item.approvalStatus || '') !== approval) return false;
+    return true;
+  });
+
+  S.page = 1;
+  if (typeof renderTable === 'function') renderTable();
+  if (typeof updateSummary === 'function') updateSummary();
+  // フィルター結果バッジ
+  var badge = document.getElementById('filter-result-badge');
+  if (badge) badge.textContent = S.filtered.length !== S.all.length
+    ? '🔍 ' + S.filtered.length + '件 / 全' + S.all.length + '件' : '';
+}
+
+function clearFilters() {
+  ['search-input','filter-status','filter-order-type','filter-month',
+   'filter-date-from','filter-date-to','filter-amount-min','filter-amount-max',
+   'filter-assignee','filter-linked','filter-approval'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  var badge = document.getElementById('filter-result-badge');
+  if (badge) badge.textContent = '';
+  applyFilters();
+}
+
+// ============================================================
+// ★ 単価トレンド分析グラフ
+// ============================================================
+function loadPriceTrend() {
+  var clientSel = document.getElementById('trend-client-select');
+  var client    = clientSel ? clientSel.value : '';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success) return;
+      // 顧客一覧をセレクトに設定
+      if (res.clients && clientSel) {
+        var cur = clientSel.value;
+        clientSel.innerHTML = '<option value="">顧客を選択...</option>';
+        res.clients.forEach(function(c) {
+          var opt = document.createElement('option');
+          opt.value = c; opt.textContent = c;
+          if (c === cur) opt.selected = true;
+          clientSel.appendChild(opt);
+        });
+      }
+      if (!client || !res.trend || res.trend.length === 0) return;
+      _renderPriceTrend(res);
+    })
+    .withFailureHandler(function(err) { showToast('トレンド取得失敗: ' + err.message, true); })
+    .handleApiRequest('getPriceTrend', { client: client });
+}
+
+function _renderPriceTrend(data) {
+  _destroyChart('chart-price-trend');
+  var cv = document.getElementById('chart-price-trend');
+  if (!cv || !data.trend || data.trend.length === 0) return;
+
+  var labels  = data.trend.map(function(t){ return t.label; });
+  var amounts = data.trend.map(function(t){ return t.avgAmount; });
+
+  // 値上がり警告判定（最新 vs 3ヶ月前平均で10%以上上昇）
+  var alertBadge = document.getElementById('price-alert-badge');
+  var isAlert = false;
+  if (amounts.length >= 4) {
+    var recent = amounts.slice(-2).reduce(function(a,b){return a+b;},0) / 2;
+    var past   = amounts.slice(0,2).reduce(function(a,b){return a+b;},0) / 2;
+    isAlert = past > 0 && (recent - past) / past > 0.10;
+  }
+  if (alertBadge) alertBadge.style.display = isAlert ? 'inline-block' : 'none';
+
+  var borderColors = amounts.map(function(v, i) {
+    if (i === 0) return '#3b82f6';
+    return amounts[i] > amounts[i-1] * 1.05 ? '#ef4444' : amounts[i] < amounts[i-1] * 0.95 ? '#22c55e' : '#3b82f6';
+  });
+
+  _chartInstances['chart-price-trend'] = new Chart(cv.getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: '平均受注単価（円）',
+        data: amounts,
+        borderColor: '#3b82f6',
+        backgroundColor: 'rgba(59,130,246,0.08)',
+        pointBackgroundColor: borderColors,
+        pointRadius: 6,
+        pointHoverRadius: 9,
+        tension: 0.35,
+        fill: true,
+        borderWidth: 2.5,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: function(ctx) {
+              return '平均単価: ¥' + Number(ctx.parsed.y).toLocaleString();
+            }
+          }
+        }
+      },
+      scales: {
+        y: { ticks: { callback: function(v){ return '¥' + Number(v/10000).toFixed(0) + '万'; } } }
+      }
+    }
+  });
+
+  // サマリー表示
+  var summary = document.getElementById('price-trend-summary');
+  if (summary && data.trend.length > 0) {
+    var last = data.trend[data.trend.length - 1];
+    var prev = data.trend.length > 1 ? data.trend[data.trend.length - 2] : null;
+    var diff = prev ? ((last.avgAmount - prev.avgAmount) / prev.avgAmount * 100).toFixed(1) : null;
+    var diffStr = diff !== null ? (Number(diff) >= 0 ? '▲ ' + diff + '%' : '▼ ' + Math.abs(diff) + '%') : '—';
+    var diffColor = diff !== null && Number(diff) >= 0 ? '#ef4444' : '#22c55e';
+    summary.innerHTML =
+      '<div style="background:#f8fafc;border-radius:8px;padding:10px 16px;"><span style="font-size:11px;color:#64748b;">最新平均単価</span><br><b style="font-size:16px;">¥' + Number(last.avgAmount).toLocaleString() + '</b></div>' +
+      '<div style="background:#f8fafc;border-radius:8px;padding:10px 16px;"><span style="font-size:11px;color:#64748b;">前期比</span><br><b style="font-size:16px;color:' + diffColor + ';">' + diffStr + '</b></div>' +
+      '<div style="background:#f8fafc;border-radius:8px;padding:10px 16px;"><span style="font-size:11px;color:#64748b;">受注件数（最新月）</span><br><b style="font-size:16px;">' + (last.count || 0) + ' 件</b></div>' +
+      (isAlert ? '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 16px;color:#dc2626;"><b>⚠️ 直近で単価が10%以上上昇しています</b></div>' : '');
+  }
+}
+
+// ============================================================
+// ★ 承認ワークフロー
+// ============================================================
+var _approvalData = [];
+var _apvCurrentTab = 'pending';
+
+function loadApprovalList() {
+  var box = document.getElementById('approval-list-container');
+  if (box) box.innerHTML = '<div class="loading"><div class="spinner"></div><br>読み込み中...</div>';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success) { if(box) box.innerHTML = '<p style="padding:20px;color:#ef4444;">データ取得失敗</p>'; return; }
+      _approvalData = res.approvals || [];
+      _renderApprovalKPIs(res);
+      _renderApprovalList(_apvCurrentTab);
+    })
+    .withFailureHandler(function(err) {
+      if (box) box.innerHTML = '<p style="padding:20px;color:#ef4444;">エラー: ' + err.message + '</p>';
+    })
+    .handleApiRequest('getApprovalList', {});
+}
+
+function _renderApprovalKPIs(res) {
+  var pending  = _approvalData.filter(function(a){ return a.status === 'pending'; }).length;
+  var approved = _approvalData.filter(function(a){ return a.status === 'approved'; }).length;
+  var rejected = _approvalData.filter(function(a){ return a.status === 'rejected'; }).length;
+  var total    = approved + rejected;
+  var rate     = total > 0 ? Math.round(approved / total * 100) : '—';
+  _setEl('apv-pending', pending);
+  _setEl('apv-approved', approved);
+  _setEl('apv-rejected', rejected);
+  _setEl('apv-rate', typeof rate === 'number' ? rate : '—');
+}
+
+function switchApvTab(tab) {
+  _apvCurrentTab = tab;
+  ['pending','approved','rejected','all'].forEach(function(t) {
+    var btn = document.getElementById('apv-tab-' + t);
+    if (btn) btn.classList.toggle('active', t === tab);
+  });
+  _renderApprovalList(tab);
+}
+
+function _renderApprovalList(tab) {
+  var box = document.getElementById('approval-list-container');
+  if (!box) return;
+  var list = tab === 'all' ? _approvalData
+    : _approvalData.filter(function(a){ return a.status === tab; });
+  if (list.length === 0) {
+    box.innerHTML = '<p style="padding:24px;text-align:center;color:#94a3b8;">該当する承認リクエストはありません</p>';
+    return;
+  }
+  var TYPE_LABELS = { quote_approval:'見積書承認', order_approval:'注文書承認', delivery_approval:'納品承認', discount_approval:'値引き承認' };
+  var STATUS_BADGE = {
+    pending:  '<span style="background:#fef9c3;color:#854d0e;border-radius:20px;padding:2px 10px;font-size:11px;font-weight:700;">⏳ 承認待ち</span>',
+    approved: '<span style="background:#dcfce7;color:#166534;border-radius:20px;padding:2px 10px;font-size:11px;font-weight:700;">✅ 承認済み</span>',
+    rejected: '<span style="background:#fee2e2;color:#991b1b;border-radius:20px;padding:2px 10px;font-size:11px;font-weight:700;">❌ 却下</span>',
+  };
+  var rows = list.map(function(a) {
+    var actions = a.status === 'pending'
+      ? '<button class="btn btn-sm" style="background:#22c55e;color:#fff;border:none;cursor:pointer;" onclick="openApprovalActionModal(\'' + a.id + '\',\'approved\')">✅ 承認</button> ' +
+        '<button class="btn btn-sm" style="background:#ef4444;color:#fff;border:none;cursor:pointer;" onclick="openApprovalActionModal(\'' + a.id + '\',\'rejected\')">❌ 却下</button>'
+      : '—';
+    return '<tr>' +
+      '<td style="padding:10px 12px;font-size:12px;">' + (a.createdAt || '—') + '</td>' +
+      '<td style="padding:10px 12px;font-size:13px;font-weight:600;">' + (a.caseId || '—') + '</td>' +
+      '<td style="padding:10px 12px;font-size:12px;">' + (TYPE_LABELS[a.type] || a.type || '—') + '</td>' +
+      '<td style="padding:10px 12px;font-size:12px;">' + (a.requestedBy || '—') + '</td>' +
+      '<td style="padding:10px 12px;font-size:12px;">' + (a.approver || '—') + '</td>' +
+      '<td style="padding:10px 12px;">' + (STATUS_BADGE[a.status] || a.status) + '</td>' +
+      '<td style="padding:10px 12px;font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;">' + (a.comment || '—') + '</td>' +
+      '<td style="padding:10px 12px;">' + actions + '</td>' +
+      '</tr>';
+  }).join('');
+  box.innerHTML = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">' +
+    '<thead><tr style="background:#f8fafc;">' +
+    ['申請日','案件ID','種別','申請者','承認者','ステータス','コメント','操作'].map(function(h) {
+      return '<th style="text-align:left;padding:8px 12px;font-size:11px;font-weight:700;color:#64748b;border-bottom:2px solid #e2e8f0;">' + h + '</th>';
+    }).join('') + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+}
+
+function openApprovalRequestModal() {
+  var m = document.getElementById('approval-request-modal');
+  if (m) { m.style.display = 'flex'; ['apv-req-case-id','apv-req-comment'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value=''; }); }
+}
+function closeApprovalRequestModal() {
+  var m = document.getElementById('approval-request-modal');
+  if (m) m.style.display = 'none';
+}
+function openApprovalActionModal(id, type) {
+  var m = document.getElementById('approval-action-modal');
+  if (!m) return;
+  document.getElementById('apv-action-id').value   = id;
+  document.getElementById('apv-action-type').value = type;
+  document.getElementById('apv-action-comment').value = '';
+  var title = document.getElementById('apv-action-title');
+  var btn   = document.getElementById('apv-action-confirm-btn');
+  if (title) title.textContent = type === 'approved' ? '✅ 承認確認' : '❌ 却下確認';
+  if (btn) { btn.style.background = type === 'approved' ? '#22c55e' : '#ef4444'; btn.textContent = type === 'approved' ? '承認する' : '却下する'; }
+  m.style.display = 'flex';
+}
+function closeApprovalActionModal() {
+  var m = document.getElementById('approval-action-modal');
+  if (m) m.style.display = 'none';
+}
+
+function submitApprovalRequest() {
+  var caseId   = (document.getElementById('apv-req-case-id')  || {}).value || '';
+  var type     = (document.getElementById('apv-req-type')     || {}).value || '';
+  var approver = (document.getElementById('apv-req-approver') || {}).value || '';
+  var comment  = (document.getElementById('apv-req-comment')  || {}).value || '';
+  if (!caseId.trim()) { showToast('案件IDを入力してください', true); return; }
+  if (!approver.trim()) { showToast('承認者メールアドレスを入力してください', true); return; }
+  var btn = document.querySelector('#approval-request-modal .btn-primary');
+  if (btn) { btn.disabled = true; btn.textContent = '申請中...'; }
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (btn) { btn.disabled = false; btn.textContent = '📤 申請する'; }
+      if (!res || !res.success) { showToast('申請失敗: ' + (res ? res.error : '不明'), true); return; }
+      closeApprovalRequestModal();
+      loadApprovalList();
+      showToast('✅ 承認申請を送信しました。承認者にメールで通知しました。');
+    })
+    .withFailureHandler(function(err) {
+      if (btn) { btn.disabled = false; btn.textContent = '📤 申請する'; }
+      showToast('通信エラー: ' + err.message, true);
+    })
+    .handleApiRequest('submitApproval', { caseId: caseId, type: type, approver: approver, comment: comment });
+}
+
+function confirmApprovalAction() {
+  var id      = (document.getElementById('apv-action-id')      || {}).value || '';
+  var type    = (document.getElementById('apv-action-type')    || {}).value || '';
+  var comment = (document.getElementById('apv-action-comment') || {}).value || '';
+  var btn = document.getElementById('apv-action-confirm-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '処理中...'; }
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (btn) { btn.disabled = false; btn.textContent = type === 'approved' ? '承認する' : '却下する'; }
+      if (!res || !res.success) { showToast('処理失敗: ' + (res ? res.error : '不明'), true); return; }
+      closeApprovalActionModal();
+      loadApprovalList();
+      showToast(type === 'approved' ? '✅ 承認しました' : '❌ 却下しました');
+    })
+    .withFailureHandler(function(err) {
+      if (btn) { btn.disabled = false; }
+      showToast('通信エラー: ' + err.message, true);
+    })
+    .handleApiRequest('updateApproval', { id: id, status: type, comment: comment });
+}

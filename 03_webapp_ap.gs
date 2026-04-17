@@ -273,6 +273,10 @@ function handleApiRequest(action, payload) {
       case 'aiMonthlySummary': res = _apiAiMonthlySummary(payload); break;
       case 'invalidateCache':  _invalidateMgmtCache(); res = { success: true }; break;
       case 'getAuditLog':      res = _apiGetAuditLog(payload);     break;
+      case 'getPriceTrend':    res = _apiGetPriceTrend(payload);   break;
+      case 'getApprovalList':  res = _apiGetApprovalList(payload); break;
+      case 'submitApproval':   res = _apiSubmitApproval(payload);  break;
+      case 'updateApproval':   res = _apiUpdateApproval(payload);  break;
 
       default: return { success: false, error: '不明なアクション: ' + action };
     }
@@ -1864,5 +1868,183 @@ function _apiGetAuditLog(p) {
     return { success: true, logs: logs, total: data.length };
   } catch(e) {
     return _errorResponse(e, '監査ログ取得');
+  }
+}
+
+// ============================================================
+// ★ 単価トレンド分析 API
+// ============================================================
+function _apiGetPriceTrend(p) {
+  try {
+    var allData = _getAllMgmtData();
+    if (!allData || allData.length === 0) return { success: true, trend: [], clients: [] };
+
+    // 全顧客リスト
+    var clientSet = {};
+    allData.forEach(function(r) { if (r.client) clientSet[r.client] = true; });
+    var clients = Object.keys(clientSet).sort();
+
+    var targetClient = (p.client || '').trim();
+    if (!targetClient) return { success: true, trend: [], clients: clients };
+
+    // 対象顧客の受注データを月別集計
+    var monthMap = {};
+    allData.forEach(function(r) {
+      if (!r.client || r.client !== targetClient) return;
+      var dateStr = String(r.orderDate || r.createdAt || '').substring(0, 7);
+      if (!dateStr || dateStr.length < 7) return;
+      var amt = Number(r.orderAmount) || 0;
+      if (amt === 0) return;
+      if (!monthMap[dateStr]) monthMap[dateStr] = { sum: 0, count: 0 };
+      monthMap[dateStr].sum   += amt;
+      monthMap[dateStr].count += 1;
+    });
+
+    var months = Object.keys(monthMap).sort().slice(-12); // 最大12ヶ月
+    var trend  = months.map(function(m) {
+      var d = monthMap[m];
+      return {
+        label:     m,
+        avgAmount: Math.round(d.sum / d.count),
+        count:     d.count,
+        total:     d.sum
+      };
+    });
+
+    return { success: true, trend: trend, clients: clients };
+  } catch(e) {
+    return _errorResponse(e, '単価トレンド取得');
+  }
+}
+
+// ============================================================
+// ★ 承認ワークフロー API
+// ============================================================
+var APPROVAL_SHEET_NAME = '承認ログ';
+var APPROVAL_HEADERS    = ['ID','申請日時','申請者','案件ID','種別','承認者','コメント','ステータス','処理日時','処理コメント'];
+
+function _getApprovalSheet() {
+  var ss    = getSpreadsheet();
+  var sheet = ss.getSheetByName(APPROVAL_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(APPROVAL_SHEET_NAME);
+    sheet.appendRow(APPROVAL_HEADERS);
+    sheet.setFrozenRows(1);
+    sheet.getRange(1, 1, 1, APPROVAL_HEADERS.length).setFontWeight('bold').setBackground('#dbeafe');
+  }
+  return sheet;
+}
+
+function _apiGetApprovalList(p) {
+  try {
+    var sheet   = _getApprovalSheet();
+    var lastRow = sheet.getLastRow();
+    if (lastRow <= 1) return { success: true, approvals: [] };
+    var data = sheet.getRange(2, 1, lastRow - 1, APPROVAL_HEADERS.length).getValues();
+    var approvals = data.reverse().map(function(r) {
+      return {
+        id:           String(r[0] || ''),
+        createdAt:    r[1] instanceof Date ? Utilities.formatDate(r[1], 'Asia/Tokyo', 'yyyy/MM/dd HH:mm') : String(r[1] || ''),
+        requestedBy:  String(r[2] || ''),
+        caseId:       String(r[3] || ''),
+        type:         String(r[4] || ''),
+        approver:     String(r[5] || ''),
+        comment:      String(r[6] || ''),
+        status:       String(r[7] || 'pending'),
+        resolvedAt:   r[8] instanceof Date ? Utilities.formatDate(r[8], 'Asia/Tokyo', 'yyyy/MM/dd HH:mm') : String(r[8] || ''),
+        resolvedComment: String(r[9] || ''),
+      };
+    });
+    return { success: true, approvals: approvals };
+  } catch(e) {
+    return _errorResponse(e, '承認リスト取得');
+  }
+}
+
+function _apiSubmitApproval(p) {
+  try {
+    var caseId   = String(p.caseId   || '').trim();
+    var type     = String(p.type     || 'quote_approval').trim();
+    var approver = String(p.approver || '').trim();
+    var comment  = String(p.comment  || '').trim();
+    if (!caseId || !approver) return { success: false, error: '案件IDと承認者は必須です' };
+
+    var id          = 'APV-' + new Date().getTime();
+    var requestedBy = Session.getActiveUser().getEmail() || 'unknown';
+    var now         = new Date();
+    var appUrl      = ScriptApp.getService().getUrl();
+
+    var sheet = _getApprovalSheet();
+    sheet.appendRow([id, now, requestedBy, caseId, type, approver, comment, 'pending', '', '']);
+
+    // 承認者へメール通知
+    var TYPE_LABELS = { quote_approval:'見積書承認', order_approval:'注文書承認', delivery_approval:'納品承認', discount_approval:'値引き承認' };
+    var typeLabel   = TYPE_LABELS[type] || type;
+    var subject     = '【承認依頼】' + typeLabel + ' / 案件: ' + caseId;
+    var body        = '承認依頼が届きました。\n\n案件ID: ' + caseId + '\n種別: ' + typeLabel + '\n申請者: ' + requestedBy + '\nコメント: ' + (comment || '（なし）') + '\n\nシステムで確認・承認してください:\n' + appUrl;
+    var htmlBody    = _buildEmailHtml('承認依頼: ' + typeLabel, [
+      ['案件ID', caseId],
+      ['種別', typeLabel],
+      ['申請者', requestedBy],
+      ['コメント', comment || '（なし）'],
+    ], appUrl);
+    try { GmailApp.sendEmail(approver, subject, body, { htmlBody: htmlBody, name: '見積・注文管理システム' }); } catch(e2) { Logger.log('[APPROVAL EMAIL ERR] ' + e2.message); }
+
+    // NOTIFY_EMAILS にも通知
+    _sendNotifyEmail(subject, body, htmlBody);
+    _writeAuditLog('approval_submit', '案件:' + caseId + ' / 承認者:' + approver, 'success');
+
+    return { success: true, id: id };
+  } catch(e) {
+    return _errorResponse(e, '承認申請');
+  }
+}
+
+function _apiUpdateApproval(p) {
+  try {
+    var id      = String(p.id      || '').trim();
+    var status  = String(p.status  || '').trim();
+    var comment = String(p.comment || '').trim();
+    if (!id || !['approved','rejected'].includes(status)) return { success: false, error: 'IDまたはステータスが不正です' };
+
+    var sheet   = _getApprovalSheet();
+    var lastRow = sheet.getLastRow();
+    if (lastRow <= 1) return { success: false, error: '承認レコードが見つかりません' };
+    var data    = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+    var rowIdx  = -1;
+    for (var i = 0; i < data.length; i++) {
+      if (String(data[i][0]) === id) { rowIdx = i + 2; break; }
+    }
+    if (rowIdx < 0) return { success: false, error: '対象の承認リクエストが見つかりません' };
+
+    var now    = new Date();
+    var checker = Session.getActiveUser().getEmail() || 'unknown';
+    sheet.getRange(rowIdx, 8).setValue(status);
+    sheet.getRange(rowIdx, 9).setValue(now);
+    sheet.getRange(rowIdx, 10).setValue(comment);
+
+    // 行データ取得してメール通知
+    var rowData = sheet.getRange(rowIdx, 1, 1, APPROVAL_HEADERS.length).getValues()[0];
+    var caseId      = String(rowData[3] || '');
+    var type        = String(rowData[4] || '');
+    var requestedBy = String(rowData[2] || '');
+    var appUrl      = ScriptApp.getService().getUrl();
+    var TYPE_LABELS = { quote_approval:'見積書承認', order_approval:'注文書承認', delivery_approval:'納品承認', discount_approval:'値引き承認' };
+    var statusLabel = status === 'approved' ? '✅ 承認済み' : '❌ 却下';
+    var subject     = '【' + (status === 'approved' ? '承認完了' : '却下通知') + '】' + (TYPE_LABELS[type] || type) + ' / 案件: ' + caseId;
+    var body        = '承認リクエストが処理されました。\n\n案件ID: ' + caseId + '\n結果: ' + statusLabel + '\n処理者: ' + checker + '\nコメント: ' + (comment || '（なし）');
+    var htmlBody    = _buildEmailHtml('承認リクエスト: ' + statusLabel, [
+      ['案件ID', caseId],
+      ['種別', TYPE_LABELS[type] || type],
+      ['結果', statusLabel],
+      ['処理者', checker],
+      ['コメント', comment || '（なし）'],
+    ], appUrl);
+    try { if (requestedBy) GmailApp.sendEmail(requestedBy, subject, body, { htmlBody: htmlBody, name: '見積・注文管理システム' }); } catch(e2) {}
+
+    _writeAuditLog('approval_' + status, '案件:' + caseId + ' / 処理者:' + checker, 'success');
+    return { success: true };
+  } catch(e) {
+    return _errorResponse(e, '承認処理');
   }
 }
