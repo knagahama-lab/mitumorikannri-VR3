@@ -3,6 +3,7 @@ const DEFAULT_MENU = [
   { id:'list',       icon:'📋', label:'案件一覧',         section:'営業・進行管理', visible:true },
   { id:'ledger',     icon:'📝', label:'見積台帳',         section:'営業・進行管理', visible:true },
   { id:'matching',   icon:'🔗', label:'AI紐づけ',         section:'営業・進行管理', visible:true },
+  { id:'analytics',  icon:'📊', label:'分析ダッシュボード', section:'営業・進行管理', visible:true },
   { id:'calendar',   icon:'📅', label:'スケジュール',     section:'営業・進行管理', visible:true },
   { id:'ocr',        icon:'🔍', label:'簡易OCR',          section:'営業・進行管理', visible:true },
   { id:'aichat',     icon:'🤖', label:'AIアシスタント',   section:'自動化・連携',   visible:true },
@@ -10,12 +11,13 @@ const DEFAULT_MENU = [
   { id:'assignees',  icon:'👥', label:'担当者管理',       section:'自動化・連携',   visible:true },
   { id:'approval',   icon:'✅', label:'製造承認',         section:'自動化・連携',   visible:true },
   { id:'board',      icon:'🏷️', label:'基板管理',         section:'マスタ管理',     visible:true },
-  { id:'analysis',   icon:'📊', label:'分析・レポート',   section:'マスタ管理',     visible:true },
+  { id:'analysis',   icon:'🔍', label:'基板分析',   section:'マスタ管理',     visible:true },
   { id:'todo',       icon:'✅', label:'ToDo',             section:'ツール',         visible:true },
   { id:'drivesearch',icon:'💾', label:'全文検索',         section:'ツール',         visible:true },
   { id:'admin',      icon:'⚙️', label:'管理コンソール',   section:'設定',           visible:true },
   { id:'bom_ext',    icon:'🏭', label:'BOM・原価管理',    section:'設定',           visible:true, external:'' }
 ];
+
 
 let IS_ADMIN = true; // 強制的に管理者権限を付与
 let userMenuConfig = [];
@@ -24,7 +26,7 @@ const PAGE_TITLES = {
   list:'案件一覧', ledger:'見積台帳', matching:'AI紐づけ', calendar:'スケジュール',
   ocr:'簡易OCR', todo:'ToDo', drivesearch:'全文検索', admin:'システム管理コンソール',
   workflow:'業務フロー', assignees:'担当者管理', approval:'製造承認', board:'基板管理',
-  analysis:'分析・レポート', aichat:'AIアシスタント',
+  analysis:'基板分析', aichat:'AIアシスタント', analytics:'📊 分析ダッシュボード',
 };
 
 const S = { all:[], filtered:[], page:1, limit:30, docType:'quote', orderType:'', selectedFile:null, calYear: new Date().getFullYear(), calMonth: new Date().getMonth()+1, calEvents:[] };
@@ -78,6 +80,7 @@ function showPage(name){
   if(name==='matching' && typeof loadMatchingCandidates==='function') loadMatchingCandidates();
   if(name==='drivesearch' && typeof clearDriveSearch==='function') clearDriveSearch();
   if(name==='admin') _onShowAdmin();
+  if(name==='analytics' && typeof loadAnalytics==='function') loadAnalytics();
 }
 
 function toggleSidebar(){ document.getElementById('sidebar').classList.toggle('collapsed'); }

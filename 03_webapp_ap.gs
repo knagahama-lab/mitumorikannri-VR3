@@ -178,6 +178,13 @@ function handleApiRequest(action, payload) {
       case 'ocrApprove':  res = apiOcrApprove(payload);  break;
       case 'ocrDiscard':  res = apiOcrDiscard(payload);  break;
 
+      // ===== ★ 新機能 API =====
+      case 'getAnalytics':     res = _apiGetAnalytics(payload);    break;
+      case 'exportCsv':        res = _apiExportCsv(payload);       break;
+      case 'getExportUrl':     res = _apiGetExportUrl(payload);    break;
+      case 'aiMonthlySummary': res = _apiAiMonthlySummary(payload); break;
+      case 'invalidateCache':  _invalidateMgmtCache(); res = { success: true }; break;
+
       default: return { success: false, error: '不明なアクション: ' + action };
     }
     
@@ -191,9 +198,267 @@ function handleApiRequest(action, payload) {
 }
 
 // ============================================================
+// ★ CacheService キャッシュ（速度改善）
+// ============================================================
+var MGMT_CACHE_KEY   = 'MGMT_DATA_CACHE';
+var MGMT_CACHE_TTL   = 30; // 秒
+
+function _getCachedMgmtData() {
+  try {
+    var cache  = CacheService.getScriptCache();
+    var cached = cache.get(MGMT_CACHE_KEY);
+    if (cached) return JSON.parse(cached);
+  } catch(e) {}
+  return null;
+}
+
+function _setCachedMgmtData(data) {
+  try {
+    var cache = CacheService.getScriptCache();
+    var str   = JSON.stringify(data);
+    // 100KB制限内に収める
+    if (str.length < 90000) {
+      cache.put(MGMT_CACHE_KEY, str, MGMT_CACHE_TTL);
+    }
+  } catch(e) {}
+}
+
+function _invalidateMgmtCache() {
+  try { CacheService.getScriptCache().remove(MGMT_CACHE_KEY); } catch(e) {}
+}
+
+// データ書き込み後に必ずキャッシュを無効化する
+function getAllMgmtDataWithCache() {
+  var cached = _getCachedMgmtData();
+  if (cached) return cached;
+  var data = getAllMgmtData();
+  _setCachedMgmtData(data);
+  return data;
+}
+
+// ============================================================
+// ★ 分析データAPI（グラフ用）
+// ============================================================
+function _apiGetAnalytics(p) {
+  try {
+    var rows    = getAllMgmtData().map(_rowToObject);
+    var today   = new Date();
+    var nowYM   = today.getFullYear() + '/' + String(today.getMonth()+1).padStart(2,'0');
+
+    // ---- 月別受注金額（過去6ヶ月）----
+    var months = [];
+    for (var m = 5; m >= 0; m--) {
+      var d   = new Date(today.getFullYear(), today.getMonth() - m, 1);
+      var ym  = d.getFullYear() + '/' + String(d.getMonth()+1).padStart(2,'0');
+      var lbl = String(d.getMonth()+1) + '月';
+      var tot = rows.filter(function(r){ return String(r.orderDate||r.quoteDate||'').startsWith(ym); })
+                    .reduce(function(s,r){ return s + (Number(r.orderAmount)||0); }, 0);
+      months.push({ ym: ym, label: lbl, amount: tot });
+    }
+
+    // ---- ステータス別件数 ----
+    var byStatus = {};
+    rows.forEach(function(r) {
+      var st = r.status || '不明';
+      byStatus[st] = (byStatus[st]||0) + 1;
+    });
+
+    // ---- 顧客別受注金額 TOP5 ----
+    var byClient = {};
+    rows.forEach(function(r) {
+      var cl = r.client || '不明';
+      byClient[cl] = (byClient[cl]||0) + (Number(r.orderAmount)||0);
+    });
+    var topClients = Object.keys(byClient)
+      .map(function(k){ return { client: k, amount: byClient[k] }; })
+      .sort(function(a,b){ return b.amount - a.amount; })
+      .slice(0, 5);
+
+    // ---- 試作 vs 量産 ----
+    var trialCount = rows.filter(function(r){ return r.orderType === '試作'; }).length;
+    var massCount  = rows.filter(function(r){ return r.orderType === '量産'; }).length;
+
+    // ---- 今月サマリー ----
+    var thisMonth = rows.filter(function(r){
+      return String(r.orderDate||r.quoteDate||'').startsWith(nowYM);
+    });
+    var totalThisMonth = thisMonth.reduce(function(s,r){ return s+(Number(r.orderAmount)||0); }, 0);
+    var unlinked = rows.filter(function(r){ return r.orderNo && !r.quoteNo && !r.linked; }).length;
+
+    return {
+      success:      true,
+      monthlyAmounts: months,
+      byStatus:     byStatus,
+      topClients:   topClients,
+      orderTypeRatio: { trial: trialCount, mass: massCount },
+      thisMonth:    { count: thisMonth.length, amount: totalThisMonth },
+      unlinkedCount: unlinked,
+      totalCases:   rows.length,
+    };
+  } catch(e) {
+    Logger.log('[_apiGetAnalytics] ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// ============================================================
+// ★ CSVエクスポートAPI
+// ============================================================
+function _apiExportCsv(p) {
+  try {
+    var sheetType = String(p.sheetType || 'management');
+    var ss    = getSpreadsheet();
+    var sheet, headers, rowMapper;
+
+    if (sheetType === 'management') {
+      sheet  = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT);
+      headers = ['管理ID','見積番号','注文番号','件名','顧客名','ステータス',
+                 '見積日','発注日','見積金額','注文金額','消費税','合計金額',
+                 '注文種別','機種コード','担当者','納期','メモ','更新日時'];
+      rowMapper = function(r) {
+        return [r[0],r[1],r[2],r[3],r[4],r[5],
+                _toDateStr(r[6]),_toDateStr(r[7]),r[8],r[9],r[10],r[11],
+                r[18],r[19],r[21],_toDateStr(r[22]),r[23],_toDateStr(r[25])];
+      };
+    } else if (sheetType === 'quotes') {
+      sheet   = ss.getSheetByName(CONFIG.SHEET_QUOTES);
+      headers = ['管理ID','見積番号','発行日','宛先企業','担当者','行No','品名','仕様','数量','単位','単価','金額','備考'];
+      rowMapper = function(r) { return r.slice(0, 13); };
+    } else {
+      sheet   = ss.getSheetByName(CONFIG.SHEET_ORDERS);
+      headers = ['管理ID','注文番号','見積番号','注文種別','発注日','機種コード','品名','数量','単価','金額'];
+      rowMapper = function(r) { return [r[0],r[1],r[2],r[3],_toDateStr(r[4]),r[5],r[8],r[12],r[14],r[15]]; };
+    }
+
+    if (!sheet || sheet.getLastRow() <= 1) return { success: true, csv: '', count: 0 };
+
+    var data = sheet.getRange(2, 1, sheet.getLastRow()-1, sheet.getLastColumn()).getValues();
+    var csvRows = [headers];
+    data.forEach(function(r) {
+      if (!r[0]) return;
+      csvRows.push(rowMapper(r).map(function(v) {
+        var s = String(v == null ? '' : v);
+        return s.indexOf(',') >= 0 || s.indexOf('"') >= 0 || s.indexOf('\n') >= 0
+          ? '"' + s.replace(/"/g, '""') + '"' : s;
+      }));
+    });
+
+    var csv = csvRows.map(function(r){ return r.join(','); }).join('\n');
+    // BOM付きUTF-8（Excelで文字化けしない）
+    var bom = '\uFEFF';
+    var b64 = Utilities.base64Encode(Utilities.newBlob(bom + csv, 'text/csv').getBytes());
+
+    return {
+      success: true,
+      csv:     b64,
+      count:   csvRows.length - 1,
+      filename: sheetType + '_' + Utilities.formatDate(new Date(),'Asia/Tokyo','yyyyMMdd') + '.csv',
+    };
+  } catch(e) {
+    Logger.log('[_apiExportCsv] ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// スプレッドシートをExcel形式でダウンロードするURL
+function _apiGetExportUrl(p) {
+  try {
+    var ss = getSpreadsheet();
+    var sheetName = String(p.sheetName || CONFIG.SHEET_MANAGEMENT);
+    var sheet = ss.getSheetByName(sheetName);
+    var gid   = sheet ? sheet.getSheetId() : 0;
+    var url   = 'https://docs.google.com/spreadsheets/d/' + ss.getId() +
+                '/export?format=xlsx&gid=' + gid;
+    return { success: true, url: url };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+// ============================================================
+// ★ AI月次サマリー生成
+// ============================================================
+function _apiAiMonthlySummary(p) {
+  try {
+    var apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') ||
+                 CONFIG.GEMINI_API_KEY;
+    if (!apiKey) return { success: false, error: 'GEMINI_API_KEY未設定' };
+
+    // 分析データを取得
+    var analytics = _apiGetAnalytics({});
+    if (!analytics.success) return analytics;
+
+    var today     = new Date();
+    var monthLabel = today.getFullYear() + '年' + (today.getMonth()+1) + '月';
+
+    var monthlyStr = analytics.monthlyAmounts.map(function(m) {
+      return m.label + ': ¥' + Number(m.amount).toLocaleString();
+    }).join('、');
+
+    var statusStr = Object.keys(analytics.byStatus)
+      .map(function(k){ return k + ':' + analytics.byStatus[k] + '件'; }).join('、');
+
+    var clientStr = analytics.topClients
+      .map(function(c){ return c.client + '(¥' + Number(c.amount).toLocaleString() + ')'; }).join('、');
+
+    var prompt = [
+      '以下は見積・注文書管理システムの業務データです。' + monthLabel + 'を対象に、',
+      '経営者向けの日本語サマリーを400文字以内で作成してください。',
+      '重要なポイント・注意点・改善提案を必ず含めてください。',
+      '',
+      '【今月データ】',
+      '・件数: ' + analytics.thisMonth.count + '件',
+      '・金額: ¥' + Number(analytics.thisMonth.amount).toLocaleString(),
+      '・未紐づけ注文: ' + analytics.unlinkedCount + '件',
+      '',
+      '【直近6ヶ月の月別金額】',
+      monthlyStr,
+      '',
+      '【ステータス別件数（全体）】',
+      statusStr,
+      '',
+      '【受注上位顧客】',
+      clientStr,
+      '',
+      '【受注種別】試作:' + analytics.orderTypeRatio.trial + '件 / 量産:' + analytics.orderTypeRatio.mass + '件',
+    ].join('\n');
+
+    var model    = CONFIG.GEMINI_PRIMARY_MODEL || 'gemini-1.5-flash';
+    var url      = CONFIG.GEMINI_API_ENDPOINT + model + ':generateContent?key=' + apiKey;
+    var response = UrlFetchApp.fetch(url, {
+      method: 'post', contentType: 'application/json',
+      payload: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { maxOutputTokens: 512, temperature: 0.4 }
+      }),
+      muteHttpExceptions: true,
+    });
+
+    var json = JSON.parse(response.getContentText());
+    if (json.error) return { success: false, error: json.error.message };
+
+    var text = (json.candidates && json.candidates[0] &&
+                json.candidates[0].content && json.candidates[0].content.parts)
+               ? json.candidates[0].content.parts.map(function(p){ return p.text||''; }).join('')
+               : 'サマリー生成に失敗しました。';
+
+    return {
+      success:   true,
+      summary:   text,
+      period:    monthLabel,
+      analytics: analytics,
+    };
+  } catch(e) {
+    Logger.log('[_apiAiMonthlySummary] ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// ============================================================
 // ★ 安全版：案件データ取得
 // ============================================================
 function _apiGetAll() {
+
   try {
     var rows = getAllMgmtData();
 

@@ -1,8 +1,233 @@
 <script>
 // ============================================================
+// ★ 分析ダッシュボード（Chart.js）
+// ============================================================
+let _chartInstances = {};
+
+function loadAnalytics() {
+  const loading = document.getElementById('analytics-loading');
+  if (loading) loading.style.display = 'block';
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (loading) loading.style.display = 'none';
+      if (!res || !res.success) { showToast('データ取得失敗: ' + (res ? res.error : '不明'), true); return; }
+      _renderAnalytics(res);
+    })
+    .withFailureHandler(function(err) {
+      if (loading) loading.style.display = 'none';
+      showToast('通信エラー: ' + err.message, true);
+    })
+    .handleApiRequest('getAnalytics', {});
+}
+
+function _renderAnalytics(data) {
+  // KPIカード
+  _setEl('kpi-month-count',  data.thisMonth ? data.thisMonth.count : '—');
+  _setEl('kpi-month-amount', data.thisMonth ? '¥' + Number(data.thisMonth.amount).toLocaleString() : '—');
+  _setEl('kpi-total',        data.totalCases || '—');
+  _setEl('kpi-unlinked',     data.unlinkedCount !== undefined ? data.unlinkedCount : '—');
+
+  // カラーパレット
+  const COLORS = ['#3b82f6','#22c55e','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899'];
+
+  // --- 1. 月別受注金額 棒グラフ ---
+  _destroyChart('chart-monthly');
+  const mc = document.getElementById('chart-monthly');
+  if (mc && data.monthlyAmounts) {
+    _chartInstances['chart-monthly'] = new Chart(mc.getContext('2d'), {
+      type: 'bar',
+      data: {
+        labels: data.monthlyAmounts.map(function(m){ return m.label; }),
+        datasets: [{
+          label: '受注金額（円）',
+          data: data.monthlyAmounts.map(function(m){ return m.amount; }),
+          backgroundColor: 'rgba(59,130,246,0.75)',
+          borderColor: '#3b82f6',
+          borderWidth: 2,
+          borderRadius: 6,
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { ticks: { callback: function(v){ return '¥' + Number(v).toLocaleString(); } } }
+        }
+      }
+    });
+  }
+
+  // --- 2. ステータス別 ドーナツグラフ ---
+  _destroyChart('chart-status');
+  const sc = document.getElementById('chart-status');
+  if (sc && data.byStatus) {
+    const labels = Object.keys(data.byStatus);
+    _chartInstances['chart-status'] = new Chart(sc.getContext('2d'), {
+      type: 'doughnut',
+      data: {
+        labels: labels,
+        datasets: [{
+          data: labels.map(function(k){ return data.byStatus[k]; }),
+          backgroundColor: COLORS.slice(0, labels.length),
+          borderWidth: 3, borderColor: '#fff',
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { position: 'right', labels: { font: { size: 11 } } } }
+      }
+    });
+  }
+
+  // --- 3. 顧客別受注金額 横棒グラフ ---
+  _destroyChart('chart-clients');
+  const cc = document.getElementById('chart-clients');
+  if (cc && data.topClients && data.topClients.length > 0) {
+    _chartInstances['chart-clients'] = new Chart(cc.getContext('2d'), {
+      type: 'bar',
+      data: {
+        labels: data.topClients.map(function(c){ return c.client.substring(0,12); }),
+        datasets: [{
+          label: '受注金額',
+          data: data.topClients.map(function(c){ return c.amount; }),
+          backgroundColor: ['#3b82f6','#22c55e','#f59e0b','#ef4444','#8b5cf6'],
+          borderRadius: 6,
+        }]
+      },
+      options: {
+        indexAxis: 'y', responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { ticks: { callback: function(v){ return '¥' + Number(v/10000).toFixed(0) + '万'; } } }
+        }
+      }
+    });
+  }
+
+  // --- 4. 試作 vs 量産 パイチャート ---
+  _destroyChart('chart-type');
+  const tc = document.getElementById('chart-type');
+  if (tc && data.orderTypeRatio) {
+    _chartInstances['chart-type'] = new Chart(tc.getContext('2d'), {
+      type: 'pie',
+      data: {
+        labels: ['試作', '量産', 'その他'],
+        datasets: [{
+          data: [
+            data.orderTypeRatio.trial || 0,
+            data.orderTypeRatio.mass  || 0,
+            Math.max(0, (data.totalCases||0) - (data.orderTypeRatio.trial||0) - (data.orderTypeRatio.mass||0))
+          ],
+          backgroundColor: ['#f59e0b','#22c55e','#94a3b8'],
+          borderWidth: 3, borderColor: '#fff',
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { position: 'right', labels: { font: { size: 11 } } } }
+      }
+    });
+  }
+}
+
+function _destroyChart(id) {
+  if (_chartInstances[id]) { _chartInstances[id].destroy(); delete _chartInstances[id]; }
+}
+function _setEl(id, val) { var el = document.getElementById(id); if (el) el.textContent = val; }
+
+// ============================================================
+// ★ AI月次サマリー
+// ============================================================
+function loadAiSummary() {
+  const btn = document.getElementById('ai-summary-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '🤖 AI分析中...'; }
+  const box = document.getElementById('ai-summary-box');
+  const textEl = document.getElementById('ai-summary-text');
+  if (box) box.style.display = 'none';
+  if (textEl) textEl.textContent = '生成中...';
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (btn) { btn.disabled = false; btn.textContent = '🤖 AIサマリー生成'; }
+      if (!res || !res.success) { showToast('AI生成失敗: ' + (res ? res.error : '不明'), true); return; }
+      if (box) box.style.display = 'block';
+      if (textEl) textEl.textContent = res.summary || '—';
+      const periodEl = document.getElementById('ai-summary-period');
+      if (periodEl) periodEl.textContent = res.period + ' 業務サマリー';
+      // グラフも同時に更新
+      if (res.analytics) _renderAnalytics(res.analytics);
+      showToast('✅ AIサマリーを生成しました');
+    })
+    .withFailureHandler(function(err) {
+      if (btn) { btn.disabled = false; btn.textContent = '🤖 AIサマリー生成'; }
+      showToast('通信エラー: ' + err.message, true);
+    })
+    .handleApiRequest('aiMonthlySummary', {});
+}
+
+// ============================================================
+// ★ PDFインラインプレビュー
+// ============================================================
+function openPdfPreview(url, title) {
+  var modal = document.getElementById('pdf-preview-modal');
+  var frame = document.getElementById('pdf-preview-frame');
+  var titleEl = document.getElementById('pdf-preview-title');
+  var openLink = document.getElementById('pdf-preview-open-link');
+  if (!modal || !frame) { window.open(url, '_blank'); return; }
+  var viewerUrl = 'https://docs.google.com/viewer?url=' + encodeURIComponent(url) + '&embedded=true';
+  frame.src = viewerUrl;
+  if (titleEl) titleEl.textContent = '📄 ' + (title || 'PDFプレビュー');
+  if (openLink) openLink.href = url;
+  modal.classList.add('open');
+}
+
+function closePdfPreview() {
+  var modal = document.getElementById('pdf-preview-modal');
+  var frame = document.getElementById('pdf-preview-frame');
+  if (modal) modal.classList.remove('open');
+  if (frame) frame.src = ''; // メモリ解放
+}
+
+// ============================================================
+// ★ CSVエクスポート
+// ============================================================
+function exportCsv(sheetType) {
+  sheetType = sheetType || 'management';
+  showToast('CSVを準備中...');
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success || !res.csv) { showToast('エクスポート失敗', true); return; }
+      var binary = atob(res.csv);
+      var bytes  = new Uint8Array(binary.length);
+      for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      var blob = new Blob([bytes], { type: 'text/csv;charset=utf-8;' });
+      var url  = URL.createObjectURL(blob);
+      var a    = document.createElement('a');
+      a.href = url; a.download = res.filename || (sheetType + '.csv');
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a); URL.revokeObjectURL(url);
+      showToast('✅ ' + (res.count || 0) + '件をCSVでダウンロードしました');
+    })
+    .withFailureHandler(function(err) { showToast('通信エラー: ' + err.message, true); })
+    .handleApiRequest('exportCsv', { sheetType: sheetType });
+}
+
+function exportExcel(sheetName) {
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success) { showToast('エクスポート失敗', true); return; }
+      window.open(res.url, '_blank');
+      showToast('✅ Excelダウンロードを開始しました');
+    })
+    .handleApiRequest('getExportUrl', { sheetName: sheetName || '案件管理' });
+}
+
+// ============================================================
 // ファイルアップロード (OCR) 
 // ============================================================
 function openUploadModal(){
+
   S.selectedFile=null;S.orderType='';
   document.getElementById('upload-status').innerHTML='';
   document.getElementById('upload-btn').disabled=true;
