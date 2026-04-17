@@ -167,9 +167,88 @@ tr:hover td{background:#f8fafc;}
 .page-heading{ display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; }
 .page-heading h2{ font-size:19px; font-weight:700; color:var(--text); letter-spacing:-.01em; }
 .page-heading p{ font-size:12px; color:var(--text-sub); margin-top:3px; }
+
+/* ============================================================
+   ★ モバイルレスポンシブ対応
+============================================================ */
+#mobile-menu-btn {
+  display: none;
+  position: fixed; top: 12px; left: 12px; z-index: 1100;
+  background: var(--primary); color: #fff; border: none;
+  border-radius: 8px; width: 40px; height: 40px;
+  font-size: 18px; cursor: pointer; align-items: center;
+  justify-content: center; box-shadow: var(--shadow-md);
+  transition: all 0.2s;
+}
+#mobile-menu-btn:hover { background: var(--primary-dark, #2563eb); }
+#sidebar-overlay {
+  display: none; position: fixed; inset: 0; z-index: 900;
+  background: rgba(0,0,0,0.45); backdrop-filter: blur(2px);
+}
+#sidebar-overlay.open { display: block; }
+
+@media (max-width: 768px) {
+  #mobile-menu-btn { display: flex; }
+  #sidebar {
+    position: fixed !important; left: -280px; top: 0; height: 100vh;
+    z-index: 1000; transition: left 0.25s cubic-bezier(.4,0,.2,1);
+    box-shadow: var(--shadow-lg);
+  }
+  #sidebar.mobile-open { left: 0; }
+  #sidebar .sidebar-toggle { display: none; }
+  #main { margin-left: 0 !important; }
+  #topbar { padding-left: 60px; }
+  #content { padding: 12px 10px; }
+
+  /* テーブル横スクロール */
+  #table-container, #quotelist-container { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table { min-width: 700px; font-size: 12px; }
+  th, td { padding: 7px 8px; }
+
+  /* グラフを1列に */
+  div[style*="grid-template-columns:1fr 1fr"] {
+    display: block !important;
+  }
+  div[style*="grid-template-columns:1fr 1fr"] > div {
+    margin-bottom: 16px !important;
+  }
+
+  /* サマリーグリッドを2列に */
+  .summary-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 10px !important; }
+  .summary-card { padding: 14px 12px !important; }
+  .summary-card .val { font-size: 22px !important; }
+
+  /* フォーム行を1列に */
+  .form-row { grid-template-columns: 1fr !important; }
+  #filter-row { flex-wrap: wrap !important; gap: 6px !important; }
+
+  /* モーダル */
+  .modal { width: 98% !important; max-width: 98% !important; margin: 4px auto !important; }
+  .modal-head h3 { font-size: 14px !important; }
+
+  /* ページHeading縦積み */
+  .page-heading { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .page-heading > div:last-child { width: 100%; display: flex; flex-wrap: wrap; gap: 6px; }
+  .page-heading .btn { font-size: 12px; padding: 6px 10px; }
+
+  /* 分析ボックス */
+  #ai-summary-box { padding: 14px 12px; }
+  #pdf-preview-frame { height: 55vh; }
+}
+
+@media (max-width: 480px) {
+  .summary-grid { grid-template-columns: 1fr 1fr !important; }
+  table { font-size: 11px; }
+  th, td { padding: 5px 6px; }
+  #topbar { padding-left: 56px; font-size: 13px; }
+  .topbar-btn { font-size: 11px; padding: 5px 8px; }
+}
 </style>
 </head>
 <body>
+<!-- ★ モバイルハンバーガーメニューボタン -->
+<button id="mobile-menu-btn" onclick="_toggleMobileSidebar()" title="メニュー">☰</button>
+<div id="sidebar-overlay" onclick="_toggleMobileSidebar()"></div>
 <div id="app-shell">
 
 <!-- ============================================================

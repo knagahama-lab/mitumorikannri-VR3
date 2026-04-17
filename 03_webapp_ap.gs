@@ -3,6 +3,94 @@
 // ファイル 3/4: Webアプリ doGet / API ルーター
 // ============================================================
 
+// ============================================================
+// ★ 共通ユーティリティ: エラーハンドリング・監査ログ・メール通知
+// ============================================================
+
+/**
+ * 統一エラーレスポンス生成（内部エラー詳細を外部に漏らさない）
+ */
+function _errorResponse(e, context) {
+  Logger.log('[ERROR][' + (context || 'unknown') + '] ' + e.message + '\n' + e.stack);
+  return { success: false, error: (context || 'エラー') + 'が発生しました。時間をおいて再試行してください。' };
+}
+
+/**
+ * 監査ログをスプレッドシートの「監査ログ」シートに書き込む
+ * @param {string} action  - 操作種別 (例: 'quote_import', 'api_key_update')
+ * @param {string} detail  - 詳細情報
+ * @param {string} result  - 'success' or 'error'
+ */
+function _writeAuditLog(action, detail, result) {
+  try {
+    var ss    = getSpreadsheet();
+    var sheet = ss.getSheetByName('監査ログ');
+    if (!sheet) {
+      sheet = ss.insertSheet('監査ログ');
+      sheet.appendRow(['日時', '操作者', '操作種別', '詳細', '結果']);
+      sheet.setFrozenRows(1);
+      sheet.getRange(1, 1, 1, 5).setFontWeight('bold').setBackground('#e8f0fe');
+    }
+    var user = Session.getActiveUser().getEmail() || 'system';
+    sheet.appendRow([
+      Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm:ss'),
+      user, action, String(detail).substring(0, 300), result || 'success'
+    ]);
+  } catch(e) {
+    Logger.log('[AUDIT LOG ERROR] ' + e.message);
+  }
+}
+
+/**
+ * Gmail メール通知送信（NOTIFY_EMAILS に設定されたアドレスへ）
+ * @param {string} subject - 件名
+ * @param {string} body    - 本文（プレーンテキスト）
+ * @param {string} htmlBody - HTML形式の本文（任意）
+ */
+function _sendNotifyEmail(subject, body, htmlBody) {
+  try {
+    var props    = PropertiesService.getScriptProperties();
+    var toStr    = props.getProperty('NOTIFY_EMAILS') || '';
+    var settings = _loadSettingsObj();
+    // 設定でメール通知が有効かつ送信先が設定されている場合のみ送信
+    if (!toStr || toStr.trim() === '') return;
+    var toEmails = toStr.split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+    if (toEmails.length === 0) return;
+    var options = { name: '見積・注文管理システム', noReply: false };
+    if (htmlBody) options.htmlBody = htmlBody;
+    toEmails.forEach(function(email) {
+      try {
+        GmailApp.sendEmail(email, subject, body, options);
+      } catch(e2) {
+        Logger.log('[GMAIL SEND ERROR] to:' + email + ' / ' + e2.message);
+      }
+    });
+    Logger.log('[NOTIFY EMAIL SENT] to:' + toEmails.join(',') + ' / ' + subject);
+  } catch(e) {
+    Logger.log('[NOTIFY EMAIL ERROR] ' + e.message);
+  }
+}
+
+/**
+ * HTMLメール本文テンプレートを生成
+ */
+function _buildEmailHtml(title, rows, appUrl) {
+  var rowsHtml = rows.map(function(r) {
+    return '<tr><td style="padding:6px 12px;color:#555;font-size:13px;border-bottom:1px solid #eee;">' + r[0] +
+           '</td><td style="padding:6px 12px;font-size:13px;font-weight:600;border-bottom:1px solid #eee;">' + (r[1] || '—') + '</td></tr>';
+  }).join('');
+  return '<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f5f7fa;font-family:-apple-system,sans-serif;">' +
+    '<div style="max-width:560px;margin:30px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.08);">' +
+    '<div style="background:linear-gradient(135deg,#1e40af,#3b82f6);padding:24px 28px;">' +
+    '<h2 style="color:#fff;margin:0;font-size:16px;font-weight:700;">📋 ' + title + '</h2>' +
+    '<p style="color:rgba(255,255,255,0.8);margin:6px 0 0;font-size:12px;">見積・注文管理システム / 自動通知</p>' +
+    '</div>' +
+    '<table style="width:100%;border-collapse:collapse;margin:0;">' + rowsHtml + '</table>' +
+    '<div style="padding:20px 28px;border-top:1px solid #e5e7eb;">' +
+    '<a href="' + (appUrl || '#') + '" style="display:inline-block;background:#1e40af;color:#fff;padding:10px 22px;border-radius:8px;text-decoration:none;font-size:13px;font-weight:600;">🔗 システムで確認する</a>' +
+    '</div></div></body></html>';
+}
+
 function doGet(e) {
   var userEmail = Session.getActiveUser().getEmail() || '';
   var adminEmailsStr = PropertiesService.getScriptProperties().getProperty('ADMIN_EMAILS') || '';
@@ -184,6 +272,7 @@ function handleApiRequest(action, payload) {
       case 'getExportUrl':     res = _apiGetExportUrl(payload);    break;
       case 'aiMonthlySummary': res = _apiAiMonthlySummary(payload); break;
       case 'invalidateCache':  _invalidateMgmtCache(); res = { success: true }; break;
+      case 'getAuditLog':      res = _apiGetAuditLog(payload);     break;
 
       default: return { success: false, error: '不明なアクション: ' + action };
     }
@@ -1593,11 +1682,9 @@ function notifyQuoteImported(info) {
   try {
     var settings   = _loadSettingsObj();
     var webhookUrl = _getChatWebhookUrl();
-    if (!webhookUrl || !settings.notifyQuote) return;
-
-    var amountStr = info.amount ? '¥' + Number(info.amount).toLocaleString() : '—';
-    var rowUrl    = _getMgmtRowUrl(info.mgmtId);
-    var appUrl    = ScriptApp.getService().getUrl();
+    var amountStr  = info.amount ? '¥' + Number(info.amount).toLocaleString() : '—';
+    var rowUrl     = _getMgmtRowUrl(info.mgmtId);
+    var appUrl     = ScriptApp.getService().getUrl();
     var lines = [
       '【📄 見積書を登録しました】',
       '案件名: ' + (info.subject || '—'),
@@ -1610,7 +1697,25 @@ function notifyQuoteImported(info) {
     if (info.pdfUrl)    lines.push('📎 PDF: '     + info.pdfUrl);
     if (info.folderUrl) lines.push('📁 フォルダ: ' + info.folderUrl);
 
-    _postToChat(webhookUrl, lines.join('\n'));
+    // ① Google Chat Webhook 通知
+    if (webhookUrl && settings.notifyQuote) {
+      _postToChat(webhookUrl, lines.join('\n'));
+    }
+
+    // ② Gmail メール通知
+    var subject  = '【見積書登録】' + (info.client || '') + ' / ' + (info.subject || '') + ' / ' + amountStr;
+    var bodyText = lines.join('\n');
+    var htmlBody = _buildEmailHtml('見積書を登録しました', [
+      ['案件名', info.subject || '—'],
+      ['顧客名', info.client  || '—'],
+      ['金額',   amountStr],
+      ['見積No', info.quoteNo || '—'],
+      ['PDF',    info.pdfUrl  ? '<a href="' + info.pdfUrl + '">開く</a>' : '—'],
+    ], appUrl);
+    _sendNotifyEmail(subject, bodyText, htmlBody);
+
+    // ③ 監査ログ
+    _writeAuditLog('quote_import', '顧客:' + (info.client||'—') + ' / 金額:' + amountStr, 'success');
   } catch(e) {
     Logger.log('[NOTIFY QUOTE ERROR] ' + e.message);
   }
@@ -1620,12 +1725,10 @@ function notifyOrderImported(info) {
   try {
     var settings   = _loadSettingsObj();
     var webhookUrl = _getChatWebhookUrl();
-    if (!webhookUrl || !settings.notifyOrder) return;
-
-    var amountStr = info.amount ? '¥' + Number(info.amount).toLocaleString() : '—';
-    var rowUrl    = _getMgmtRowUrl(info.mgmtId);
-    var appUrl    = ScriptApp.getService().getUrl();
-    var lr        = info.linkResult || {};
+    var amountStr  = info.amount ? '¥' + Number(info.amount).toLocaleString() : '—';
+    var rowUrl     = _getMgmtRowUrl(info.mgmtId);
+    var appUrl     = ScriptApp.getService().getUrl();
+    var lr         = info.linkResult || {};
     var lines = [
       '【📦 注文書を登録しました】',
       '発注書番号: ' + (info.orderNo || '—'),
@@ -1656,19 +1759,33 @@ function notifyOrderImported(info) {
       lines.push('');
       lines.push('▶ 紐づけ確定はシステムから行ってください');
       lines.push(appUrl);
-
-    } else if (lr.status === 'no_quotes') {
-      lines.push('❌ 紐づく見積書が見つかりませんでした');
-    } else if (lr.status === 'already_linked') {
-      lines.push('✅ 既に見積書と紐づけ済みです');
-      if (lr.quoteUrl) lines.push('📄 紐づく見積書PDF: ' + lr.quoteUrl);
     }
 
-    _postToChat(webhookUrl, lines.join('\n'));
+    // ① Google Chat Webhook 通知
+    if (webhookUrl && settings.notifyOrder) {
+      _postToChat(webhookUrl, lines.join('\n'));
+    }
+
+    // ② Gmail メール通知
+    var linkStatus = lr.status === 'auto_linked' ? '✅ 自動紐づけ済み' :
+                     (lr.status === 'candidates_found' ? '⚠️ 候補あり（要確認）' : '—');
+    var subject  = '【注文書登録】' + (info.client || '') + ' / ' + (info.orderNo || '') + ' / ' + amountStr;
+    var bodyText = lines.join('\n');
+    var htmlBody = _buildEmailHtml('注文書を登録しました', [
+      ['発注書番号', info.orderNo  || '—'],
+      ['顧客名',     info.client   || '—'],
+      ['金額',       amountStr],
+      ['紐づけ状況', linkStatus],
+    ], appUrl);
+    _sendNotifyEmail(subject, bodyText, htmlBody);
+
+    // ③ 監査ログ
+    _writeAuditLog('order_import', '顧客:' + (info.client||'—') + ' / 金額:' + amountStr + ' / 紐づけ:' + linkStatus, 'success');
   } catch(e) {
     Logger.log('[NOTIFY ORDER ERROR] ' + e.message);
   }
 }
+
 
 function _getMgmtRowUrl(mgmtId) {
   try {
@@ -1721,4 +1838,31 @@ function _apiUploadOrderWithLink(p) {
     res.linkResult = aiRes;
   }
   return res;
+}
+
+// ============================================================
+// ★ 監査ログ取得 API
+// ============================================================
+function _apiGetAuditLog(p) {
+  try {
+    var limit = Math.min(Number(p.limit || 100), 500);
+    var ss    = getSpreadsheet();
+    var sheet = ss.getSheetByName('監査ログ');
+    if (!sheet || sheet.getLastRow() <= 1) return { success: true, logs: [] };
+    var lastRow  = sheet.getLastRow();
+    var startRow = Math.max(2, lastRow - limit + 1);
+    var numRows  = lastRow - startRow + 1;
+    var data     = sheet.getRange(startRow, 1, numRows, 5).getValues();
+    // 新しい順に並び替え
+    data.reverse();
+    var logs = data.map(function(r) {
+      return [
+        r[0] instanceof Date ? Utilities.formatDate(r[0], 'Asia/Tokyo', 'yyyy/MM/dd HH:mm:ss') : String(r[0]),
+        String(r[1] || ''), String(r[2] || ''), String(r[3] || ''), String(r[4] || '')
+      ];
+    });
+    return { success: true, logs: logs, total: data.length };
+  } catch(e) {
+    return _errorResponse(e, '監査ログ取得');
+  }
 }
