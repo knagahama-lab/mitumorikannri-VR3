@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>見積・注文 管理システム</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js'></script>
+<style>
+/* ============================================================
+   CSS Variables & Reset
+============================================================ */
+:root{
+  --sidebar-w: 240px; --sidebar-collapsed-w: 60px; --sidebar-bg: #0f1729;
+  --sidebar-hover: rgba(255,255,255,0.07); --sidebar-active: rgba(74,144,226,0.18);
+  --sidebar-active-bar: #4a90e2; --sidebar-text: rgba(255,255,255,0.65);
+  --sidebar-text-active: #fff; --sidebar-text-sub: rgba(255,255,255,0.35);
+  --sidebar-border: rgba(255,255,255,0.06); --sidebar-logo-bg: #0a1020;
+  --bg: #f4f6fb; --card: #ffffff; --border: #e8eaed; --border-light: #f0f2f5;
+  --primary: #2563eb; --primary-light: #eff6ff; --primary-dark: #1d4ed8;
+  --success: #16a34a; --danger: #dc2626; --warning: #d97706; --info: #0891b2;
+  --s-planned-bg:#f1f5f9;--s-planned-fg:#475569; --s-sent-bg:#eff6ff;--s-sent-fg:#2563eb;
+  --s-received-bg:#fef2f2;--s-received-fg:#dc2626; --s-done-bg:#f0fdf4;--s-done-fg:#16a34a;
+  --trial-bg:#fff7ed;--trial-fg:#c2410c; --mass-bg:#f0fdf4;--mass-fg:#15803d;
+  --text: #1e293b; --text-sub: #64748b; --text-muted: #94a3b8;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+  --shadow: 0 4px 12px rgba(0,0,0,.06), 0 1px 3px rgba(0,0,0,.04);
+  --radius: 10px; --radius-sm: 6px; --radius-lg: 14px;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;overflow:hidden;}
+body{font-family:'Noto Sans JP',sans-serif;background:var(--bg);color:var(--text);font-size:13px;line-height:1.5;}
+#app-shell{ display:flex; height:100vh; overflow:hidden; }
+
+/* Sidebar */
+#sidebar{ width:var(--sidebar-w); min-width:var(--sidebar-w); background:var(--sidebar-bg); display:flex; flex-direction:column; height:100vh; position:relative; transition:width .25s cubic-bezier(.4,0,.2,1),min-width .25s; z-index:100; overflow:hidden; }
+#sidebar.collapsed{ width:var(--sidebar-collapsed-w); min-width:var(--sidebar-collapsed-w); }
+.sidebar-logo{ display:flex; align-items:center; gap:10px; padding:18px 16px 16px; border-bottom:1px solid var(--sidebar-border); background:var(--sidebar-logo-bg); flex-shrink:0; min-height:64px; cursor:pointer; user-select:none; }
+.sidebar-logo-icon{ width:32px; height:32px; border-radius:8px; background:linear-gradient(135deg,#4a90e2,#2563eb); display:flex; align-items:center; justify-content:center; font-size:16px; flex-shrink:0; box-shadow:0 2px 8px rgba(74,144,226,.4); }
+.sidebar-logo-text{ display:flex; flex-direction:column; overflow:hidden; transition:opacity .2s,width .2s; white-space:nowrap; }
+.sidebar-logo-title{ font-size:13px; font-weight:700; color:#fff; letter-spacing:0.02em; line-height:1.2; }
+.sidebar-logo-sub{ font-size:10px; color:var(--sidebar-text-sub); margin-top:1px; }
+#sidebar.collapsed .sidebar-logo-text{ opacity:0; width:0; overflow:hidden; }
+.sidebar-nav{ flex:1; overflow-y:auto; overflow-x:hidden; padding:8px 0; scrollbar-width:thin; scrollbar-color:rgba(255,255,255,.1) transparent; }
+.sidebar-section-label{ font-size:9px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--sidebar-text-sub); padding:14px 18px 5px; white-space:nowrap; transition:opacity .2s; }
+#sidebar.collapsed .sidebar-section-label{ opacity:0; pointer-events:none; }
+.nav-item{ display:flex; align-items:center; gap:10px; padding:9px 14px 9px 16px; margin:1px 8px; border-radius:var(--radius-sm); cursor:pointer; color:var(--sidebar-text); font-size:12.5px; font-weight:500; transition:all .15s; text-decoration:none; position:relative; white-space:nowrap; user-select:none; }
+.nav-item:hover{ background:var(--sidebar-hover); color:var(--sidebar-text-active); }
+.nav-item.active{ background:var(--sidebar-active); color:var(--sidebar-text-active); }
+.nav-item.active::before{ content:''; position:absolute; left:-8px; top:50%; transform:translateY(-50%); width:3px; height:20px; background:var(--sidebar-active-bar); border-radius:0 3px 3px 0; }
+.nav-item-icon{ font-size:15px; width:20px; text-align:center; flex-shrink:0; line-height:1; }
+.nav-item-label{ flex:1; transition:opacity .2s; overflow:hidden; }
+#sidebar.collapsed .nav-item-label{ opacity:0; width:0; overflow:hidden; }
+#sidebar.collapsed .nav-item{ justify-content:center; padding:9px; }
+#sidebar.collapsed .nav-item.active::before{ left:-8px; }
+.sidebar-footer{ padding:12px 8px; border-top:1px solid var(--sidebar-border); flex-shrink:0; }
+.sidebar-user{ display:flex; align-items:center; gap:10px; padding:8px; border-radius:var(--radius-sm); cursor:pointer; transition:background .15s; color:#fff;}
+.sidebar-avatar{ width:28px; height:28px; border-radius:50%; background:linear-gradient(135deg,#4a90e2,#7c3aed); display:flex; align-items:center; justify-content:center; font-size:12px; color:#fff; font-weight:700; flex-shrink:0; }
+.sidebar-user-info{ overflow:hidden; flex:1; transition:opacity .2s; }
+.sidebar-user-name{ font-size:11.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.sidebar-user-role{ font-size:10px; color:var(--sidebar-text-sub); }
+#sidebar.collapsed .sidebar-user-info{ opacity:0; width:0; overflow:hidden; }
+.sidebar-toggle{ position:absolute; top:20px; right:-12px; width:24px; height:24px; background:var(--card); border:1px solid var(--border); border-radius:50%; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:10px; color:var(--text-sub); box-shadow:var(--shadow-sm); z-index:101; transition:transform .25s,box-shadow .15s; }
+.sidebar-toggle:hover{ box-shadow:var(--shadow); color:var(--primary); }
+#sidebar.collapsed .sidebar-toggle{ transform:rotate(180deg); }
+
+/* Main & Topbar */
+#main{ flex:1; display:flex; flex-direction:column; height:100vh; overflow:hidden; min-width:0; }
+#topbar{ height:56px; background:var(--card); border-bottom:1px solid var(--border); display:flex; align-items:center; padding:0 24px; gap:16px; flex-shrink:0; position:sticky; top:0; z-index:50; }
+.topbar-breadcrumb{ display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-sub); }
+.topbar-breadcrumb-current{ font-size:14px; font-weight:700; color:var(--text); }
+.topbar-breadcrumb-sep{ color:var(--border); }
+.topbar-spacer{flex:1;}
+.topbar-actions{ display:flex; align-items:center; gap:8px; }
+.topbar-btn{ height:32px; padding:0 14px; border-radius:var(--radius-sm); border:1px solid var(--border); background:var(--card); color:var(--text); font-size:12px; font-weight:600; cursor:pointer; display:flex; align-items:center; gap:6px; transition:all .15s; font-family:inherit; }
+.topbar-btn:hover{ background:var(--bg); border-color:#c5cdd9; }
+.topbar-btn.primary{ background:var(--primary); color:#fff; border-color:var(--primary); }
+.topbar-btn.primary:hover{ background:var(--primary-dark); }
+
+/* Pages & Components */
+#content{ flex:1; overflow-y:auto; overflow-x:hidden; padding:24px; }
+.page{display:none;max-width:1600px;margin:0 auto;}
+.page.active{display:block;animation:fadeSlideIn .2s ease-out;}
+@keyframes fadeSlideIn{ from{opacity:0;transform:translateY(6px);} to{opacity:1;transform:translateY(0);} }
+.summary-grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:14px;margin-bottom:20px;}
+.summary-card{ background:var(--card); border-radius:var(--radius); padding:18px 20px; box-shadow:var(--shadow-sm); border:1px solid var(--border-light); transition:box-shadow .2s,transform .2s; }
+.summary-card:hover{ box-shadow:var(--shadow); transform:translateY(-1px); }
+.summary-card .lbl{font-size:11px;color:var(--text-sub);margin-bottom:4px;font-weight:500;}
+.summary-card .val{font-size:26px;font-weight:700;}
+.summary-card .sub{font-size:11px;color:var(--text-muted);margin-top:3px;}
+.c-blue{color:var(--primary);} .c-red{color:var(--danger);} .c-green{color:var(--success);}
+.filter-bar{ background:var(--card); border-radius:var(--radius); padding:12px 16px; margin-bottom:16px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; box-shadow:var(--shadow-sm); border:1px solid var(--border-light); }
+.search-box{position:relative;flex:1;min-width:200px;}
+.search-box input{ width:100%; padding:7px 12px 7px 32px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:12px; background:#f8fafc; outline:none; color:var(--text); }
+.search-box input:focus{border-color:var(--primary);background:#fff;}
+.search-box::before{ content:'🔍'; position:absolute; left:9px; top:50%; transform:translateY(-50%); font-size:11px; pointer-events:none; }
+select{ padding:7px 10px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:12px; background:#f8fafc; cursor:pointer; outline:none; color:var(--text); }
+select:focus{border-color:var(--primary);}
+
+.table-wrap{ background:var(--card); border-radius:var(--radius); box-shadow:var(--shadow-sm); overflow:hidden; border:1px solid var(--border-light); }
+.table-toolbar{ padding:12px 16px; border-bottom:1px solid var(--border-light); display:flex; align-items:center; justify-content:space-between; }
+.table-toolbar h2{font-size:14px;font-weight:700;color:var(--text);}
+table{width:100%; border-collapse:collapse;}
+th{ padding:9px 12px; text-align:left; font-size:10.5px; font-weight:700; color:var(--text-sub); border-bottom:1px solid var(--border-light); background:#f8fafc; white-space:nowrap; }
+td{ padding:10px 12px; border-bottom:1px solid var(--border-light); font-size:12.5px; vertical-align:middle; }
+tr:last-child td{border-bottom:none;}
+tr:hover td{background:#f8fafc;}
+.pagination{ display:flex; align-items:center; justify-content:flex-end; gap:4px; padding:10px 16px; border-top:1px solid var(--border-light); }
+.page-btn{ padding:4px 10px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--card); cursor:pointer; font-size:11px; color:var(--text-sub); transition:all .15s; }
+.page-btn:hover{background:var(--bg);color:var(--text);}
+.page-btn.active{background:var(--primary);color:#fff;border-color:var(--primary);}
+
+.badge{ display:inline-flex; align-items:center; padding:2px 8px; border-radius:20px; font-size:10.5px; font-weight:600; white-space:nowrap; }
+.badge-planned{background:var(--s-planned-bg);color:var(--s-planned-fg);}
+.badge-sent{background:var(--s-sent-bg);color:var(--s-sent-fg);}
+.badge-received{background:var(--s-received-bg);color:var(--s-received-fg);}
+.badge-done{background:var(--s-done-bg);color:var(--s-done-fg);}
+.badge-trial{background:var(--trial-bg);color:var(--trial-fg);}
+.badge-mass{background:var(--mass-bg);color:var(--mass-fg);}
+.badge-linked{background:var(--s-done-bg);color:var(--s-done-fg);}
+
+.btn{ padding:7px 14px; border-radius:var(--radius-sm); border:1px solid var(--border); cursor:pointer; font-size:12px; font-weight:600; display:inline-flex; align-items:center; gap:5px; transition:all .15s; background:var(--card); color:var(--text); }
+.btn:hover{background:var(--bg);}
+.btn-primary{background:var(--primary);color:#fff;border-color:var(--primary);}
+.btn-primary:hover{background:var(--primary-dark);}
+.btn-outline{background:transparent;border:1px solid var(--border);}
+.btn-sm{padding:4px 10px;font-size:11px;}
+.btn-danger{background:var(--danger);color:#fff;border-color:var(--danger);}
+.btn-danger:hover{background:#b91c1c;}
+
+/* Forms */
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px;}
+.form-field{display:flex;flex-direction:column;gap:5px;}
+.form-field label{font-size:11.5px;font-weight:600;color:var(--text);}
+.form-field input,.form-field textarea,.form-field select{ padding:8px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); font-size:12.5px; outline:none; color:var(--text); background:var(--card); transition:border .15s; }
+.form-field input:focus,.form-field textarea:focus,.form-field select:focus{ border-color:var(--primary); box-shadow:0 0 0 3px rgba(37,99,235,.08); }
+
+/* Modal */
+.modal-overlay{ display:none; position:fixed; inset:0; background:rgba(0,0,0,.4); z-index:400; align-items:center; justify-content:center; backdrop-filter:blur(2px); }
+.modal-overlay.open{display:flex;}
+.modal{ background:var(--card); border-radius:var(--radius-lg); max-width:600px; width:90%; max-height:90vh; overflow:auto; box-shadow:var(--shadow-lg); animation:modalIn .2s ease-out; }
+@keyframes modalIn{ from{opacity:0;transform:scale(.96)translateY(8px);} to{opacity:1;transform:scale(1)translateY(0);} }
+.modal-head{ padding:18px 22px 14px; border-bottom:1px solid var(--border-light); display:flex; justify-content:space-between; align-items:center; }
+.modal-head h3{font-size:15px;font-weight:700;}
+.modal-close{ background:none;border:none;font-size:18px; cursor:pointer;color:var(--text-sub); width:28px;height:28px; display:flex;align-items:center;justify-content:center; border-radius:6px; transition:background .15s; }
+.modal-close:hover{background:var(--bg);}
+.modal-body{padding:20px 22px;}
+
+.loading{display:flex;flex-direction:column;align-items:center;gap:10px;padding:40px;color:var(--text-sub);}
+.spinner{ width:24px;height:24px; border:2px solid var(--border); border-top-color:var(--primary); border-radius:50%; animation:spin .7s linear infinite; }
+@keyframes spin{to{transform:rotate(360deg);}}
+
+#toast{ position:fixed;bottom:24px;left:50%;transform:translateX(-50%); background:#1e293b;color:#fff;padding:10px 20px; border-radius:8px;font-size:13px;font-weight:500; opacity:0;transition:opacity .3s;z-index:9999; pointer-events:none;white-space:nowrap; box-shadow:var(--shadow-lg); }
+#toast.show{opacity:1;}
+
+.upload-area{ border:2px dashed var(--border); border-radius:var(--radius); padding:28px; text-align:center; cursor:pointer; transition:all .2s; background:#fafbff; }
+.upload-area:hover{border-color:var(--primary);background:#f0f5ff;}
+
+/* Admin Tabs CSS */
+.admin-tab { padding: 10px 20px; border: none; background: none; font-size: 13px; font-weight: 600; color: var(--text-sub); border-bottom: 3px solid transparent; margin-bottom: -2px; cursor: pointer; white-space: nowrap; transition: all 0.15s; }
+.admin-tab:hover { color: var(--primary); background: var(--primary-light); }
+.admin-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+.admin-tab-content { display: none; animation: fadeSlideIn .15s ease-out; }
+
+.page-heading{ display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; }
+.page-heading h2{ font-size:19px; font-weight:700; color:var(--text); letter-spacing:-.01em; }
+.page-heading p{ font-size:12px; color:var(--text-sub); margin-top:3px; }
+</style>
+</head>
+<body>
+<div id="app-shell">
+
+<!-- ============================================================
+     LEFT SIDEBAR
+============================================================ -->
+<nav id="sidebar">
+  <button class="sidebar-toggle" onclick="toggleSidebar()" title="メニューを折り畳む">‹</button>
+  <div class="sidebar-logo" onclick="showPage('list')">
+    <div class="sidebar-logo-icon">📋</div>
+    <div class="sidebar-logo-text">
+      <span class="sidebar-logo-title">見積・注文管理</span>
+      <span class="sidebar-logo-sub">Management System</span>
+    </div>
+  </div>
+  <div class="sidebar-nav" id="sidebar-nav-container"></div>
+  <div class="sidebar-footer">
+    <div class="sidebar-user">
+      <div class="sidebar-avatar" id="sidebar-avatar-icon">U</div>
+      <div class="sidebar-user-info">
+        <div class="sidebar-user-name">
+          <? if (typeof userEmail !== 'undefined' && userEmail) { ?><?= userEmail ?><? } else { ?>ゲスト<? } ?>
+        </div>
+        <div class="sidebar-user-role"><? if (typeof isAdmin !== 'undefined' && isAdmin) { ?>管理者<? } else { ?>一般ユーザー<? } ?></div>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<!-- ============================================================
+     MAIN CONTENT
+============================================================ -->
+<div id="main">
+  <header id="topbar">
+    <div class="topbar-breadcrumb">
+      <span>見積・注文管理</span><span class="topbar-breadcrumb-sep">›</span>
+      <span class="topbar-breadcrumb-current" id="topbar-page-title">案件一覧</span>
+    </div>
+    <div class="topbar-spacer"></div>
+    <div class="topbar-actions">
+      <button class="topbar-btn" onclick="showPage('drivesearch')">🔍 全文検索</button>
+      <button class="topbar-btn primary" onclick="openUploadModal()">＋ PDF登録</button>
+    </div>
+  </header>
+
+  <div id="content">
+    <div id="toast"></div>
+
+    <!-- ページ：案件一覧 -->
+    <div id="page-list" class="page active">
+      <div style="display:flex;gap:8px;margin-bottom:16px;border-bottom:2px solid var(--border);padding-bottom:0;">
+        <button id="subtab-order" onclick="switchSubTab('order')" style="padding:8px 20px;border:none;background:none;font-size:14px;font-weight:600;color:var(--primary);border-bottom:2px solid var(--primary);margin-bottom:-2px;cursor:pointer;">📦 注文書一覧</button>
+        <button id="subtab-quote" onclick="switchSubTab('quote')" style="padding:8px 20px;border:none;background:none;font-size:14px;font-weight:500;color:var(--text-sub);border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;">📄 見積書一覧</button>
+      </div>
+
+      <div id="area-order">
+        <div class="summary-grid">
+          <div class="summary-card"><div class="lbl">送信済み（未受領）</div><div class="val c-blue" id="sum-sent">—</div><div class="sub">件</div></div>
+          <div class="summary-card"><div class="lbl">注文受領</div><div class="val c-red" id="sum-received">—</div><div class="sub">件</div></div>
+          <div class="summary-card"><div class="lbl">納品済み</div><div class="val c-green" id="sum-done">—</div><div class="sub">件</div></div>
+          <div class="summary-card"><div class="lbl">今月の注文合計</div><div class="val" id="sum-amount">—</div><div class="sub">円（税抜）</div></div>
+        </div>
+        <div class="filter-bar">
+          <div class="search-box"><input type="text" id="search-input" placeholder="発注番号・機種・顧客・件名で検索..." oninput="debounceSearch()"></div>
+          <select id="filter-status" onchange="applyFilters()"><option value="">すべてのステータス</option><option value="作成予定">作成予定</option><option value="送信済み">送信済み</option><option value="受領">受領</option><option value="納品済み">納品済み</option></select>
+          <select id="filter-order-type" onchange="applyFilters()"><option value="">すべての種別</option><option value="試作">試作</option><option value="量産">量産</option></select>
+          <select id="filter-month" onchange="applyFilters()"><option value="">すべての月</option></select>
+          <button class="btn btn-outline btn-sm" onclick="clearFilters()">クリア</button>
+          <button class="btn btn-outline btn-sm" onclick="loadData()">🔄</button>
+        </div>
+        <div class="table-wrap">
+          <div class="table-toolbar"><h2>案件一覧</h2><span class="pg-info" id="result-count"></span></div>
+          <div id="table-container"><div class="loading"><div class="spinner"></div><br>読み込み中...</div></div>
+          <div class="pagination" id="pagination"></div>
+        </div>
+      </div>
+
+      <div id="area-quote" style="display:none;">
+        <div class="summary-grid" style="grid-template-columns:repeat(3,1fr);">
+          <div class="summary-card"><div class="lbl">見積書総件数</div><div class="val c-blue" id="qs-total">—</div><div class="sub">件</div></div>
+          <div class="summary-card"><div class="lbl">注文書紐づけ済み</div><div class="val c-green" id="qs-linked">—</div><div class="sub">件</div></div>
+          <div class="summary-card"><div class="lbl">見積合計金額</div><div class="val" id="qs-amount" style="font-size:18px;">—</div><div class="sub">円（税抜）</div></div>
+        </div>
+        <div class="filter-bar">
+          <div class="search-box"><input type="text" id="qs-search" placeholder="見積番号・宛先・担当者で検索..." oninput="applyQuoteFilter()"></div>
+          <select id="qs-filter-status" onchange="applyQuoteFilter()"><option value="">すべてのステータス</option><option value="送信済み">送信済み</option><option value="受領">受領</option><option value="作成予定">作成予定</option><option value="納品済み">納品済み</option></select>
+          <select id="qs-filter-linked" onchange="applyQuoteFilter()"><option value="">紐づき状況</option><option value="linked">注文書あり</option><option value="unlinked">注文書なし</option></select>
+          <button class="btn btn-outline btn-sm" onclick="clearQuoteFilter()">クリア</button>
+          <button class="btn btn-outline btn-sm" onclick="loadQuoteList()">🔄</button>
+        </div>
+        <div class="table-wrap">
+          <div class="table-toolbar"><h2>見積書一覧</h2><span class="pg-info" id="qs-count"></span></div>
+          <div id="quotelist-container"><div class="loading" style="color:var(--text-sub);">「見積書一覧」タブをクリックして読み込んでください</div></div>
+          <div class="pagination" id="qs-pagination"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ページ：システム管理コンソール -->
+    <div id="page-admin" class="page">
+      <div class="page-heading">
+        <div><h2>⚙️ システム管理コンソール</h2><p>権限管理・メール監視・メール配信・外部連携などシステム全体の設定を行います</p></div>
+        <button class="btn btn-outline" onclick="loadAdminSettings()" id="admin-reload-btn">📥 全設定を読み込む</button>
+      </div>
+
+      <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:24px;overflow-x:auto;">
+        <button class="admin-tab active" onclick="switchAdminTab('basic')" id="atab-basic">🔧 基本設定</button>
+        <button class="admin-tab" onclick="switchAdminTab('access')" id="atab-access">👁️ 閲覧権限</button>
+        <button class="admin-tab" onclick="switchAdminTab('mailwatch')" id="atab-mailwatch">📧 メール監視</button>
+        <button class="admin-tab" onclick="switchAdminTab('mailsend')" id="atab-mailsend">✉️ メール配信</button>
+        <button class="admin-tab" onclick="switchAdminTab('rakuraku')" id="atab-rakuraku">🛒 楽楽販売連携</button>
+        <button class="admin-tab" onclick="switchAdminTab('external')" id="atab-external">⚡ 外部連携</button>
+        <button class="admin-tab" onclick="switchAdminTab('menu')" id="atab-menu">🗂️ メニュー設定</button>
+      </div>
+
+      <div id="admin-tab-basic" class="admin-tab-content" style="display:block;">
+        <div style="background:white;border-radius:12px;padding:24px;box-shadow:var(--shadow);margin-bottom:20px;border-left:4px solid var(--primary);">
+          <h3 style="font-size:15px;font-weight:700;color:var(--primary);margin-bottom:4px;">🔧 デプロイ環境設定</h3>
+          <div class="form-row">
+            <div class="form-field"><label>管理者アカウント (Admin Emails)</label><input type="text" id="cfg-admin-emails" placeholder="admin@example.com"></div>
+            <div class="form-field"><label>Google Chat Webhook URL</label><input type="text" id="cfg-chat-webhook" placeholder="https://chat.googleapis.com/v1/spaces/..."></div>
+          </div>
+          <div class="form-row">
+            <div class="form-field">
+              <label>🔑 Gemini API Key</label>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <input type="password" id="cfg-gemini-key" placeholder="新しいAPIキーを入力（変更時のみ）" style="flex:1;">
+                <button class="btn btn-outline btn-sm" onclick="toggleGeminiKeyVisibility()" id="gemini-key-toggle" title="表示/非表示">👁</button>
+                <button class="btn btn-outline btn-sm" onclick="testGeminiConnection()" id="gemini-test-btn" title="接続テスト">🧪 テスト</button>
+              </div>
+              <div id="gemini-key-status" style="margin-top:6px;font-size:11px;color:var(--text-sub);">💡 現在のキーを変更する場合のみ入力してください</div>
+            </div>
+            <div class="form-field"><label>スプレッドシートID</label><input type="text" id="cfg-spreadsheet-id"></div>
+          </div>
+          <!-- Gemini AI 現在の設定情報 -->
+          <div id="gemini-info-box" style="background:var(--primary-light);border:1px solid #bfdbfe;border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:12px;">
+            <div style="font-weight:700;color:var(--primary);margin-bottom:6px;">🤖 Gemini AI 現在の設定</div>
+            <div style="display:flex;flex-wrap:wrap;gap:12px;color:var(--text);">
+              <span>📌 メインモデル: <strong style="color:var(--success);">gemini-1.5-flash（無料枠あり）</strong></span>
+              <span>🔄 フォールバック: <strong>gemini-1.5-pro</strong></span>
+            </div>
+            <div style="margin-top:6px;color:var(--text-sub);">⚠️ APIキーはGAS Script Propertiesに安全に保存されます。ページには表示されません。</div>
+          </div>
+          <div style="text-align:right;"><button class="btn btn-primary" onclick="saveAdminBasic()">💾 保存して反映</button><span id="cfg-save-msg" style="margin-left:12px;font-size:12px;"></span></div>
+        </div>
+        <div style="background:white;border-radius:12px;padding:24px;box-shadow:var(--shadow);border-left:4px solid var(--warning);">
+          <h3 style="font-size:15px;font-weight:700;color:#e65100;margin-bottom:4px;">🔔 通知設定</h3>
+          <div style="display:flex;flex-direction:column;gap:12px;">
+            <label><input type="checkbox" id="cfg-notify-order"> 注文書登録時に通知する</label>
+            <label><input type="checkbox" id="cfg-notify-quote"> 見積書登録時に通知する</label>
+            <label><input type="checkbox" id="cfg-notify-deadline"> 期限アラートを通知する</label>
+            <div><label>アラート通知の日数:</label> <input type="number" id="cfg-alert-days" value="3" style="width:60px;"> 日前から通知</div>
+          </div>
+          <div style="text-align:right;margin-top:16px;"><button class="btn btn-primary" onclick="saveAdminNotify()">💾 通知設定を保存</button></div>
+        </div>
+      </div>
+
+      <div id="admin-tab-access" class="admin-tab-content">
+        <div style="background:white;border-radius:12px;padding:24px;box-shadow:var(--shadow);border-left:4px solid #6a1b9a;">
+          <h3 style="font-size:15px;font-weight:700;color:#6a1b9a;margin-bottom:4px;">👁 閲覧権限設定</h3>
+          <div class="form-field"><textarea id="cfg-admin-emails-access" rows="4" style="width:100%;"></textarea></div>
+          <div style="text-align:right;margin-top:16px;"><button class="btn btn-primary" onclick="saveAdminAccess()">💾 権限設定を保存</button></div>
+        </div>
+      </div>
+
+      <div id="admin-tab-mailwatch" class="admin-tab-content">
+        <div style="background:white;border-radius:12px;padding:24px;box-shadow:var(--shadow);border-left:4px solid var(--info);">
+          <h3 style="font-size:15px;font-weight:700;color:var(--info);margin-bottom:4px;">📧 メール監視設定</h3>
+          <p>詳細はスプレッドシートの「メール監視設定」シートで設定してください。</p>
+          <div style="margin-top:16px;">
+            <button class="btn btn-outline" onclick="openEmailConfigSheet()">📊 シートを開く</button>
+            <button class="btn btn-outline" onclick="triggerEmailCheck()">▶ 今すぐメールチェック</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="admin-tab-mailsend" class="admin-tab-content">
+        <div style="background:white;border-radius:12px;padding:24px;box-shadow:var(--shadow);border-left:4px solid var(--success);">
+          <h3 style="font-size:15px;font-weight:700;color:var(--success);margin-bottom:4px;">✉️ メール配信設定</h3>
+          <div class="form-field"><label>通知先メールアドレス（カンマ区切り）</label><textarea id="cfg-notify-emails" rows="3" style="width:100%;"></textarea></div>
+          <div style="text-align:right;margin-top:16px;"><button class="btn btn-primary" onclick="saveAdminMailSend()">💾 保存</button><span id="mailsend-save-msg"></span></div>
+        </div>
+      </div>
+
+      <div id="admin-tab-rakuraku" class="admin-tab-content">
+        <div style="background:white;border-radius:12px;padding:24px;box-shadow:var(--shadow);border-left:4px solid #e91e63;">
+          <h3 style="font-size:15px;font-weight:700;color:#e91e63;margin-bottom:4px;">🛒 楽楽販売 連携設定</h3>
+          <div class="form-row">
+            <div class="form-field"><label>APIキー</label><input type="password" id="cfg-rakuraku-apikey"></div>
+            <div class="form-field"><label>会社コード</label><input type="text" id="cfg-rakuraku-company"></div>
+          </div>
+          <div class="form-field"><label>APIエンドポイントURL</label><input type="text" id="cfg-rakuraku-endpoint"></div>
+          <div style="text-align:right;margin-top:16px;"><button class="btn btn-primary" onclick="saveAdminRakuraku()">💾 保存</button><span id="rakuraku-save-msg"></span></div>
+        </div>
+      </div>
+
+      <div id="admin-tab-external" class="admin-tab-content">
+        <div style="background:white;border-radius:12px;padding:24px;box-shadow:var(--shadow);border-left:4px solid #ff6f00;">
+          <h3 style="font-size:15px;font-weight:700;color:#ff6f00;margin-bottom:4px;">⚡ 外部連携設定</h3>
+          <div class="form-field"><label>n8n Webhook URL（注文書登録）</label><input type="text" id="cfg-n8n-order-webhook"></div>
+          <div class="form-field" style="margin-top:12px;"><label>n8n Webhook URL（見積書登録）</label><input type="text" id="cfg-n8n-quote-webhook"></div>
+          <div class="form-field" style="margin-top:12px;"><label>カスタム Webhook URL（汎用）</label><input type="text" id="cfg-custom-webhook"></div>
+          <div style="margin-top:16px;"><button class="btn btn-outline btn-sm" onclick="reregisterTriggers()">🔄 トリガーを再登録する</button></div>
+          <div style="text-align:right;margin-top:16px;"><button class="btn btn-primary" onclick="saveAdminExternal()">💾 保存</button><span id="external-save-msg"></span></div>
+        </div>
+      </div>
+
+      <div id="admin-tab-menu" class="admin-tab-content">
+        <div style="background:white;border-radius:12px;padding:24px;box-shadow:var(--shadow);border-left:4px solid var(--primary);">
+          <h3 style="font-size:15px;font-weight:700;color:var(--primary);margin-bottom:4px;">🗂️ メニュー設定</h3>
+          <p style="font-size:12px;color:var(--text-sub);margin-bottom:16px;">サイドバーのメニュー項目を自由にカスタマイズできます。※変更はこのブラウザにのみ保存されます。</p>
+          <div style="display:flex; font-size:11px; font-weight:bold; color:var(--text-sub); padding:0 12px 4px 12px;">
+            <div style="width:50px;">移動</div><div style="width:50px; text-align:center;">アイコン</div>
+            <div style="flex:1; min-width:120px; padding-left:8px;">メニュー名</div>
+            <div style="width:120px; padding-left:8px;">セクション名</div>
+            <div style="width:180px; padding-left:8px;">URL(外部リンク用)</div>
+            <div style="width:140px; padding-left:8px;">権限・表示</div><div style="width:30px;"></div>
+          </div>
+          <div id="menu-editor-list" style="display:flex; flex-direction:column; gap:8px; max-height: 50vh; overflow-y: auto; padding: 4px; margin-bottom:12px;"></div>
+          <button class="btn btn-outline btn-sm" onclick="addMenuConfigItem()" style="width:100%; margin-bottom:16px;">＋ 新しいメニュー項目を追加</button>
+          <div style="text-align:right; border-top: 1px solid var(--border); padding-top: 16px;">
+            <button class="btn btn-danger btn-sm" onclick="resetMenuConfig()" style="float:left;">初期状態にリセット</button>
+            <button class="btn btn-primary" onclick="saveMenuConfig()">💾 保存して反映</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ページ：見積台帳 -->
+    <div id="page-ledger" class="page">
+      <div class="page-heading"><div><h2>📝 見積台帳</h2></div></div>
+      <div style="display:flex;gap:8px;margin-bottom:16px;border-bottom:2px solid var(--border);padding-bottom:0;">
+        <button id="subtab-ledger-tree" onclick="switchLedgerTab('tree')" style="padding:8px 20px;border:none;background:none;font-size:14px;font-weight:600;color:var(--primary);border-bottom:2px solid var(--primary);margin-bottom:-2px;cursor:pointer;">📁 フォルダ分け</button>
+        <button id="subtab-ledger-flat" onclick="switchLedgerTab('flat')" style="padding:8px 20px;border:none;background:none;font-size:14px;font-weight:500;color:var(--text-sub);border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;">📄 全て表示</button>
+      </div>
+      <div class="filter-bar"><div class="search-box"><input type="text" id="ledger-search" placeholder="検索..." oninput="applyLedgerFilter()"></div><button class="btn btn-outline btn-sm" onclick="loadLedger()">🔄 更新</button></div>
+      <div id="ledger-tree-container"><div class="loading"><div class="spinner"></div></div></div>
+      <div id="ledger-flat-container" style="display:none;"><div class="loading"><div class="spinner"></div></div></div>
+    </div>
+    
+    <!-- ページ：AI紐づけ候補 -->
+    <div id="page-matching" class="page">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
+        <h2 style="font-size:18px;font-weight:600;">🔗 紐づけ候補 一覧</h2>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <div class="search-box" style="min-width:200px;"><input type="text" id="matching-search" placeholder="注文番号・顧客名で検索..." oninput="filterMatchingCandidates()"></div>
+          <button class="btn btn-outline" onclick="loadMatchingCandidates()">🔄 更新</button>
+          <button class="btn btn-primary" onclick="runBatchMatching()">⚡ 全件マッチング実行</button>
+        </div>
+      </div>
+      <div style="background:var(--primary-light);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;font-size:13px;color:var(--primary);">
+        💡 注文書ごとにAIが類似する見積候補をスコア順に<strong>最大20件</strong>表示します。候補が見つからない場合も参考として未紐づけの見積書を最低1件表示します。<br>
+        スコア80点以上は自動紐づけ済みです。候補を確認して「確定」ボタンで紐づけしてください。
+      </div>
+      <div id="matching-container"><div class="loading"><div class="spinner"></div></div></div>
+    </div>
+
+    <!-- ページ：スケジュール -->
+    <div id="page-calendar" class="page">
+      <div class="page-heading"><div><h2>📅 スケジュール</h2></div></div>
+      <div id="cal-container" style="background:#fff;padding:16px;border-radius:8px;box-shadow:var(--shadow-sm);"></div>
+    </div>
+    
+    <!-- ページ：全文検索 -->
+    <div id="page-drivesearch" class="page">
+      <div class="page-heading"><div><h2>💾 全文検索</h2><p>Google Drive内のPDFを検索します</p></div></div>
+      <div class="filter-bar">
+        <div class="search-box"><input type="text" id="drive-search-input" placeholder="キーワード..." onkeypress="if(event.key==='Enter')runDriveSearch()"></div>
+        <input type="date" id="drive-date-from" style="padding:6px;border:1px solid var(--border);border-radius:4px;"> <span>〜</span>
+        <input type="date" id="drive-date-to" style="padding:6px;border:1px solid var(--border);border-radius:4px;">
+        <button class="btn btn-primary" id="drive-search-btn" onclick="runDriveSearch()">🔍 検索</button>
+        <button class="btn btn-outline" onclick="clearDriveSearch()">クリア</button>
+      </div>
+      <div class="table-wrap">
+        <div class="table-toolbar"><h2>検索結果 <span id="drive-result-count" style="font-weight:normal;font-size:12px;color:var(--text-sub);margin-left:8px;"></span></h2></div>
+        <div id="drive-search-container" style="padding:16px;">ここに結果が表示されます</div>
+      </div>
+    </div>
+
+    <div id="page-ocr" class="page">
+      <div style="text-align:center;padding:40px;"><h2>簡易OCRシステム</h2><button class="btn btn-primary" onclick="window.open('https://ndlocr-liteweb.netlify.app/','_blank')">🚀 起動する</button></div>
+    </div>
+
+    <div id="page-todo" class="page"><div class="loading">準備中</div></div>
+    <div id="page-workflow" class="page"><div class="loading">準備中</div></div>
+    <div id="page-assignees" class="page"><div class="loading">準備中</div></div>
+    <div id="page-approval" class="page"><div class="loading">準備中</div></div>
+    <div id="page-board" class="page"><div class="loading">準備中</div></div>
+    <div id="page-analysis" class="page"><div class="loading">準備中</div></div>
+
+    <!-- ============================================================
+         AIチャットページ（16_chatbot_v2.gs連携）
+    ============================================================ -->
+    <div id="page-aichat" class="page" style="height:calc(100vh - 56px);display:flex;flex-direction:column;padding:0;">
+
+      <!-- チャット履歴エリア -->
+      <div id="chat-messages" style="flex:1;overflow-y:auto;padding:20px 24px;display:flex;flex-direction:column;gap:16px;">
+        <!-- ウェルカムメッセージ -->
+        <div id="chat-welcome" style="text-align:center;padding:40px 20px;color:var(--text-sub);">
+          <div style="font-size:32px;margin-bottom:12px;">🤖</div>
+          <div style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:8px;">AIアシスタント</div>
+          <div style="font-size:13px;line-height:1.7;max-width:480px;margin:0 auto;">
+            見積書・注文書について何でも聞いてください。<br>
+            検索・比較・ステータス更新まで実行できます。
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:20px;" id="chat-suggestions">
+            <button class="chat-suggest-btn" onclick="chatSendSuggestion('未紐づけの注文書は何件ありますか？')">📦 未紐づけ注文書を確認</button>
+            <button class="chat-suggest-btn" onclick="chatSendSuggestion('今月の受注件数と金額を教えてください')">📊 今月の集計を見る</button>
+            <button class="chat-suggest-btn" onclick="chatSendSuggestion('OCR失敗しているファイルはありますか？')">⚠️ OCR状況を確認</button>
+            <button class="chat-suggest-btn" onclick="chatSendSuggestion('受注済みになっていない注文書を探してください')">🔍 未受注を検索</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 入力エリア -->
+      <div style="border-top:1px solid var(--border);background:var(--card);padding:16px 24px;">
+        <!-- アクションログ（最後の操作を表示） -->
+        <div id="chat-action-log" style="display:none;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#1d4ed8;"></div>
+
+        <div style="display:flex;gap:10px;align-items:flex-end;">
+          <textarea id="chat-input"
+            placeholder="質問を入力してください...&#10;例）A社の見積書と注文書を比較して / 先週の受注状況は？"
+            rows="2"
+            style="flex:1;border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-size:13px;font-family:inherit;resize:none;line-height:1.5;background:var(--bg);"
+            onkeydown="chatKeyDown(event)"></textarea>
+          <button id="chat-send-btn" onclick="chatSend()"
+            style="height:56px;padding:0 20px;background:var(--primary);color:#fff;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:6px;">
+            <span id="chat-send-icon">↑</span>
+            <span id="chat-send-label">送信</span>
+          </button>
+        </div>
+        <div style="margin-top:8px;font-size:11px;color:var(--text-muted);display:flex;gap:16px;">
+          <span>Shift+Enter で改行 / Enter で送信</span>
+          <span id="chat-status-bar"></span>
+          <button onclick="chatClear()" style="border:none;background:none;color:var(--text-muted);cursor:pointer;font-size:11px;padding:0;margin-left:auto;">🗑 履歴をクリア</button>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /main -->
+</div><!-- /app-shell -->
+
+<!-- 各種モーダル -->
+<div class="modal-overlay" id="upload-modal">
+  <div class="modal">
+    <div class="modal-head"><h3>📎 PDF アップロード</h3><button class="modal-close" onclick="closeUploadModal()">✕</button></div>
+    <div class="modal-body">
+      <div class="type-toggle" style="display:flex;gap:10px;margin-bottom:16px;">
+        <button class="btn btn-outline" id="type-quote" onclick="setDocType('quote')">📄 見積書</button>
+        <button class="btn btn-outline" id="type-order" onclick="setDocType('order')">📦 注文書・発注書</button>
+      </div>
+      <div id="order-type-section" style="display:none;margin-bottom:16px;">
+        <button class="btn btn-outline btn-sm" id="ot-trial" onclick="setOrderType('試作')">試作</button>
+        <button class="btn btn-outline btn-sm" id="ot-mass" onclick="setOrderType('量産')">量産</button>
+      </div>
+      <div class="upload-area" id="drop-zone" onclick="document.getElementById('file-input').click()">📂 クリックまたはドラッグでPDFを選択</div>
+      <input type="file" id="file-input" accept=".pdf" style="display:none" onchange="handleFileSelect(event)">
+      <div id="upload-status" style="margin-top:12px;"></div>
+      <div style="text-align:right;margin-top:16px;"><button class="btn btn-outline" onclick="closeUploadModal()">キャンセル</button><button class="btn btn-primary" id="upload-btn" onclick="uploadFile()" disabled>解析・登録</button></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="detail-modal" onclick="if(event.target===this)closeDetailModal()"><div class="modal" style="max-width:950px;"><div class="modal-head"><h3 id="detail-title">案件詳細</h3><button class="modal-close" onclick="closeDetailModal()">✕</button></div><div class="modal-body" id="detail-body"></div></div></div>
+<div class="modal-overlay" id="quote-detail-modal" onclick="if(event.target===this)closeQuoteDetail()"><div class="modal"><div class="modal-head"><h3 id="quote-detail-title">見積書詳細</h3><button class="modal-close" onclick="closeQuoteDetail()">✕</button></div><div class="modal-body" id="quote-detail-body"></div></div></div>
+
+<div class="modal-overlay" id="edit-mgmt-modal" onclick="if(event.target===this)this.classList.remove('open');">
+  <div class="modal" style="max-width:700px;">
+    <div class="modal-head"><h3 id="edit-mgmt-title">✏️ 案件を編集</h3><button class="modal-close" onclick="document.getElementById('edit-mgmt-modal').classList.remove('open')">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="edit-mgmt-id">
+      <div class="form-row"><div class="form-field"><label>見積番号</label><input type="text" id="edit-quote-no"></div><div class="form-field"><label>発注書番号</label><input type="text" id="edit-order-no"></div></div>
+      <div class="form-row"><div class="form-field"><label>顧客名</label><input type="text" id="edit-client"></div><div class="form-field"><label>機種コード</label><input type="text" id="edit-model-code"></div></div>
+      <div class="form-row">
+        <div class="form-field"><label>ステータス</label><select id="edit-status"><option value="作成予定">作成予定</option><option value="送信済み">送信済み</option><option value="受領">受領</option><option value="納品済み">納品済み</option></select></div>
+        <div class="form-field"><label>注文種別</label><select id="edit-order-type"><option value="">（未設定）</option><option value="試作">試作</option><option value="量産">量産</option></select></div>
+      </div>
+      <div class="form-row"><div class="form-field"><label>発注日</label><input type="date" id="edit-order-date"></div><div class="form-field"><label>納期</label><input type="date" id="edit-delivery-date"></div></div>
+      <div class="form-field" style="margin-bottom:12px;"><label>件名</label><input type="text" id="edit-subject"></div>
+      <div class="form-field" style="margin-bottom:12px;"><label>メモ</label><textarea id="edit-memo" rows="2" style="resize:vertical;"></textarea></div>
+      <div style="text-align:right;margin-top:8px;"><button class="btn btn-outline" onclick="document.getElementById('edit-mgmt-modal').classList.remove('open')">キャンセル</button><button class="btn btn-primary" onclick="saveMgmtEdit()" style="margin-left:8px;">💾 保存</button></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="ledger-modal" onclick="if(event.target===this)closeLedgerModal()">
+  <div class="modal" style="max-width:500px;">
+    <div class="modal-head"><h3 id="ledger-modal-title">見積登録</h3><button class="modal-close" onclick="closeLedgerModal()">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="ledger-id">
+      <div class="form-field" style="margin-bottom:12px;"><label>機種コード</label><input type="text" id="ledger-machine-code"></div>
+      <div class="form-field" style="margin-bottom:12px;"><label>基板名</label><input type="text" id="ledger-board-name"></div>
+      <div class="form-field" style="margin-bottom:12px;"><label>見積No.</label><input type="text" id="ledger-quote-no"></div>
+      <div class="form-field" style="margin-bottom:12px;"><label>件名</label><input type="text" id="ledger-subject"></div>
+      <div class="form-field" style="margin-bottom:12px;"><label>金額</label><input type="number" id="ledger-amount"></div>
+      <div style="text-align:right;margin-top:16px;"><button class="btn btn-outline" onclick="closeLedgerModal()">キャンセル</button><button class="btn btn-primary" onclick="saveLedger()">💾 保存</button></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  window.APP_IS_ADMIN = <?!= (typeof isAdmin !== 'undefined' && isAdmin) ? 'true' : 'false' ?>;
+</script>
+
+<?!= include("js") ?>
+<?!= include("Dashboard js2") ?>
+
+</body>
+</html>

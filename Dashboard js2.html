@@ -1,0 +1,1291 @@
+<script>
+// ============================================================
+// ファイルアップロード (OCR) 
+// ============================================================
+function openUploadModal(){
+  S.selectedFile=null;S.orderType='';
+  document.getElementById('upload-status').innerHTML='';
+  document.getElementById('upload-btn').disabled=true;
+  document.getElementById('file-input').value='';
+  document.getElementById('order-type-section').style.display='none';
+  document.getElementById('upload-modal').classList.add('open');
+}
+function closeUploadModal(){document.getElementById('upload-modal').classList.remove('open');}
+function setDocType(t){
+  S.docType=t;S.orderType='';
+  document.getElementById('type-quote').classList.toggle('active',t==='quote');
+  document.getElementById('type-order').classList.toggle('active',t==='order');
+  document.getElementById('order-type-section').style.display=t==='order'?'block':'none';
+}
+function setOrderType(t){ S.orderType=t; }
+function handleFileSelect(e){const f=e.target.files[0];if(f)_setFile(f);}
+function _setFile(file){
+  if(!file.name.toLowerCase().endsWith('.pdf')){showToast('PDFのみ対応',true);return;}
+  S.selectedFile=file;
+  document.getElementById('upload-status').innerHTML=`<p style="color:var(--success);font-size:13px;">✓ ${file.name} (${(file.size/1024).toFixed(1)} KB)</p>`;
+  document.getElementById('upload-btn').disabled=false;
+}
+
+// ★ OCR確認フロー対応版 uploadFile
+// Step1: OCRプレビュー取得 → Step2: 確認モーダルで修正 → Step3: 承認してDB登録
+let _ocrSessionId = null; // 現在のセッションID
+
+function uploadFile(){
+  if(!S.selectedFile)return;
+  if(S.docType==='order'&&!S.orderType){showToast('注文種別を選択してください',true);return;}
+  const btn=document.getElementById('upload-btn');
+  btn.disabled=true; btn.textContent='OCR解析中...';
+  document.getElementById('upload-status').innerHTML=
+    '<div class="loading" style="padding:16px;"><div class="spinner"></div>'
+    +' <span style="color:var(--text-sub);font-size:13px;">Gemini OCR 解析中... （10〜30秒かかります）</span></div>';
+
+  const reader=new FileReader();
+  reader.onload=e=>{
+    const b64=e.target.result.split(',')[1];
+    google.script.run
+      .withSuccessHandler(res=>{
+        btn.textContent='解析・登録'; btn.disabled=false;
+        if(!res.success){
+          document.getElementById('upload-status').innerHTML=
+            `<p style="color:var(--danger);font-size:13px;">✗ ${res.error}</p>`;
+          return;
+        }
+        _ocrSessionId = res.sessionId;
+        // 確認モーダルを開く
+        _openOcrReviewModal(res);
+      })
+      .withFailureHandler(err=>{
+        document.getElementById('upload-status').innerHTML=
+          `<p style="color:var(--danger);font-size:13px;">✗ 通信エラー: ${err.message}</p>`;
+        btn.textContent='解析・登録'; btn.disabled=false;
+      })
+      .handleApiRequest('ocrPreview',{
+        base64Data: b64,
+        fileName:   S.selectedFile.name,
+        docType:    S.docType,
+        orderType:  S.orderType,
+      });
+  };
+  reader.readAsDataURL(S.selectedFile);
+}
+
+// ============================================================
+// OCR確認モーダル
+// ============================================================
+function _openOcrReviewModal(res){
+  const ocr     = res.ocrResult || {};
+  const quality = res.quality   || 0;
+  const warns   = res.warnings  || [];
+  const isQuote = S.docType === 'quote';
+
+  // 品質バーの色
+  const qColor = quality >= 75 ? '#16a34a' : quality >= 50 ? '#d97706' : '#dc2626';
+  const qLabel = quality >= 75 ? '高精度' : quality >= 50 ? '要確認' : '低精度';
+
+  // 警告HTML
+  const warnHtml = warns.map(w=>
+    `<div style="padding:6px 10px;border-radius:5px;font-size:12px;margin-bottom:4px;
+      background:${w.level==='error'?'#fef2f2':'#fffbeb'};
+      color:${w.level==='error'?'#dc2626':'#d97706'};
+      border-left:3px solid ${w.level==='error'?'#dc2626':'#d97706'};">
+      ${w.level==='error'?'❌':'⚠️'} ${w.msg}
+    </div>`
+  ).join('');
+
+  // 明細テーブルHTML（編集可能）
+  const lines = ocr.lineItems || [];
+  const lineRows = lines.map((item,i)=>`
+    <tr id="ocr-line-${i}" style="border-bottom:1px solid #f0f2f5;">
+      <td style="padding:4px 6px;text-align:center;color:#94a3b8;font-size:11px;">${i+1}</td>
+      <td style="padding:4px 6px;"><input type="text" value="${_esc(item.itemName)}"
+        onchange="ocrUpdateLine(${i},'itemName',this.value)"
+        style="width:100%;border:1px solid #e2e8f0;border-radius:4px;padding:3px 6px;font-size:12px;"></td>
+      <td style="padding:4px 6px;"><input type="text" value="${_esc(item.spec)}"
+        onchange="ocrUpdateLine(${i},'spec',this.value)"
+        style="width:100%;border:1px solid #e2e8f0;border-radius:4px;padding:3px 6px;font-size:12px;"></td>
+      <td style="padding:4px 6px;"><input type="number" value="${item.qty||1}"
+        onchange="ocrUpdateLine(${i},'qty',Number(this.value))"
+        style="width:60px;border:1px solid #e2e8f0;border-radius:4px;padding:3px 4px;font-size:12px;text-align:right;"></td>
+      <td style="padding:4px 6px;">
+        <input type="number" value="${item.unitPrice||0}"
+          onchange="ocrUpdateLine(${i},'unitPrice',Number(this.value));ocrRecalcLine(${i})"
+          id="ocr-price-${i}"
+          style="width:90px;border:${item.unitPrice?'1px solid #e2e8f0':'2px solid #f59e0b'};border-radius:4px;padding:3px 4px;font-size:12px;text-align:right;font-weight:${item.unitPrice?'400':'600'};">
+      </td>
+      <td style="padding:4px 6px;text-align:right;font-size:12px;font-weight:500;color:#2563eb;" id="ocr-amt-${i}">
+        ${(item.amount||0).toLocaleString()}
+      </td>
+      <td style="padding:4px 6px;text-align:center;">
+        <button onclick="ocrDeleteLine(${i})" style="border:none;background:none;color:#dc2626;cursor:pointer;font-size:14px;">✕</button>
+      </td>
+    </tr>`).join('');
+
+  const headerFields = isQuote ? `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">見積番号 <span style="color:#dc2626;">*</span></label>
+        <input type="text" id="ocr-documentNo" value="${_esc(ocr.documentNo)}"
+          style="width:100%;border:1px solid ${ocr.documentNo?'#e2e8f0':'#f59e0b'};border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">発行日</label>
+        <input type="text" id="ocr-issueDate" value="${_esc(ocr.issueDate||ocr.documentDate)}"
+          placeholder="YYYY/MM/DD" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">宛先会社名</label>
+        <input type="text" id="ocr-destCompany" value="${_esc(ocr.destCompany)}"
+          style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">件名</label>
+        <input type="text" id="ocr-subject" value="${_esc(ocr.subject)}"
+          style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px;">
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">小計</label>
+        <input type="number" id="ocr-subtotal" value="${ocr.subtotal||0}"
+          style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;text-align:right;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">消費税</label>
+        <input type="number" id="ocr-tax" value="${ocr.tax||0}"
+          style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;text-align:right;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">合計金額</label>
+        <input type="number" id="ocr-totalAmount" value="${ocr.totalAmount||0}"
+          style="width:100%;border:1px solid ${ocr.totalAmount?'#e2e8f0':'#f59e0b'};border-radius:6px;padding:6px 8px;font-size:13px;text-align:right;font-weight:600;"></div>
+    </div>` : `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">注文番号 <span style="color:#dc2626;">*</span></label>
+        <input type="text" id="ocr-documentNo" value="${_esc(ocr.documentNo)}"
+          style="width:100%;border:1px solid ${ocr.documentNo?'#e2e8f0':'#f59e0b'};border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">発注日</label>
+        <input type="text" id="ocr-issueDate" value="${_esc(ocr.documentDate)}"
+          placeholder="YYYY/MM/DD" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">発注者</label>
+        <input type="text" id="ocr-destCompany" value="${_esc(ocr.clientName)}"
+          style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">件名</label>
+        <input type="text" id="ocr-subject" value="${_esc(ocr.subject)}"
+          style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">対応見積番号</label>
+        <input type="text" id="ocr-linkedQuoteNo" value="${_esc(ocr.linkedQuoteNo)}"
+          placeholder="自動紐づけに使用" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">合計金額</label>
+        <input type="number" id="ocr-totalAmount" value="${ocr.totalAmount||0}"
+          style="width:100%;border:1px solid ${ocr.totalAmount?'#e2e8f0':'#f59e0b'};border-radius:6px;padding:6px 8px;font-size:13px;text-align:right;font-weight:600;"></div>
+    </div>`;
+
+  // モーダルHTMLを生成してupload-status内に展開
+  const pdfPreviewBtn = res.pdfUrl
+    ? `<a href="${res.pdfUrl}" target="_blank"
+        style="display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border:1px solid #2563eb;border-radius:5px;color:#2563eb;font-size:12px;text-decoration:none;">
+        📄 PDFを確認
+       </a>` : '';
+
+  document.getElementById('upload-status').innerHTML = `
+    <div id="ocr-review-panel" style="margin-top:8px;">
+      <!-- 品質スコア & 警告 -->
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;margin-bottom:10px;">
+        <div style="flex:1;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+            <span style="font-size:12px;font-weight:600;color:#1e293b;">OCR品質スコア</span>
+            <span style="background:${qColor};color:#fff;border-radius:4px;padding:1px 8px;font-size:11px;font-weight:600;">${quality}点 ${qLabel}</span>
+            ${pdfPreviewBtn}
+          </div>
+          <div style="height:6px;background:#e2e8f0;border-radius:3px;overflow:hidden;">
+            <div style="width:${quality}%;height:100%;background:${qColor};border-radius:3px;"></div>
+          </div>
+        </div>
+      </div>
+      ${warnHtml ? `<div style="margin-bottom:10px;">${warnHtml}</div>` : ''}
+
+      <!-- ヘッダー情報 -->
+      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin-bottom:10px;">
+        <div style="font-size:12px;font-weight:600;color:#1e293b;margin-bottom:10px;">
+          📝 ${isQuote?'見積書':'注文書'}情報
+          <span style="font-size:11px;font-weight:400;color:#94a3b8;margin-left:6px;">黄色枠は要確認</span>
+        </div>
+        ${headerFields}
+      </div>
+
+      <!-- 明細テーブル -->
+      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin-bottom:12px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <span style="font-size:12px;font-weight:600;color:#1e293b;">📋 明細行 <span id="ocr-line-count">${lines.length}</span>行</span>
+          <button onclick="ocrAddLine()" style="border:1px solid #2563eb;background:none;color:#2563eb;border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer;">＋ 行追加</button>
+        </div>
+        <div style="overflow-x:auto;">
+          <table style="width:100%;border-collapse:collapse;min-width:550px;" id="ocr-line-table">
+            <thead><tr style="background:#f8fafc;font-size:11px;color:#64748b;">
+              <th style="padding:5px 6px;text-align:center;width:30px;">#</th>
+              <th style="padding:5px 6px;text-align:left;">品名</th>
+              <th style="padding:5px 6px;text-align:left;">仕様</th>
+              <th style="padding:5px 6px;text-align:right;width:60px;">数量</th>
+              <th style="padding:5px 6px;text-align:right;width:100px;">単価 <span style="color:#f59e0b;">*</span></th>
+              <th style="padding:5px 6px;text-align:right;width:90px;">金額</th>
+              <th style="padding:5px 6px;width:30px;"></th>
+            </tr></thead>
+            <tbody id="ocr-lines-body">${lineRows}</tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ボタン -->
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button onclick="ocrDiscard()" style="border:1px solid #e2e8f0;background:#fff;color:#64748b;border-radius:6px;padding:7px 16px;font-size:13px;cursor:pointer;">
+          ✕ 破棄
+        </button>
+        <button onclick="ocrApprove()" id="ocr-approve-btn"
+          style="border:none;background:#2563eb;color:#fff;border-radius:6px;padding:7px 20px;font-size:13px;font-weight:600;cursor:pointer;">
+          ✅ 確認・承認してDB登録
+        </button>
+      </div>
+    </div>`;
+
+  // 明細データをwindowに保持（編集用）
+  window._ocrLines = JSON.parse(JSON.stringify(lines));
+  window._ocrDocType = S.docType;
+}
+
+// OCR確認モーダルの操作関数
+function ocrUpdateLine(idx, field, val){
+  if(window._ocrLines && window._ocrLines[idx]) window._ocrLines[idx][field] = val;
+}
+function ocrRecalcLine(idx){
+  const line = window._ocrLines && window._ocrLines[idx];
+  if(!line) return;
+  const amt = (line.unitPrice||0) * (line.qty||1);
+  line.amount = amt;
+  const el = document.getElementById('ocr-amt-'+idx);
+  if(el) el.textContent = amt.toLocaleString();
+}
+function ocrDeleteLine(idx){
+  if(!window._ocrLines) return;
+  window._ocrLines.splice(idx, 1);
+  // テーブルを再描画（簡易版：行を非表示）
+  const row = document.getElementById('ocr-line-'+idx);
+  if(row) row.style.display='none';
+  const cnt = document.getElementById('ocr-line-count');
+  if(cnt) cnt.textContent = window._ocrLines.filter((_,i)=>{
+    const r=document.getElementById('ocr-line-'+i);
+    return r && r.style.display!=='none';
+  }).length;
+}
+function ocrAddLine(){
+  if(!window._ocrLines) window._ocrLines = [];
+  const idx = window._ocrLines.length;
+  window._ocrLines.push({itemName:'',spec:'',qty:1,unit:'式',unitPrice:0,amount:0,remarks:''});
+  const tbody = document.getElementById('ocr-lines-body'); if(!tbody) return;
+  const tr = document.createElement('tr');
+  tr.id = 'ocr-line-'+idx;
+  tr.style.borderBottom = '1px solid #f0f2f5';
+  tr.innerHTML = `
+    <td style="padding:4px 6px;text-align:center;color:#94a3b8;font-size:11px;">${idx+1}</td>
+    <td style="padding:4px 6px;"><input type="text" onchange="ocrUpdateLine(${idx},'itemName',this.value)" style="width:100%;border:1px solid #e2e8f0;border-radius:4px;padding:3px 6px;font-size:12px;"></td>
+    <td style="padding:4px 6px;"><input type="text" onchange="ocrUpdateLine(${idx},'spec',this.value)" style="width:100%;border:1px solid #e2e8f0;border-radius:4px;padding:3px 6px;font-size:12px;"></td>
+    <td style="padding:4px 6px;"><input type="number" value="1" onchange="ocrUpdateLine(${idx},'qty',Number(this.value));ocrRecalcLine(${idx})" style="width:60px;border:1px solid #e2e8f0;border-radius:4px;padding:3px 4px;font-size:12px;text-align:right;"></td>
+    <td style="padding:4px 6px;"><input type="number" value="0" id="ocr-price-${idx}" onchange="ocrUpdateLine(${idx},'unitPrice',Number(this.value));ocrRecalcLine(${idx})" style="width:90px;border:2px solid #f59e0b;border-radius:4px;padding:3px 4px;font-size:12px;text-align:right;font-weight:600;"></td>
+    <td style="padding:4px 6px;text-align:right;font-size:12px;font-weight:500;color:#2563eb;" id="ocr-amt-${idx}">0</td>
+    <td style="padding:4px 6px;text-align:center;"><button onclick="ocrDeleteLine(${idx})" style="border:none;background:none;color:#dc2626;cursor:pointer;font-size:14px;">✕</button></td>`;
+  tbody.appendChild(tr);
+}
+
+function ocrDiscard(){
+  if(!_ocrSessionId){ closeUploadModal(); return; }
+  google.script.run
+    .withSuccessHandler(()=>{ _ocrSessionId=null; closeUploadModal(); showToast('破棄しました'); })
+    .handleApiRequest('ocrDiscard',{sessionId:_ocrSessionId});
+}
+
+function ocrApprove(){
+  if(!_ocrSessionId){ showToast('セッションが無効です',true); return; }
+  const btn = document.getElementById('ocr-approve-btn');
+  btn.disabled=true; btn.textContent='登録中...';
+
+  // フォームから修正値を収集
+  const corrected = {
+    documentNo  : (document.getElementById('ocr-documentNo')   ||{}).value || '',
+    issueDate   : (document.getElementById('ocr-issueDate')    ||{}).value || '',
+    documentDate: (document.getElementById('ocr-issueDate')    ||{}).value || '',
+    destCompany : (document.getElementById('ocr-destCompany')  ||{}).value || '',
+    clientName  : (document.getElementById('ocr-destCompany')  ||{}).value || '',
+    subject     : (document.getElementById('ocr-subject')      ||{}).value || '',
+    linkedQuoteNo:(document.getElementById('ocr-linkedQuoteNo')||{}).value || '',
+    subtotal    : Number((document.getElementById('ocr-subtotal')    ||{}).value||0),
+    tax         : Number((document.getElementById('ocr-tax')         ||{}).value||0),
+    totalAmount : Number((document.getElementById('ocr-totalAmount') ||{}).value||0),
+    lineItems   : (window._ocrLines||[]).filter(l=>l.itemName),
+  };
+
+  google.script.run
+    .withSuccessHandler(res=>{
+      btn.disabled=false; btn.textContent='✅ 確認・承認してDB登録';
+      if(!res.success){
+        showToast('登録失敗: '+res.error, true); return;
+      }
+      _ocrSessionId=null;
+      document.getElementById('upload-status').innerHTML=`
+        <div style="background:#e6f4ea;border-radius:8px;padding:14px;font-size:13px;">
+          <strong style="color:#16a34a;font-size:14px;">✅ DB登録完了</strong><br>
+          <span style="color:#374151;">${corrected.documentNo||'—'} / ${corrected.destCompany||'—'}</span><br>
+          <span style="color:#6b7280;">明細: ${res.lineCount}行 ／ 合計: ${corrected.totalAmount?corrected.totalAmount.toLocaleString()+' 円':'—'}</span>
+        </div>`;
+      showToast('✅ 登録完了しました');
+      loadData();
+      if(typeof loadQuoteList==='function') loadQuoteList();
+    })
+    .withFailureHandler(err=>{
+      btn.disabled=false; btn.textContent='✅ 確認・承認してDB登録';
+      showToast('通信エラー: '+err.message, true);
+    })
+    .handleApiRequest('ocrApprove',{
+      sessionId   : _ocrSessionId,
+      correctedOcr: corrected,
+    });
+}
+
+function _esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+
+function _showOrderUploadResult(res){
+  const lr = res.linkResult || {};
+  let candidateHtml = '';
+  if((lr.status==='candidates_found'||lr.status==='forced_candidate') && lr.candidates && lr.candidates.length){
+    const rows = lr.candidates.map(c=>`
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:6px 8px;font-size:12px;font-weight:600;">${c.quoteNo||'—'}</td>
+        <td style="padding:6px 8px;font-size:12px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${c.subject||c.keywords||''}">${c.subject||(c.keywords||'').substring(0,20)||'—'}</td>
+        <td style="padding:6px 8px;font-size:12px;text-align:right;white-space:nowrap;">${c.quoteAmount?Number(c.quoteAmount).toLocaleString()+'円':'—'}</td>
+        <td style="padding:6px 8px;font-size:12px;white-space:nowrap;">${c.issueDate||'—'}</td>
+        <td style="padding:6px 8px;text-align:center;"><span style="background:${c.score>=80?'#34a853':c.score>=60?'#fbbc04':'#9e9e9e'};color:#fff;border-radius:4px;padding:2px 6px;font-size:11px;">${c.score}点</span></td>
+        <td style="padding:6px 8px;">${c.quoteUrl?`<a href="${c.quoteUrl}" target="_blank" style="font-size:11px;">📄</a>`:''}</td>
+        <td style="padding:6px 8px;"><button onclick="confirmLink('${res.mgmtId}','${c.quoteMgmtId||c.quoteId}')" class="btn btn-primary btn-sm">確定</button></td>
+      </tr>`).join('');
+    candidateHtml = `<div style="margin-top:10px;"><p style="font-size:12px;font-weight:600;margin-bottom:6px;">📋 類似見積書 候補一覧（${lr.candidates.length}件）</p><div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;min-width:560px;"><thead><tr style="background:#f0f2f5;font-size:11px;"><th style="padding:5px 8px;text-align:left;">見積番号</th><th style="padding:5px 8px;text-align:left;">件名</th><th style="padding:5px 8px;text-align:right;">見積金額</th><th style="padding:5px 8px;text-align:left;">発行日</th><th style="padding:5px 8px;text-align:center;">スコア</th><th style="padding:5px 8px;">PDF</th><th style="padding:5px 8px;">操作</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  }
+  document.getElementById('upload-status').innerHTML=`<div style="background:#e6f4ea;border-radius:8px;padding:12px;font-size:13px;"><strong style="color:var(--success);">✓ 注文書 登録完了</strong> ${lr.status==='auto_linked' ? '<span class="badge badge-done">自動紐付け済</span>' : ''}<br>件名: ${res.orderNo||'—'}<br>${candidateHtml}</div>`;
+  if(typeof showToast==='function') showToast('注文書を登録しました');
+}
+
+// ============================================================
+// 詳細モーダル表示 ＆ 紐づけ機能
+// ============================================================
+function openDetail(mgmtId) {
+  let item = S.all.find(r => r.id === mgmtId) || (typeof _allQuotes !== 'undefined' ? _allQuotes.find(r => r.id === mgmtId) : null) || { id: mgmtId, client: 'データ取得中...', status: '' };
+  
+  document.getElementById('detail-title').textContent = '📋 ' + (item.orderNo || item.quoteNo || mgmtId);
+  document.getElementById('detail-modal').classList.add('open');
+  document.getElementById('detail-body').innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  
+  google.script.run
+    .withSuccessHandler(res => {
+      if (!res.success) { document.getElementById('detail-body').innerHTML = '<div style="color:var(--danger);padding:20px;">エラー: ' + res.error + '</div>'; return; }
+      try {
+        const dataItem = res.mgmt || item;
+        document.getElementById('detail-body').innerHTML = _buildDetailHtml(dataItem, res);
+        if (dataItem.orderNo) document.getElementById('detail-title').textContent = '📦 注文書 ' + dataItem.orderNo;
+      } catch(e) { document.getElementById('detail-body').innerHTML = '<div style="color:var(--danger);padding:20px;">表示エラー: ' + e.message + '</div>'; }
+    })
+    .handleApiRequest('getDetail', { mgmtId });
+}
+function closeDetailModal(){document.getElementById('detail-modal').classList.remove('open');}
+
+function openQuoteDetail(mgmtId, quoteNo) {
+  let item = S.all.find(r => r.id === mgmtId) || (typeof _allQuotes !== 'undefined' ? _allQuotes.find(r => r.id === mgmtId) : null) || { id: mgmtId, quoteNo: quoteNo || mgmtId, client: '', status: '' };
+  document.getElementById('quote-detail-title').textContent = '📄 見積書 ' + (item.quoteNo || mgmtId);
+  document.getElementById('quote-detail-modal').classList.add('open');
+  document.getElementById('quote-detail-body').innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  google.script.run
+    .withSuccessHandler(res => {
+      if (!res.success) { document.getElementById('quote-detail-body').innerHTML = '<div style="color:var(--danger);padding:20px;">エラー: ' + res.error + '</div>'; return; }
+      if (!res.mgmt) res.mgmt = item; 
+      document.getElementById('quote-detail-body').innerHTML = _buildQuoteDetailHtml(res);
+    })
+    .handleApiRequest('getQuoteDetail', { mgmtId });
+}
+function closeQuoteDetail() { document.getElementById('quote-detail-modal').classList.remove('open'); }
+
+function _buildQuoteDetailHtml(res) {
+  const m = res.mgmt || {};
+  const lines = res.quoteLines || [];
+  const pdfUrl = lines.length ? lines[0].pdfUrl : m.quotePdfUrl;
+  const lineRows = lines.map((l, i) => `<tr><td>${i+1}</td><td><strong style="font-size:12px;">${l.itemName||''}</strong></td><td class="r">${l.qty||''}</td><td class="r">${l.amount?Number(l.amount).toLocaleString():''}</td></tr>`).join('');
+  return `
+    <table style="width:100%;font-size:13px;border-collapse:collapse;margin-bottom:16px;">
+      <tbody><tr><td style="padding:6px;width:30%;border-bottom:1px solid var(--border);">見積番号</td><td style="padding:6px;border-bottom:1px solid var(--border);">${m.quoteNo||'—'}</td></tr>
+      <tr><td style="padding:6px;border-bottom:1px solid var(--border);">見積金額</td><td style="padding:6px;border-bottom:1px solid var(--border);">${m.quoteAmount?Number(m.quoteAmount).toLocaleString()+' 円':'—'}</td></tr></tbody>
+    </table>
+    ${pdfUrl ? `<div style="margin-bottom:16px;"><a href="${pdfUrl}" target="_blank" class="btn btn-outline btn-sm">📄 見積書PDFを開く</a></div>` : ''}
+    <div class="detail-section"><h4>見積書 明細</h4>${lineRows ? `<table class="dtable"><thead><tr><th>#</th><th>品名</th><th>数量</th><th>金額</th></tr></thead><tbody>${lineRows}</tbody></table>` : '<div style="font-size:13px;color:var(--text-sub);">明細データなし</div>'}</div>`;
+}
+
+function _buildDetailHtml(item, detail) {
+  const orderLinks = [
+    item.orderPdfUrl ? `<a href="${item.orderPdfUrl}" target="_blank" class="pdf-link" style="display:inline-block; background:white; padding:2px 8px; border-radius:4px; border:1px solid var(--border); text-decoration:none; font-size:11px;">📄 発注書PDF</a>` : '',
+    item.driveFolderUrl ? `<a href="${item.driveFolderUrl}" target="_blank" class="pdf-link" style="display:inline-block; background:white; padding:2px 8px; border-radius:4px; border:1px solid var(--border); text-decoration:none; font-size:11px;">📁 フォルダ</a>` : ''
+  ].filter(Boolean).join(' ');
+
+  const quoteLinks = item.quotePdfUrl ? `<a href="${item.quotePdfUrl}" target="_blank" class="pdf-link" style="display:inline-block; background:white; padding:2px 8px; border-radius:4px; border:1px solid var(--border); text-decoration:none; font-size:11px;">📄 見積書PDF</a>` : '';
+
+  const rows=[
+    ['管理ID', item.id],
+    ['発注書番号', (item.orderNo || '—') + (orderLinks ? `<div style="margin-top:6px;">${orderLinks}</div>` : '')],
+    ['見積書番号', (item.quoteNo || '—') + (quoteLinks ? `<div style="margin-top:6px;">${quoteLinks}</div>` : '')],
+    ['発注伝票番号', item.orderSlipNo || '—'],
+    ['機種コード', item.modelCode || '—'],
+    ['顧客名', item.client || '—'],
+    ['ステータス', typeof _sBadge === 'function' ? _sBadge(item.status) : item.status],
+    ['注文種別', item.orderType && typeof _otBadge === 'function' ? _otBadge(item.orderType) : (item.orderType||'—')],
+    ['発注日', item.orderDate || '—'],
+    ['見積日', item.quoteDate || '—'],
+    ['注文金額', item.orderAmount ? Number(item.orderAmount).toLocaleString() + ' 円' : '—'],
+    ['合計金額', item.total ? Number(item.total).toLocaleString() + ' 円' : '—'],
+    ['納期', item.deliveryDate || '—'],
+    ['担当者', item.assignee || '—'],
+    ['メモ', item.memo || '—'],
+  ];
+
+  const infoHtml='<table style="width:100%;font-size:13px;border-collapse:collapse;">'+
+    rows.map(([k,v])=>`<tr><td style="padding:8px 10px;font-weight:600;width:30%;color:var(--text-sub);border-bottom:1px solid var(--border);background:var(--surface2);">${k}</td><td style="padding:8px 10px;border-bottom:1px solid var(--border);">${v}</td></tr>`).join('')+
+    '</table>';
+
+  const statusOpts=['作成予定','送信済み','受領','納品済み'].map(s=>`<option value="${s}"${s===item.status?' selected':''}>${s}</option>`).join('');
+
+  const quoteCellHtml = item.quoteNo 
+    ? `<div style="line-height:1.4;"><span style="font-size:11px; color:var(--text3);">No.</span><a href="javascript:void(0)" onclick="event.stopPropagation(); openQuoteDetail('${item.id}', '${item.quoteNo}')" style="color:var(--primary); font-weight:600; text-decoration:none; font-size:12px;">${item.quoteNo}</a>${item.quotePdfUrl ? `<br><a href="${item.quotePdfUrl}" target="_blank" onclick="event.stopPropagation()" style="font-size:11px; color:var(--info); text-decoration:none;">📄 PDFを開く</a>` : ''}</div>`
+    : '<span style="font-size:11px; color:var(--text3);">未紐づけ</span>';
+
+  const _qCandidates = detail.allQuoteLines ? [...new Map(detail.allQuoteLines.filter(q => q.mgmtId && q.quoteNo).map(q => [q.mgmtId, q])).values()] : [];
+  const _qOptions = '<option value="" data-pdf-url="">-- 見積書を選択 --</option>' + _qCandidates.map(c => `<option value="${c.mgmtId}" data-pdf-url="${c.pdfUrl || ''}">${c.quoteNo}${c.itemName?' 「'+c.itemName+'」':''}</option>`).join('');
+
+  const oTable = detail.orderLines && detail.orderLines.length ? `
+    <div class="detail-section" style="margin-top:20px;"><h4>発注書 明細</h4>
+    <p style="font-size:11px;color:var(--text-sub);margin-bottom:6px;">💡 「紐づく見積」欄で各明細行に対応する見積書を選択・確定できます</p>
+    <div style="overflow-x:auto;">
+    <table class="dtable" style="min-width:800px;width:100%;border-collapse:collapse;font-size:12px;">
+      <thead>
+        <tr>
+          <th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">#</th><th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">品名</th><th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">仕様</th><th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">納品先</th><th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">数量</th><th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">単価</th><th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">金額</th><th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);">備考</th><th style="background:#f8f9fa;padding:6px;border:1px solid var(--border);min-width:240px;">紐づく見積</th>
+        </tr>
+      </thead>
+      <tbody>${detail.orderLines.map(l=>`<tr class="${(l.remarks||'').includes('キャンセル')?'cancelled':''}">
+        <td style="padding:6px;border:1px solid var(--border);text-align:center;">${l.lineNo}</td>
+        <td style="padding:6px;border:1px solid var(--border);">${l.itemName||''}</td>
+        <td style="padding:6px;border:1px solid var(--border);font-size:11px;color:var(--text-sub);">${l.spec||''}</td>
+        <td style="padding:6px;border:1px solid var(--border);">${l.deliveryDest||''}</td>
+        <td style="padding:6px;border:1px solid var(--border);text-align:right;">${l.qty||''}</td>
+        <td style="padding:6px;border:1px solid var(--border);text-align:right;">${l.unitPrice?Number(l.unitPrice).toLocaleString():''}</td>
+        <td style="padding:6px;border:1px solid var(--border);text-align:right;font-weight:600;">${l.amount?Number(l.amount).toLocaleString():''}</td>
+        <td style="padding:6px;border:1px solid var(--border);">${l.remarks||''}</td>
+        <td style="padding:6px;border:1px solid var(--border);">
+          <div style="display:flex;gap:4px;align-items:center;">
+            <select id="line-sel-${item.id}-${l.lineNo}" onchange="_updateLinePdfLink(this, '${item.id}', ${l.lineNo})" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;flex:1;min-width:120px;">${_qOptions}</select>
+            <a id="line-pdf-${item.id}-${l.lineNo}" href="#" target="_blank" title="見積書PDFを開く" style="display:none; font-size:14px; text-decoration:none; margin:0 4px;" onclick="event.stopPropagation()">📄</a>
+            <button onclick="_linkLineConfirm('${item.id}',${l.lineNo})" style="font-size:11px;padding:3px 8px;background:var(--primary);color:#fff;border:none;border-radius:4px;cursor:pointer;white-space:nowrap;">確定</button>
+          </div>
+        </td>
+      </tr>`).join('')}</tbody>
+    </table></div></div>` : '';
+
+  let linkHtml = '';
+  if (item.orderNo && !item.quoteNo) {
+    let quoteOpts = '';
+    if (typeof _allQuotes !== 'undefined') {
+      const unlinkedQuotes = _allQuotes.filter(q => !q.linked);
+      quoteOpts = unlinkedQuotes.map(q => {
+        let itemNames = q.subject || '—'; let unitPrice = '—';
+        if (detail && detail.allQuoteLines && detail.allQuoteLines.length > 0) {
+          const qLines = detail.allQuoteLines.filter(ql => String(ql.mgmtId) === String(q.id));
+          if (qLines.length > 0) { const names = qLines.map(ql => ql.itemName).filter(Boolean); if (names.length > 0) itemNames = names.join('、'); if (qLines[0].unitPrice != null) unitPrice = '¥' + Number(qLines[0].unitPrice).toLocaleString(); }
+        } else if (q.quoteAmount != null) { unitPrice = '¥' + Number(q.quoteAmount).toLocaleString(); }
+        const qDate = q.issueDate || '—'; const qNo = q.quoteNo || 'Noなし';
+        const displayText = `NO:${qNo} ｜ 単価:${unitPrice} ｜ 項目:${itemNames} ｜ 発行日:${qDate}`;
+        return `<option value="${q.id}" data-pdf-url="${q.quotePdfUrl||''}">${displayText}</option>`;
+      }).join('');
+    }
+    linkHtml = `
+    <div style="background:var(--info-bg);border:1px solid #b5d4f4;border-radius:8px;padding:16px;margin:20px 0;">
+      <div style="font-size:13px;font-weight:700;margin-bottom:10px;color:var(--info);">🔗 手動で他の見積書と紐づける</div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <select id="manual-link-quote-id" style="flex:1;padding:8px 10px;border-radius:4px;border:1px solid var(--border2);font-size:13px;background:white;outline:none;"><option value="">-- 既存の未紐づけ見積書から選択 --</option>${quoteOpts}</select>
+        <button class="btn btn-primary" onclick="_manualLinkQuote('${item.id}')" style="white-space:nowrap;">この見積書で確定</button>
+      </div>
+    </div>`;
+  }
+
+  return `${infoHtml}${linkHtml}
+    <div style="display:flex;align-items:center;gap:8px;margin-top:20px;margin-bottom:16px;">
+      <span style="font-size:12px;font-weight:600;color:var(--text-sub);">ステータス変更:</span>
+      <select id="status-sel" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;outline:none;">${statusOpts}</select>
+      <button class="btn btn-primary btn-sm" onclick="updateStatus('${item.id}')">更新</button>
+      <span style="margin:0 8px; color:var(--border);">|</span>
+      <button class="btn btn-outline btn-sm" onclick="openEditModal('${item.id}')">✏️ 案件情報を直接編集</button>
+      <button class="btn btn-danger btn-sm" onclick="deleteMgmt('${item.id}','${(item.orderNo||item.quoteNo||'').replace(/'/g,'')}')" style="margin-left:auto;">🗑️ 削除</button>
+    </div>${oTable}`;
+}
+
+function _updateLinePdfLink(selectEl, mgmtId, lineNo) {
+  const linkEl = document.getElementById(`line-pdf-${mgmtId}-${lineNo}`); if (!linkEl) return;
+  const selectedOption = selectEl.options[selectEl.selectedIndex]; const pdfUrl = selectedOption ? selectedOption.getAttribute('data-pdf-url') : '';
+  if (pdfUrl && pdfUrl !== 'undefined') { linkEl.href = pdfUrl; linkEl.style.display = 'inline-block'; } else { linkEl.href = '#'; linkEl.style.display = 'none'; }
+}
+
+function _linkLineConfirm(orderMgmtId, lineNo) {
+  const sel = document.getElementById('line-sel-' + orderMgmtId + '-' + lineNo);
+  if (!sel || !sel.value) { showToast('見積書を選択してください', true); return; }
+  const quoteMgmtId = sel.value; const displayText = sel.options[sel.selectedIndex].text;
+  if (!confirm('行' + lineNo + ' を\n「' + displayText + '」\nと紐づけますか？')) return;
+  confirmLink(orderMgmtId, quoteMgmtId, () => {
+    sel.disabled = true; const btn = sel.nextElementSibling;
+    if (btn && btn.tagName === 'BUTTON') btn.style.display = 'none'; else if (btn && btn.nextElementSibling) btn.nextElementSibling.style.display = 'none'; 
+    const parent = sel.closest('td');
+    if (parent) { const note = document.createElement('div'); note.style.cssText = 'font-size:10px;color:var(--success);margin-top:3px;font-weight:600;'; note.textContent = '✓ ' + displayText; parent.appendChild(note); }
+  });
+}
+
+function _manualLinkQuote(orderMgmtId) {
+  const quoteMgmtId = document.getElementById('manual-link-quote-id').value;
+  if(!quoteMgmtId) { showToast('プルダウンから見積書を選択してください', true); return; }
+  confirmLink(orderMgmtId, quoteMgmtId, () => { loadData(); closeDetailModal(); });
+}
+
+function updateStatus(mgmtId){
+  const ns=document.getElementById('status-sel').value;
+  google.script.run.withSuccessHandler(res=>{
+    if(res.success){ showToast('ステータスを「'+ns+'」に変更しました'); const it=S.all.find(r=>r.id===mgmtId);if(it)it.status=ns; S.filtered=S.filtered.map(r=>r.id===mgmtId?{...r,status:ns}:r); _renderTable();_updateSummary();closeDetailModal(); }
+    else showToast('更新失敗: '+res.error,true);
+  }).handleApiRequest('updateStatus',{mgmtId,newStatus:ns});
+}
+
+function openEditModal(mgmtId) {
+  const item = S.all.find(r => r.id === mgmtId) || (typeof _allQuotes !== 'undefined' ? _allQuotes.find(r => r.id === mgmtId) : null);
+  if (!item) { showToast('データが見つかりません', true); return; }
+  const v = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
+  v('edit-mgmt-id', mgmtId); v('edit-quote-no', item.quoteNo); v('edit-order-no', item.orderNo);
+  v('edit-subject', item.subject); v('edit-client', item.client); v('edit-status', item.status || '作成予定');
+  v('edit-order-type', item.orderType); v('edit-model-code', item.modelCode); v('edit-memo', item.memo);
+  document.getElementById('edit-mgmt-title').textContent = (item.orderNo ? '✏️ 注文書 ' + item.orderNo : '✏️ 見積書 ' + item.quoteNo) + ' を編集';
+  document.getElementById('edit-mgmt-modal').classList.add('open');
+  document.getElementById('detail-modal').classList.remove('open');
+  if(document.getElementById('quote-detail-modal')) document.getElementById('quote-detail-modal').classList.remove('open');
+}
+
+function saveMgmtEdit() {
+  const mgmtId = document.getElementById('edit-mgmt-id').value;
+  if (!mgmtId) { showToast('IDが取得できません', true); return; }
+  const toSlashDate = s => s ? s.replace(/-/g, '/') : '';
+  const v = id => { const el = document.getElementById(id); return el ? el.value : ''; };
+  const payload = {
+    mgmtId, quoteNo: v('edit-quote-no') || undefined, orderNo: v('edit-order-no') || undefined,
+    subject: v('edit-subject') || undefined, client: v('edit-client') || undefined, status: v('edit-status') || undefined,
+    orderType: v('edit-order-type') || undefined, modelCode: v('edit-model-code') || undefined, memo: v('edit-memo') || undefined,
+    orderDate: toSlashDate(v('edit-order-date')) || undefined, deliveryDate: toSlashDate(v('edit-delivery-date')) || undefined,
+  };
+  Object.keys(payload).forEach(k => { if (payload[k] === undefined) delete payload[k]; });
+  google.script.run.withSuccessHandler(res => {
+    if (res.success) { showToast('保存しました'); document.getElementById('edit-mgmt-modal') && document.getElementById('edit-mgmt-modal').classList.remove('open'); loadData(); if (typeof loadQuoteList === 'function') loadQuoteList(); }
+    else { showToast('保存失敗: ' + res.error, true); }
+  }).withFailureHandler(err => showToast('通信エラー: ' + err.message, true)).handleApiRequest('updateMgmt', payload);
+}
+
+function saveEditMgmt() { saveMgmtEdit(); }
+
+function deleteMgmt(mgmtId, label) {
+  if (!confirm('「' + (label || mgmtId) + '」を削除しますか？\n関連する明細行も削除されます。')) return;
+  google.script.run.withSuccessHandler(res => {
+    if (res.success) { showToast('削除しました'); document.getElementById('detail-modal').classList.remove('open'); loadData(); if(typeof loadQuoteList === 'function') loadQuoteList(); }
+    else showToast('削除失敗: ' + res.error, true);
+  }).handleApiRequest('deleteMgmt', { mgmtId, deleteRelated: true });
+}
+
+// ============================================================
+// ★ AI紐づけ候補・マッチング機能
+// ============================================================
+function loadMatchingCandidates() {
+  const container = document.getElementById('matching-container'); if(!container) return;
+  container.innerHTML = '<div class="loading"><div class="spinner"></div><br>AIが抽出した紐づけ候補を読み込み中...</div>';
+  google.script.run.withSuccessHandler(res => {
+    if (!res.success) { container.innerHTML = '<div class="alert alert-danger" style="color:var(--danger);">エラー: ' + res.error + '</div>'; return; }
+    _allMatchingItems = res.items || []; _renderMatchingCandidates(_allMatchingItems);
+  }).withFailureHandler(err => { container.innerHTML = '<div class="alert alert-danger" style="color:var(--danger);">通信エラー: ' + err.message + '</div>'; }).handleApiRequest('getCandidates', null);
+}
+
+function runBatchMatching() {
+  showToast('Gemini AIによる全件マッチングを開始しました...');
+  document.getElementById('matching-container').innerHTML = '<div class="loading"><div class="spinner"></div><br>🤖 Gemini AIが未紐づけの注文書と見積書を解析中...<br><span style="font-size:12px;color:var(--text-sub)">※数十秒〜数分かかります</span></div>';
+  google.script.run.withSuccessHandler(res => {
+    if (res.success) { showToast('完了！ 自動確定: ' + (res.result.autoCount||0) + '件 / 要確認候補: ' + (res.result.candidateCount||0) + '件'); loadMatchingCandidates(); loadData(); }
+    else { showToast('エラー: ' + res.error, true); loadMatchingCandidates(); }
+  }).withFailureHandler(err => { showToast('通信エラー: ' + err.message, true); loadMatchingCandidates(); }).handleApiRequest('runMatching', {});
+}
+
+function _renderMatchingCandidates(items) {
+  const container = document.getElementById('matching-container'); if(!container) return;
+  if (items.length === 0) {
+    container.innerHTML = '<div style="text-align:center; padding:40px; background:var(--surface2); border-radius:8px;"><strong style="color:var(--success); font-size:16px;">✓ 要確認の紐づけ候補はありません</strong><br><span style="font-size:13px; color:var(--text-sub); display:inline-block; margin-top:8px;">すべての注文書が自動紐づけされたか、未処理の案件がありません。</span></div>'; return;
+  }
+
+  const cards = items.map(item => {
+    let candidates = item.candidates || [];
+    if (candidates.length === 0) {
+      if (item.c1Id) candidates.push({ quoteId: item.c1Id, quoteNo: item.c1No, client: item.c1Client, score: item.c1Score, detail: item.c1Detail });
+      if (item.c2Id) candidates.push({ quoteId: item.c2Id, quoteNo: '', client: '', score: item.c2Score, detail: '' });
+      if (item.c3Id) candidates.push({ quoteId: item.c3Id, quoteNo: '', client: '', score: item.c3Score, detail: '' });
+    }
+    candidates = candidates.filter(c => c && (c.quoteId || c.id)).slice(0, 20);
+
+    // ★ 候補が0件の場合、未紐づけ見積書から1件〜3件引っ張ってくる（最低1つ表示）
+    if (candidates.length === 0 && typeof _allQuotes !== 'undefined' && _allQuotes.length > 0) {
+      let fallback = _allQuotes.filter(q => !q.linked);
+      let sameClient = fallback.filter(q => (q.client||q.destCompany||'').includes(item.orderClient || ''));
+      if (sameClient.length > 0) fallback = sameClient;
+      candidates = fallback.slice(0, 3).map(q => ({ quoteId: q.id, quoteNo: q.quoteNo || 'Noなし', client: q.client || q.destCompany || '不明', issueDate: q.issueDate || '—', amount: q.quoteAmount || 0, subject: q.subject || '', score: 0, reason: '類似する候補が見つからなかったため、未紐づけの見積書を参考表示しています。', items: [] }));
+      
+      if (candidates.length === 0) {
+          let anyUnlinked = _allQuotes.filter(q => !q.linked).slice(0,1);
+          if (anyUnlinked.length > 0) { let q = anyUnlinked[0]; candidates.push({ quoteId: q.id, quoteNo: q.quoteNo || 'Noなし', client: q.client || q.destCompany || '不明', issueDate: q.issueDate || '—', amount: q.quoteAmount || 0, subject: q.subject || '', score: 0, reason: '未紐づけの見積書を参考表示しています。', items: [] }); }
+      }
+    }
+
+    const candRows = candidates.map(c => {
+      const qId = c.quoteId || c.id;
+      const q = (typeof _allQuotes !== 'undefined') ? _allQuotes.find(aq => String(aq.id) === String(qId)) : null;
+      const qNo = c.quoteNo || (q ? q.quoteNo : '不明'); const qDate = c.issueDate || (q ? q.issueDate : '—');
+      const qSubject = c.subject || (q ? q.subject : '—'); const qAmount = c.amount || (q ? q.quoteAmount : '—');
+      const pdfUrl = c.quoteUrl || (q ? q.quotePdfUrl : '');
+      let itemNames = '—'; let unitPrice = '—';
+      if (c.items && c.items.length > 0) {
+        itemNames = c.items.map(it => it.itemName).join('、'); unitPrice = c.items[0].unitPrice != null ? '¥' + Number(c.items[0].unitPrice).toLocaleString() : '¥' + Number(c.amount||(q?q.quoteAmount:0)).toLocaleString();
+      } else if (q && q.quoteAmount != null) { unitPrice = '¥' + Number(q.quoteAmount).toLocaleString(); }
+      const btnColor = c.score >= 80 ? 'var(--success)' : c.score > 0 ? '#fbbc04' : 'var(--text-sub)';
+      const scoreBadge = c.score > 0 ? `<span style="background:${btnColor}; color:#fff; padding:2px 6px; border-radius:4px; font-size:11px;">${c.score}点</span>` : `<span style="background:var(--text-sub); color:#fff; padding:2px 6px; border-radius:4px; font-size:11px;">参考表示</span>`;
+
+      return `
+      <div style="background:#fff; border:1px solid var(--border); border-left:4px solid ${btnColor}; border-radius:6px; padding:12px; margin-bottom:8px; display:flex; align-items:center; justify-content:space-between; box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+        <div style="flex:1;">
+          <div style="font-weight:700; font-size:13px; color:var(--text); margin-bottom:6px; display:flex; align-items:center; gap:8px;">📄 見積NO: ${qNo} ${scoreBadge}</div>
+          <div style="font-size:11px; color:var(--text-sub); display:flex; flex-wrap:wrap; gap:12px; line-height:1.5;"><span><b style="color:var(--text);">📝 件名:</b> ${qSubject}</span><span><b style="color:var(--text);">📅 発行日:</b> ${qDate}</span><span><b style="color:var(--text);">💰 単価(金額):</b> <span style="color:var(--danger); font-weight:600;">${unitPrice}</span></span><span style="width:100%;"><b style="color:var(--text);">📦 項目明細:</b> ${itemNames}</span></div>
+          ${c.reason ? `<div style="font-size:11px; color:var(--info); margin-top:4px;">💡 ${c.reason}</div>` : ''}
+        </div>
+        <div style="display:flex; flex-direction:column; gap:6px; margin-left:12px; flex-shrink:0;">
+          ${pdfUrl ? `<a href="${pdfUrl}" target="_blank" class="btn btn-outline btn-sm" style="text-align:center;" onclick="event.stopPropagation()">📄 PDF</a>` : ''}
+          <button class="btn btn-primary" onclick="confirmLink('${item.orderMgmtId}','${qId}', () => { loadMatchingCandidates(); })" style="white-space:nowrap; height:fit-content;">🔗 確定</button>
+        </div>
+      </div>`;
+    }).join('');
+
+    // ★ 注文書のPDFリンクを取得してボタンを作る
+    const mgmtItem = S.all.find(r => String(r.id) === String(item.orderMgmtId));
+    const orderPdfUrl = (mgmtItem ? mgmtItem.orderPdfUrl : '') || item.orderPdfUrl || '';
+    const orderPdfBtn = orderPdfUrl ? `<a href="${orderPdfUrl}" target="_blank" onclick="event.stopPropagation()" style="text-decoration:none; background:#fff; border:1px solid #f9d5d1; color:#c0392b; font-size:11px; padding:3px 8px; border-radius:4px; font-weight:600; box-shadow:0 1px 2px rgba(0,0,0,0.05); display:inline-flex; align-items:center; gap:4px; margin-left:8px;">📄 注文書PDF</a>` : '';
+
+    return `
+      <div style="background:var(--bg);border-radius:var(--radius);border:1px solid var(--border);margin-bottom:24px;box-shadow:var(--shadow);overflow:hidden;">
+        <div style="background:#fce8e6;padding:14px 20px;border-bottom:1px solid #f9d5d1;display:flex;align-items:center;flex-wrap:wrap;">
+          <span class="badge" style="background:#c0392b;color:white;font-size:12px;padding:4px 10px;margin-right:12px;">📦 未紐づけ 注文書</span>
+          <div style="display:flex;align-items:center;gap:8px;"><strong style="font-size:16px;color:#c0392b;">${item.orderNo || item.orderMgmtId}</strong>${orderPdfBtn}</div>
+          <span style="font-size:13px;color:var(--text-sub); border-left:1px solid #f9d5d1; padding-left:16px; margin-left:16px;">顧客: ${item.orderClient || '—'}</span>
+          <span style="font-size:13px;color:var(--text-sub); margin-left:16px;">発注日: ${item.orderDate || '—'}</span>
+          <span style="margin-left:auto;font-size:16px;font-weight:800;color:var(--danger);">¥${item.orderAmount ? Number(item.orderAmount).toLocaleString() : '—'}</span>
+        </div>
+        <div style="padding:16px 20px;">
+          <div style="font-size:13px;font-weight:700;color:var(--text-sub);margin-bottom:12px;">↓ 見積書候補</div>
+          ${candRows || '<div style="padding:10px; background:#fff8e1; color:#e65100; border:1px solid #f5d9b8; border-radius:6px; font-size:12px;">候補が見つかりませんでした。</div>'}
+        </div>
+      </div>`;
+  }).join('');
+  container.innerHTML = `<div>${cards}</div>`;
+}
+
+function filterMatchingCandidates() {
+  const kw = document.getElementById('matching-search').value.toLowerCase();
+  if (!kw) { _renderMatchingCandidates(_allMatchingItems); return; }
+  const filtered = _allMatchingItems.filter(item => String(item.orderNo||'').toLowerCase().includes(kw) || String(item.orderMgmtId||'').toLowerCase().includes(kw) || String(item.orderClient||'').toLowerCase().includes(kw));
+  _renderMatchingCandidates(filtered);
+}
+
+function confirmLink(orderMgmtId, quoteMgmtId, onSuccess) {
+  if (!confirm('この注文書と見積書の紐づけを確定しますか？')) return;
+  google.script.run.withSuccessHandler(res => {
+    if (res.success) { showToast('✅ 紐づけが完了しました'); loadData(); if(onSuccess) onSuccess(); else loadMatchingCandidates(); }
+    else { showToast('失敗: ' + res.error, true); }
+  }).handleApiRequest('confirmOrderLink', { orderMgmtId, quoteMgmtId });
+}
+
+// ============================================================
+// ★ 見積台帳 (Ledger) タブ化機能
+// ============================================================
+let _allLedger = [];
+let _currentLedgerTab = 'tree';
+
+function loadLedger() {
+  const container = document.getElementById('ledger-tree-container'); if(!container) return;
+  document.getElementById('ledger-tree-container').innerHTML = '<div class="loading"><div class="spinner"></div><br>読み込み中...</div>';
+  document.getElementById('ledger-flat-container').innerHTML = '<div class="loading"><div class="spinner"></div><br>読み込み中...</div>';
+  
+  google.script.run.withSuccessHandler(res => {
+    if (!res.success) return;
+    _allLedger = res.items || []; 
+    applyLedgerFilter();
+  }).handleApiRequest('ledgerGetAll', null);
+}
+
+function switchLedgerTab(tab) {
+  _currentLedgerTab = tab;
+  const isTree = tab === 'tree';
+  document.getElementById('ledger-tree-container').style.display = isTree ? '' : 'none';
+  document.getElementById('ledger-flat-container').style.display = isTree ? 'none' : '';
+  
+  const treeBtn = document.getElementById('subtab-ledger-tree');
+  const flatBtn = document.getElementById('subtab-ledger-flat');
+  if (treeBtn && flatBtn) {
+    treeBtn.style.color = isTree ? 'var(--primary)' : 'var(--text-sub)'; treeBtn.style.borderBottom = isTree ? '2px solid var(--primary)' : '2px solid transparent'; treeBtn.style.fontWeight = isTree ? '600' : '500';
+    flatBtn.style.color = isTree ? 'var(--text-sub)' : 'var(--primary)'; flatBtn.style.borderBottom = isTree ? '2px solid transparent' : '2px solid var(--primary)'; flatBtn.style.fontWeight = isTree ? '500' : '600';
+  }
+  applyLedgerFilter();
+}
+
+function applyLedgerFilter() {
+  const searchEl = document.getElementById('ledger-search'); const kw = searchEl ? searchEl.value.toLowerCase() : '';
+  let filtered = _allLedger.filter(r => {
+    if (r.status === '__MACHINE_FOLDER__' && _currentLedgerTab === 'flat') return false; 
+    if (r.status === '__MACHINE_FOLDER__' && _currentLedgerTab === 'tree') return true;
+    return !kw || [r.quoteNo, r.boardName, r.modelNo, r.subject, r.dest, r.machineCode, r.remarks].some(v => String(v||'').toLowerCase().includes(kw));
+  });
+  
+  if (_currentLedgerTab === 'tree') { _renderLedgerTree(filtered); } else { _renderLedgerFlat(filtered); }
+}
+
+function _renderLedgerTree(items) {
+  const container = document.getElementById('ledger-tree-container'); if(!container) return;
+  const machineSet = {};
+  items.forEach(r => { const m = (r.machineCode || '（機種未設定）').trim(); if (!machineSet[m]) machineSet[m] = []; if (r.status !== '__MACHINE_FOLDER__') machineSet[m].push(r); });
+  if (Object.keys(machineSet).length === 0) { container.innerHTML = '<div class="loading" style="color:var(--text-sub);">該当する見積がありません。</div>'; return; }
+  let html = '';
+  Object.keys(machineSet).sort().forEach(machine => {
+    const machineItems = machineSet[machine]; const machineId = 'machine-' + machine.replace(/[^a-zA-Z0-9]/g, '_');
+    html += `<div style="background:var(--card);border-radius:8px;margin-bottom:6px;box-shadow:0 1px 3px rgba(0,0,0,.08);overflow:hidden;"><div class="ledger-machine-hd" onclick="_toggleMachineSection('${machineId}')" style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;cursor:pointer;user-select:none;border-left:4px solid var(--primary);"><span style="display:flex;align-items:center;gap:10px;"><span style="font-size:15px;" id="${machineId}-arrow">▼</span><span style="font-weight:700;font-size:15px;letter-spacing:.03em;">📁 ${machine}</span><span style="font-size:12px;color:var(--text-sub);">${machineItems.length}件</span></span><button class="btn btn-outline btn-sm" onclick="event.stopPropagation();_openLedgerModalWithMachine('${machine}')" style="font-size:11px;padding:3px 8px;">＋ 見積登録</button></div><div id="${machineId}" style="display:block;">`;
+    const boardGroups = {};
+    machineItems.forEach(r => { const bKey = (r.boardName || '（基板未設定）').trim(); if (!boardGroups[bKey]) boardGroups[bKey] = []; boardGroups[bKey].push(r); });
+    if (Object.keys(boardGroups).length === 0) html += `<div style="padding:14px 20px;color:var(--text-sub);font-size:13px;">まだ見積がありません。</div>`;
+    Object.keys(boardGroups).sort().forEach(board => {
+      const boardItems = boardGroups[board]; const boardId = machineId + '_' + board.replace(/[^a-zA-Z0-9]/g, '_');
+      html += `<div style="border-top:1px solid var(--border);"><div class="ledger-board-hd" onclick="_toggleBoardSection('${boardId}')" style="display:flex;align-items:center;justify-content:space-between;padding:7px 16px 7px 28px;background:#f4f6f9;cursor:pointer;user-select:none;"><span style="display:flex;align-items:center;gap:8px;"><span style="font-size:12px;" id="${boardId}-arrow">▼</span><span style="font-size:13px;font-weight:600;">🔬 ${board}</span></span></div><div id="${boardId}"><table style="width:100%;border-collapse:collapse;"><thead><tr style="background:#f0f2f5;"><th style="padding:5px 10px 5px 50px;">見積No.</th><th>件名</th><th>金額</th><th>操作</th></tr></thead><tbody>`;
+      boardItems.forEach(r => {
+        const safeId = (r.ledgerId || '').replace(/'/g, "\\'");
+        html += `<tr style="border-bottom:1px solid #f0f0f0; cursor:pointer;" onclick="openLedgerModal('${safeId}')" onmouseenter="this.style.background='#f8f9fa'" onmouseleave="this.style.background=''"><td style="padding:7px 10px 7px 50px;font-family:monospace;font-size:12px;color:var(--primary);">${r.quoteNo || '—'}</td><td style="padding:7px 8px;font-size:12px;">${r.subject || '—'}</td><td style="padding:7px 8px;font-size:12px;color:var(--danger);font-weight:600;">${r.amount ? '¥'+Number(r.amount).toLocaleString() : '—'}</td><td style="padding:7px 8px;"><button class="btn btn-outline btn-sm" onclick="event.stopPropagation(); openLedgerModal('${safeId}')">✏️</button><button class="btn btn-danger btn-sm"  onclick="event.stopPropagation(); deleteLedger('${safeId}')" style="margin-left:2px;">🗑️</button></td></tr>`;
+      });
+      html += `</tbody></table></div></div>`;
+    });
+    html += `</div></div>`;
+  });
+  container.innerHTML = html;
+}
+
+// 全て表示（フラット）用のレンダリング
+function _renderLedgerFlat(items) {
+  const container = document.getElementById('ledger-flat-container'); if(!container) return;
+  let data = items.filter(r => r.status !== '__MACHINE_FOLDER__');
+  data.sort((a,b) => String(b.quoteNo||'').localeCompare(String(a.quoteNo||''))); // 発行順（見積Noの降順）
+  if (data.length === 0) { container.innerHTML = '<div class="loading" style="color:var(--text-sub);">該当する見積がありません。</div>'; return; }
+
+  let html = `<table class="dtable" style="width:100%;border-collapse:collapse;font-size:12px;background:#fff;box-shadow:var(--shadow-sm);border-radius:8px;overflow:hidden;"><thead><tr style="background:#f0f2f5;"><th style="padding:8px 12px;text-align:left;border-bottom:1px solid var(--border);">見積No.</th><th style="padding:8px 12px;text-align:left;border-bottom:1px solid var(--border);">件名</th><th style="padding:8px 12px;text-align:left;border-bottom:1px solid var(--border);">機種</th><th style="padding:8px 12px;text-align:left;border-bottom:1px solid var(--border);">基板名</th><th style="padding:8px 12px;text-align:right;border-bottom:1px solid var(--border);">金額</th><th style="padding:8px 12px;text-align:center;border-bottom:1px solid var(--border);">操作</th></tr></thead><tbody>`;
+  data.forEach(r => {
+    const safeId = (r.ledgerId || '').replace(/'/g, "\\'");
+    html += `<tr style="border-bottom:1px solid #f0f0f0; cursor:pointer;" onclick="openLedgerModal('${safeId}')" onmouseenter="this.style.background='#f8f9fa'" onmouseleave="this.style.background=''"><td style="padding:8px 12px;font-family:monospace;color:var(--primary);font-weight:600;">${r.quoteNo || '—'}</td><td style="padding:8px 12px;">${r.subject || '—'}</td><td style="padding:8px 12px;color:var(--text-sub);">${r.machineCode || '—'}</td><td style="padding:8px 12px;color:var(--text-sub);">${r.boardName || '—'}</td><td style="padding:8px 12px;text-align:right;color:var(--danger);font-weight:600;">${r.amount ? '¥'+Number(r.amount).toLocaleString() : '—'}</td><td style="padding:8px 12px;text-align:center;"><button class="btn btn-outline btn-sm" onclick="event.stopPropagation(); openLedgerModal('${safeId}')">✏️</button><button class="btn btn-danger btn-sm"  onclick="event.stopPropagation(); deleteLedger('${safeId}')" style="margin-left:4px;">🗑️</button></td></tr>`;
+  });
+  html += `</tbody></table>`;
+  container.innerHTML = html;
+}
+
+function _toggleMachineSection(id) { const el = document.getElementById(id); const arr = document.getElementById(id+'-arrow'); if(el){ el.style.display = el.style.display==='none'?'block':'none'; if(arr) arr.textContent = el.style.display==='none'?'▶':'▼'; } }
+function _toggleBoardSection(id) { const el = document.getElementById(id); const arr = document.getElementById(id+'-arrow'); if(el){ el.style.display = el.style.display==='none'?'block':'none'; if(arr) arr.textContent = el.style.display==='none'?'▶':'▼'; } }
+
+function openLedgerModal(id) {
+  const item = id ? _allLedger.find(r => r.ledgerId === id) : null;
+  document.getElementById('ledger-modal-title').textContent = item ? '見積編集' : '見積登録';
+  document.getElementById('ledger-id').value           = item ? item.ledgerId   : '';
+  document.getElementById('ledger-machine-code').value = item ? (item.machineCode || '') : '';
+  document.getElementById('ledger-board-name').value   = item ? (item.boardName  || '') : '';
+  document.getElementById('ledger-quote-no').value     = item ? item.quoteNo     : '';
+  document.getElementById('ledger-subject').value      = item ? item.subject     : '';
+  document.getElementById('ledger-amount').value       = item ? (item.amount || '') : '';
+  document.getElementById('ledger-modal').classList.add('open');
+}
+
+function _openLedgerModalWithMachine(machine) { openLedgerModal(null); document.getElementById('ledger-machine-code').value = machine; }
+function closeLedgerModal() { document.getElementById('ledger-modal').classList.remove('open'); }
+
+function saveLedger() {
+  const payload = {
+    ledgerId:    document.getElementById('ledger-id').value || null,
+    machineCode: document.getElementById('ledger-machine-code').value.trim(),
+    boardName:   document.getElementById('ledger-board-name').value.trim(),
+    quoteNo:     document.getElementById('ledger-quote-no').value,
+    subject:     document.getElementById('ledger-subject').value.trim(),
+    amount:      document.getElementById('ledger-amount').value || '',
+  };
+  if (!payload.subject) { showToast('件名は必須です', true); return; }
+  google.script.run.withSuccessHandler(res => { if (res.success) { showToast('保存しました'); closeLedgerModal(); loadLedger(); } else showToast('保存失敗', true); }).handleApiRequest('ledgerSave', payload);
+}
+
+function deleteLedger(id) {
+  if (!confirm('削除しますか？')) return;
+  google.script.run.withSuccessHandler(res => { if (res.success) { showToast('削除しました'); loadLedger(); } }).handleApiRequest('ledgerDelete', { ledgerId: id });
+}
+
+// ============================================================
+// 全文検索 (DriveSearch)
+// ============================================================
+function runDriveSearch() {
+  const keyword  = document.getElementById('drive-search-input').value.trim();
+  const dateFrom = document.getElementById('drive-date-from').value.replace(/-/g,'/');
+  const dateTo   = document.getElementById('drive-date-to').value.replace(/-/g,'/');
+  const btn      = document.getElementById('drive-search-btn');
+  btn.disabled   = true; btn.textContent = '検索中...';
+  document.getElementById('drive-search-container').innerHTML = '<div class="loading"><div class="spinner"></div><br>Driveを検索中...</div>';
+  google.script.run.withSuccessHandler(res => {
+    btn.disabled = false; btn.textContent = '🔍 検索';
+    if (!res.success) { document.getElementById('drive-search-container').innerHTML = '<div style="color:var(--danger);">' + res.error + '</div>'; return; }
+    _renderDriveResults(res.items || [], res.total || 0, keyword);
+  }).handleApiRequest('driveSearch', { keyword, dateFrom, dateTo });
+}
+
+function _renderDriveResults(items, total, keyword) {
+  document.getElementById('drive-result-count').textContent = total + '件';
+  if (items.length === 0) { document.getElementById('drive-search-container').innerHTML = '<div class="loading">見つかりませんでした</div>'; return; }
+  const rows = items.map(item => `
+    <tr id="drive-row-${item.id}">
+      <td><a href="${item.url}" target="_blank" class="pdf-link">📄 ${item.name}</a></td>
+      <td style="font-size:12px;color:var(--text-sub);">${item.createdAt || ''}</td>
+      <td><a href="${item.url}" target="_blank" class="btn btn-outline btn-sm">開く</a> <button class="btn btn-danger btn-sm" onclick="deleteDriveFile('${item.id}','${item.name.replace(/'/g, '')}')">削除</button></td>
+    </tr>`).join('');
+  document.getElementById('drive-search-container').innerHTML = `<table><thead><tr><th>ファイル名</th><th>作成日</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+function deleteDriveFile(fileId, fileName) {
+  if (!confirm('「' + fileName + '」をゴミ箱に移動しますか？')) return;
+  google.script.run.withSuccessHandler(res => {
+    if (res.success) { showToast('削除しました'); document.getElementById('drive-row-' + fileId)?.remove(); }
+    else showToast('削除失敗: ' + res.error, true);
+  }).handleApiRequest('driveDeleteFile', { fileId: fileId });
+}
+function clearDriveSearch() { document.getElementById('drive-search-input').value = ''; document.getElementById('drive-date-from').value = ''; document.getElementById('drive-date-to').value = ''; document.getElementById('drive-search-container').innerHTML = '<div class="loading">条件を入力して「検索」を押してください</div>'; }
+
+// ============================================================
+// カレンダー
+// ============================================================
+let _calendarInstance = null;
+function loadCalendar() {
+  const container = document.getElementById('cal-container'); if(!container) return;
+  if (_calendarInstance) { _calendarInstance.render(); return; }
+  _calendarInstance = new FullCalendar.Calendar(container, {
+    initialView: 'dayGridMonth', locale: 'ja', headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,listMonth' }, buttonText: { today: '今日', month: '月', list: '予定リスト' }, height: 'auto',
+    eventContent: function(arg) {
+      const title = arg.event.title || ''; const type = arg.event.extendedProps.type || '';
+      let icon = '📌'; if (title.includes('見積') || type === 'quote') icon = '📄'; if (title.includes('注文') || type === 'order') icon = '📦'; if (title.includes('納期') || type === 'delivery') icon = '🚚'; if (title.includes('Todo') || type === 'todo') icon = '✅';
+      return { html: `<div style="font-size:11px; white-space:normal; line-height:1.4; padding:3px 4px; overflow:hidden; cursor:pointer;" title="クリックして詳細を表示"><strong>${icon} ${title}</strong></div>` };
+    },
+    events: function(info, successCallback, failureCallback) {
+      const midDate = new Date((info.start.getTime() + info.end.getTime()) / 2);
+      google.script.run.withSuccessHandler(res => {
+        if (!res.success) { failureCallback(res.error); return; }
+        const fcEvents = (res.events || []).map(ev => {
+          let bgColor = '#3498db'; if (ev.type === 'delivery') bgColor = '#e74c3c'; if (ev.type === 'quote') bgColor = '#2ecc71'; if (ev.type === 'todo') bgColor = '#f39c12';
+          return { title: ev.label, start: String(ev.date).replace(/\//g, '-'), backgroundColor: bgColor, borderColor: bgColor, extendedProps: { mgmtId: ev.mgmtId, todoId: ev.todoId, label: ev.label, type: ev.type } };
+        });
+        successCallback(fcEvents);
+      }).handleApiRequest('getCalendar', { year: midDate.getFullYear(), month: midDate.getMonth() + 1 });
+    },
+    eventClick: function(info) { openCalEventDetail(info.event.extendedProps); }
+  });
+  _calendarInstance.render();
+}
+function openCalEventDetail(evProps) {
+  if (!evProps) return;
+  if (evProps.mgmtId) { const isQuote = (evProps.label && evProps.label.includes('見積')) || evProps.type === 'quote'; if (isQuote) { openQuoteDetail(evProps.mgmtId, ''); } else { openDetail(evProps.mgmtId); } }
+  else if (evProps.todoId) { showToast('Todo詳細は準備中です', true); }
+}
+
+// ============================================================
+// ★ メニュー設定 (管理コンソール) URL機能対応
+// ============================================================
+let _editMenuConfig = [];
+
+function openMenuConfig() { renderMenuConfigList(); document.getElementById('menu-config-modal').classList.add('open'); }
+function closeMenuConfig() { document.getElementById('menu-config-modal').classList.remove('open'); }
+
+function renderMenuConfigList() {
+  const container = document.getElementById('menu-editor-list'); if (!container) return;
+  if (!_editMenuConfig || _editMenuConfig.length === 0) {
+    if (typeof userMenuConfig !== 'undefined' && userMenuConfig.length > 0) { _editMenuConfig = JSON.parse(JSON.stringify(userMenuConfig)); } 
+    else { _editMenuConfig = JSON.parse(JSON.stringify(DEFAULT_MENU)); }
+  }
+  container.innerHTML = _editMenuConfig.map((item, index) => `
+    <div style="background:#fff; border:1px solid var(--border); border-radius:6px; padding:8px 12px; display:flex; align-items:center; gap:8px; box-shadow:0 1px 2px rgba(0,0,0,0.05); margin-bottom:8px;">
+      <div style="display:flex; flex-direction:column; gap:2px; width:40px;">
+        <button class="btn btn-outline btn-sm" style="padding:0;font-size:10px;height:20px;line-height:1;" onclick="moveMenuConfigItem(${index}, -1)" ${index===0?'disabled':''}>▲</button>
+        <button class="btn btn-outline btn-sm" style="padding:0;font-size:10px;height:20px;line-height:1;" onclick="moveMenuConfigItem(${index}, 1)" ${index===_editMenuConfig.length-1?'disabled':''}>▼</button>
+      </div>
+      <input type="text" value="${item.icon||''}" style="width:40px; text-align:center; padding:6px; border:1px solid var(--border); border-radius:4px;" onchange="_editMenuConfig[${index}].icon=this.value" title="アイコン">
+      <input type="text" value="${item.label||''}" style="flex:1; min-width:120px; padding:6px 8px; border:1px solid var(--border); border-radius:4px;" onchange="_editMenuConfig[${index}].label=this.value" title="メニュー名">
+      <input type="text" value="${item.section||''}" style="width:120px; padding:6px 8px; border:1px solid var(--border); border-radius:4px;" onchange="_editMenuConfig[${index}].section=this.value" title="セクション名">
+      <input type="text" value="${item.external || ''}" placeholder="https:// (外部URL)" style="width:180px; padding:6px 8px; border:1px solid var(--border); border-radius:4px;" onchange="_editMenuConfig[${index}].external=this.value" title="クリック時に開くURL">
+      <div style="width:140px; display:flex; flex-direction:column; gap:4px;">
+        <label style="display:flex; align-items:center; gap:4px; font-size:11px; cursor:pointer;"><input type="checkbox" ${item.visible?'checked':''} onchange="_editMenuConfig[${index}].visible=this.checked"> メニューに表示</label>
+        <label style="display:flex; align-items:center; gap:4px; font-size:11px; cursor:pointer; color:var(--danger);"><input type="checkbox" ${item.adminOnly?'checked':''} onchange="_editMenuConfig[${index}].adminOnly=this.checked"> 管理者のみ</label>
+      </div>
+      <button class="btn btn-danger btn-sm" style="padding:6px; width:30px; height:30px;" onclick="deleteMenuConfigItem(${index})" title="削除">✕</button>
+    </div>
+  `).join('');
+}
+function moveMenuConfigItem(index, dir) { if (index + dir < 0 || index + dir >= _editMenuConfig.length) return; const temp = _editMenuConfig[index]; _editMenuConfig[index] = _editMenuConfig[index + dir]; _editMenuConfig[index + dir] = temp; renderMenuConfigList(); }
+function deleteMenuConfigItem(index) { if (confirm('「' + _editMenuConfig[index].label + '」をメニューから削除しますか？\n※「初期状態にリセット」を押せばいつでも元に戻せます')) { _editMenuConfig.splice(index, 1); renderMenuConfigList(); } }
+function addMenuConfigItem() { const newId = 'custom_' + Date.now().toString(36); _editMenuConfig.push({ id: newId, icon: '🔗', label: '新規リンク', section: 'その他', visible: true, adminOnly: false, external: '' }); renderMenuConfigList(); setTimeout(() => { const list = document.getElementById('menu-editor-list'); if(list) list.scrollTop = list.scrollHeight; }, 100); }
+function saveMenuConfig() { localStorage.setItem('BOM_MENU_CONFIG', JSON.stringify(_editMenuConfig)); if (typeof showToast === 'function') showToast('メニュー設定を保存しました。'); if (typeof userMenuConfig !== 'undefined') { userMenuConfig = JSON.parse(JSON.stringify(_editMenuConfig)); if (typeof renderSidebar === 'function') renderSidebar(); } closeMenuConfig(); }
+function resetMenuConfig() { if (confirm('メニュー設定を完全に初期状態にリセットしますか？')) { localStorage.removeItem('BOM_MENU_CONFIG'); _editMenuConfig = JSON.parse(JSON.stringify(DEFAULT_MENU)); renderMenuConfigList(); if (typeof showToast === 'function') showToast('初期化しました。保存を押して確定してください。'); } }
+
+// ============================================================
+// 管理コンソール 基本設定など
+// ============================================================
+function switchAdminTab(tab) {
+  document.querySelectorAll('.admin-tab').forEach(function(t) { t.classList.remove('active'); });
+  document.querySelectorAll('.admin-tab-content').forEach(function(c) { c.style.display = 'none'; });
+  var tabEl = document.getElementById('atab-' + tab); var contentEl = document.getElementById('admin-tab-' + tab);
+  if (tabEl) tabEl.classList.add('active'); if (contentEl) contentEl.style.display = 'block';
+  if (tab === 'menu') { renderMenuConfigList(); }
+}
+
+function loadAdminSettings() {
+  var btn = document.getElementById('admin-reload-btn'); if (btn) btn.textContent = '読み込み中...';
+  google.script.run.withSuccessHandler(function(res) {
+    if (btn) btn.textContent = '📥 全設定を読み込む';
+    if (!res || !res.success) { showToast('設定の読み込みに失敗しました', true); return; }
+    var s = res.settings || {};
+    _setVal('cfg-admin-emails', res.adminEmails || ''); _setVal('cfg-chat-webhook', res.chatWebhook || s.webhookUrl || ''); _setVal('cfg-gemini-key', '');  
+    _setVal('cfg-spreadsheet-id', res.spreadsheetId || ''); _setVal('cfg-admin-emails-access', res.adminEmails || '');
+    _setCheck('cfg-notify-order', s.notifyOrder !== false); _setCheck('cfg-notify-quote', s.notifyQuote !== false); _setCheck('cfg-notify-deadline', s.notifyDl !== false);
+    _setVal('cfg-alert-days', s.alertDays || 3); _setVal('cfg-notify-emails', res.notifyEmails || ''); _setVal('cfg-rakuraku-company', res.rakurakuCompany || '');
+    _setVal('cfg-rakuraku-endpoint', res.rakurakuEndpoint || ''); _setVal('cfg-n8n-order-webhook', res.n8nOrderWebhook || ''); _setVal('cfg-n8n-quote-webhook', res.n8nQuoteWebhook || ''); _setVal('cfg-custom-webhook', res.customWebhook || '');
+    showToast('設定を読み込みました');
+  }).handleApiRequest('loadSettings', {});
+}
+
+function _setVal(id, val) { var el = document.getElementById(id); if (el) el.value = val; }
+function _setCheck(id, checked) { var el = document.getElementById(id); if (el) el.checked = !!checked; }
+function _getVal(id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; }
+function _getCheck(id) { var el = document.getElementById(id); return el ? el.checked : false; }
+
+function saveAdminBasic() {
+  var payload = { adminEmails: _getVal('cfg-admin-emails'), chatWebhook: _getVal('cfg-chat-webhook'), notifyOrder: _getCheck('cfg-notify-order'), notifyQuote: _getCheck('cfg-notify-quote'), notifyDl: _getCheck('cfg-notify-deadline'), alertDays: parseInt(_getVal('cfg-alert-days')) || 3 };
+  var geminiKey = _getVal('cfg-gemini-key'); if (geminiKey) payload.geminiKey = geminiKey;
+  var ssId = _getVal('cfg-spreadsheet-id'); if (ssId) payload.spreadsheetId = ssId;
+  var msgEl = document.getElementById('cfg-save-msg');
+  if (msgEl) { msgEl.textContent = '保存中...'; msgEl.style.color = 'var(--text-sub)'; }
+  google.script.run.withSuccessHandler(function(res) {
+    if (res && res.success) {
+      showToast('✅ 設定を保存・反映しました');
+      if (msgEl) { msgEl.textContent = '✅ 保存完了'; msgEl.style.color = 'var(--success)'; }
+      // APIキー入力欄をクリア
+      document.getElementById('cfg-gemini-key').value = '';
+      var statusEl = document.getElementById('gemini-key-status');
+      if (statusEl && geminiKey) { statusEl.textContent = '✅ APIキーを更新しました。接続テストで動作確認をしてください。'; statusEl.style.color = 'var(--success)'; }
+      setTimeout(function() { if (msgEl) msgEl.textContent = ''; }, 4000);
+    } else {
+      showToast('保存失敗: ' + (res ? res.error : '不明'), true);
+      if (msgEl) { msgEl.textContent = '❌ 失敗'; msgEl.style.color = 'var(--danger)'; }
+    }
+  }).handleApiRequest('saveSettings', payload);
+}
+
+function toggleGeminiKeyVisibility() {
+  var input = document.getElementById('cfg-gemini-key');
+  var btn = document.getElementById('gemini-key-toggle');
+  if (!input) return;
+  if (input.type === 'password') {
+    input.type = 'text';
+    if (btn) btn.textContent = '🚫';
+  } else {
+    input.type = 'password';
+    if (btn) btn.textContent = '👁';
+  }
+}
+
+function testGeminiConnection() {
+  var btn = document.getElementById('gemini-test-btn');
+  var statusEl = document.getElementById('gemini-key-status');
+  if (btn) { btn.disabled = true; btn.textContent = 'テスト中...'; }
+  if (statusEl) { statusEl.textContent = '🔍 Gemini AIに接続確認中...'; statusEl.style.color = 'var(--text-sub)'; }
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (btn) { btn.disabled = false; btn.textContent = '🧪 テスト'; }
+      if (!res || !res.success) {
+        if (statusEl) { statusEl.textContent = '❌ 接続失敗: ' + (res ? res.error : '不明'); statusEl.style.color = 'var(--danger)'; }
+        showToast('接続テスト失敗', true);
+        return;
+      }
+      if (statusEl) { statusEl.textContent = '✅ 接続成功！ モデル: ' + (res.model || 'gemini-1.5-flash'); statusEl.style.color = 'var(--success)'; }
+      showToast('✅ Gemini AI 接続成功！');
+    })
+    .withFailureHandler(function(err) {
+      if (btn) { btn.disabled = false; btn.textContent = '🧪 テスト'; }
+      if (statusEl) { statusEl.textContent = '❌ 通信エラー: ' + err.message; statusEl.style.color = 'var(--danger)'; }
+      showToast('接続テスト失敗', true);
+    })
+    .handleApiRequest('testGemini', {});
+}
+function saveAdminNotify() { google.script.run.withSuccessHandler(function(res) { if (res && res.success) showToast('通知設定を保存しました'); else showToast('保存失敗', true); }).handleApiRequest('saveSettings', { notifyOrder: _getCheck('cfg-notify-order'), notifyQuote: _getCheck('cfg-notify-quote'), notifyDl: _getCheck('cfg-notify-deadline'), alertDays: parseInt(_getVal('cfg-alert-days')) || 3 }); }
+function saveAdminAccess() { google.script.run.withSuccessHandler(function(res) { if (res && res.success) showToast('閲覧権限を保存しました'); else showToast('保存失敗', true); }).handleApiRequest('saveSettings', { adminEmails: _getVal('cfg-admin-emails-access') }); }
+function saveAdminMailSend() { google.script.run.withSuccessHandler(function(res) { if (res && res.success) showToast('メール配信設定を保存しました'); else showToast('保存失敗', true); }).handleApiRequest('saveSettings', { notifyEmails: _getVal('cfg-notify-emails') }); }
+function saveAdminRakuraku() { var payload = { rakurakuCompany: _getVal('cfg-rakuraku-company'), rakurakuEndpoint: _getVal('cfg-rakuraku-endpoint') }; var apiKey = _getVal('cfg-rakuraku-apikey'); if (apiKey) payload.rakurakuApiKey = apiKey; google.script.run.withSuccessHandler(function(res) { if (res && res.success) showToast('楽楽販売設定を保存しました'); else showToast('保存失敗', true); }).handleApiRequest('saveSettings', payload); }
+function saveAdminExternal() { google.script.run.withSuccessHandler(function(res) { if (res && res.success) showToast('外部連携設定を保存しました'); else showToast('保存失敗', true); }).handleApiRequest('saveSettings', { n8nOrderWebhook: _getVal('cfg-n8n-order-webhook'), n8nQuoteWebhook: _getVal('cfg-n8n-quote-webhook'), customWebhook: _getVal('cfg-custom-webhook') }); }
+
+var _adminLoaded = false;
+function _onShowAdmin() { if (!_adminLoaded) { _adminLoaded = true; loadAdminSettings(); } if (!document.querySelector('.admin-tab.active')) { switchAdminTab('basic'); } }
+const _originalShowPage = window.showPage || function(){};
+window.showPage = function(name) { _originalShowPage(name); if (name === 'admin') _onShowAdmin(); };
+</script>
+
+<!-- ============================================================
+     AIチャット CSS & JS（16_chatbot_v2.gs 連携）
+============================================================ -->
+<style>
+.chat-suggest-btn{
+  border:1px solid var(--border);background:var(--card);color:var(--text);
+  border-radius:20px;padding:6px 14px;font-size:12px;cursor:pointer;
+  transition:all .15s;font-family:inherit;
+}
+.chat-suggest-btn:hover{background:var(--primary-light);border-color:var(--primary);color:var(--primary);}
+
+.chat-bubble{display:flex;gap:10px;max-width:100%;animation:fadeIn .2s ease;}
+.chat-bubble.user{flex-direction:row-reverse;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
+
+.chat-avatar{
+  width:32px;height:32px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;font-size:14px;flex-shrink:0;margin-top:2px;
+}
+.chat-avatar.ai{background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;}
+.chat-avatar.user{background:var(--bg);border:1px solid var(--border);color:var(--text-sub);}
+
+.chat-content{flex:1;min-width:0;}
+.chat-bubble.user .chat-content{display:flex;justify-content:flex-end;}
+
+.chat-msg{
+  display:inline-block;max-width:85%;padding:10px 14px;border-radius:12px;
+  font-size:13px;line-height:1.65;word-break:break-word;
+}
+.chat-bubble.ai .chat-msg{
+  background:var(--card);border:1px solid var(--border);
+  border-radius:4px 12px 12px 12px;color:var(--text);
+}
+.chat-bubble.user .chat-msg{
+  background:var(--primary);color:#fff;
+  border-radius:12px 4px 12px 12px;
+}
+
+/* AIの回答内のテキスト整形 */
+.chat-bubble.ai .chat-msg table{width:100%;border-collapse:collapse;margin:8px 0;font-size:12px;}
+.chat-bubble.ai .chat-msg th{background:#f8fafc;padding:5px 8px;border:1px solid var(--border);font-weight:600;text-align:left;}
+.chat-bubble.ai .chat-msg td{padding:5px 8px;border:1px solid var(--border);}
+.chat-bubble.ai .chat-msg strong{font-weight:600;color:var(--primary);}
+.chat-bubble.ai .chat-msg a{color:var(--primary);text-decoration:none;}
+.chat-bubble.ai .chat-msg a:hover{text-decoration:underline;}
+.chat-bubble.ai .chat-msg code{background:#f1f5f9;border-radius:3px;padding:1px 5px;font-size:11px;}
+
+/* アクションタグ */
+.chat-action-tag{
+  display:inline-flex;align-items:center;gap:4px;
+  background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;
+  border-radius:4px;padding:2px 8px;font-size:11px;margin:4px 2px 0;
+}
+.chat-action-tag.success{background:#f0fdf4;color:#16a34a;border-color:#bbf7d0;}
+.chat-action-tag.warn{background:#fffbeb;color:#d97706;border-color:#fde68a;}
+
+/* ローディングdots */
+.chat-dots{display:inline-flex;gap:4px;align-items:center;padding:4px 0;}
+.chat-dots span{width:6px;height:6px;border-radius:50%;background:var(--text-muted);animation:dot .8s infinite;}
+.chat-dots span:nth-child(2){animation-delay:.2s;}
+.chat-dots span:nth-child(3){animation-delay:.4s;}
+@keyframes dot{0%,80%,100%{transform:scale(0.8);opacity:.4;}40%{transform:scale(1);opacity:1;}}
+
+#page-aichat .page{padding:0;}
+</style>
+
+<script>
+// ============================================================
+// AIチャット JavaScript
+// ============================================================
+let _chatHistory  = [];  // 会話履歴 [{role, content}]
+let _chatLoading  = false;
+
+// チャットページを開いたとき
+const _origShowPage2 = window.showPage;
+window.showPage = function(name) {
+  _origShowPage2(name);
+  if (name === 'aichat') {
+    const input = document.getElementById('chat-input');
+    if (input) setTimeout(()=>input.focus(), 100);
+  }
+};
+
+function chatKeyDown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); chatSend(); }
+}
+
+function chatSendSuggestion(text) {
+  document.getElementById('chat-input').value = text;
+  chatSend();
+}
+
+function chatSend() {
+  if (_chatLoading) return;
+  const input = document.getElementById('chat-input');
+  const text  = (input.value || '').trim();
+  if (!text) return;
+
+  input.value = '';
+  _chatLoading = true;
+
+  // ウェルカム非表示
+  const welcome = document.getElementById('chat-welcome');
+  if (welcome) welcome.style.display = 'none';
+
+  // ユーザーバブル追加
+  _appendBubble('user', text);
+
+  // ボタン無効化
+  const btn  = document.getElementById('chat-send-btn');
+  const icon = document.getElementById('chat-send-icon');
+  const lbl  = document.getElementById('chat-send-label');
+  btn.disabled = true;
+  icon.textContent = '⏳';
+  lbl.textContent  = '考え中...';
+
+  // ローディングバブル
+  const loadingId = 'chat-loading-' + Date.now();
+  _appendBubble('ai', '<div class="chat-dots"><span></span><span></span><span></span></div>', loadingId);
+
+  // 履歴に追加
+  _chatHistory.push({ role: 'user', content: text });
+  // 履歴は最大10往復（20件）に制限
+  if (_chatHistory.length > 20) _chatHistory = _chatHistory.slice(-20);
+
+  const statusBar = document.getElementById('chat-status-bar');
+  if (statusBar) statusBar.textContent = '🔍 データを検索中...';
+
+  google.script.run
+    .withSuccessHandler(res => {
+      _chatLoading = false;
+      btn.disabled = false;
+      icon.textContent = '↑';
+      lbl.textContent  = '送信';
+      if (statusBar) statusBar.textContent = '';
+
+      // ローディングバブルを削除
+      const loadEl = document.getElementById(loadingId);
+      if (loadEl) loadEl.remove();
+
+      if (!res || !res.success) {
+        _appendBubble('ai', '⚠️ エラーが発生しました: ' + (res ? res.error : '不明'));
+        return;
+      }
+
+      // アクションログ表示
+      if (res.actionLog && res.actionLog.length > 0) {
+        _showActionLog(res.actionLog);
+      }
+
+      // AI回答をバブルに追加
+      const formatted = _formatAiAnswer(res.answer || '回答を生成できませんでした');
+      _appendBubble('ai', formatted);
+
+      // 履歴に追加
+      _chatHistory.push({ role: 'assistant', content: res.answer || '' });
+    })
+    .withFailureHandler(err => {
+      _chatLoading = false;
+      btn.disabled = false;
+      icon.textContent = '↑';
+      lbl.textContent  = '送信';
+      if (statusBar) statusBar.textContent = '';
+      const loadEl = document.getElementById(loadingId);
+      if (loadEl) loadEl.remove();
+      _appendBubble('ai', '⚠️ 通信エラー: ' + err.message);
+    })
+    .handleApiRequest('chatbotQuery', {
+      question: text,
+      history : _chatHistory.slice(0, -1), // 最後のuser発言は除く（question自体を渡すので）
+      mode    : 'auto',
+    });
+}
+
+function _appendBubble(role, html, id) {
+  const container = document.getElementById('chat-messages');
+  if (!container) return;
+
+  const isAi   = role === 'ai';
+  const avatar  = isAi ? '🤖' : '👤';
+  const cls     = isAi ? 'ai' : 'user';
+
+  const div = document.createElement('div');
+  div.className = 'chat-bubble ' + cls;
+  if (id) div.id = id;
+  div.innerHTML = `
+    <div class="chat-avatar ${cls}">${avatar}</div>
+    <div class="chat-content">
+      <div class="chat-msg">${html}</div>
+    </div>`;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function _formatAiAnswer(text) {
+  // Markdownライクな簡易整形
+  return text
+    // **太字**
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    // [テキスト](URL)
+    .replace(/\[(.+?)\]\((https?:\/\/[^\)]+)\)/g, '<a href="$1" target="_blank">$1</a>')
+    // 生URL
+    .replace(/(https?:\/\/[^\s\)]+)/g, '<a href="$1" target="_blank">🔗 開く</a>')
+    // 改行
+    .replace(/\n/g, '<br>');
+}
+
+function _showActionLog(actions) {
+  const el = document.getElementById('chat-action-log');
+  if (!el) return;
+  const tags = actions.map(a => {
+    const ok = a.success;
+    const labels = {
+      update_status  : '✅ ステータス更新',
+      link_quote_order:'🔗 紐づけ実行',
+      compare_prices  :'⚖️ 単価比較',
+      search_cases    :'🔍 案件検索',
+      get_case_detail :'📋 詳細取得',
+      search_unit_price:'💰 単価検索',
+      get_unlinked_orders:'📦 未紐づけ確認',
+      get_ocr_log     :'📝 OCRログ確認',
+      get_summary_stats:'📊 集計',
+    };
+    const label = labels[a.function] || a.function;
+    return `<span class="chat-action-tag ${ok?'success':'warn'}">${label}</span>`;
+  }).join('');
+  el.innerHTML = '実行したアクション: ' + tags;
+  el.style.display = 'block';
+  setTimeout(()=>{ el.style.display='none'; }, 8000);
+}
+
+function chatClear() {
+  _chatHistory = [];
+  const container = document.getElementById('chat-messages');
+  if (!container) return;
+  container.innerHTML = `
+    <div id="chat-welcome" style="text-align:center;padding:40px 20px;color:var(--text-sub);">
+      <div style="font-size:32px;margin-bottom:12px;">🤖</div>
+      <div style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:8px;">AIアシスタント</div>
+      <div style="font-size:13px;line-height:1.7;max-width:480px;margin:0 auto;">
+        見積書・注文書について何でも聞いてください。<br>検索・比較・ステータス更新まで実行できます。
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:20px;">
+        <button class="chat-suggest-btn" onclick="chatSendSuggestion('未紐づけの注文書は何件ありますか？')">📦 未紐づけ注文書を確認</button>
+        <button class="chat-suggest-btn" onclick="chatSendSuggestion('今月の受注件数と金額を教えてください')">📊 今月の集計を見る</button>
+        <button class="chat-suggest-btn" onclick="chatSendSuggestion('OCR失敗しているファイルはありますか？')">⚠️ OCR状況を確認</button>
+        <button class="chat-suggest-btn" onclick="chatSendSuggestion('受注済みになっていない注文書を探してください')">🔍 未受注を検索</button>
+      </div>
+    </div>`;
+  showToast('履歴をクリアしました');
+}
+</script>
