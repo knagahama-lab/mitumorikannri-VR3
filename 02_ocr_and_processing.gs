@@ -46,7 +46,7 @@ function _processThreads(threads, configs, isInbox) {
         var name = att.getName();
         if (!name.toLowerCase().endsWith('.pdf')) continue;
 
-        // ★設定シートでマッチング
+        // 設定シートでマッチング
         var cfg = matchEmailConfig(name, subject, fromAddr, toAddr);
         if (!cfg) continue;
 
@@ -105,7 +105,7 @@ function _processQuotePdf(attachment, gmailMsg, msgId) {
 
   _writeQuoteLines(ss, mgmtSheet, newRow, mgmtId, ocr, pdfUrl, folderUrl);
 
-  // ===== 見積台帳の自動更新 =====
+  // 見積台帳の自動更新
   try {
     _apiLedgerUpdateUrl({
       quoteNo:   ocr.documentNo  || '',
@@ -118,14 +118,14 @@ function _processQuotePdf(attachment, gmailMsg, msgId) {
     Logger.log('[LEDGER UPDATE SKIP] ' + ledgerErr.message);
   }
 
-  // ★AI紐付け試行（未紐付けの注文書を探す）
+  // AI紐付け試行
   try {
     aiLinkQuoteToOrder(mgmtId);
   } catch(e) {
     Logger.log('[AI LINK ERROR] ' + e.message);
   }
 
-  // ★チャット通知の送信（紐付け結果を含む最新情報を取得して送信）
+  // チャット通知
   _sendChatNotification(mgmtId, 'quote');
 
   Logger.log('[QUOTE OK] ' + mgmtId);
@@ -138,9 +138,9 @@ function _writeQuoteLines(ss, mgmtSheet, mgmtRow, mgmtId, ocr, pdfUrl, folderUrl
     return [
       mgmtId,
       ocr.documentNo   || '',
-      ocr.issueDate    || ocr.documentDate || '',  // ★発行日
-      ocr.destCompany  || '',                      // ★送り先会社名
-      ocr.destPerson   || '',                      // ★送り先担当者名
+      ocr.issueDate    || ocr.documentDate || '',
+      ocr.destCompany  || '',
+      ocr.destPerson   || '',
       idx + 1,
       item.itemName    || '',
       item.spec        || '',
@@ -181,11 +181,10 @@ function _processOrderPdf(attachment, gmailMsg, msgId, orderType) {
 function _saveOrderData(ocr, orderType, pdfUrl, folderUrl, msgId, fallbackSubject) {
   var ss            = getSpreadsheet();
   var mgmtSheet     = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT);
-  var action        = ocr.actionType || 'new'; // new, revision, cancellation
+  var action        = ocr.actionType || 'new';
   var linkedQuoteNo = ocr.linkedQuoteNo || '';
   var finalMgmtId, updateRow;
 
-  // 既存レコードの探索（修正・キャンセルの場合、または見積番号紐付けがある場合）
   var mgmtRow = -1;
   if (action === 'revision' || action === 'cancellation') {
     mgmtRow = _findExistingMgmtRowForOrder(ss, ocr.documentNo, ocr.subject || fallbackSubject);
@@ -196,25 +195,23 @@ function _saveOrderData(ocr, orderType, pdfUrl, folderUrl, msgId, fallbackSubjec
   if (mgmtRow > 0) {
     finalMgmtId = mgmtSheet.getRange(mgmtRow, MGMT_COLS.ID).getValue();
     updateRow   = mgmtRow;
-    
+
     if (action === 'cancellation') {
       mgmtSheet.getRange(mgmtRow, MGMT_COLS.STATUS).setValue(CONFIG.STATUS.CANCELLED);
       var currentMemo = mgmtSheet.getRange(mgmtRow, MGMT_COLS.MEMO).getValue();
       mgmtSheet.getRange(mgmtRow, MGMT_COLS.MEMO).setValue(currentMemo + "\n[CANCEL] " + (ocr.reason || 'キャンセル通知受領'));
     } else {
-      // 差し替えまたは通常更新
       var status = (action === 'revision') ? CONFIG.STATUS.REVISED : CONFIG.STATUS.RECEIVED;
       mgmtSheet.getRange(mgmtRow, MGMT_COLS.ORDER_NO).setValue(ocr.documentNo    || '');
       mgmtSheet.getRange(mgmtRow, MGMT_COLS.ORDER_DATE).setValue(ocr.documentDate || '');
       mgmtSheet.getRange(mgmtRow, MGMT_COLS.ORDER_AMOUNT).setValue(ocr.subtotal   || 0);
-      
-      // 旧PDFをメモに保存
+
       var oldPdf = mgmtSheet.getRange(mgmtRow, MGMT_COLS.ORDER_PDF_URL).getValue();
       if (oldPdf && oldPdf !== pdfUrl) {
-         var currentMemo = mgmtSheet.getRange(mgmtRow, MGMT_COLS.MEMO).getValue();
-         mgmtSheet.getRange(mgmtRow, MGMT_COLS.MEMO).setValue(currentMemo + "\n[OLD PDF] " + oldPdf);
+        var currentMemo = mgmtSheet.getRange(mgmtRow, MGMT_COLS.MEMO).getValue();
+        mgmtSheet.getRange(mgmtRow, MGMT_COLS.MEMO).setValue(currentMemo + "\n[OLD PDF] " + oldPdf);
       }
-      
+
       mgmtSheet.getRange(mgmtRow, MGMT_COLS.ORDER_PDF_URL).setValue(pdfUrl);
       mgmtSheet.getRange(mgmtRow, MGMT_COLS.DRIVE_FOLDER_URL).setValue(folderUrl);
       mgmtSheet.getRange(mgmtRow, MGMT_COLS.STATUS).setValue(status);
@@ -224,8 +221,8 @@ function _saveOrderData(ocr, orderType, pdfUrl, folderUrl, msgId, fallbackSubjec
       mgmtSheet.getRange(mgmtRow, MGMT_COLS.ORDER_SLIP_NO).setValue(ocr.orderSlipNo || '');
     }
     mgmtSheet.getRange(mgmtRow, MGMT_COLS.UPDATED_AT).setValue(nowJST());
+
   } else {
-    // 新規作成
     finalMgmtId = generateMgmtId();
     var newRow  = mgmtSheet.getLastRow() + 1;
     updateRow   = newRow;
@@ -234,7 +231,7 @@ function _saveOrderData(ocr, orderType, pdfUrl, folderUrl, msgId, fallbackSubjec
     row[MGMT_COLS.ORDER_NO - 1]         = ocr.documentNo    || '';
     row[MGMT_COLS.SUBJECT - 1]          = ocr.subject       || fallbackSubject;
     row[MGMT_COLS.CLIENT - 1]           = ocr.clientName    || '';
-    row[MGMT_COLS.STATUS - 1]           = CONFIG.STATUS.RECEIVED; 
+    row[MGMT_COLS.STATUS - 1]           = CONFIG.STATUS.RECEIVED;
     row[MGMT_COLS.ORDER_DATE - 1]       = ocr.documentDate  || '';
     row[MGMT_COLS.ORDER_AMOUNT - 1]     = ocr.subtotal      || 0;
     row[MGMT_COLS.ORDER_PDF_URL - 1]    = pdfUrl;
@@ -249,11 +246,9 @@ function _saveOrderData(ocr, orderType, pdfUrl, folderUrl, msgId, fallbackSubjec
     mgmtSheet.getRange(newRow, 1, 1, 27).setValues([row]);
   }
 
-  // キャンセル以外は明細を書き込む
   if (action !== 'cancellation') {
     _writeOrderLines(ss, mgmtSheet, updateRow, finalMgmtId, ocr, orderType, pdfUrl, folderUrl);
-    
-    // AI紐付け試行 (新規または差し替え時)
+
     try {
       aiLinkOrderToQuote(finalMgmtId);
     } catch(e) {
@@ -261,19 +256,14 @@ function _saveOrderData(ocr, orderType, pdfUrl, folderUrl, msgId, fallbackSubjec
     }
   }
 
-  // ★チャット通知の送信
   _sendChatNotification(finalMgmtId, 'order', action);
 
   return finalMgmtId;
 }
 
-/**
- * 既存の案件を探す（発注番号または件名でマッチング）
- */
 function _findExistingMgmtRowForOrder(ss, orderNo, subject) {
   var sheet = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT);
   var data  = sheet.getDataRange().getValues();
-  // 最新のものを優先するため後ろから探索
   for (var i = data.length - 1; i >= 1; i--) {
     if (orderNo && data[i][MGMT_COLS.ORDER_NO - 1] === orderNo) return i + 1;
     if (subject && data[i][MGMT_COLS.SUBJECT - 1] === subject) return i + 1;
@@ -302,17 +292,71 @@ function _writeOrderLines(ss, mgmtSheet, mgmtRow, mgmtId, ocr, orderType, pdfUrl
 
 
 // ============================================================
-// Gemini OCR
+// Gemini OCR（Drive OCR + Gemini テキスト解析）
+// ・Drive OCRでPDF→テキスト変換（無料・制限なし）
+// ・GeminiにはテキストのみをJSON化（429激減）
+// ・Drive OCR失敗時はBase64直接送信にフォールバック
 // ============================================================
 
 function extractPdfData(driveFile, docType) {
-  var base64 = Utilities.base64Encode(driveFile.getBlob().getBytes());
+  // Step1: Drive APIでPDF→テキスト抽出（無料）
+  var ocrText = _extractTextByDriveOcr(driveFile);
+
+  if (!ocrText || ocrText.trim().length < 10) {
+    Logger.log('[OCR] Drive OCR失敗またはテキスト不足 → Base64フォールバック');
+    return _extractPdfDataByBase64(driveFile, docType);
+  }
+
+  Logger.log('[OCR TEXT] ' + ocrText.substring(0, 300));
+
+  // Step2: テキストをGeminiでJSON化
+  return _parseOcrTextWithGemini(ocrText, docType);
+}
+
+/**
+ * Drive APIのOCR機能でPDFからテキストを抽出
+ * 完全無料・レート制限なし・日本語対応
+ */
+function _extractTextByDriveOcr(driveFile) {
+  try {
+    var resource = {
+      title: 'OCR_TEMP_' + Date.now(),
+      mimeType: MimeType.GOOGLE_DOCS
+    };
+    var docFile = Drive.Files.insert(resource, driveFile.getBlob(), {
+      ocr: true,
+      ocrLanguage: 'ja',
+      convert: true
+    });
+
+    var docId = docFile.id;
+    Utilities.sleep(1000); // 変換完了待機
+
+    var doc  = DocumentApp.openById(docId);
+    var text = doc.getBody().getText();
+
+    // 一時ファイル削除
+    try { DriveApp.getFileById(docId).setTrashed(true); } catch(e) {}
+
+    return text;
+  } catch(e) {
+    Logger.log('[DRIVE OCR ERROR] ' + e.message);
+    return null;
+  }
+}
+
+/**
+ * OCRテキストをGeminiで構造化JSON化
+ * テキストのみ送信なので429が大幅減
+ */
+function _parseOcrTextWithGemini(ocrText, docType) {
+  var prompt = _buildOcrPrompt(docType) +
+    '\n\n以下のOCRテキストを解析してJSONを返してください：\n\n' +
+    ocrText.substring(0, 8000);
+
   var body = {
-    contents: [{ parts: [
-      { text: _buildOcrPrompt(docType) },
-      { inline_data: { mime_type: 'application/pdf', data: base64 } }
-    ]}],
-    generationConfig: { temperature: 0.1, responseMimeType: 'application/json' },
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { temperature: 0.1 }
   };
 
   var result = _callGeminiApi(CONFIG.GEMINI_PRIMARY_MODEL, body);
@@ -325,8 +369,8 @@ function extractPdfData(driveFile, docType) {
         result.candidates[0].content && result.candidates[0].content.parts) {
       text = result.candidates[0].content.parts[0].text || '';
     }
-    text = text.replace(/```json|```/g,'').trim();
-    Logger.log('[OCR RAW] ' + text.substring(0,500));
+    text = text.replace(/```json|```/g, '').trim();
+    Logger.log('[OCR RAW] ' + text.substring(0, 500));
     return JSON.parse(text);
   } catch(e) {
     Logger.log('[OCR PARSE ERROR] ' + e.message);
@@ -334,21 +378,98 @@ function extractPdfData(driveFile, docType) {
   }
 }
 
+/**
+ * フォールバック：Base64でPDFを直接送信（旧方式）
+ * Drive OCRが失敗した場合 or 有料APIに切り替えた場合に使用
+ */
+function _extractPdfDataByBase64(driveFile, docType) {
+  var base64 = Utilities.base64Encode(driveFile.getBlob().getBytes());
+  var body = {
+    contents: [{ parts: [
+      { text: _buildOcrPrompt(docType) },
+      { inline_data: { mime_type: 'application/pdf', data: base64 } }
+    ]}],
+    generationConfig: { temperature: 0.1 }
+  };
+
+  var result = _callGeminiApi(CONFIG.GEMINI_PRIMARY_MODEL, body);
+  if (!result) result = _callGeminiApi(CONFIG.GEMINI_FALLBACK_MODEL, body);
+  if (!result) { Logger.log('[GEMINI] Base64フォールバックも失敗'); return null; }
+
+  try {
+    var text = '';
+    if (result.candidates && result.candidates[0] &&
+        result.candidates[0].content && result.candidates[0].content.parts) {
+      text = result.candidates[0].content.parts[0].text || '';
+    }
+    text = text.replace(/```json|```/g, '').trim();
+    Logger.log('[OCR RAW fallback] ' + text.substring(0, 500));
+    return JSON.parse(text);
+  } catch(e) {
+    Logger.log('[OCR PARSE ERROR fallback] ' + e.message);
+    return null;
+  }
+}
+
+/**
+ * Gemini API呼び出し（リトライ・nullガード付き）
+ * 無料枠：429時は30秒待機×3回
+ * 有料枠：429はほぼ発生しないが念のため残す
+ */
 function _callGeminiApi(model, body) {
   var key = CONFIG.GEMINI_API_KEY ||
     PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
   if (!key) throw new Error('GEMINI_API_KEY未設定');
-  var url = CONFIG.GEMINI_API_ENDPOINT + model + ':generateContent?key=' + key;
-  try {
-    var res = fetchWithRetry(url, {
-      method:'post', contentType:'application/json',
-      payload: JSON.stringify(body), muteHttpExceptions: true,
-    });
-    return JSON.parse(res.getContentText());
-  } catch(e) {
-    Logger.log('[GEMINI ERROR] ' + model + ': ' + e.message);
-    return null;
+
+  var url      = CONFIG.GEMINI_API_ENDPOINT + model + ':generateContent?key=' + key;
+  var maxRetry = 3;
+  var waitMs   = 30000;
+
+  for (var attempt = 1; attempt <= maxRetry; attempt++) {
+    var res;
+    try {
+      res = UrlFetchApp.fetch(url, {
+        method: 'post',
+        contentType: 'application/json',
+        payload: JSON.stringify(body),
+        muteHttpExceptions: true,
+      });
+    } catch(fetchErr) {
+      Logger.log('[GEMINI FETCH ERROR] ' + model + ' attempt' + attempt + ': ' + fetchErr.message);
+      if (attempt < maxRetry) Utilities.sleep(waitMs);
+      continue;
+    }
+
+    if (!res) {
+      Logger.log('[GEMINI] ' + model + ' attempt' + attempt + ': レスポンスがnull');
+      if (attempt < maxRetry) Utilities.sleep(waitMs);
+      continue;
+    }
+
+    var code = res.getResponseCode();
+    var text = res.getContentText();
+
+    if (code === 429) {
+      Logger.log('[GEMINI 429] ' + model + ' attempt' + attempt + ' → ' + waitMs/1000 + 's待機');
+      if (attempt < maxRetry) Utilities.sleep(waitMs);
+      continue;
+    }
+
+    if (code !== 200) {
+      Logger.log('[GEMINI ERROR] ' + model + ': HTTP ' + code + ': ' + text.substring(0, 200));
+      return null;
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch(parseErr) {
+      Logger.log('[GEMINI PARSE ERROR] ' + model + ': ' + parseErr.message);
+      return null;
+    }
   }
+
+  Logger.log('[GEMINI] ' + model + ': 全リトライ失敗');
+  return null;
 }
 
 function _buildOcrPrompt(docType) {
@@ -444,7 +565,6 @@ function processUploadedPdf(base64Data, fileName, docType, orderType) {
   }
 }
 
-
 function _processQuotePdfFromFile(pdfUrl, folderUrl, ocr, msgId) {
   var mgmtId    = generateMgmtId();
   var ss        = getSpreadsheet();
@@ -468,31 +588,46 @@ function _processQuotePdfFromFile(pdfUrl, folderUrl, ocr, msgId) {
   row[MGMT_COLS.UPDATED_AT - 1]       = nowJST();
   row[MGMT_COLS.GMAIL_MSG_ID - 1]     = msgId;
   mgmtSheet.getRange(newRow, 1, 1, 27).setValues([row]);
-  
+
   _writeQuoteLines(ss, mgmtSheet, newRow, mgmtId, ocr, pdfUrl, folderUrl);
 
-  // ★AI紐付け試行
   try {
     aiLinkQuoteToOrder(mgmtId);
   } catch(e) {
     Logger.log('[AI LINK ERROR] ' + e.message);
   }
 
-  // ★チャット通知の送信
   _sendChatNotification(mgmtId, 'quote');
 
   return mgmtId;
 }
 
+
 // ============================================================
 // 通知・設定・手動紐づけ（API用拡張）
 // ============================================================
 
-/**
- * Google Chatへの通知を送信する（見積情報付き）
- */
-// 10 order upload and notify.gs に定義を統合
-
 function _getChatWebhookUrl() {
-  return CONFIG.GOOGLE_CHAT_WEBHOOK_URL || PropertiesService.getScriptProperties().getProperty('GOOGLE_CHAT_WEBHOOK_URL') || '';
+  return CONFIG.GOOGLE_CHAT_WEBHOOK_URL ||
+    PropertiesService.getScriptProperties().getProperty('GOOGLE_CHAT_WEBHOOK_URL') || '';
+}
+function testOcrDebug() {
+  // テスト対象のファイルID（ログに出ていたID）
+  var fileId = '1H6lqjWUK9rkUHnjnEW1AZWWrnLIZuy-N';
+  var file = DriveApp.getFileById(fileId);
+  
+  Logger.log('ファイル名: ' + file.getName());
+  
+  // Step1: Drive OCRテスト
+  var ocrText = _extractTextByDriveOcr(file);
+  Logger.log('Drive OCR結果文字数: ' + (ocrText ? ocrText.length : 'null'));
+  Logger.log('Drive OCR先頭200文字: ' + (ocrText ? ocrText.substring(0, 200) : 'null'));
+  
+  // Step2: Gemini疎通テスト
+  var testBody = {
+    contents: [{ parts: [{ text: 'テストです。「OK」とだけ返してください。' }] }],
+    generationConfig: { temperature: 0.1 }
+  };
+  var result = _callGeminiApi(CONFIG.GEMINI_PRIMARY_MODEL, testBody);
+  Logger.log('Gemini疎通: ' + JSON.stringify(result));
 }

@@ -1,4 +1,4 @@
-// ============================================================
+﻿// ============================================================
 // 見積書・注文書管理システム
 // ファイル 3/4: Webアプリ doGet / API ルーター
 // ============================================================
@@ -1665,7 +1665,41 @@ function _getChatWebhookUrl() {
          _loadSettingsObj().webhookUrl || '';
 }
 
-// \u2605 Gemini API \u63a5\u7d9a\u30c6\u30b9\u30c8\nfunction _apiTestGeminiConnection() {\n  try {\n    var apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') ||\n                 CONFIG.GEMINI_API_KEY;\n    if (!apiKey) return { success: false, error: 'GEMINI_API_KEY\u304c\u672a\u767b\u9332\u3067\u3059\u3002\u7ba1\u7406\u30b3\u30f3\u30bd\u30fc\u30eb\u306b\u3066API\u30ad\u30fc\u3092\u767b\u9332\u3057\u3066\u304f\u3060\u3055\u3044\u3002' };\n\n    var model = CONFIG.GEMINI_PRIMARY_MODEL || 'gemini-1.5-flash';\n    var url   = CONFIG.GEMINI_API_ENDPOINT + model + ':generateContent?key=' + apiKey;\n    var res = UrlFetchApp.fetch(url, {\n      method: 'post',\n      contentType: 'application/json',\n      payload: JSON.stringify({\n        contents: [{ parts: [{ text: '\u30c6\u30b9\u30c8\u3002OK\u3068\u3060\u3051\u8fd4\u3057\u3066\u3002' }] }],\n        generationConfig: { maxOutputTokens: 10, temperature: 0 }\n      }),\n      muteHttpExceptions: true,\n    });\n    var code = res.getResponseCode();\n    if (code === 200) {\n      return { success: true, model: model, message: 'Gemini API\u63a5\u7d9a\u6210\u529f' };\n    } else if (code === 400) {\n      return { success: false, error: 'API\u30ea\u30af\u30a8\u30b9\u30c8\u30a8\u30e9\u30fc (400): ' + res.getContentText().substring(0, 200) };\n    } else if (code === 401 || code === 403) {\n      return { success: false, error: 'API\u30ad\u30fc\u304c\u7121\u52b9\u304b\u6a29\u9650\u306a\u3057 (' + code + ')\u3002\u6b63\u3057\u3044\u7121\u6599\u7248API\u30ad\u30fc\u3092\u767b\u9332\u3057\u3066\u304f\u3060\u3055\u3044\u3002' };\n    } else if (code === 429) {\n      return { success: false, error: 'API\u30ec\u30fc\u30c8\u30ea\u30df\u30c3\u30c8 (429): \u3057\u3070\u3089\u304f\u5f85\u3063\u3066\u518d\u5ea6\u30c6\u30b9\u30c8\u3057\u3066\u304f\u3060\u3055\u3044\u3002\u7121\u6599\u67a0\u5185\u3067\u3059\u3002' };\n    } else {\n      return { success: false, error: 'HTTP ' + code + ': ' + res.getContentText().substring(0, 200) };\n    }\n  } catch(e) {\n    return { success: false, error: e.message };\n  }\n}\n\nfunction _apiTestWebhook(p) {
+// Gemini API 接続テスト
+function _apiTestGeminiConnection() {
+  try {
+    var apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') ||
+                 CONFIG.GEMINI_API_KEY;
+    if (!apiKey) return { success: false, error: 'GEMINI_API_KEYが未登録です。' };
+    var model = CONFIG.GEMINI_PRIMARY_MODEL || 'gemini-1.5-flash';
+    var url   = CONFIG.GEMINI_API_ENDPOINT + model + ':generateContent?key=' + apiKey;
+    var res = UrlFetchApp.fetch(url, {
+      method: 'post',
+      contentType: 'application/json',
+      payload: JSON.stringify({
+        contents: [{ parts: [{ text: 'テスト。OKとだけ返して。' }] }],
+        generationConfig: { maxOutputTokens: 10, temperature: 0 }
+      }),
+      muteHttpExceptions: true,
+    });
+    var code = res.getResponseCode();
+    if (code === 200) {
+      return { success: true, model: model, message: 'Gemini API接続成功' };
+    } else if (code === 400) {
+      return { success: false, error: 'APIリクエストエラー (400): ' + res.getContentText().substring(0, 200) };
+    } else if (code === 401 || code === 403) {
+      return { success: false, error: 'APIキーが無効か権限なし (' + code + ')。' };
+    } else if (code === 429) {
+      return { success: false, error: 'APIレートリミット (429): しばらく待って再度テストしてください。' };
+    } else {
+      return { success: false, error: 'HTTP ' + code + ': ' + res.getContentText().substring(0, 200) };
+    }
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+function _apiTestWebhook(p) {
   var url = String(p.url || '').trim();
   if (!url) return { success: false, error: 'URLが必要です' };
   try {

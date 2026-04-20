@@ -7,10 +7,9 @@ var CONFIG = {
   SPREADSHEET_ID: PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID') || '',
   GEMINI_API_KEY: PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || '',
 
-  // ★ 無料版モデル（Gemini 1.5 Flash は無料枠あり）
-  GEMINI_PRIMARY_MODEL:  'gemini-1.5-flash',
-  GEMINI_FALLBACK_MODEL: 'gemini-1.5-pro',
-  GEMINI_API_ENDPOINT:   'https://generativelanguage.googleapis.com/v1beta/models/',
+GEMINI_PRIMARY_MODEL:  'gemini-2.0-flash-lite',
+GEMINI_FALLBACK_MODEL: 'gemini-2.0-flash',
+GEMINI_API_ENDPOINT:   'https://generativelanguage.googleapis.com/v1beta/models/',
 
   WEB_UPLOAD_FOLDER_ID:  '1sB42xntGKL31GeT9OjOKTxVJwj9IQz-h',
   ORDER_TRIAL_FOLDER_ID: '1wVeYlt-9GsortfOsUggBsWta8GtXIRvS',

@@ -39,3 +39,21 @@ function testChatNotification() {
     _sendChatNotification(testId, testId.startsWith('MQ') ? 'quote' : 'order');
   }
 }
+function listAvailableModels() {
+  var key = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  var url = 'https://generativelanguage.googleapis.com/v1beta/models?key=' + key;
+  var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+  var data = JSON.parse(res.getContentText());
+  
+  if (data.models) {
+    data.models.forEach(function(m) {
+      // generateContentに対応しているモデルのみ表示
+      if (m.supportedGenerationMethods && 
+          m.supportedGenerationMethods.indexOf('generateContent') >= 0) {
+        Logger.log(m.name + ' | ' + (m.description || ''));
+      }
+    });
+  } else {
+    Logger.log(res.getContentText());
+  }
+}

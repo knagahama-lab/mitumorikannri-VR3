@@ -84,13 +84,11 @@ function _watchFolder(importFolderId, saveFolderId, docType, orderType) {
 
       try {
         // OCR解析
-        var ocr = extractPdfData(file, docType);
-        if (!ocr) {
-          Logger.log('[DRIVE WATCH] OCR失敗: ' + file.getName());
-          // OCR失敗でも処理済みとしてマーク（無限ループ防止）
-          _markFileAsProcessed(fileId);
-          continue;
-        }
+var ocr = extractPdfData(file, docType);
+if (!ocr) {
+  Logger.log('[DRIVE WATCH] OCR失敗（スキップ・未処理のまま）: ' + file.getName());
+  continue;  // 処理済みマークせずスキップ
+}
 
         // 保存先フォルダへコピー（自動で顧客ごとのサブ階層を生成）
         var newName  = 'DRIVE_' + nowJST().replace(/[\/: ]/g,'') + '_' + file.getName();
