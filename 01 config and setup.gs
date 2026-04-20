@@ -5,11 +5,13 @@
 
 var CONFIG = {
   SPREADSHEET_ID: PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID') || '',
-  GEMINI_API_KEY: PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || '',
+  // ★ GEMINI_API_KEY は起動時固定ではなく、毎回getGeminiApiKey()から取得すること
+  //    （管理コンソールで更新してもCONFIG.GEMINI_API_KEYは古い値のままになるため）
+  GEMINI_API_KEY: '',  // 後方互換のため残す（実際はgetGeminiApiKey()を使う）
 
-GEMINI_PRIMARY_MODEL:  'gemini-2.0-flash-lite',
-GEMINI_FALLBACK_MODEL: 'gemini-2.0-flash',
-GEMINI_API_ENDPOINT:   'https://generativelanguage.googleapis.com/v1beta/models/',
+  GEMINI_PRIMARY_MODEL:  'gemini-2.5-flash',
+  GEMINI_FALLBACK_MODEL: 'gemini-2.5-pro',
+  GEMINI_API_ENDPOINT:   'https://generativelanguage.googleapis.com/v1beta/models/',
 
   WEB_UPLOAD_FOLDER_ID:  '1sB42xntGKL31GeT9OjOKTxVJwj9IQz-h',
   ORDER_TRIAL_FOLDER_ID: '1wVeYlt-9GsortfOsUggBsWta8GtXIRvS',
@@ -167,6 +169,7 @@ var LEDGER_COLS = {
   AMOUNT:       12,
   SUBMIT_TO:    13,
   REMARKS:      14,
+  SENT_DATE:    15,  // ★ メール送信日（登録日）追加
 };
 
 var LEDGER_STATUS = {
@@ -249,7 +252,7 @@ function _setupTodoSheet(ss) {
 }
 
 function _setupLedgerSheet(ss) {
-  var headers = ['台帳ID','見積No.','発行日','宛先（企業名）','分類','件名','ステータス','保存先URL','機種コード','基板名','型番','見積金額','提出先担当者','備考'];
+  var headers = ['台帳ID','見積No.','発行日','宛先（企業名）','分類','件名','ステータス','保存先URL','機種コード','基板名','型番','見積金額','提出先担当者','備考','メール送信日'];
   var sheet = _createOrSetupSheet(ss, CONFIG.SHEET_LEDGER, headers, '#FFF3E0');
   var catRule = SpreadsheetApp.newDataValidation()
     .requireValueInList(['試作','量産','修理','その他'], true).build();
@@ -355,6 +358,7 @@ function _ledgerRowToObject(row) {
     amount:      (row[11] !== '' && row[11] !== null && row[11] !== undefined) ? Number(row[11]) : null,
     submitTo:    String(row[12] || ''),
     remarks:     String(row[13] || ''),
+    sentDate:    _toDateStr(row[14]),  // ★ メール送信日
   };
 }
 
@@ -444,8 +448,17 @@ function matchEmailConfig(filename, subject, fromAddr, toAddr) {
 // ユーティリティ
 // ============================================================
 
-function getSpreadsheet() {
-  var id = CONFIG.SPREADSHEET_ID ||
+// ============================================================
+// ★ Gemini APIキー取得（必ずこの関数を使うこと）
+// CONFIGオブジェクトはGAS起動時に1回だけ評価されるため
+// 管理コンソールで更新してもCONFIG.GEMINI_API_KEYは古い値のまま。
+// この関数は毎回スクリプトプロパティから最新値を読み込む。
+// ============================================================
+function getGeminiApiKey() {
+  return PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || '';
+}
+
+function getSpreadsheet() {  var id = CONFIG.SPREADSHEET_ID ||
            PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
   return SpreadsheetApp.openById(id);
 }
@@ -548,7 +561,7 @@ function testGeminiConnection() {
 }
 
 function checkAvailableModels() {
-  var apiKey = CONFIG.GEMINI_API_KEY;
+  var apiKey = getGeminiApiKey();
   var url    = 'https://generativelanguage.googleapis.com/v1beta/models?key=' + apiKey;
   var res    = UrlFetchApp.fetch(url, {muteHttpExceptions: true});
   var data   = JSON.parse(res.getContentText());

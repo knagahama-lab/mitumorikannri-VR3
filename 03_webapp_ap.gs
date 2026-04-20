@@ -1,95 +1,7 @@
-﻿// ============================================================
+// ============================================================
 // 見積書・注文書管理システム
 // ファイル 3/4: Webアプリ doGet / API ルーター
 // ============================================================
-
-// ============================================================
-// ★ 共通ユーティリティ: エラーハンドリング・監査ログ・メール通知
-// ============================================================
-
-/**
- * 統一エラーレスポンス生成（内部エラー詳細を外部に漏らさない）
- */
-function _errorResponse(e, context) {
-  Logger.log('[ERROR][' + (context || 'unknown') + '] ' + e.message + '\n' + e.stack);
-  return { success: false, error: (context || 'エラー') + 'が発生しました。時間をおいて再試行してください。' };
-}
-
-/**
- * 監査ログをスプレッドシートの「監査ログ」シートに書き込む
- * @param {string} action  - 操作種別 (例: 'quote_import', 'api_key_update')
- * @param {string} detail  - 詳細情報
- * @param {string} result  - 'success' or 'error'
- */
-function _writeAuditLog(action, detail, result) {
-  try {
-    var ss    = getSpreadsheet();
-    var sheet = ss.getSheetByName('監査ログ');
-    if (!sheet) {
-      sheet = ss.insertSheet('監査ログ');
-      sheet.appendRow(['日時', '操作者', '操作種別', '詳細', '結果']);
-      sheet.setFrozenRows(1);
-      sheet.getRange(1, 1, 1, 5).setFontWeight('bold').setBackground('#e8f0fe');
-    }
-    var user = Session.getActiveUser().getEmail() || 'system';
-    sheet.appendRow([
-      Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm:ss'),
-      user, action, String(detail).substring(0, 300), result || 'success'
-    ]);
-  } catch(e) {
-    Logger.log('[AUDIT LOG ERROR] ' + e.message);
-  }
-}
-
-/**
- * Gmail メール通知送信（NOTIFY_EMAILS に設定されたアドレスへ）
- * @param {string} subject - 件名
- * @param {string} body    - 本文（プレーンテキスト）
- * @param {string} htmlBody - HTML形式の本文（任意）
- */
-function _sendNotifyEmail(subject, body, htmlBody) {
-  try {
-    var props    = PropertiesService.getScriptProperties();
-    var toStr    = props.getProperty('NOTIFY_EMAILS') || '';
-    var settings = _loadSettingsObj();
-    // 設定でメール通知が有効かつ送信先が設定されている場合のみ送信
-    if (!toStr || toStr.trim() === '') return;
-    var toEmails = toStr.split(',').map(function(s){ return s.trim(); }).filter(Boolean);
-    if (toEmails.length === 0) return;
-    var options = { name: '見積・注文管理システム', noReply: false };
-    if (htmlBody) options.htmlBody = htmlBody;
-    toEmails.forEach(function(email) {
-      try {
-        GmailApp.sendEmail(email, subject, body, options);
-      } catch(e2) {
-        Logger.log('[GMAIL SEND ERROR] to:' + email + ' / ' + e2.message);
-      }
-    });
-    Logger.log('[NOTIFY EMAIL SENT] to:' + toEmails.join(',') + ' / ' + subject);
-  } catch(e) {
-    Logger.log('[NOTIFY EMAIL ERROR] ' + e.message);
-  }
-}
-
-/**
- * HTMLメール本文テンプレートを生成
- */
-function _buildEmailHtml(title, rows, appUrl) {
-  var rowsHtml = rows.map(function(r) {
-    return '<tr><td style="padding:6px 12px;color:#555;font-size:13px;border-bottom:1px solid #eee;">' + r[0] +
-           '</td><td style="padding:6px 12px;font-size:13px;font-weight:600;border-bottom:1px solid #eee;">' + (r[1] || '—') + '</td></tr>';
-  }).join('');
-  return '<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f5f7fa;font-family:-apple-system,sans-serif;">' +
-    '<div style="max-width:560px;margin:30px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.08);">' +
-    '<div style="background:linear-gradient(135deg,#1e40af,#3b82f6);padding:24px 28px;">' +
-    '<h2 style="color:#fff;margin:0;font-size:16px;font-weight:700;">📋 ' + title + '</h2>' +
-    '<p style="color:rgba(255,255,255,0.8);margin:6px 0 0;font-size:12px;">見積・注文管理システム / 自動通知</p>' +
-    '</div>' +
-    '<table style="width:100%;border-collapse:collapse;margin:0;">' + rowsHtml + '</table>' +
-    '<div style="padding:20px 28px;border-top:1px solid #e5e7eb;">' +
-    '<a href="' + (appUrl || '#') + '" style="display:inline-block;background:#1e40af;color:#fff;padding:10px 22px;border-radius:8px;text-decoration:none;font-size:13px;font-weight:600;">🔗 システムで確認する</a>' +
-    '</div></div></body></html>';
-}
 
 function doGet(e) {
   var userEmail = Session.getActiveUser().getEmail() || '';
@@ -219,7 +131,6 @@ function handleApiRequest(action, payload) {
       case 'checkDeadlines':      res = _apiCheckDeadlines(); break;
       case 'saveSettings':        res = _apiSaveSettings(payload); break;
       case 'loadSettings':        res = _apiLoadSettings(); break;
-      case 'testGemini':          res = _apiTestGeminiConnection(); break;
       case 'testWebhook':         res = _apiTestWebhook(payload); break;
       case 'sendAnnouncement':    res = _apiSendAnnouncement(); break;
       case 'uploadOrderWithLink': res = _apiUploadOrderWithLink(payload); break;
@@ -266,18 +177,6 @@ function handleApiRequest(action, payload) {
       case 'ocrApprove':  res = apiOcrApprove(payload);  break;
       case 'ocrDiscard':  res = apiOcrDiscard(payload);  break;
 
-      // ===== ★ 新機能 API =====
-      case 'getAnalytics':     res = _apiGetAnalytics(payload);    break;
-      case 'exportCsv':        res = _apiExportCsv(payload);       break;
-      case 'getExportUrl':     res = _apiGetExportUrl(payload);    break;
-      case 'aiMonthlySummary': res = _apiAiMonthlySummary(payload); break;
-      case 'invalidateCache':  _invalidateMgmtCache(); res = { success: true }; break;
-      case 'getAuditLog':      res = _apiGetAuditLog(payload);     break;
-      case 'getPriceTrend':    res = _apiGetPriceTrend(payload);   break;
-      case 'getApprovalList':  res = _apiGetApprovalList(payload); break;
-      case 'submitApproval':   res = _apiSubmitApproval(payload);  break;
-      case 'updateApproval':   res = _apiUpdateApproval(payload);  break;
-
       default: return { success: false, error: '不明なアクション: ' + action };
     }
     
@@ -291,267 +190,9 @@ function handleApiRequest(action, payload) {
 }
 
 // ============================================================
-// ★ CacheService キャッシュ（速度改善）
-// ============================================================
-var MGMT_CACHE_KEY   = 'MGMT_DATA_CACHE';
-var MGMT_CACHE_TTL   = 30; // 秒
-
-function _getCachedMgmtData() {
-  try {
-    var cache  = CacheService.getScriptCache();
-    var cached = cache.get(MGMT_CACHE_KEY);
-    if (cached) return JSON.parse(cached);
-  } catch(e) {}
-  return null;
-}
-
-function _setCachedMgmtData(data) {
-  try {
-    var cache = CacheService.getScriptCache();
-    var str   = JSON.stringify(data);
-    // 100KB制限内に収める
-    if (str.length < 90000) {
-      cache.put(MGMT_CACHE_KEY, str, MGMT_CACHE_TTL);
-    }
-  } catch(e) {}
-}
-
-function _invalidateMgmtCache() {
-  try { CacheService.getScriptCache().remove(MGMT_CACHE_KEY); } catch(e) {}
-}
-
-// データ書き込み後に必ずキャッシュを無効化する
-function getAllMgmtDataWithCache() {
-  var cached = _getCachedMgmtData();
-  if (cached) return cached;
-  var data = getAllMgmtData();
-  _setCachedMgmtData(data);
-  return data;
-}
-
-// ============================================================
-// ★ 分析データAPI（グラフ用）
-// ============================================================
-function _apiGetAnalytics(p) {
-  try {
-    var rows    = getAllMgmtData().map(_rowToObject);
-    var today   = new Date();
-    var nowYM   = today.getFullYear() + '/' + String(today.getMonth()+1).padStart(2,'0');
-
-    // ---- 月別受注金額（過去6ヶ月）----
-    var months = [];
-    for (var m = 5; m >= 0; m--) {
-      var d   = new Date(today.getFullYear(), today.getMonth() - m, 1);
-      var ym  = d.getFullYear() + '/' + String(d.getMonth()+1).padStart(2,'0');
-      var lbl = String(d.getMonth()+1) + '月';
-      var tot = rows.filter(function(r){ return String(r.orderDate||r.quoteDate||'').startsWith(ym); })
-                    .reduce(function(s,r){ return s + (Number(r.orderAmount)||0); }, 0);
-      months.push({ ym: ym, label: lbl, amount: tot });
-    }
-
-    // ---- ステータス別件数 ----
-    var byStatus = {};
-    rows.forEach(function(r) {
-      var st = r.status || '不明';
-      byStatus[st] = (byStatus[st]||0) + 1;
-    });
-
-    // ---- 顧客別受注金額 TOP5 ----
-    var byClient = {};
-    rows.forEach(function(r) {
-      var cl = r.client || '不明';
-      byClient[cl] = (byClient[cl]||0) + (Number(r.orderAmount)||0);
-    });
-    var topClients = Object.keys(byClient)
-      .map(function(k){ return { client: k, amount: byClient[k] }; })
-      .sort(function(a,b){ return b.amount - a.amount; })
-      .slice(0, 5);
-
-    // ---- 試作 vs 量産 ----
-    var trialCount = rows.filter(function(r){ return r.orderType === '試作'; }).length;
-    var massCount  = rows.filter(function(r){ return r.orderType === '量産'; }).length;
-
-    // ---- 今月サマリー ----
-    var thisMonth = rows.filter(function(r){
-      return String(r.orderDate||r.quoteDate||'').startsWith(nowYM);
-    });
-    var totalThisMonth = thisMonth.reduce(function(s,r){ return s+(Number(r.orderAmount)||0); }, 0);
-    var unlinked = rows.filter(function(r){ return r.orderNo && !r.quoteNo && !r.linked; }).length;
-
-    return {
-      success:      true,
-      monthlyAmounts: months,
-      byStatus:     byStatus,
-      topClients:   topClients,
-      orderTypeRatio: { trial: trialCount, mass: massCount },
-      thisMonth:    { count: thisMonth.length, amount: totalThisMonth },
-      unlinkedCount: unlinked,
-      totalCases:   rows.length,
-    };
-  } catch(e) {
-    Logger.log('[_apiGetAnalytics] ' + e.message);
-    return { success: false, error: e.message };
-  }
-}
-
-// ============================================================
-// ★ CSVエクスポートAPI
-// ============================================================
-function _apiExportCsv(p) {
-  try {
-    var sheetType = String(p.sheetType || 'management');
-    var ss    = getSpreadsheet();
-    var sheet, headers, rowMapper;
-
-    if (sheetType === 'management') {
-      sheet  = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT);
-      headers = ['管理ID','見積番号','注文番号','件名','顧客名','ステータス',
-                 '見積日','発注日','見積金額','注文金額','消費税','合計金額',
-                 '注文種別','機種コード','担当者','納期','メモ','更新日時'];
-      rowMapper = function(r) {
-        return [r[0],r[1],r[2],r[3],r[4],r[5],
-                _toDateStr(r[6]),_toDateStr(r[7]),r[8],r[9],r[10],r[11],
-                r[18],r[19],r[21],_toDateStr(r[22]),r[23],_toDateStr(r[25])];
-      };
-    } else if (sheetType === 'quotes') {
-      sheet   = ss.getSheetByName(CONFIG.SHEET_QUOTES);
-      headers = ['管理ID','見積番号','発行日','宛先企業','担当者','行No','品名','仕様','数量','単位','単価','金額','備考'];
-      rowMapper = function(r) { return r.slice(0, 13); };
-    } else {
-      sheet   = ss.getSheetByName(CONFIG.SHEET_ORDERS);
-      headers = ['管理ID','注文番号','見積番号','注文種別','発注日','機種コード','品名','数量','単価','金額'];
-      rowMapper = function(r) { return [r[0],r[1],r[2],r[3],_toDateStr(r[4]),r[5],r[8],r[12],r[14],r[15]]; };
-    }
-
-    if (!sheet || sheet.getLastRow() <= 1) return { success: true, csv: '', count: 0 };
-
-    var data = sheet.getRange(2, 1, sheet.getLastRow()-1, sheet.getLastColumn()).getValues();
-    var csvRows = [headers];
-    data.forEach(function(r) {
-      if (!r[0]) return;
-      csvRows.push(rowMapper(r).map(function(v) {
-        var s = String(v == null ? '' : v);
-        return s.indexOf(',') >= 0 || s.indexOf('"') >= 0 || s.indexOf('\n') >= 0
-          ? '"' + s.replace(/"/g, '""') + '"' : s;
-      }));
-    });
-
-    var csv = csvRows.map(function(r){ return r.join(','); }).join('\n');
-    // BOM付きUTF-8（Excelで文字化けしない）
-    var bom = '\uFEFF';
-    var b64 = Utilities.base64Encode(Utilities.newBlob(bom + csv, 'text/csv').getBytes());
-
-    return {
-      success: true,
-      csv:     b64,
-      count:   csvRows.length - 1,
-      filename: sheetType + '_' + Utilities.formatDate(new Date(),'Asia/Tokyo','yyyyMMdd') + '.csv',
-    };
-  } catch(e) {
-    Logger.log('[_apiExportCsv] ' + e.message);
-    return { success: false, error: e.message };
-  }
-}
-
-// スプレッドシートをExcel形式でダウンロードするURL
-function _apiGetExportUrl(p) {
-  try {
-    var ss = getSpreadsheet();
-    var sheetName = String(p.sheetName || CONFIG.SHEET_MANAGEMENT);
-    var sheet = ss.getSheetByName(sheetName);
-    var gid   = sheet ? sheet.getSheetId() : 0;
-    var url   = 'https://docs.google.com/spreadsheets/d/' + ss.getId() +
-                '/export?format=xlsx&gid=' + gid;
-    return { success: true, url: url };
-  } catch(e) {
-    return { success: false, error: e.message };
-  }
-}
-
-// ============================================================
-// ★ AI月次サマリー生成
-// ============================================================
-function _apiAiMonthlySummary(p) {
-  try {
-    var apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') ||
-                 CONFIG.GEMINI_API_KEY;
-    if (!apiKey) return { success: false, error: 'GEMINI_API_KEY未設定' };
-
-    // 分析データを取得
-    var analytics = _apiGetAnalytics({});
-    if (!analytics.success) return analytics;
-
-    var today     = new Date();
-    var monthLabel = today.getFullYear() + '年' + (today.getMonth()+1) + '月';
-
-    var monthlyStr = analytics.monthlyAmounts.map(function(m) {
-      return m.label + ': ¥' + Number(m.amount).toLocaleString();
-    }).join('、');
-
-    var statusStr = Object.keys(analytics.byStatus)
-      .map(function(k){ return k + ':' + analytics.byStatus[k] + '件'; }).join('、');
-
-    var clientStr = analytics.topClients
-      .map(function(c){ return c.client + '(¥' + Number(c.amount).toLocaleString() + ')'; }).join('、');
-
-    var prompt = [
-      '以下は見積・注文書管理システムの業務データです。' + monthLabel + 'を対象に、',
-      '経営者向けの日本語サマリーを400文字以内で作成してください。',
-      '重要なポイント・注意点・改善提案を必ず含めてください。',
-      '',
-      '【今月データ】',
-      '・件数: ' + analytics.thisMonth.count + '件',
-      '・金額: ¥' + Number(analytics.thisMonth.amount).toLocaleString(),
-      '・未紐づけ注文: ' + analytics.unlinkedCount + '件',
-      '',
-      '【直近6ヶ月の月別金額】',
-      monthlyStr,
-      '',
-      '【ステータス別件数（全体）】',
-      statusStr,
-      '',
-      '【受注上位顧客】',
-      clientStr,
-      '',
-      '【受注種別】試作:' + analytics.orderTypeRatio.trial + '件 / 量産:' + analytics.orderTypeRatio.mass + '件',
-    ].join('\n');
-
-    var model    = CONFIG.GEMINI_PRIMARY_MODEL || 'gemini-1.5-flash';
-    var url      = CONFIG.GEMINI_API_ENDPOINT + model + ':generateContent?key=' + apiKey;
-    var response = UrlFetchApp.fetch(url, {
-      method: 'post', contentType: 'application/json',
-      payload: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { maxOutputTokens: 512, temperature: 0.4 }
-      }),
-      muteHttpExceptions: true,
-    });
-
-    var json = JSON.parse(response.getContentText());
-    if (json.error) return { success: false, error: json.error.message };
-
-    var text = (json.candidates && json.candidates[0] &&
-                json.candidates[0].content && json.candidates[0].content.parts)
-               ? json.candidates[0].content.parts.map(function(p){ return p.text||''; }).join('')
-               : 'サマリー生成に失敗しました。';
-
-    return {
-      success:   true,
-      summary:   text,
-      period:    monthLabel,
-      analytics: analytics,
-    };
-  } catch(e) {
-    Logger.log('[_apiAiMonthlySummary] ' + e.message);
-    return { success: false, error: e.message };
-  }
-}
-
-// ============================================================
 // ★ 安全版：案件データ取得
 // ============================================================
 function _apiGetAll() {
-
   try {
     var rows = getAllMgmtData();
 
@@ -1261,7 +902,7 @@ function _apiLedgerSave(p) {
         p.category || '', p.subject || '', p.status || LEDGER_STATUS.PENDING,
         p.saveUrl || '', p.machineCode || '', p.boardName || '',
         p.modelNo || '', p.amount !== undefined && p.amount !== '' ? Number(p.amount) : '',
-        p.submitTo || '', p.remarks || '',
+        p.submitTo || '', p.remarks || '', p.sentDate || '',
       ]);
     } else {
       var last = sheet.getLastRow();
@@ -1276,7 +917,9 @@ function _apiLedgerSave(p) {
         subject: LEDGER_COLS.SUBJECT, status: LEDGER_COLS.STATUS,
         saveUrl: LEDGER_COLS.SAVE_URL, machineCode: LEDGER_COLS.MACHINE_CODE,
         boardName: LEDGER_COLS.BOARD_NAME, modelNo: LEDGER_COLS.MODEL_NO,
-        amount: LEDGER_COLS.AMOUNT, submitTo: LEDGER_COLS.SUBMIT_TO, remarks: LEDGER_COLS.REMARKS,
+        amount: LEDGER_COLS.AMOUNT, submitTo: LEDGER_COLS.SUBMIT_TO,
+        remarks: LEDGER_COLS.REMARKS,
+        sentDate: LEDGER_COLS.SENT_DATE,  // ★ メール送信日
       };
       Object.keys(fields).forEach(function(key) {
         if (p[key] !== undefined) sheet.getRange(row, fields[key]).setValue(p[key]);
@@ -1602,29 +1245,11 @@ function _apiSaveSettings(p) {
     if (p.adminEmails !== undefined) props.setProperty('ADMIN_EMAILS', p.adminEmails);
     if (p.chatWebhook !== undefined) props.setProperty('GOOGLE_CHAT_WEBHOOK_URL', p.chatWebhook);
 
-    // ★ Gemini APIキーの保存・反映
-    if (p.geminiKey && String(p.geminiKey).trim() !== '') {
-      var newKey = String(p.geminiKey).trim();
-      props.setProperty('GEMINI_API_KEY', newKey);
-      // CONFIGに即座反映（同じGAS実行コンテキスト内）
-      CONFIG.GEMINI_API_KEY = newKey;
-      Logger.log('[SETTINGS] Gemini APIキーを更新しました');
+    // ★ Gemini APIキーの保存（追加）
+    if (p.geminiKey && p.geminiKey.trim() && p.geminiKey !== '（設定済み）') {
+      props.setProperty('GEMINI_API_KEY', p.geminiKey.trim());
+      Logger.log('[SETTINGS] GEMINI_API_KEY を更新しました');
     }
-
-    // ★ スプレッドシートIDの保存
-    if (p.spreadsheetId && String(p.spreadsheetId).trim() !== '') {
-      props.setProperty('SPREADSHEET_ID', String(p.spreadsheetId).trim());
-      CONFIG.SPREADSHEET_ID = String(p.spreadsheetId).trim();
-    }
-
-    // ★ その他の追加設定の保存
-    if (p.notifyEmails !== undefined) props.setProperty('NOTIFY_EMAILS', p.notifyEmails);
-    if (p.rakurakuApiKey !== undefined && String(p.rakurakuApiKey).trim() !== '') props.setProperty('RAKURAKU_API_KEY', p.rakurakuApiKey);
-    if (p.rakurakuCompany !== undefined) props.setProperty('RAKURAKU_COMPANY', p.rakurakuCompany);
-    if (p.rakurakuEndpoint !== undefined) props.setProperty('RAKURAKU_ENDPOINT', p.rakurakuEndpoint);
-    if (p.n8nOrderWebhook !== undefined) props.setProperty('N8N_ORDER_WEBHOOK', p.n8nOrderWebhook);
-    if (p.n8nQuoteWebhook !== undefined) props.setProperty('N8N_QUOTE_WEBHOOK', p.n8nQuoteWebhook);
-    if (p.customWebhook !== undefined)   props.setProperty('CUSTOM_WEBHOOK', p.customWebhook);
 
     var current = _loadSettingsObj();
     var merged = {
@@ -1644,18 +1269,22 @@ function _apiLoadSettings() {
   try {
     var props = PropertiesService.getScriptProperties();
     var s = _loadSettingsObj();
+    var geminiKey = props.getProperty('GEMINI_API_KEY') || '';
     return {
       success:        true,
       settings:       s,
       adminEmails:    props.getProperty('ADMIN_EMAILS')            || '',
       chatWebhook:    props.getProperty('GOOGLE_CHAT_WEBHOOK_URL') || s.webhookUrl || '',
-      spreadsheetId:  props.getProperty('SPREADSHEET_ID')          || '',  // ★追加
-      notifyEmails:   props.getProperty('NOTIFY_EMAILS')           || '',  // ★追加
-      rakurakuCompany:  props.getProperty('RAKURAKU_COMPANY')      || '',  // ★追加
-      rakurakuEndpoint: props.getProperty('RAKURAKU_ENDPOINT')     || '',  // ★追加
-      n8nOrderWebhook:  props.getProperty('N8N_ORDER_WEBHOOK')     || '',  // ★追加
-      n8nQuoteWebhook:  props.getProperty('N8N_QUOTE_WEBHOOK')     || '',  // ★追加
-      customWebhook:    props.getProperty('CUSTOM_WEBHOOK')        || '',  // ★追加
+      spreadsheetId:  props.getProperty('SPREADSHEET_ID')          || '',
+      notifyEmails:   props.getProperty('NOTIFY_EMAILS')           || '',
+      rakurakuCompany:  props.getProperty('RAKURAKU_COMPANY')      || '',
+      rakurakuEndpoint: props.getProperty('RAKURAKU_ENDPOINT')     || '',
+      n8nOrderWebhook:  props.getProperty('N8N_ORDER_WEBHOOK')     || '',
+      n8nQuoteWebhook:  props.getProperty('N8N_QUOTE_WEBHOOK')     || '',
+      customWebhook:    props.getProperty('CUSTOM_WEBHOOK')        || '',
+      // ★ APIキー設定状況（セキュリティのため先頭8文字のみ返す）
+      geminiKeyIsSet:   !!geminiKey,
+      geminiKeyHint:    geminiKey ? geminiKey.substring(0, 8) + '...' : '未設定',
     };
   } catch(e) { return { success: false, error: e.message }; }
 }
@@ -1663,40 +1292,6 @@ function _apiLoadSettings() {
 function _getChatWebhookUrl() {
   return PropertiesService.getScriptProperties().getProperty('GOOGLE_CHAT_WEBHOOK_URL') ||
          _loadSettingsObj().webhookUrl || '';
-}
-
-// Gemini API 接続テスト
-function _apiTestGeminiConnection() {
-  try {
-    var apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') ||
-                 CONFIG.GEMINI_API_KEY;
-    if (!apiKey) return { success: false, error: 'GEMINI_API_KEYが未登録です。' };
-    var model = CONFIG.GEMINI_PRIMARY_MODEL || 'gemini-1.5-flash';
-    var url   = CONFIG.GEMINI_API_ENDPOINT + model + ':generateContent?key=' + apiKey;
-    var res = UrlFetchApp.fetch(url, {
-      method: 'post',
-      contentType: 'application/json',
-      payload: JSON.stringify({
-        contents: [{ parts: [{ text: 'テスト。OKとだけ返して。' }] }],
-        generationConfig: { maxOutputTokens: 10, temperature: 0 }
-      }),
-      muteHttpExceptions: true,
-    });
-    var code = res.getResponseCode();
-    if (code === 200) {
-      return { success: true, model: model, message: 'Gemini API接続成功' };
-    } else if (code === 400) {
-      return { success: false, error: 'APIリクエストエラー (400): ' + res.getContentText().substring(0, 200) };
-    } else if (code === 401 || code === 403) {
-      return { success: false, error: 'APIキーが無効か権限なし (' + code + ')。' };
-    } else if (code === 429) {
-      return { success: false, error: 'APIレートリミット (429): しばらく待って再度テストしてください。' };
-    } else {
-      return { success: false, error: 'HTTP ' + code + ': ' + res.getContentText().substring(0, 200) };
-    }
-  } catch(e) {
-    return { success: false, error: e.message };
-  }
 }
 
 function _apiTestWebhook(p) {
@@ -1720,9 +1315,11 @@ function notifyQuoteImported(info) {
   try {
     var settings   = _loadSettingsObj();
     var webhookUrl = _getChatWebhookUrl();
-    var amountStr  = info.amount ? '¥' + Number(info.amount).toLocaleString() : '—';
-    var rowUrl     = _getMgmtRowUrl(info.mgmtId);
-    var appUrl     = ScriptApp.getService().getUrl();
+    if (!webhookUrl || !settings.notifyQuote) return;
+
+    var amountStr = info.amount ? '¥' + Number(info.amount).toLocaleString() : '—';
+    var rowUrl    = _getMgmtRowUrl(info.mgmtId);
+    var appUrl    = ScriptApp.getService().getUrl();
     var lines = [
       '【📄 見積書を登録しました】',
       '案件名: ' + (info.subject || '—'),
@@ -1735,25 +1332,7 @@ function notifyQuoteImported(info) {
     if (info.pdfUrl)    lines.push('📎 PDF: '     + info.pdfUrl);
     if (info.folderUrl) lines.push('📁 フォルダ: ' + info.folderUrl);
 
-    // ① Google Chat Webhook 通知
-    if (webhookUrl && settings.notifyQuote) {
-      _postToChat(webhookUrl, lines.join('\n'));
-    }
-
-    // ② Gmail メール通知
-    var subject  = '【見積書登録】' + (info.client || '') + ' / ' + (info.subject || '') + ' / ' + amountStr;
-    var bodyText = lines.join('\n');
-    var htmlBody = _buildEmailHtml('見積書を登録しました', [
-      ['案件名', info.subject || '—'],
-      ['顧客名', info.client  || '—'],
-      ['金額',   amountStr],
-      ['見積No', info.quoteNo || '—'],
-      ['PDF',    info.pdfUrl  ? '<a href="' + info.pdfUrl + '">開く</a>' : '—'],
-    ], appUrl);
-    _sendNotifyEmail(subject, bodyText, htmlBody);
-
-    // ③ 監査ログ
-    _writeAuditLog('quote_import', '顧客:' + (info.client||'—') + ' / 金額:' + amountStr, 'success');
+    _postToChat(webhookUrl, lines.join('\n'));
   } catch(e) {
     Logger.log('[NOTIFY QUOTE ERROR] ' + e.message);
   }
@@ -1763,10 +1342,12 @@ function notifyOrderImported(info) {
   try {
     var settings   = _loadSettingsObj();
     var webhookUrl = _getChatWebhookUrl();
-    var amountStr  = info.amount ? '¥' + Number(info.amount).toLocaleString() : '—';
-    var rowUrl     = _getMgmtRowUrl(info.mgmtId);
-    var appUrl     = ScriptApp.getService().getUrl();
-    var lr         = info.linkResult || {};
+    if (!webhookUrl || !settings.notifyOrder) return;
+
+    var amountStr = info.amount ? '¥' + Number(info.amount).toLocaleString() : '—';
+    var rowUrl    = _getMgmtRowUrl(info.mgmtId);
+    var appUrl    = ScriptApp.getService().getUrl();
+    var lr        = info.linkResult || {};
     var lines = [
       '【📦 注文書を登録しました】',
       '発注書番号: ' + (info.orderNo || '—'),
@@ -1797,33 +1378,19 @@ function notifyOrderImported(info) {
       lines.push('');
       lines.push('▶ 紐づけ確定はシステムから行ってください');
       lines.push(appUrl);
+
+    } else if (lr.status === 'no_quotes') {
+      lines.push('❌ 紐づく見積書が見つかりませんでした');
+    } else if (lr.status === 'already_linked') {
+      lines.push('✅ 既に見積書と紐づけ済みです');
+      if (lr.quoteUrl) lines.push('📄 紐づく見積書PDF: ' + lr.quoteUrl);
     }
 
-    // ① Google Chat Webhook 通知
-    if (webhookUrl && settings.notifyOrder) {
-      _postToChat(webhookUrl, lines.join('\n'));
-    }
-
-    // ② Gmail メール通知
-    var linkStatus = lr.status === 'auto_linked' ? '✅ 自動紐づけ済み' :
-                     (lr.status === 'candidates_found' ? '⚠️ 候補あり（要確認）' : '—');
-    var subject  = '【注文書登録】' + (info.client || '') + ' / ' + (info.orderNo || '') + ' / ' + amountStr;
-    var bodyText = lines.join('\n');
-    var htmlBody = _buildEmailHtml('注文書を登録しました', [
-      ['発注書番号', info.orderNo  || '—'],
-      ['顧客名',     info.client   || '—'],
-      ['金額',       amountStr],
-      ['紐づけ状況', linkStatus],
-    ], appUrl);
-    _sendNotifyEmail(subject, bodyText, htmlBody);
-
-    // ③ 監査ログ
-    _writeAuditLog('order_import', '顧客:' + (info.client||'—') + ' / 金額:' + amountStr + ' / 紐づけ:' + linkStatus, 'success');
+    _postToChat(webhookUrl, lines.join('\n'));
   } catch(e) {
     Logger.log('[NOTIFY ORDER ERROR] ' + e.message);
   }
 }
-
 
 function _getMgmtRowUrl(mgmtId) {
   try {
@@ -1876,209 +1443,4 @@ function _apiUploadOrderWithLink(p) {
     res.linkResult = aiRes;
   }
   return res;
-}
-
-// ============================================================
-// ★ 監査ログ取得 API
-// ============================================================
-function _apiGetAuditLog(p) {
-  try {
-    var limit = Math.min(Number(p.limit || 100), 500);
-    var ss    = getSpreadsheet();
-    var sheet = ss.getSheetByName('監査ログ');
-    if (!sheet || sheet.getLastRow() <= 1) return { success: true, logs: [] };
-    var lastRow  = sheet.getLastRow();
-    var startRow = Math.max(2, lastRow - limit + 1);
-    var numRows  = lastRow - startRow + 1;
-    var data     = sheet.getRange(startRow, 1, numRows, 5).getValues();
-    // 新しい順に並び替え
-    data.reverse();
-    var logs = data.map(function(r) {
-      return [
-        r[0] instanceof Date ? Utilities.formatDate(r[0], 'Asia/Tokyo', 'yyyy/MM/dd HH:mm:ss') : String(r[0]),
-        String(r[1] || ''), String(r[2] || ''), String(r[3] || ''), String(r[4] || '')
-      ];
-    });
-    return { success: true, logs: logs, total: data.length };
-  } catch(e) {
-    return _errorResponse(e, '監査ログ取得');
-  }
-}
-
-// ============================================================
-// ★ 単価トレンド分析 API
-// ============================================================
-function _apiGetPriceTrend(p) {
-  try {
-    var allData = _getAllMgmtData();
-    if (!allData || allData.length === 0) return { success: true, trend: [], clients: [] };
-
-    // 全顧客リスト
-    var clientSet = {};
-    allData.forEach(function(r) { if (r.client) clientSet[r.client] = true; });
-    var clients = Object.keys(clientSet).sort();
-
-    var targetClient = (p.client || '').trim();
-    if (!targetClient) return { success: true, trend: [], clients: clients };
-
-    // 対象顧客の受注データを月別集計
-    var monthMap = {};
-    allData.forEach(function(r) {
-      if (!r.client || r.client !== targetClient) return;
-      var dateStr = String(r.orderDate || r.createdAt || '').substring(0, 7);
-      if (!dateStr || dateStr.length < 7) return;
-      var amt = Number(r.orderAmount) || 0;
-      if (amt === 0) return;
-      if (!monthMap[dateStr]) monthMap[dateStr] = { sum: 0, count: 0 };
-      monthMap[dateStr].sum   += amt;
-      monthMap[dateStr].count += 1;
-    });
-
-    var months = Object.keys(monthMap).sort().slice(-12); // 最大12ヶ月
-    var trend  = months.map(function(m) {
-      var d = monthMap[m];
-      return {
-        label:     m,
-        avgAmount: Math.round(d.sum / d.count),
-        count:     d.count,
-        total:     d.sum
-      };
-    });
-
-    return { success: true, trend: trend, clients: clients };
-  } catch(e) {
-    return _errorResponse(e, '単価トレンド取得');
-  }
-}
-
-// ============================================================
-// ★ 承認ワークフロー API
-// ============================================================
-var APPROVAL_SHEET_NAME = '承認ログ';
-var APPROVAL_HEADERS    = ['ID','申請日時','申請者','案件ID','種別','承認者','コメント','ステータス','処理日時','処理コメント'];
-
-function _getApprovalSheet() {
-  var ss    = getSpreadsheet();
-  var sheet = ss.getSheetByName(APPROVAL_SHEET_NAME);
-  if (!sheet) {
-    sheet = ss.insertSheet(APPROVAL_SHEET_NAME);
-    sheet.appendRow(APPROVAL_HEADERS);
-    sheet.setFrozenRows(1);
-    sheet.getRange(1, 1, 1, APPROVAL_HEADERS.length).setFontWeight('bold').setBackground('#dbeafe');
-  }
-  return sheet;
-}
-
-function _apiGetApprovalList(p) {
-  try {
-    var sheet   = _getApprovalSheet();
-    var lastRow = sheet.getLastRow();
-    if (lastRow <= 1) return { success: true, approvals: [] };
-    var data = sheet.getRange(2, 1, lastRow - 1, APPROVAL_HEADERS.length).getValues();
-    var approvals = data.reverse().map(function(r) {
-      return {
-        id:           String(r[0] || ''),
-        createdAt:    r[1] instanceof Date ? Utilities.formatDate(r[1], 'Asia/Tokyo', 'yyyy/MM/dd HH:mm') : String(r[1] || ''),
-        requestedBy:  String(r[2] || ''),
-        caseId:       String(r[3] || ''),
-        type:         String(r[4] || ''),
-        approver:     String(r[5] || ''),
-        comment:      String(r[6] || ''),
-        status:       String(r[7] || 'pending'),
-        resolvedAt:   r[8] instanceof Date ? Utilities.formatDate(r[8], 'Asia/Tokyo', 'yyyy/MM/dd HH:mm') : String(r[8] || ''),
-        resolvedComment: String(r[9] || ''),
-      };
-    });
-    return { success: true, approvals: approvals };
-  } catch(e) {
-    return _errorResponse(e, '承認リスト取得');
-  }
-}
-
-function _apiSubmitApproval(p) {
-  try {
-    var caseId   = String(p.caseId   || '').trim();
-    var type     = String(p.type     || 'quote_approval').trim();
-    var approver = String(p.approver || '').trim();
-    var comment  = String(p.comment  || '').trim();
-    if (!caseId || !approver) return { success: false, error: '案件IDと承認者は必須です' };
-
-    var id          = 'APV-' + new Date().getTime();
-    var requestedBy = Session.getActiveUser().getEmail() || 'unknown';
-    var now         = new Date();
-    var appUrl      = ScriptApp.getService().getUrl();
-
-    var sheet = _getApprovalSheet();
-    sheet.appendRow([id, now, requestedBy, caseId, type, approver, comment, 'pending', '', '']);
-
-    // 承認者へメール通知
-    var TYPE_LABELS = { quote_approval:'見積書承認', order_approval:'注文書承認', delivery_approval:'納品承認', discount_approval:'値引き承認' };
-    var typeLabel   = TYPE_LABELS[type] || type;
-    var subject     = '【承認依頼】' + typeLabel + ' / 案件: ' + caseId;
-    var body        = '承認依頼が届きました。\n\n案件ID: ' + caseId + '\n種別: ' + typeLabel + '\n申請者: ' + requestedBy + '\nコメント: ' + (comment || '（なし）') + '\n\nシステムで確認・承認してください:\n' + appUrl;
-    var htmlBody    = _buildEmailHtml('承認依頼: ' + typeLabel, [
-      ['案件ID', caseId],
-      ['種別', typeLabel],
-      ['申請者', requestedBy],
-      ['コメント', comment || '（なし）'],
-    ], appUrl);
-    try { GmailApp.sendEmail(approver, subject, body, { htmlBody: htmlBody, name: '見積・注文管理システム' }); } catch(e2) { Logger.log('[APPROVAL EMAIL ERR] ' + e2.message); }
-
-    // NOTIFY_EMAILS にも通知
-    _sendNotifyEmail(subject, body, htmlBody);
-    _writeAuditLog('approval_submit', '案件:' + caseId + ' / 承認者:' + approver, 'success');
-
-    return { success: true, id: id };
-  } catch(e) {
-    return _errorResponse(e, '承認申請');
-  }
-}
-
-function _apiUpdateApproval(p) {
-  try {
-    var id      = String(p.id      || '').trim();
-    var status  = String(p.status  || '').trim();
-    var comment = String(p.comment || '').trim();
-    if (!id || !['approved','rejected'].includes(status)) return { success: false, error: 'IDまたはステータスが不正です' };
-
-    var sheet   = _getApprovalSheet();
-    var lastRow = sheet.getLastRow();
-    if (lastRow <= 1) return { success: false, error: '承認レコードが見つかりません' };
-    var data    = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
-    var rowIdx  = -1;
-    for (var i = 0; i < data.length; i++) {
-      if (String(data[i][0]) === id) { rowIdx = i + 2; break; }
-    }
-    if (rowIdx < 0) return { success: false, error: '対象の承認リクエストが見つかりません' };
-
-    var now    = new Date();
-    var checker = Session.getActiveUser().getEmail() || 'unknown';
-    sheet.getRange(rowIdx, 8).setValue(status);
-    sheet.getRange(rowIdx, 9).setValue(now);
-    sheet.getRange(rowIdx, 10).setValue(comment);
-
-    // 行データ取得してメール通知
-    var rowData = sheet.getRange(rowIdx, 1, 1, APPROVAL_HEADERS.length).getValues()[0];
-    var caseId      = String(rowData[3] || '');
-    var type        = String(rowData[4] || '');
-    var requestedBy = String(rowData[2] || '');
-    var appUrl      = ScriptApp.getService().getUrl();
-    var TYPE_LABELS = { quote_approval:'見積書承認', order_approval:'注文書承認', delivery_approval:'納品承認', discount_approval:'値引き承認' };
-    var statusLabel = status === 'approved' ? '✅ 承認済み' : '❌ 却下';
-    var subject     = '【' + (status === 'approved' ? '承認完了' : '却下通知') + '】' + (TYPE_LABELS[type] || type) + ' / 案件: ' + caseId;
-    var body        = '承認リクエストが処理されました。\n\n案件ID: ' + caseId + '\n結果: ' + statusLabel + '\n処理者: ' + checker + '\nコメント: ' + (comment || '（なし）');
-    var htmlBody    = _buildEmailHtml('承認リクエスト: ' + statusLabel, [
-      ['案件ID', caseId],
-      ['種別', TYPE_LABELS[type] || type],
-      ['結果', statusLabel],
-      ['処理者', checker],
-      ['コメント', comment || '（なし）'],
-    ], appUrl);
-    try { if (requestedBy) GmailApp.sendEmail(requestedBy, subject, body, { htmlBody: htmlBody, name: '見積・注文管理システム' }); } catch(e2) {}
-
-    _writeAuditLog('approval_' + status, '案件:' + caseId + ' / 処理者:' + checker, 'success');
-    return { success: true };
-  } catch(e) {
-    return _errorResponse(e, '承認処理');
-  }
 }

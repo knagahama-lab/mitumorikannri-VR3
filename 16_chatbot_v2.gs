@@ -32,7 +32,7 @@ function apiChatbotQuery(p) {
 
     if (!question) return { success: false, error: '質問が空です' };
 
-    var apiKey = CONFIG.GEMINI_API_KEY ||
+    var apiKey = getGeminiApiKey() ||
       PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
     if (!apiKey) return { success: false, error: 'GEMINI_API_KEY が設定されていません' };
 

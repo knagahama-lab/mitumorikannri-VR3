@@ -28,7 +28,7 @@ function apiChatbotQuery(p) {
     var history = p.history || [];  // 会話履歴
     if (!question) return { success: false, error: '質問が空です' };
 
-    var apiKey = CONFIG.GEMINI_API_KEY;
+    var apiKey = getGeminiApiKey();
     if (!apiKey) return { success: false, error: 'GEMINI_API_KEY が設定されていません' };
 
     Logger.log('[CHATBOT] 質問: ' + question);

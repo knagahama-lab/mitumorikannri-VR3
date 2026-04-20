@@ -7,7 +7,6 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js'></script>
-<script src='https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js'></script>
 <style>
 /* ============================================================
    CSS Variables & Reset
@@ -126,6 +125,7 @@ tr:hover td{background:#f8fafc;}
 .btn-primary{background:var(--primary);color:#fff;border-color:var(--primary);}
 .btn-primary:hover{background:var(--primary-dark);}
 .btn-outline{background:transparent;border:1px solid var(--border);}
+        .btn-outline.active{background:var(--primary);color:#fff;border-color:var(--primary);}
 .btn-sm{padding:4px 10px;font-size:11px;}
 .btn-danger{background:var(--danger);color:#fff;border-color:var(--danger);}
 .btn-danger:hover{background:#b91c1c;}
@@ -167,88 +167,9 @@ tr:hover td{background:#f8fafc;}
 .page-heading{ display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; }
 .page-heading h2{ font-size:19px; font-weight:700; color:var(--text); letter-spacing:-.01em; }
 .page-heading p{ font-size:12px; color:var(--text-sub); margin-top:3px; }
-
-/* ============================================================
-   ★ モバイルレスポンシブ対応
-============================================================ */
-#mobile-menu-btn {
-  display: none;
-  position: fixed; top: 12px; left: 12px; z-index: 1100;
-  background: var(--primary); color: #fff; border: none;
-  border-radius: 8px; width: 40px; height: 40px;
-  font-size: 18px; cursor: pointer; align-items: center;
-  justify-content: center; box-shadow: var(--shadow-md);
-  transition: all 0.2s;
-}
-#mobile-menu-btn:hover { background: var(--primary-dark, #2563eb); }
-#sidebar-overlay {
-  display: none; position: fixed; inset: 0; z-index: 900;
-  background: rgba(0,0,0,0.45); backdrop-filter: blur(2px);
-}
-#sidebar-overlay.open { display: block; }
-
-@media (max-width: 768px) {
-  #mobile-menu-btn { display: flex; }
-  #sidebar {
-    position: fixed !important; left: -280px; top: 0; height: 100vh;
-    z-index: 1000; transition: left 0.25s cubic-bezier(.4,0,.2,1);
-    box-shadow: var(--shadow-lg);
-  }
-  #sidebar.mobile-open { left: 0; }
-  #sidebar .sidebar-toggle { display: none; }
-  #main { margin-left: 0 !important; }
-  #topbar { padding-left: 60px; }
-  #content { padding: 12px 10px; }
-
-  /* テーブル横スクロール */
-  #table-container, #quotelist-container { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  table { min-width: 700px; font-size: 12px; }
-  th, td { padding: 7px 8px; }
-
-  /* グラフを1列に */
-  div[style*="grid-template-columns:1fr 1fr"] {
-    display: block !important;
-  }
-  div[style*="grid-template-columns:1fr 1fr"] > div {
-    margin-bottom: 16px !important;
-  }
-
-  /* サマリーグリッドを2列に */
-  .summary-grid { grid-template-columns: repeat(2, 1fr) !important; gap: 10px !important; }
-  .summary-card { padding: 14px 12px !important; }
-  .summary-card .val { font-size: 22px !important; }
-
-  /* フォーム行を1列に */
-  .form-row { grid-template-columns: 1fr !important; }
-  #filter-row { flex-wrap: wrap !important; gap: 6px !important; }
-
-  /* モーダル */
-  .modal { width: 98% !important; max-width: 98% !important; margin: 4px auto !important; }
-  .modal-head h3 { font-size: 14px !important; }
-
-  /* ページHeading縦積み */
-  .page-heading { flex-direction: column; align-items: flex-start; gap: 10px; }
-  .page-heading > div:last-child { width: 100%; display: flex; flex-wrap: wrap; gap: 6px; }
-  .page-heading .btn { font-size: 12px; padding: 6px 10px; }
-
-  /* 分析ボックス */
-  #ai-summary-box { padding: 14px 12px; }
-  #pdf-preview-frame { height: 55vh; }
-}
-
-@media (max-width: 480px) {
-  .summary-grid { grid-template-columns: 1fr 1fr !important; }
-  table { font-size: 11px; }
-  th, td { padding: 5px 6px; }
-  #topbar { padding-left: 56px; font-size: 13px; }
-  .topbar-btn { font-size: 11px; padding: 5px 8px; }
-}
 </style>
 </head>
 <body>
-<!-- ★ モバイルハンバーガーメニューボタン -->
-<button id="mobile-menu-btn" onclick="_toggleMobileSidebar()" title="メニュー">☰</button>
-<div id="sidebar-overlay" onclick="_toggleMobileSidebar()"></div>
 <div id="app-shell">
 
 <!-- ============================================================
@@ -310,59 +231,13 @@ tr:hover td{background:#f8fafc;}
           <div class="summary-card"><div class="lbl">納品済み</div><div class="val c-green" id="sum-done">—</div><div class="sub">件</div></div>
           <div class="summary-card"><div class="lbl">今月の注文合計</div><div class="val" id="sum-amount">—</div><div class="sub">円（税抜）</div></div>
         </div>
-        <div class="filter-bar" id="filter-row">
+        <div class="filter-bar">
           <div class="search-box"><input type="text" id="search-input" placeholder="発注番号・機種・顧客・件名で検索..." oninput="debounceSearch()"></div>
           <select id="filter-status" onchange="applyFilters()"><option value="">すべてのステータス</option><option value="作成予定">作成予定</option><option value="送信済み">送信済み</option><option value="受領">受領</option><option value="納品済み">納品済み</option></select>
           <select id="filter-order-type" onchange="applyFilters()"><option value="">すべての種別</option><option value="試作">試作</option><option value="量産">量産</option></select>
           <select id="filter-month" onchange="applyFilters()"><option value="">すべての月</option></select>
-          <button class="btn btn-outline btn-sm" onclick="toggleAdvancedFilter()" id="adv-filter-btn" title="詳細フィルター">🔍 詳細</button>
           <button class="btn btn-outline btn-sm" onclick="clearFilters()">クリア</button>
           <button class="btn btn-outline btn-sm" onclick="loadData()">🔄</button>
-        </div>
-        <!-- ★ 高度フィルター（日付・金額範囲） -->
-        <div id="advanced-filter-panel" style="display:none; background:var(--card); border:1px solid var(--border-light); border-radius:var(--radius); padding:14px 16px; margin-bottom:12px; animation:fadeSlideIn .15s ease-out;">
-          <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end;">
-            <div>
-              <label style="font-size:11px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">📅 受注日（From）</label>
-              <input type="date" id="filter-date-from" onchange="applyFilters()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;min-width:140px;">
-            </div>
-            <div>
-              <label style="font-size:11px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">📅 受注日（To）</label>
-              <input type="date" id="filter-date-to" onchange="applyFilters()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;min-width:140px;">
-            </div>
-            <div>
-              <label style="font-size:11px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">💰 金額（下限）</label>
-              <input type="number" id="filter-amount-min" placeholder="例: 100000" oninput="applyFilters()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;min-width:130px;">
-            </div>
-            <div>
-              <label style="font-size:11px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">💰 金額（上限）</label>
-              <input type="number" id="filter-amount-max" placeholder="例: 500000" oninput="applyFilters()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;min-width:130px;">
-            </div>
-            <div>
-              <label style="font-size:11px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">👤 担当者</label>
-              <input type="text" id="filter-assignee" placeholder="担当者名" oninput="applyFilters()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;min-width:120px;">
-            </div>
-            <div>
-              <label style="font-size:11px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">🔗 紐づき</label>
-              <select id="filter-linked" onchange="applyFilters()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
-                <option value="">すべて</option>
-                <option value="linked">紐づき済み</option>
-                <option value="unlinked">未紐づき</option>
-              </select>
-            </div>
-            <div>
-              <label style="font-size:11px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">📋 承認状況</label>
-              <select id="filter-approval" onchange="applyFilters()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
-                <option value="">すべて</option>
-                <option value="pending">承認待ち</option>
-                <option value="approved">承認済み</option>
-                <option value="rejected">却下</option>
-              </select>
-            </div>
-            <div style="margin-left:auto;">
-              <span id="filter-result-badge" style="font-size:12px;color:var(--primary);font-weight:600;"></span>
-            </div>
-          </div>
         </div>
         <div class="table-wrap">
           <div class="table-toolbar"><h2>案件一覧</h2><span class="pg-info" id="result-count"></span></div>
@@ -418,26 +293,13 @@ tr:hover td{background:#f8fafc;}
           </div>
           <div class="form-row">
             <div class="form-field">
-              <label>🔑 Gemini API Key</label>
-              <div style="display:flex;gap:6px;align-items:center;">
-                <input type="password" id="cfg-gemini-key" placeholder="新しいAPIキーを入力（変更時のみ）" style="flex:1;">
-                <button class="btn btn-outline btn-sm" onclick="toggleGeminiKeyVisibility()" id="gemini-key-toggle" title="表示/非表示">👁</button>
-                <button class="btn btn-outline btn-sm" onclick="testGeminiConnection()" id="gemini-test-btn" title="接続テスト">🧪 テスト</button>
-              </div>
-              <div id="gemini-key-status" style="margin-top:6px;font-size:11px;color:var(--text-sub);">💡 現在のキーを変更する場合のみ入力してください</div>
+              <label>Gemini API Key</label>
+              <input type="password" id="cfg-gemini-key" placeholder="新しいキーを入力して保存">
+              <div id="gemini-key-hint" style="font-size:11px;margin-top:4px;color:#64748b;">読み込み中...</div>
             </div>
             <div class="form-field"><label>スプレッドシートID</label><input type="text" id="cfg-spreadsheet-id"></div>
           </div>
-          <!-- Gemini AI 現在の設定情報 -->
-          <div id="gemini-info-box" style="background:var(--primary-light);border:1px solid #bfdbfe;border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:12px;">
-            <div style="font-weight:700;color:var(--primary);margin-bottom:6px;">🤖 Gemini AI 現在の設定</div>
-            <div style="display:flex;flex-wrap:wrap;gap:12px;color:var(--text);">
-              <span>📌 メインモデル: <strong style="color:var(--success);">gemini-1.5-flash（無料枠あり）</strong></span>
-              <span>🔄 フォールバック: <strong>gemini-1.5-pro</strong></span>
-            </div>
-            <div style="margin-top:6px;color:var(--text-sub);">⚠️ APIキーはGAS Script Propertiesに安全に保存されます。ページには表示されません。</div>
-          </div>
-          <div style="text-align:right;"><button class="btn btn-primary" onclick="saveAdminBasic()">💾 保存して反映</button><span id="cfg-save-msg" style="margin-left:12px;font-size:12px;"></span></div>
+          <div style="text-align:right;"><button class="btn btn-primary" onclick="saveAdminBasic()">💾 保存</button><span id="cfg-save-msg"></span></div>
         </div>
         <div style="background:white;border-radius:12px;padding:24px;box-shadow:var(--shadow);border-left:4px solid var(--warning);">
           <h3 style="font-size:15px;font-weight:700;color:#e65100;margin-bottom:4px;">🔔 通知設定</h3>
@@ -577,164 +439,10 @@ tr:hover td{background:#f8fafc;}
       <div style="text-align:center;padding:40px;"><h2>簡易OCRシステム</h2><button class="btn btn-primary" onclick="window.open('https://ndlocr-liteweb.netlify.app/','_blank')">🚀 起動する</button></div>
     </div>
 
-    <!-- ★ 分析ダッシュボードページ -->
-    <div id="page-analytics" class="page">
-      <div class="page-heading">
-        <div>
-          <h2>📊 分析ダッシュボード</h2>
-          <p>受注金額推移・ステータス分析・顧客別売上をリアルタイムで分析</p>
-        </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn btn-outline" onclick="loadAnalytics()">🔄 更新</button>
-          <button class="btn btn-primary" id="ai-summary-btn" onclick="loadAiSummary()">🤖 AIサマリー生成</button>
-        </div>
-      </div>
-
-      <!-- AIサマリーボックス -->
-      <div id="ai-summary-box" style="display:none;background:linear-gradient(135deg,#eff6ff,#f0fdf4);border:1px solid #bfdbfe;border-radius:12px;padding:20px;margin-bottom:20px;">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
-          <span style="font-size:24px;">🤖</span>
-          <div>
-            <div style="font-size:13px;font-weight:700;color:var(--primary);">AI 月次業務サマリー</div>
-            <div style="font-size:11px;color:var(--text-sub);" id="ai-summary-period"></div>
-          </div>
-          <button onclick="document.getElementById('ai-summary-box').style.display='none'" style="margin-left:auto;border:none;background:none;cursor:pointer;font-size:16px;color:var(--text-sub);">✕</button>
-        </div>
-        <div id="ai-summary-text" style="font-size:13px;line-height:1.8;color:var(--text);white-space:pre-wrap;"></div>
-      </div>
-
-      <!-- KPIカード -->
-      <div class="summary-grid" id="analytics-kpi" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:24px;">
-        <div class="summary-card"><div class="lbl">今月の受注件数</div><div class="val c-blue" id="kpi-month-count">—</div><div class="sub">件</div></div>
-        <div class="summary-card"><div class="lbl">今月の受注金額</div><div class="val" id="kpi-month-amount" style="font-size:18px;">—</div><div class="sub">円（税抜）</div></div>
-        <div class="summary-card"><div class="lbl">総案件数</div><div class="val c-green" id="kpi-total">—</div><div class="sub">件</div></div>
-        <div class="summary-card"><div class="lbl">未紐づけ注文</div><div class="val c-red" id="kpi-unlinked">—</div><div class="sub">件</div></div>
-      </div>
-
-      <!-- グラフ行 -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px;">
-        <!-- 月別受注金額 -->
-        <div style="background:var(--card);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow-sm);border:1px solid var(--border-light);">
-          <h3 style="font-size:13px;font-weight:700;margin-bottom:16px;">📌 月別受注金額（過去6ヶ月）</h3>
-          <canvas id="chart-monthly" height="200"></canvas>
-        </div>
-        <!-- ステータス別円グラフ -->
-        <div style="background:var(--card);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow-sm);border:1px solid var(--border-light);">
-          <h3 style="font-size:13px;font-weight:700;margin-bottom:16px;">🎯 ステータス別分布</h3>
-          <canvas id="chart-status" height="200"></canvas>
-        </div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
-        <!-- 顧客別山消し注文金額 -->
-        <div style="background:var(--card);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow-sm);border:1px solid var(--border-light);">
-          <h3 style="font-size:13px;font-weight:700;margin-bottom:16px;">🏆 顧客別受注金額 TOP5</h3>
-          <canvas id="chart-clients" height="200"></canvas>
-        </div>
-        <!-- 試作 vs 量産 -->
-        <div style="background:var(--card);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow-sm);border:1px solid var(--border-light);">
-          <h3 style="font-size:13px;font-weight:700;margin-bottom:16px;">⚡ 注文種別構成比</h3>
-          <canvas id="chart-type" height="200"></canvas>
-        </div>
-      </div>
-
-      <!-- ★ 単価トレンド分析グラフ -->
-      <div style="margin-top:24px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-          <h3 style="font-size:14px;font-weight:700;">📈 顧客別単価トレンド分析</h3>
-          <div style="display:flex;gap:8px;align-items:center;">
-            <span id="price-alert-badge" style="display:none;background:#fef2f2;color:#ef4444;border:1px solid #fecaca;border-radius:20px;padding:3px 12px;font-size:11px;font-weight:700;">⚠️ 単価上昇あり</span>
-            <select id="trend-client-select" onchange="loadPriceTrend()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;"><option value="">顧客を選択...</option></select>
-            <button class="btn btn-outline btn-sm" onclick="loadPriceTrend()">🔄</button>
-          </div>
-        </div>
-        <div style="background:var(--card);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow-sm);border:1px solid var(--border-light);">
-          <canvas id="chart-price-trend" height="150"></canvas>
-          <div id="price-trend-summary" style="margin-top:16px;display:flex;gap:16px;flex-wrap:wrap;"></div>
-        </div>
-      </div>
-
-      <!-- ロード中標示 -->
-      <div id="analytics-loading" style="display:none;text-align:center;padding:60px;">
-        <div class="spinner"></div><br>データを分析中...
-      </div>
-    </div>
-
     <div id="page-todo" class="page"><div class="loading">準備中</div></div>
     <div id="page-workflow" class="page"><div class="loading">準備中</div></div>
     <div id="page-assignees" class="page"><div class="loading">準備中</div></div>
-    <!-- ★ 承認ワークフローページ -->
-    <div id="page-approval" class="page">
-      <div class="page-heading">
-        <div><h2>✅ 製造承認ワークフロー</h2><p>見積・注文の承認リクエストを管理します</p></div>
-        <div style="display:flex;gap:8px;">
-          <button class="btn btn-outline" onclick="loadApprovalList()">🔄 更新</button>
-          <button class="btn btn-primary" onclick="openApprovalRequestModal()">＋ 承認申請</button>
-        </div>
-      </div>
-      <div class="summary-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px;">
-        <div class="summary-card"><div class="lbl">承認待ち</div><div class="val c-red" id="apv-pending">—</div><div class="sub">件</div></div>
-        <div class="summary-card"><div class="lbl">承認済み</div><div class="val c-green" id="apv-approved">—</div><div class="sub">件</div></div>
-        <div class="summary-card"><div class="lbl">却下</div><div class="val" id="apv-rejected">—</div><div class="sub">件</div></div>
-        <div class="summary-card"><div class="lbl">今月の承認率</div><div class="val c-blue" id="apv-rate">—</div><div class="sub">%</div></div>
-      </div>
-      <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px;">
-        <button class="admin-tab active" id="apv-tab-pending" onclick="switchApvTab('pending')">⏳ 承認待ち</button>
-        <button class="admin-tab" id="apv-tab-approved" onclick="switchApvTab('approved')">✅ 承認済み</button>
-        <button class="admin-tab" id="apv-tab-rejected" onclick="switchApvTab('rejected')">❌ 却下</button>
-        <button class="admin-tab" id="apv-tab-all" onclick="switchApvTab('all')">📋 すべて</button>
-      </div>
-      <div id="approval-list-container"><div class="loading"><div class="spinner"></div><br>読み込み中...</div></div>
-    </div>
-    <!-- 承認申請モーダル -->
-    <div class="modal-overlay" id="approval-request-modal" onclick="if(event.target===this)closeApprovalRequestModal()">
-      <div class="modal" style="max-width:500px;">
-        <div class="modal-head"><h3>＋ 承認申請</h3><button class="modal-close" onclick="closeApprovalRequestModal()">✕</button></div>
-        <div class="modal-body" style="padding:20px;display:flex;flex-direction:column;gap:14px;">
-          <div>
-            <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">案件ID / 見積No</label>
-            <input type="text" id="apv-req-case-id" placeholder="例: M-2024-001" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box;">
-          </div>
-          <div>
-            <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">申請種別</label>
-            <select id="apv-req-type" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
-              <option value="quote_approval">見積書承認</option>
-              <option value="order_approval">注文書承認</option>
-              <option value="delivery_approval">納品承認</option>
-              <option value="discount_approval">値引き承認</option>
-            </select>
-          </div>
-          <div>
-            <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">承認者メールアドレス</label>
-            <input type="email" id="apv-req-approver" placeholder="approver@example.com" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box;">
-          </div>
-          <div>
-            <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">コメント・承認理由</label>
-            <textarea id="apv-req-comment" rows="3" placeholder="承認が必要な理由を記入..." style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;resize:vertical;box-sizing:border-box;font-size:13px;font-family:inherit;"></textarea>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-outline" onclick="closeApprovalRequestModal()">キャンセル</button>
-          <button class="btn btn-primary" onclick="submitApprovalRequest()">📤 申請する</button>
-        </div>
-      </div>
-    </div>
-    <!-- 承認/却下コメントモーダル -->
-    <div class="modal-overlay" id="approval-action-modal" onclick="if(event.target===this)closeApprovalActionModal()">
-      <div class="modal" style="max-width:420px;">
-        <div class="modal-head"><h3 id="apv-action-title">承認確認</h3><button class="modal-close" onclick="closeApprovalActionModal()">✕</button></div>
-        <div class="modal-body" style="padding:20px;">
-          <input type="hidden" id="apv-action-id">
-          <input type="hidden" id="apv-action-type">
-          <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">コメント（任意）</label>
-          <textarea id="apv-action-comment" rows="3" placeholder="コメントを入力..." style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;resize:vertical;box-sizing:border-box;font-size:13px;font-family:inherit;"></textarea>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-outline" onclick="closeApprovalActionModal()">キャンセル</button>
-          <button class="btn btn-primary" id="apv-action-confirm-btn" onclick="confirmApprovalAction()">確定</button>
-        </div>
-      </div>
-    </div>
-
+    <div id="page-approval" class="page"><div class="loading">準備中</div></div>
     <div id="page-board" class="page"><div class="loading">準備中</div></div>
     <div id="page-analysis" class="page"><div class="loading">準備中</div></div>
 
@@ -814,23 +522,6 @@ tr:hover td{background:#f8fafc;}
 
 <div class="modal-overlay" id="detail-modal" onclick="if(event.target===this)closeDetailModal()"><div class="modal" style="max-width:950px;"><div class="modal-head"><h3 id="detail-title">案件詳細</h3><button class="modal-close" onclick="closeDetailModal()">✕</button></div><div class="modal-body" id="detail-body"></div></div></div>
 <div class="modal-overlay" id="quote-detail-modal" onclick="if(event.target===this)closeQuoteDetail()"><div class="modal"><div class="modal-head"><h3 id="quote-detail-title">見積書詳細</h3><button class="modal-close" onclick="closeQuoteDetail()">✕</button></div><div class="modal-body" id="quote-detail-body"></div></div></div>
-
-<!-- ★ PDFインラインプレビューモーダル -->
-<div class="modal-overlay" id="pdf-preview-modal" onclick="if(event.target===this)closePdfPreview()">
-  <div class="modal" style="max-width:900px;width:95%;max-height:95vh;">
-    <div class="modal-head">
-      <h3 id="pdf-preview-title">📄 PDFプレビュー</h3>
-      <div style="display:flex;gap:8px;margin-left:auto;">
-        <a id="pdf-preview-open-link" href="#" target="_blank" class="btn btn-outline btn-sm">🔗 新タブで開く</a>
-        <button class="modal-close" onclick="closePdfPreview()">✕</button>
-      </div>
-    </div>
-    <div class="modal-body" style="padding:0;height:75vh;">
-      <iframe id="pdf-preview-frame" src="" width="100%" height="100%"
-        style="border:none;display:block;" allow="autoplay"></iframe>
-    </div>
-  </div>
-</div>
 
 <div class="modal-overlay" id="edit-mgmt-modal" onclick="if(event.target===this)this.classList.remove('open');">
   <div class="modal" style="max-width:700px;">

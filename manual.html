@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>見積書・注文書管理システム 取扱説明書</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI','Noto Sans JP',sans-serif;font-size:14px;line-height:1.7;color:#1e293b;background:#f8fafc}
+.container{max-width:900px;margin:0 auto;padding:32px 24px}
+h1{font-size:26px;font-weight:700;color:#1e293b;border-bottom:3px solid #2563eb;padding-bottom:12px;margin-bottom:24px}
+h2{font-size:18px;font-weight:700;color:#2563eb;margin:36px 0 12px;padding:8px 14px;background:#eff6ff;border-left:4px solid #2563eb;border-radius:0 6px 6px 0}
+h3{font-size:15px;font-weight:600;color:#1e293b;margin:20px 0 8px}
+p{margin-bottom:10px;color:#374151}
+ul,ol{margin:8px 0 12px 20px}
+li{margin-bottom:5px;color:#374151}
+.step-box{background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:16px 20px;margin-bottom:12px;display:flex;gap:14px;align-items:flex-start}
+.step-num{background:#2563eb;color:#fff;border-radius:50%;width:28px;height:28px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0;margin-top:1px}
+.step-body h4{font-size:14px;font-weight:600;margin-bottom:4px}
+.step-body p{margin-bottom:0;font-size:13px}
+.tip{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 14px;margin:10px 0;font-size:13px;color:#166534}
+.tip::before{content:'💡 ';font-weight:600}
+.warn{background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;margin:10px 0;font-size:13px;color:#92400e}
+.warn::before{content:'⚠️ ';font-weight:600}
+.badge{display:inline-block;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:600;margin:0 2px}
+.badge-blue{background:#eff6ff;color:#2563eb}
+.badge-green{background:#f0fdf4;color:#16a34a}
+.badge-orange{background:#fffbeb;color:#d97706}
+.badge-red{background:#fef2f2;color:#dc2626}
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13px}
+th{background:#f1f5f9;padding:8px 12px;text-align:left;border:1px solid #e2e8f0;font-weight:600}
+td{padding:8px 12px;border:1px solid #e2e8f0}
+tr:nth-child(even) td{background:#f8fafc}
+.folder-tree{background:#1e293b;color:#e2e8f0;border-radius:8px;padding:16px;font-family:monospace;font-size:13px;line-height:1.8;margin:10px 0}
+.folder-tree .dir{color:#60a5fa}
+.folder-tree .file{color:#a7f3d0}
+.nav{background:#1e293b;color:#fff;padding:16px 24px;display:flex;gap:20px;flex-wrap:wrap;margin-bottom:0;border-radius:10px 10px 0 0}
+.nav a{color:#93c5fd;text-decoration:none;font-size:13px;font-weight:500}
+.nav a:hover{color:#fff}
+.toc{background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:16px 20px;margin-bottom:28px}
+.toc h3{font-size:14px;margin-bottom:10px;color:#64748b}
+.toc ol{margin-left:16px}
+.toc li{margin-bottom:4px}
+.toc a{color:#2563eb;text-decoration:none;font-size:13px}
+.toc a:hover{text-decoration:underline}
+.flow{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:12px 0}
+.flow-item{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:600}
+.flow-arrow{color:#94a3b8;font-size:16px}
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>📋 見積書・注文書管理システム 取扱説明書</h1>
+
+<div class="toc">
+  <h3>目次</h3>
+  <ol>
+    <li><a href="#overview">システム概要</a></li>
+    <li><a href="#flow">基本的な使い方の流れ</a></li>
+    <li><a href="#drive-import">Driveインポート機能</a></li>
+    <li><a href="#pdf-upload">PDF手動アップロード・OCR</a></li>
+    <li><a href="#ledger">見積台帳の使い方</a></li>
+    <li><a href="#matching">AI紐づけの使い方</a></li>
+    <li><a href="#ai-chat">AIアシスタントの使い方</a></li>
+    <li><a href="#admin">管理コンソール設定</a></li>
+    <li><a href="#trouble">よくある質問・トラブル対処</a></li>
+    <li><a href="#folder">フォルダ構成</a></li>
+  </ol>
+</div>
+
+<!-- ======================================================== -->
+<h2 id="overview">1. システム概要</h2>
+
+<p>このシステムは、見積書と注文書をGoogleスプレッドシート・Google Driveで一元管理するための業務ツールです。PDFの自動取込・AI解析・紐づけ・単価比較・受注管理までをワンストップで処理します。</p>
+
+<table>
+  <tr><th>機能</th><th>説明</th></tr>
+  <tr><td>Driveインポート</td><td>指定フォルダにPDFを置くと自動でスプレッドシートに転記</td></tr>
+  <tr><td>OCR（文字起こし）</td><td>PDFのテキストを読み取って自動入力（自社PDF：完全無料、取引先PDF：AI補完）</td></tr>
+  <tr><td>見積台帳</td><td>見積書を機種・基板ごとに整理して管理</td></tr>
+  <tr><td>AI紐づけ</td><td>注文書と見積書を自動でマッチング</td></tr>
+  <tr><td>単価比較</td><td>見積単価と注文単価を自動比較・差異アラート</td></tr>
+  <tr><td>AIアシスタント</td><td>日本語で案件検索・ステータス更新などを指示できる</td></tr>
+  <tr><td>エラー監視</td><td>OCR失敗・未紐づけ・納期超過をGoogle Chatに自動通知</td></tr>
+</table>
+
+<!-- ======================================================== -->
+<h2 id="flow">2. 基本的な使い方の流れ</h2>
+
+<h3>見積書の処理フロー</h3>
+<div class="flow">
+  <div class="flow-item">📧 メールでPDF受信</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-item">📂 インポートフォルダへ保存</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-item">⚙️ 自動OCR転記（5分以内）</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-item">📊 スプレッドシートに登録</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-item">📝 台帳に自動登録</div>
+</div>
+
+<h3>注文書の処理フロー</h3>
+<div class="flow">
+  <div class="flow-item">📦 取引先からPDF受信</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-item">📂 注文書インポートフォルダへ</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-item">⚙️ 自動OCR転記</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-item">🔗 AI自動紐づけ</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-item">⚖️ 単価自動比較</div>
+  <div class="flow-arrow">→</div>
+  <div class="flow-item">✅ 受注済みに更新</div>
+</div>
+
+<div class="tip">ステータスの意味：<span class="badge badge-orange">作成予定</span> → <span class="badge badge-blue">送信済み</span> → <span class="badge badge-blue">受領</span> → <span class="badge badge-green">受注済み</span> → <span class="badge badge-green">納品済み</span> / <span class="badge badge-red">キャンセル</span></div>
+
+<!-- ======================================================== -->
+<h2 id="drive-import">3. Driveインポート機能</h2>
+
+<p>指定のGoogleDriveフォルダにPDFを置くだけで、自動的にスプレッドシートに転記されます。</p>
+
+<h3>インポートフォルダの場所</h3>
+<div class="folder-tree">
+<span class="dir">📁 見積書インポートフォルダ</span>　←ここに見積書PDFを置く<br>
+<span class="dir">📁 注文書（試作）インポートフォルダ</span>　←試作の発注書PDFを置く<br>
+<span class="dir">📁 注文書（量産）インポートフォルダ</span>　←量産の発注書PDFを置く
+</div>
+
+<div class="tip">フォルダIDは管理コンソール → 基本設定で確認できます。フォルダをブックマークしておくと便利です。</div>
+
+<h3>処理の流れ</h3>
+
+<div class="step-box">
+  <div class="step-num">1</div>
+  <div class="step-body"><h4>PDFをインポートフォルダに置く</h4><p>メール添付のPDFをダウンロードして、対応するインポートフォルダにアップロードします。</p></div>
+</div>
+<div class="step-box">
+  <div class="step-num">2</div>
+  <div class="step-body"><h4>5分以内に自動処理開始</h4><p>システムが5分ごとにフォルダを監視しています。PDFを検知するとOCRを実行してスプレッドシートに転記します。</p></div>
+</div>
+<div class="step-box">
+  <div class="step-num">3</div>
+  <div class="step-body"><h4>処理済みフォルダへ自動移動</h4><p>転記が完了したPDFは「処理済み」サブフォルダへ自動的に移動します。インポートフォルダにファイルが残っていれば未処理です。</p></div>
+</div>
+<div class="step-box">
+  <div class="step-num">4</div>
+  <div class="step-body"><h4>保存用フォルダへコピーされる</h4><p>PDFは顧客名・年月ごとのサブフォルダに自動整理されて保存されます。</p></div>
+</div>
+
+<div class="warn">OCRが失敗した場合でもファイルは「処理済み」に移動します。「OCR処理ログ」シートで状況を確認し、手動で修正してください。</div>
+
+<!-- ======================================================== -->
+<h2 id="pdf-upload">4. PDF手動アップロード・OCR確認</h2>
+
+<p>ダッシュボード右上の「＋ PDF登録」ボタンから手動でPDFをアップロードできます。</p>
+
+<div class="step-box">
+  <div class="step-num">1</div>
+  <div class="step-body"><h4>「＋ PDF登録」をクリック</h4><p>見積書か注文書かを選択し、注文書の場合は試作/量産を選択します。</p></div>
+</div>
+<div class="step-box">
+  <div class="step-num">2</div>
+  <div class="step-body"><h4>PDFをドラッグ＆ドロップ</h4><p>ファイルを選択して「解析・登録」ボタンを押します。OCR解析に10〜30秒かかります。</p></div>
+</div>
+<div class="step-box">
+  <div class="step-num">3</div>
+  <div class="step-body"><h4>OCR確認画面で内容を確認・修正</h4><p>OCR品質スコアが表示されます。黄色枠の項目は要確認です。「📄 PDFを確認」ボタンで元PDFと見比べながら修正できます。</p></div>
+</div>
+<div class="step-box">
+  <div class="step-num">4</div>
+  <div class="step-body"><h4>「✅ 確認・承認してDB登録」を押す</h4><p>内容を確認したらボタンを押してDBに登録します。この操作を行うまでDBには書き込まれません。</p></div>
+</div>
+
+<div class="tip">OCR品質スコアが75点以上なら概ね正確です。50点未満の場合は全項目を確認してください。</div>
+
+<!-- ======================================================== -->
+<h2 id="ledger">5. 見積台帳の使い方</h2>
+
+<p>見積台帳は、送付した見積書を機種・基板ごとに整理するための台帳です。</p>
+
+<h3>表示の見方</h3>
+<table>
+  <tr><th>列</th><th>内容</th></tr>
+  <tr><td>見積No.</td><td>見積書の番号</td></tr>
+  <tr><td>件名</td><td>見積件名</td></tr>
+  <tr><td>金額</td><td>見積金額（税抜）</td></tr>
+  <tr><td>ステータス</td><td><span class="badge badge-orange">作成予定</span><span class="badge badge-orange">作成中</span><span class="badge badge-blue">送信済み</span><span class="badge badge-red">キャンセル</span></td></tr>
+  <tr><td>送信日</td><td>メール送信日（登録日）</td></tr>
+</table>
+
+<h3>見積台帳への登録方法</h3>
+<ul>
+  <li><strong>自動登録：</strong>Driveインポートで見積書PDFを処理すると自動的に台帳に登録されます</li>
+  <li><strong>手動登録：</strong>機種フォルダ横の「＋ 見積登録」ボタンから手動で追加できます</li>
+</ul>
+
+<h3>ステータスの更新</h3>
+<p>台帳の行をクリックして編集ダイアログを開き、ステータスを変更して保存します。</p>
+
+<!-- ======================================================== -->
+<h2 id="matching">6. AI紐づけの使い方</h2>
+
+<p>注文書と見積書を自動でマッチングする機能です。</p>
+
+<div class="step-box">
+  <div class="step-num">1</div>
+  <div class="step-body"><h4>「AI紐づけ」ページを開く</h4><p>左メニューの「🔗 AI紐づけ」をクリックします。</p></div>
+</div>
+<div class="step-box">
+  <div class="step-num">2</div>
+  <div class="step-body"><h4>候補一覧を確認する</h4><p>未紐づけの注文書に対して、AIが類似する見積書の候補をスコア順に表示します。</p></div>
+</div>
+<div class="step-box">
+  <div class="step-num">3</div>
+  <div class="step-body"><h4>「確定」ボタンを押す</h4><p>正しい見積書の候補の「確定」ボタンを押すと紐づけが完了します。ステータスが「受領」に変わります。</p></div>
+</div>
+
+<div class="tip">スコアが80点以上なら自動紐づけされています。60点未満の場合は手動確認を推奨します。</div>
+
+<!-- ======================================================== -->
+<h2 id="ai-chat">7. AIアシスタントの使い方</h2>
+
+<p>左メニューの「🤖 AIアシスタント」から日本語で指示を出せます。</p>
+
+<h3>使用例</h3>
+<table>
+  <tr><th>入力例</th><th>実行される処理</th></tr>
+  <tr><td>「A社の未紐づけ注文書は何件ありますか？」</td><td>未紐づけ注文書を検索して件数を回答</td></tr>
+  <tr><td>「今月の受注件数と合計金額を教えて」</td><td>今月のサマリを集計して回答</td></tr>
+  <tr><td>「見積No.2025-123の単価を比較して」</td><td>見積書と注文書の単価を行ごとに比較</td></tr>
+  <tr><td>「QM-20250401-001を受注済みにして」</td><td>該当案件のステータスを受注済みに更新</td></tr>
+  <tr><td>「OCR失敗しているファイルは？」</td><td>OCR処理ログから失敗件数を確認</td></tr>
+</table>
+
+<div class="warn">ステータス更新・紐づけなどのDB操作を行う場合は、必ず実行前に確認が表示されます。</div>
+
+<!-- ======================================================== -->
+<h2 id="admin">8. 管理コンソール設定</h2>
+
+<p>左メニューの「⚙️ 管理コンソール」から各種設定を行います。</p>
+
+<table>
+  <tr><th>設定項目</th><th>説明</th></tr>
+  <tr><td>Gemini API Key</td><td>Google AI StudioのAPIキーを設定（注文書OCRで使用）</td></tr>
+  <tr><td>Google Chat Webhook URL</td><td>通知を送るGoogle ChatのWebhook URL</td></tr>
+  <tr><td>管理者メールアドレス</td><td>アラートメールの送信先</td></tr>
+</table>
+
+<h3>Gemini APIキーの設定方法</h3>
+<div class="step-box">
+  <div class="step-num">1</div>
+  <div class="step-body"><h4>Google AI Studioでキーを取得</h4><p><a href="https://aistudio.google.com/apikey" target="_blank">https://aistudio.google.com/apikey</a> にアクセスして「APIキーを作成」をクリックします。</p></div>
+</div>
+<div class="step-box">
+  <div class="step-num">2</div>
+  <div class="step-body"><h4>管理コンソールに入力して保存</h4><p>「Gemini API Key」欄に貼り付けて「基本設定を保存」ボタンを押します。「✅ 設定済み」と表示されれば完了です。</p></div>
+</div>
+
+<div class="tip">Google AI Studioの無料枠は1日1,500リクエストです。月間処理量が数百件程度なら無料で運用できます。</div>
+
+<!-- ======================================================== -->
+<h2 id="trouble">9. よくある質問・トラブル対処</h2>
+
+<h3>Q. Driveインポートしてもスプレッドシートに転記されない</h3>
+<ul>
+  <li>GASエディタで <code>processDriveImports()</code> を手動実行してログを確認してください</li>
+  <li>トリガーが停止している場合は <code>setupMonitoringTriggers()</code> を実行してください</li>
+  <li>「OCR処理ログ」シートでエラー内容を確認してください</li>
+</ul>
+
+<h3>Q. OCRの精度が低い（単価・金額が間違っている）</h3>
+<ul>
+  <li>手動アップロードの場合：OCR確認UIで修正してから承認してください</li>
+  <li>Driveインポートの場合：管理シートを直接編集するか、AIアシスタントで修正を依頼してください</li>
+  <li>自社PDF（見積書）は精度が高いはずです。低い場合はPDFがスキャンPDFになっている可能性があります</li>
+</ul>
+
+<h3>Q. AIアシスタントが「APIキーが設定されていません」と言う</h3>
+<p>管理コンソール → Gemini API Key欄にキーを入力して保存してください。</p>
+
+<h3>Q. Google Chat通知が届かない</h3>
+<p>管理コンソール → Google Chat Webhook URLを確認してください。「テスト送信」ボタンで動作確認できます。</p>
+
+<h3>Q. 見積台帳のステータスや送信日が表示されない</h3>
+<p>台帳シートに「メール送信日」列（15列目）が追加されているか確認してください。ない場合はGASエディタで <code>initialSetup()</code> を実行してシートを再作成するか、手動で列を追加してください。</p>
+
+<h3>Q. 処理済みのファイルを再処理したい</h3>
+<p>GASエディタで <code>clearProcessedFileIds()</code> を実行すると処理済み記録がリセットされ、次回の監視で再処理されます。</p>
+
+<!-- ======================================================== -->
+<h2 id="folder">10. フォルダ構成</h2>
+
+<div class="folder-tree">
+<span class="dir">📁 Google Drive</span><br>
+├── <span class="dir">📁 見積書インポートフォルダ</span>　← ここにPDFを置く<br>
+│&nbsp;&nbsp;&nbsp;&nbsp;└── <span class="dir">📁 処理済み</span>　← 自動移動される<br>
+├── <span class="dir">📁 注文書（試作）インポートフォルダ</span><br>
+│&nbsp;&nbsp;&nbsp;&nbsp;└── <span class="dir">📁 処理済み</span><br>
+├── <span class="dir">📁 注文書（量産）インポートフォルダ</span><br>
+│&nbsp;&nbsp;&nbsp;&nbsp;└── <span class="dir">📁 処理済み</span><br>
+├── <span class="dir">📁 見積書保存フォルダ</span>　← 自動整理される<br>
+│&nbsp;&nbsp;&nbsp;&nbsp;├── <span class="dir">📁 2025-04</span><br>
+│&nbsp;&nbsp;&nbsp;&nbsp;│&nbsp;&nbsp;&nbsp;&nbsp;└── <span class="dir">📁 A株式会社</span><br>
+│&nbsp;&nbsp;&nbsp;&nbsp;│&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── <span class="file">📄 見積書.pdf</span><br>
+│&nbsp;&nbsp;&nbsp;&nbsp;└── <span class="dir">📁 2025-05</span><br>
+└── <span class="dir">📁 注文書保存フォルダ（試作/量産）</span>
+</div>
+
+<h3>スプレッドシートのシート構成</h3>
+<table>
+  <tr><th>シート名</th><th>内容</th></tr>
+  <tr><td>管理シート</td><td>全案件の一覧。見積書と注文書を紐づけて管理</td></tr>
+  <tr><td>見積書シート</td><td>見積書の明細行（品名・単価など）</td></tr>
+  <tr><td>注文書シート</td><td>注文書の明細行</td></tr>
+  <tr><td>見積台帳</td><td>機種・基板ごとの見積管理台帳</td></tr>
+  <tr><td>OCR処理ログ</td><td>OCR処理の結果ログ（成功・失敗・精度）</td></tr>
+  <tr><td>見積明細DB</td><td>正規化された見積明細（検索高速化用）</td></tr>
+  <tr><td>注文明細DB</td><td>正規化された注文明細</td></tr>
+  <tr><td>単価マスタ</td><td>過去の単価履歴（AIアシスタントの単価検索に使用）</td></tr>
+</table>
+
+<div style="margin-top:40px;padding:16px;background:#f1f5f9;border-radius:8px;font-size:12px;color:#64748b;text-align:center;">
+  見積書・注文書管理システム 取扱説明書 | 最終更新: 2026年4月
+</div>
+
+</div>
+</body>
+</html>

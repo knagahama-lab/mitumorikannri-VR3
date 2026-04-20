@@ -26,129 +26,97 @@
  */
 function processDriveImports() {
   try {
-    Logger.log('[DRIVE WATCH] 監視開始');
+    Logger.log('[DRIVE WATCH] 監視開始 ' + nowJST());
+    try { _updateTriggerHealth(); } catch(e) {}
 
     var processed = 0;
-    processed += _watchFolder(
-      CONFIG.IMPORT_QUOTE_FOLDER_ID,
-      CONFIG.QUOTE_FOLDER_ID,
-      'quote',
-      ''
-    );
-    processed += _watchFolder(
-      CONFIG.IMPORT_ORDER_TRIAL_FOLDER_ID,
-      CONFIG.ORDER_TRIAL_FOLDER_ID,
-      'order',
-      CONFIG.ORDER_TYPE.TRIAL
-    );
-    processed += _watchFolder(
-      CONFIG.IMPORT_ORDER_MASS_FOLDER_ID,
-      CONFIG.ORDER_MASS_FOLDER_ID,
-      'order',
-      CONFIG.ORDER_TYPE.MASS
-    );
+    processed += _watchFolder(CONFIG.IMPORT_QUOTE_FOLDER_ID, CONFIG.QUOTE_FOLDER_ID, 'quote', '');
+    processed += _watchFolder(CONFIG.IMPORT_ORDER_TRIAL_FOLDER_ID, CONFIG.ORDER_TRIAL_FOLDER_ID, 'order', CONFIG.ORDER_TYPE.TRIAL);
+    processed += _watchFolder(CONFIG.IMPORT_ORDER_MASS_FOLDER_ID, CONFIG.ORDER_MASS_FOLDER_ID, 'order', CONFIG.ORDER_TYPE.MASS);
 
     Logger.log('[DRIVE WATCH] 完了。処理ファイル数: ' + processed);
+    return processed;
   } catch(e) {
-    Logger.log('[DRIVE WATCH ERROR] ' + e.message + '\n' + e.stack);
+    Logger.log('[DRIVE WATCH ERROR] ' + e.message);
+    return 0;
   }
 }
 
 /**
  * 指定フォルダを監視し、未処理PDFを処理して保存先へ移動する
- * @param {string} importFolderId  監視対象のインポートフォルダID
- * @param {string} saveFolderId    処理済みファイルの保存先フォルダID
- * @param {string} docType         'quote' または 'order'
- * @param {string} orderType       '試作' / '量産' / ''
- * @returns {number} 処理したファイル数
  */
 function _watchFolder(importFolderId, saveFolderId, docType, orderType) {
   var processedIds = _getProcessedFileIds();
   var count = 0;
-
   try {
     var folder = DriveApp.getFolderById(importFolderId);
     var files  = folder.getFilesByType(MimeType.PDF);
-
     while (files.hasNext()) {
       var file   = files.next();
       var fileId = file.getId();
-
-      // 処理済みチェック
-      if (processedIds[fileId]) {
-        Logger.log('[DRIVE WATCH] スキップ（処理済み）: ' + file.getName());
-        continue;
-      }
-
-      Logger.log('[DRIVE WATCH] 処理開始: ' + file.getName() + ' (ID: ' + fileId + ')');
-
+      if (processedIds[fileId]) { Logger.log('[DRIVE WATCH] スキップ（処理済み）: ' + file.getName()); continue; }
+      Logger.log('[DRIVE WATCH] 処理開始: ' + file.getName());
       try {
-        // OCR解析
-var ocr = extractPdfData(file, docType);
-if (!ocr) {
-  Logger.log('[DRIVE WATCH] OCR失敗（スキップ・未処理のまま）: ' + file.getName());
-  continue;  // 処理済みマークせずスキップ
-}
+        // OCR解析（17_ocr_hybrid.gs の extractPdfData が優先使用される）
+        var ocr = extractPdfData(file, docType);
+        if (!ocr) {
+          Logger.log('[DRIVE WATCH] OCR失敗: ' + file.getName());
+          ocr = { documentNo: file.getName().replace(/\.pdf$/i,''), issueDate: '', documentDate: '',
+                  destCompany: '', clientName: '', subject: file.getName(),
+                  subtotal: 0, tax: 0, totalAmount: 0, lineItems: [], actionType: 'new' };
+          try { _logOcrResult(file.getName(), 'ocr_failed', null, 'Driveインポート：OCR失敗'); } catch(e) {}
+        }
 
-        // 保存先フォルダへコピー（自動で顧客ごとのサブ階層を生成）
-        var newName  = 'DRIVE_' + nowJST().replace(/[\/: ]/g,'') + '_' + file.getName();
-        var clientName = ocr.clientName || ocr.destCompany || ocr.dest || "未分類顧客";
+        // 保存先フォルダへコピー
+        var clientName    = ocr.destCompany || ocr.clientName || '未分類';
         var finalFolderId = _getOrCreateSubFolder(saveFolderId, clientName);
-        var saveFolder = DriveApp.getFolderById(finalFolderId);
-        var savedFile  = file.makeCopy(newName, saveFolder);
-        var pdfUrl     = savedFile.getUrl();
-        var folderUrl  = getFolderUrl(finalFolderId);
-
+        var saveFolder    = DriveApp.getFolderById(finalFolderId);
+        var newName       = nowJST().replace(/[\/: ]/g,'') + '_' + file.getName();
+        var savedFile     = file.makeCopy(newName, saveFolder);
+        var pdfUrl        = savedFile.getUrl();
+        var folderUrl     = getFolderUrl(finalFolderId);
         Logger.log('[DRIVE WATCH] 保存先へコピー完了: ' + newName);
 
         // スプレッドシートへ転記
         var mockMsgId = 'DRIVE_' + fileId;
+        var finalMgmtId;
         if (docType === 'quote') {
-          _processQuotePdfFromFile(pdfUrl, folderUrl, ocr, mockMsgId);
+          finalMgmtId = _processQuotePdfFromFile(pdfUrl, folderUrl, ocr, mockMsgId);
+          // 見積台帳へも自動登録
+          try {
+            _apiLedgerUpdateUrl({
+              quoteNo: ocr.documentNo || '', dest: ocr.destCompany || ocr.clientName || '',
+              subject: ocr.subject || file.getName(),
+              issueDate: ocr.issueDate || ocr.documentDate || nowJST().substring(0,10),
+              saveUrl: pdfUrl, sentDate: nowJST().substring(0,10), status: '送信済み',
+            });
+          } catch(le) { Logger.log('[DRIVE WATCH] 台帳登録エラー: ' + le.message); }
         } else {
           var finalType = orderType || ocr.orderType || '';
-          _saveOrderData(ocr, finalType, pdfUrl, folderUrl, mockMsgId, file.getName());
-
-          // ★ Drive経由の注文書もAI紐づけ＋Google Chat通知
+          finalMgmtId = _saveOrderData(ocr, finalType, pdfUrl, folderUrl, mockMsgId, file.getName());
           try {
-            var driveMgmtId = _findLatestOrderMgmtId();
-            if (driveMgmtId) {
-              var driveLinkResult = aiLinkOrderToQuote(driveMgmtId);
-              var driveUploadMock = {
-                documentNo:   ocr.documentNo  || file.getName(),
-                orderType:    finalType,
-                savedFolder:  folderUrl,
-              };
-              _sendOrderRegistrationToChat(driveMgmtId, driveUploadMock, driveLinkResult);
-              Logger.log('[DRIVE WATCH] AI紐づけ完了: ' + driveMgmtId + ' status=' + driveLinkResult.status);
+            if (finalMgmtId) {
+              var lr = aiLinkOrderToQuote(finalMgmtId);
+              _sendOrderRegistrationToChat(finalMgmtId, { documentNo: ocr.documentNo || file.getName(), orderType: finalType }, lr);
             }
-          } catch(linkErr) {
-            Logger.log('[DRIVE WATCH LINK ERROR] ' + linkErr.message);
-          }
+          } catch(le) { Logger.log('[DRIVE WATCH LINK ERROR] ' + le.message); }
         }
 
-        // 処理済みとしてマーク
         _markFileAsProcessed(fileId);
-
-        // インポートフォルダ内のファイルを「処理済み」フォルダへ移動（元フォルダから除去）
         _moveToProcessedSubfolder(file, folder);
-
         count++;
-        Logger.log('[DRIVE WATCH] 転記完了: ' + file.getName());
-
-        // GASの実行時間制限対策：1ファイル処理後に2秒待機
+        Logger.log('[DRIVE WATCH] 転記完了: ' + file.getName() + ' mgmtId=' + (finalMgmtId||'?'));
         Utilities.sleep(2000);
 
       } catch(fileErr) {
         Logger.log('[DRIVE WATCH FILE ERROR] ' + file.getName() + ': ' + fileErr.message);
-        // エラーが起きたファイルも処理済みにして次回スキップ
         _markFileAsProcessed(fileId);
+        try { _logOcrResult(file.getName(), 'error', null, fileErr.message); } catch(e) {}
       }
     }
   } catch(folderErr) {
     Logger.log('[DRIVE WATCH FOLDER ERROR] FolderID=' + importFolderId + ': ' + folderErr.message);
   }
-
   return count;
 }
 
