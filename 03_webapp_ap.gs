@@ -131,8 +131,6 @@ function handleApiRequest(action, payload) {
       case 'checkDeadlines':      res = _apiCheckDeadlines(); break;
       case 'saveSettings':        res = _apiSaveSettings(payload); break;
       case 'loadSettings':        res = _apiLoadSettings(); break;
-      case 'menuConfigLoad':       res = _apiMenuConfigLoad(); break;
-      case 'menuConfigSave':       res = _apiMenuConfigSave(payload); break;
       case 'testWebhook':         res = _apiTestWebhook(payload); break;
       case 'sendAnnouncement':    res = _apiSendAnnouncement(); break;
       case 'uploadOrderWithLink': res = _apiUploadOrderWithLink(payload); break;
@@ -154,30 +152,14 @@ function handleApiRequest(action, payload) {
       case 'reregisterTriggers':
         try { _registerTriggers(); return { success: true }; }
         catch(e) { return { success: false, error: e.message }; }
-
-      // ===== 単価比較・正規化DB API（11_db_normalize.gs / 12_price_compare_v2.gs）=====
-      case 'orderPriceCompare':       res = apiOrderPriceCompare(payload); break;
-      case 'batchOrderPriceCompare':  res = apiBatchOrderPriceCompare(payload); break;
-      case 'searchUnitPrice':
-        res = { success: true, results: searchUnitPrice(payload.itemName, payload.spec, payload.client) };
-        break;
-      case 'searchCaseSummary':
-        var _kws = String(payload.keywords || '').split(/[\s,　]+/).filter(Boolean);
-        res = { success: true, results: searchCaseSummary(_kws) };
-        break;
-      case 'syncDetailDB':
-        syncAllDetailDB();
-        res = { success: true, message: '明細DB同期完了' };
-        break;
-      case 'rebuildUnitPrice':
-        rebuildUnitPriceMaster();
-        res = { success: true, message: '単価マスタ再構築完了' };
-        break;
-
-      // ===== OCR確認UI API（15_ocr_review_ui.gs）=====
-      case 'ocrPreview':  res = apiOcrPreview(payload);  break;
-      case 'ocrApprove':  res = apiOcrApprove(payload);  break;
-      case 'ocrDiscard':  res = apiOcrDiscard(payload);  break;
+      case 'getOcrUsage':          res = getOcrUsageInfo(); break;
+      case 'getSystemSettings':    res = _apiGetSystemSettings(); break;
+      case 'updateSystemSettings': res = _apiUpdateSystemSettings(payload); break;
+      case 'initSettingsSheet':    res = _apiInitSettingsSheet(); break;
+      
+      // ★ ノーコード管理基盤・権限制御用追加API
+      case 'getMasterSettings':    res = { success: true, data: getAllSettingsData() }; break;
+      case 'getUserRole':          res = { success: true, role: getUserRole() }; break;
 
       default: return { success: false, error: '不明なアクション: ' + action };
     }
@@ -833,10 +815,20 @@ function _apiQuoteListGetAll() {
     // 見積番号がある行だけを抽出
     var allRows   = mgmtData.filter(function(r) { return String(r[MGMT_COLS.QUOTE_NO - 1]).trim() !== ''; });
     
-    // 重複を排除
-    var seenQNo  = {};
+    // ★ 非表示ステータスを除外
+    var settingsConf = getSettingValues('システム') || [];
+    var excludeHidden = settingsConf.indexOf('非表示を除外') >= 0 ? true : false;
+    // デフォルトは除外する動きとして実装
+    excludeHidden = true; // または設定から読む
+    
+    var hiddenStatuses = getSettingValues('案件ステータス');
+    if (!hiddenStatuses) hiddenStatuses = [];
+    var hiddenTarget = '非表示'; // デフォルト
+
     var quoteRows = allRows.filter(function(r) {
       var qNo = String(r[MGMT_COLS.QUOTE_NO - 1]).trim();
+      var st  = String(r[MGMT_COLS.STATUS - 1] || '').trim();
+      if (st === hiddenTarget) return false;
       if (seenQNo[qNo]) return false;
       seenQNo[qNo] = true;
       return true;
@@ -889,7 +881,19 @@ function _apiQuoteListGetAll() {
 
 function _isLinkedVal(val) { return val === true || val === 'TRUE' || val === 'true'; }
 
-function _apiLedgerGetAll() { return { success: true, items: getAllLedgerData().map(_ledgerRowToObject) }; }
+function _apiLedgerGetAll() {
+  try {
+    var items = getAllLedgerData().map(_ledgerRowToObject);
+    // ★ 非表示ステータスを除外
+    var hiddenTarget = '非表示';
+    items = items.filter(function(item) {
+      return String(item.status || '').trim() !== hiddenTarget;
+    });
+    return { success: true, items: items };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
 
 function _apiLedgerSave(p) {
   try {
@@ -904,7 +908,8 @@ function _apiLedgerSave(p) {
         p.category || '', p.subject || '', p.status || LEDGER_STATUS.PENDING,
         p.saveUrl || '', p.machineCode || '', p.boardName || '',
         p.modelNo || '', p.amount !== undefined && p.amount !== '' ? Number(p.amount) : '',
-        p.submitTo || '', p.remarks || '', p.sentDate || '',
+        p.submitTo || '', p.remarks || '',
+        p.emailSentDate || '',  // ★ メール送信日
       ]);
     } else {
       var last = sheet.getLastRow();
@@ -921,7 +926,7 @@ function _apiLedgerSave(p) {
         boardName: LEDGER_COLS.BOARD_NAME, modelNo: LEDGER_COLS.MODEL_NO,
         amount: LEDGER_COLS.AMOUNT, submitTo: LEDGER_COLS.SUBMIT_TO,
         remarks: LEDGER_COLS.REMARKS,
-        sentDate: LEDGER_COLS.SENT_DATE,  // ★ メール送信日
+        emailSentDate: LEDGER_COLS.EMAIL_SENT_DATE,  // ★ メール送信日
       };
       Object.keys(fields).forEach(function(key) {
         if (p[key] !== undefined) sheet.getRange(row, fields[key]).setValue(p[key]);
@@ -969,6 +974,13 @@ function _apiLedgerUpdateUrl(p) {
     sheet.getRange(targetRow, LEDGER_COLS.SAVE_URL).setValue(p.saveUrl || '');
     sheet.getRange(targetRow, LEDGER_COLS.STATUS).setValue(LEDGER_STATUS.SENT);
     if (p.issueDate) sheet.getRange(targetRow, LEDGER_COLS.ISSUE_DATE).setValue(p.issueDate);
+    // ★ メール送信日を記録（メールから自動登録された場合）
+    if (p.emailSentDate) {
+      sheet.getRange(targetRow, LEDGER_COLS.EMAIL_SENT_DATE).setValue(p.emailSentDate);
+    } else {
+      // 送信日時のスタンプを自動記録
+      sheet.getRange(targetRow, LEDGER_COLS.EMAIL_SENT_DATE).setValue(nowJST());
+    }
     return { success: true, matched: true, row: targetRow, score: bestScore };
   } catch(e) { return { success: false, error: e.message }; }
 }
@@ -1246,13 +1258,6 @@ function _apiSaveSettings(p) {
     var props = PropertiesService.getScriptProperties();
     if (p.adminEmails !== undefined) props.setProperty('ADMIN_EMAILS', p.adminEmails);
     if (p.chatWebhook !== undefined) props.setProperty('GOOGLE_CHAT_WEBHOOK_URL', p.chatWebhook);
-
-    // ★ Gemini APIキーの保存（追加）
-    if (p.geminiKey && p.geminiKey.trim() && p.geminiKey !== '（設定済み）') {
-      props.setProperty('GEMINI_API_KEY', p.geminiKey.trim());
-      Logger.log('[SETTINGS] GEMINI_API_KEY を更新しました');
-    }
-
     var current = _loadSettingsObj();
     var merged = {
       webhookUrl:  p.chatWebhook  !== undefined ? String(p.chatWebhook)  : (p.webhookUrl !== undefined ? String(p.webhookUrl) : current.webhookUrl),
@@ -1271,22 +1276,18 @@ function _apiLoadSettings() {
   try {
     var props = PropertiesService.getScriptProperties();
     var s = _loadSettingsObj();
-    var geminiKey = props.getProperty('GEMINI_API_KEY') || '';
     return {
       success:        true,
       settings:       s,
       adminEmails:    props.getProperty('ADMIN_EMAILS')            || '',
       chatWebhook:    props.getProperty('GOOGLE_CHAT_WEBHOOK_URL') || s.webhookUrl || '',
-      spreadsheetId:  props.getProperty('SPREADSHEET_ID')          || '',
-      notifyEmails:   props.getProperty('NOTIFY_EMAILS')           || '',
-      rakurakuCompany:  props.getProperty('RAKURAKU_COMPANY')      || '',
-      rakurakuEndpoint: props.getProperty('RAKURAKU_ENDPOINT')     || '',
-      n8nOrderWebhook:  props.getProperty('N8N_ORDER_WEBHOOK')     || '',
-      n8nQuoteWebhook:  props.getProperty('N8N_QUOTE_WEBHOOK')     || '',
-      customWebhook:    props.getProperty('CUSTOM_WEBHOOK')        || '',
-      // ★ APIキー設定状況（セキュリティのため先頭8文字のみ返す）
-      geminiKeyIsSet:   !!geminiKey,
-      geminiKeyHint:    geminiKey ? geminiKey.substring(0, 8) + '...' : '未設定',
+      spreadsheetId:  props.getProperty('SPREADSHEET_ID')          || '',  // ★追加
+      notifyEmails:   props.getProperty('NOTIFY_EMAILS')           || '',  // ★追加
+      rakurakuCompany:  props.getProperty('RAKURAKU_COMPANY')      || '',  // ★追加
+      rakurakuEndpoint: props.getProperty('RAKURAKU_ENDPOINT')     || '',  // ★追加
+      n8nOrderWebhook:  props.getProperty('N8N_ORDER_WEBHOOK')     || '',  // ★追加
+      n8nQuoteWebhook:  props.getProperty('N8N_QUOTE_WEBHOOK')     || '',  // ★追加
+      customWebhook:    props.getProperty('CUSTOM_WEBHOOK')        || '',  // ★追加
     };
   } catch(e) { return { success: false, error: e.message }; }
 }
@@ -1445,4 +1446,44 @@ function _apiUploadOrderWithLink(p) {
     res.linkResult = aiRes;
   }
   return res;
+}
+
+// ============================================================
+// ★ システム設定 API
+// ============================================================
+
+function _apiGetSystemSettings() {
+  try {
+    var data = getAllSettingsData();
+    var categories = {};
+    Object.keys(data).forEach(function(cat) {
+      categories[cat] = data[cat].map(function(item) { return item.value; });
+    });
+    return { success: true, settings: categories };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+function _apiUpdateSystemSettings(p) {
+  try {
+    var category = p.category;
+    var values = p.values;
+    if (!category || !values || !Array.isArray(values)) {
+      return { success: false, error: '無効なパラメータ' };
+    }
+    return updateSettingValues(category, values);
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+function _apiInitSettingsSheet() {
+  try {
+    var ss = getSpreadsheet();
+    _setupSettingsSheet(ss);
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
 }
