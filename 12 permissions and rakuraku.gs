@@ -520,3 +520,19 @@ function handleRakurakuWebhook(e) {
       .setMimeType(ContentService.MimeType.JSON);
   }
 }
+// ============================================================
+// メニュー設定の全ユーザー共有保存
+// ============================================================
+function _apiMenuConfigLoad() {
+  try {
+    var raw = PropertiesService.getScriptProperties().getProperty('SHARED_MENU_CONFIG');
+    return { success: true, menuConfig: raw ? JSON.parse(raw) : null };
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+function _apiMenuConfigSave(p) {
+  try {
+    PropertiesService.getScriptProperties().setProperty('SHARED_MENU_CONFIG', JSON.stringify(p.menuConfig));
+    return { success: true };
+  } catch(e) { return { success: false, error: e.message }; }
+}

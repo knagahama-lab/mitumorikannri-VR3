@@ -756,6 +756,7 @@ function applyLedgerFilter() {
   if (_currentLedgerTab === 'tree') { _renderLedgerTree(filtered); } else { _renderLedgerFlat(filtered); }
 }
 
+// ツリー表示用のレンダリング
 function _renderLedgerTree(items) {
   const container = document.getElementById('ledger-tree-container'); if(!container) return;
   const machineSet = {};
@@ -768,12 +769,29 @@ function _renderLedgerTree(items) {
     const boardGroups = {};
     machineItems.forEach(r => { const bKey = (r.boardName || '（基板未設定）').trim(); if (!boardGroups[bKey]) boardGroups[bKey] = []; boardGroups[bKey].push(r); });
     if (Object.keys(boardGroups).length === 0) html += `<div style="padding:14px 20px;color:var(--text-sub);font-size:13px;">まだ見積がありません。</div>`;
+    
     Object.keys(boardGroups).sort().forEach(board => {
       const boardItems = boardGroups[board]; const boardId = machineId + '_' + board.replace(/[^a-zA-Z0-9]/g, '_');
       html += `<div style="border-top:1px solid var(--border);"><div class="ledger-board-hd" onclick="_toggleBoardSection('${boardId}')" style="display:flex;align-items:center;justify-content:space-between;padding:7px 16px 7px 28px;background:#f4f6f9;cursor:pointer;user-select:none;"><span style="display:flex;align-items:center;gap:8px;"><span style="font-size:12px;" id="${boardId}-arrow">▼</span><span style="font-size:13px;font-weight:600;">🔬 ${board}</span></span></div><div id="${boardId}"><table style="width:100%;border-collapse:collapse;"><thead><tr style="background:#f0f2f5;"><th style="padding:5px 10px 5px 50px;">見積No.</th><th>件名</th><th>金額</th><th>ステータス</th><th>送信日</th><th>操作</th></tr></thead><tbody>`;
+      
       boardItems.forEach(r => {
         const safeId = (r.ledgerId || '').replace(/'/g, "\\'");
-        html += `<tr style="border-bottom:1px solid #f0f0f0; cursor:pointer;" onclick="openLedgerModal('${safeId}')" onmouseenter="this.style.background='#f8f9fa'" onmouseleave="this.style.background=''"><td style="padding:7px 10px 7px 50px;font-family:monospace;font-size:12px;color:var(--primary);">${r.quoteNo || '—'}</td><td style="padding:7px 8px;font-size:12px;">${r.subject || '—'}</td><td style="padding:7px 8px;font-size:12px;color:var(--danger);font-weight:600;">${r.amount ? '¥'+Number(r.amount).toLocaleString() : '—'}</td><td style="padding:7px 8px;"><button class="btn btn-outline btn-sm" onclick="event.stopPropagation(); openLedgerModal('${safeId}')">✏️</button><button class="btn btn-danger btn-sm"  onclick="event.stopPropagation(); deleteLedger('${safeId}')" style="margin-left:2px;">🗑️</button></td></tr>`;
+        // インライン編集用のステータスプルダウン
+        const statuses = ['作成予定', '作成中', '送信済み', 'キャンセル'];
+        const statusOpts = statuses.map(s => `<option value="${s}" ${s === r.status ? 'selected' : ''}>${s}</option>`).join('');
+        const statusSelect = `<select onchange="event.stopPropagation(); quickUpdateLedgerStatus('${safeId}', this.value)" style="padding:2px 4px;font-size:11px;border-radius:4px;border:1px solid var(--border);background:#fff;cursor:pointer;">${statusOpts}</select>`;
+
+        html += `<tr style="border-bottom:1px solid #f0f0f0; cursor:pointer;" onclick="openLedgerModal('${safeId}')" onmouseenter="this.style.background='#f8f9fa'" onmouseleave="this.style.background=''">
+          <td style="padding:7px 10px 7px 50px;font-family:monospace;font-size:12px;color:var(--primary);">${r.quoteNo || '—'}</td>
+          <td style="padding:7px 8px;font-size:12px;">${r.subject || '—'}</td>
+          <td style="padding:7px 8px;font-size:12px;color:var(--danger);font-weight:600;">${r.amount ? '¥'+Number(r.amount).toLocaleString() : '—'}</td>
+          <td style="padding:7px 8px;" onclick="event.stopPropagation();">${statusSelect}</td>
+          <td style="padding:7px 8px;font-size:11px;color:var(--text-sub);">${r.sentDate || '—'}</td>
+          <td style="padding:7px 8px;white-space:nowrap;">
+            <button class="btn btn-outline btn-sm" onclick="event.stopPropagation(); openLedgerModal('${safeId}')">✏️</button>
+            <button class="btn btn-danger btn-sm"  onclick="event.stopPropagation(); deleteLedger('${safeId}')" style="margin-left:2px;">🗑️</button>
+          </td>
+        </tr>`;
       });
       html += `</tbody></table></div></div>`;
     });
@@ -792,7 +810,127 @@ function _renderLedgerFlat(items) {
   let html = `<table class="dtable" style="width:100%;border-collapse:collapse;font-size:12px;background:#fff;box-shadow:var(--shadow-sm);border-radius:8px;overflow:hidden;"><thead><tr style="background:#f0f2f5;"><th style="padding:8px 12px;text-align:left;border-bottom:1px solid var(--border);">見積No.</th><th style="padding:8px 12px;text-align:left;border-bottom:1px solid var(--border);">件名</th><th style="padding:8px 12px;text-align:left;border-bottom:1px solid var(--border);">機種</th><th style="padding:8px 12px;text-align:left;border-bottom:1px solid var(--border);">基板名</th><th style="padding:8px 12px;text-align:right;border-bottom:1px solid var(--border);">金額</th><th style="padding:8px 12px;text-align:left;border-bottom:1px solid var(--border);">ステータス</th><th style="padding:8px 12px;text-align:left;border-bottom:1px solid var(--border);">送信日</th><th style="padding:8px 12px;text-align:center;border-bottom:1px solid var(--border);">操作</th></tr></thead><tbody>`;
   data.forEach(r => {
     const safeId = (r.ledgerId || '').replace(/'/g, "\\'");
-    html += `<tr style="border-bottom:1px solid #f0f0f0; cursor:pointer;" onclick="openLedgerModal('${safeId}')" onmouseenter="this.style.background='#f8f9fa'" onmouseleave="this.style.background=''"><td style="padding:8px 12px;font-family:monospace;color:var(--primary);font-weight:600;">${r.quoteNo || '—'}</td><td style="padding:8px 12px;">${r.subject || '—'}</td><td style="padding:8px 12px;color:var(--text-sub);">${r.machineCode || '—'}</td><td style="padding:8px 12px;color:var(--text-sub);">${r.boardName || '—'}</td><td style="padding:8px 12px;text-align:right;color:var(--danger);font-weight:600;">${r.amount ? '¥'+Number(r.amount).toLocaleString() : '—'}</td><td style="padding:8px 12px;text-align:center;"><button class="btn btn-outline btn-sm" onclick="event.stopPropagation(); openLedgerModal('${safeId}')">✏️</button><button class="btn btn-danger btn-sm"  onclick="event.stopPropagation(); deleteLedger('${safeId}')" style="margin-left:4px;">🗑️</button></td></tr>`;
+    
+    // インライン編集用のステータスプルダウン
+    const statuses = ['作成予定', '作成中', '送信済み', 'キャンセル'];
+    const statusOpts = statuses.map(s => `<option value="${s}" ${s === r.status ? 'selected' : ''}>${s}</option>`).join('');
+    const statusSelect = `<select onchange="event.stopPropagation(); quickUpdateLedgerStatus('${safeId}', this.value)" style="padding:2px 4px;font-size:11px;border-radius:4px;border:1px solid var(--border);background:#fff;cursor:pointer;">${statusOpts}</select>`;
+
+    html += `<tr style="border-bottom:1px solid #f0f0f0; cursor:pointer;" onclick="openLedgerModal('${safeId}')" onmouseenter="this.style.background='#f8f9fa'" onmouseleave="this.style.background=''">
+      <td style="padding:8px 12px;font-family:monospace;color:var(--primary);font-weight:600;">${r.quoteNo || '—'}</td>
+      <td style="padding:8px 12px;">${r.subject || '—'}</td>
+      <td style="padding:8px 12px;color:var(--text-sub);">${r.machineCode || '—'}</td>
+      <td style="padding:8px 12px;color:var(--text-sub);">${r.boardName || '—'}</td>
+      <td style="padding:8px 12px;text-align:right;color:var(--danger);font-weight:600;">${r.amount ? '¥'+Number(r.amount).toLocaleString() : '—'}</td>
+      <td style="padding:8px 12px;" onclick="event.stopPropagation();">${statusSelect}</td>
+      <td style="padding:8px 12px;font-size:11px;color:var(--text-sub);">${r.sentDate || '—'}</td>
+      <td style="padding:8px 12px;text-align:center;white-space:nowrap;">
+        <button class="btn btn-outline btn-sm" onclick="event.stopPropagation(); openLedgerModal('${safeId}')">✏️</button>
+        <button class="btn btn-danger btn-sm"  onclick="event.stopPropagation(); deleteLedger('${safeId}')" style="margin-left:4px;">🗑️</button>
+      </td>
+    </tr>`;
+  });
+  html += `</tbody></table>`;
+  container.innerHTML = html;
+}
+
+// 📌 [追加] インラインでステータスを即座に保存する関数
+function quickUpdateLedgerStatus(ledgerId, newStatus) {
+  const item = _allLedger.find(r => r.ledgerId === ledgerId);
+  if (item) item.status = newStatus; // 画面上のデータを更新
+  
+  google.script.run.withSuccessHandler(res => {
+    if (res.success) {
+      showToast('ステータスを更新しました');
+    } else {
+      showToast('更新失敗: ' + res.error, true);
+    }
+  }).handleApiRequest('ledgerSave', { ledgerId: ledgerId, status: newStatus });
+}
+
+function _toggleMachineSection(id) { const el = document.getElementById(id); const arr = document.getElementById(id+'-arrow'); if(el){ el.style.display = el.style.display==='none'?'block':'none'; if(arr) arr.textContent = el.style.display==='none'?'▶':'▼'; } }
+function _toggleBoardSection(id) { const el = document.getElementById(id); const arr = document.getElementById(id+'-arrow'); if(el){ el.style.display = el.style.display==='none'?'block':'none'; if(arr) arr.textContent = el.style.display==='none'?'▶':'▼'; } }
+
+function openLedgerModal(id) {
+  const item = id ? _allLedger.find(r => r.ledgerId === id) : null;
+  document.getElementById('ledger-modal-title').textContent = item ? '見積編集' : '見積登録';
+  document.getElementById('ledger-id').value           = item ? item.ledgerId   : '';
+  document.getElementById('ledger-machine-code').value = item ? (item.machineCode || '') : '';
+  document.getElementById('ledger-board-name').value   = item ? (item.boardName  || '') : '';
+  document.getElementById('ledger-quote-no').value     = item ? item.quoteNo     : '';
+  document.getElementById('ledger-subject').value      = item ? item.subject     : '';
+  document.getElementById('ledger-amount').value       = item ? (item.amount || '') : '';
+  
+  // 追加フィールド
+  document.getElementById('ledger-status').value       = item ? (item.status || '作成予定') : '作成予定';
+  document.getElementById('ledger-submit-to').value    = item ? (item.submitTo || '') : '';
+  document.getElementById('ledger-remarks').value      = item ? (item.remarks || '') : '';
+
+  document.getElementById('ledger-modal').classList.add('open');
+}
+
+function _openLedgerModalWithMachine(machine) { openLedgerModal(null); document.getElementById('ledger-machine-code').value = machine; }
+function closeLedgerModal() { document.getElementById('ledger-modal').classList.remove('open'); }
+
+function saveLedger() {
+  const payload = {
+    ledgerId:    document.getElementById('ledger-id').value || null,
+    machineCode: document.getElementById('ledger-machine-code').value.trim(),
+    boardName:   document.getElementById('ledger-board-name').value.trim(),
+    quoteNo:     document.getElementById('ledger-quote-no').value,
+    subject:     document.getElementById('ledger-subject').value.trim(),
+    amount:      document.getElementById('ledger-amount').value || '',
+    status:      document.getElementById('ledger-status').value,
+    submitTo:    document.getElementById('ledger-submit-to').value.trim(),
+    remarks:     document.getElementById('ledger-remarks').value.trim(),
+  };
+  if (!payload.subject) { showToast('件名は必須です', true); return; }
+  
+  google.script.run.withSuccessHandler(res => { 
+    if (res.success) { 
+      showToast('保存しました'); closeLedgerModal(); loadLedger(); 
+    } else {
+      showToast('保存失敗: ' + res.error, true);
+    }
+  }).handleApiRequest('ledgerSave', payload);
+}
+
+function deleteLedger(id) {
+  if (!confirm('削除しますか？')) return;
+  google.script.run.withSuccessHandler(res => { if (res.success) { showToast('削除しました'); loadLedger(); } }).handleApiRequest('ledgerDelete', { ledgerId: id });
+}
+
+// 全て表示（フラット）用のレンダリング
+// 全て表示（フラット）用のレンダリング
+function _renderLedgerFlat(items) {
+  const container = document.getElementById('ledger-flat-container'); if(!container) return;
+  let data = items.filter(r => r.status !== '__MACHINE_FOLDER__');
+  data.sort((a,b) => String(b.quoteNo||'').localeCompare(String(a.quoteNo||''))); // 発行順（見積Noの降順）
+  if (data.length === 0) { container.innerHTML = '<div class="loading" style="color:var(--text-sub);">該当する見積がありません。</div>'; return; }
+
+  let html = `<table class="dtable" style="width:100%;border-collapse:collapse;font-size:12px;background:#fff;box-shadow:var(--shadow-sm);border-radius:8px;overflow:hidden;"><thead><tr style="background:#f0f2f5;"><th style="padding:8px 12px;text-align:left;border-bottom:1px solid var(--border);">見積No.</th><th style="padding:8px 12px;text-align:left;border-bottom:1px solid var(--border);">件名</th><th style="padding:8px 12px;text-align:left;border-bottom:1px solid var(--border);">機種</th><th style="padding:8px 12px;text-align:left;border-bottom:1px solid var(--border);">基板名</th><th style="padding:8px 12px;text-align:right;border-bottom:1px solid var(--border);">金額</th><th style="padding:8px 12px;text-align:left;border-bottom:1px solid var(--border);">ステータス</th><th style="padding:8px 12px;text-align:left;border-bottom:1px solid var(--border);">送信日</th><th style="padding:8px 12px;text-align:center;border-bottom:1px solid var(--border);">操作</th></tr></thead><tbody>`;
+  
+  data.forEach(r => {
+    const safeId = (r.ledgerId || '').replace(/'/g, "\\'");
+    
+    // インライン編集用のステータスプルダウン
+    const statuses = ['作成予定', '作成中', '送信済み', 'キャンセル'];
+    const statusOpts = statuses.map(s => `<option value="${s}" ${s === r.status ? 'selected' : ''}>${s}</option>`).join('');
+    const statusSelect = `<select onchange="event.stopPropagation(); quickUpdateLedgerStatus('${safeId}', this.value)" style="padding:2px 4px;font-size:11px;border-radius:4px;border:1px solid var(--border);background:#fff;cursor:pointer;">${statusOpts}</select>`;
+
+    html += `<tr style="border-bottom:1px solid #f0f0f0; cursor:pointer;" onclick="openLedgerModal('${safeId}')" onmouseenter="this.style.background='#f8f9fa'" onmouseleave="this.style.background=''">
+      <td style="padding:8px 12px;font-family:monospace;color:var(--primary);font-weight:600;">${r.quoteNo || '—'}</td>
+      <td style="padding:8px 12px;">${r.subject || '—'}</td>
+      <td style="padding:8px 12px;color:var(--text-sub);">${r.machineCode || '—'}</td>
+      <td style="padding:8px 12px;color:var(--text-sub);">${r.boardName || '—'}</td>
+      <td style="padding:8px 12px;text-align:right;color:var(--danger);font-weight:600;">${r.amount ? '¥'+Number(r.amount).toLocaleString() : '—'}</td>
+      <td style="padding:8px 12px;" onclick="event.stopPropagation();">${statusSelect}</td>
+      <td style="padding:8px 12px;font-size:11px;color:var(--text-sub);">${r.sentDate || '—'}</td>
+      <td style="padding:8px 12px;text-align:center;white-space:nowrap;">
+        <button class="btn btn-outline btn-sm" onclick="event.stopPropagation(); openLedgerModal('${safeId}')">✏️</button>
+        <button class="btn btn-danger btn-sm"  onclick="event.stopPropagation(); deleteLedger('${safeId}')" style="margin-left:4px;">🗑️</button>
+      </td>
+    </tr>`;
   });
   html += `</tbody></table>`;
   container.innerHTML = html;

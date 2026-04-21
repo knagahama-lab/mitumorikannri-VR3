@@ -543,15 +543,31 @@ tr:hover td{background:#f8fafc;}
 </div>
 
 <div class="modal-overlay" id="ledger-modal" onclick="if(event.target===this)closeLedgerModal()">
-  <div class="modal" style="max-width:500px;">
+  <div class="modal" style="max-width:600px;">
     <div class="modal-head"><h3 id="ledger-modal-title">見積登録</h3><button class="modal-close" onclick="closeLedgerModal()">✕</button></div>
     <div class="modal-body">
       <input type="hidden" id="ledger-id">
-      <div class="form-field" style="margin-bottom:12px;"><label>機種コード</label><input type="text" id="ledger-machine-code"></div>
-      <div class="form-field" style="margin-bottom:12px;"><label>基板名</label><input type="text" id="ledger-board-name"></div>
-      <div class="form-field" style="margin-bottom:12px;"><label>見積No.</label><input type="text" id="ledger-quote-no"></div>
+      <div class="form-row">
+        <div class="form-field"><label>機種コード</label><input type="text" id="ledger-machine-code"></div>
+        <div class="form-field"><label>基板名</label><input type="text" id="ledger-board-name"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-field"><label>見積No.</label><input type="text" id="ledger-quote-no"></div>
+        <div class="form-field"><label>ステータス</label>
+          <select id="ledger-status">
+            <option value="作成予定">作成予定</option>
+            <option value="作成中">作成中</option>
+            <option value="送信済み">送信済み</option>
+            <option value="キャンセル">キャンセル</option>
+          </select>
+        </div>
+      </div>
       <div class="form-field" style="margin-bottom:12px;"><label>件名</label><input type="text" id="ledger-subject"></div>
-      <div class="form-field" style="margin-bottom:12px;"><label>金額</label><input type="number" id="ledger-amount"></div>
+      <div class="form-row">
+        <div class="form-field"><label>金額</label><input type="number" id="ledger-amount"></div>
+        <div class="form-field"><label>提出先担当者</label><input type="text" id="ledger-submit-to"></div>
+      </div>
+      <div class="form-field" style="margin-bottom:12px;"><label>備考</label><input type="text" id="ledger-remarks"></div>
       <div style="text-align:right;margin-top:16px;"><button class="btn btn-outline" onclick="closeLedgerModal()">キャンセル</button><button class="btn btn-primary" onclick="saveLedger()">💾 保存</button></div>
     </div>
   </div>

@@ -1,6 +1,6 @@
 // ============================================================
 // 見積書・注文書管理システム
-// ファイル 17: OCR ハイブリッド戦略【コストゼロ版】
+// ファイル 17: OCR ハイブリッド戦略【コストゼロ版 + AIリレー方式】
 // ============================================================
 //
 // 【戦略】
@@ -12,34 +12,56 @@
 //                        ③ スキャンPDFで取れない → Gemini Vision（最終手段）
 //                        ④ Gemini失敗 → 手動入力UIへ誘導
 //
-// 【GASファイルの上書き優先順位】
-//   このファイル(17)は 13_ocr_enhanced.gs より後に定義されるため
-//   extractPdfData / _buildOcrPrompt を上書きします
-//
-// 【メール転記フロー（見積書）】
-//   メール添付PDF → Drive保存 → PDFテキスト抽出 → 構造化 → DB登録
-//   Gemini API 呼び出し: ゼロ回
-//
-// 【注文書フロー】
-//   取引先PDF → Drive保存 → テキスト抽出試行
-//     成功 → Geminiテキスト構造化（トークン少・低コスト）
-//     失敗（スキャン） → Gemini Vision（必要時のみ）
-//     Vision失敗 → OCR確認UI（手動入力）
+// 【AIリレー方式】
+//   APIの無料枠（429エラー）に対応するため、1つのモデルが制限に達した場合、
+//   自動的に次のモデル（フォールバック）を順番に呼び出して処理を継続します。
 // ============================================================
 
 // ============================================================
 // extractPdfData の最終上書き版
 // ============================================================
+// ============================================================
+// extractPdfData の最終上書き版（フルAIモード）
+// ============================================================
 function extractPdfData(driveFile, docType) {
   Logger.log('[OCR HYBRID] 開始: ' + docType + ' / ' + driveFile.getName());
 
-  if (docType === 'quote') {
-    // ===== 見積書: PDFテキスト直接抽出（Gemini不使用）=====
-    return _extractQuoteFromPdfText(driveFile);
-  } else {
-    // ===== 注文書: テキスト抽出 → 失敗時Gemini =====
-    return _extractOrderHybrid(driveFile);
+  // ① PDFテキスト直接抽出を試みる
+  var text = _extractTextFromPdf(driveFile);
+
+  if (text && text.trim().length >= 30) {
+    Logger.log('[OCR HYBRID] テキスト抽出成功: ' + text.length + '文字 → Gemini構造化');
+
+    // ② テキストをGeminiに渡して構造化（AIに任せる）
+    var result = _geminiStructureText(text, docType);
+    
+    // 最低限「番号」か「金額」が取れていれば成功とする
+    if (result && (result.documentNo || result.totalAmount)) {
+      _logOcrResult(driveFile.getName(), 'success', null,
+        (docType==='quote'?'見積書':'注文書') + 'テキスト+Gemini構造化: ' + (result.documentNo||'?'));
+      return result;
+    }
+    Logger.log('[OCR HYBRID] テキスト構造化が不十分 → 画像解析(Vision)へフォールバック');
   }
+
+  // ③ テキストが取れない、またはAI構造化がスカスカだった場合 → 画像としてAIに丸投げ（Vision）
+  Logger.log('[OCR HYBRID] Gemini Vision(画像解析)試行');
+  var apiKey = getGeminiApiKey();
+  if (!apiKey) {
+    _logOcrResult(driveFile.getName(), 'ocr_failed', null, 'APIキー未設定。手動入力が必要です。');
+    return null;
+  }
+
+  var visionResult = _geminiVisionOcr(driveFile, docType, apiKey);
+  if (visionResult) {
+    _logOcrResult(driveFile.getName(), 'success', null,
+      (docType==='quote'?'見積書':'注文書') + 'Vision OCR: ' + (visionResult.documentNo||'?'));
+    return visionResult;
+  }
+
+  // ④ 全て失敗
+  _logOcrResult(driveFile.getName(), 'ocr_failed', null, '全OCR手法失敗。手動入力してください。');
+  return null;
 }
 
 // ============================================================
@@ -165,11 +187,19 @@ function _extractTextFromPdf(driveFile) {
 }
 
 // ============================================================
-// Geminiにテキストを渡して構造化JSON生成（Vision不使用・低コスト）
+// Geminiにテキストを渡して構造化JSON生成（AIリレー方式）
 // ============================================================
 function _geminiStructureText(text, docType) {
   var apiKey = getGeminiApiKey();
   if (!apiKey) return null;
+
+  // ★「使う順番」を設定（1日の上限が多い順、または速度順）
+  var modelsToTry = [
+    'gemini-3.1-flash-lite-preview', // 第1希望（一番枠が多い）
+    'gemini-2.0-flash-lite-001',     // 第2希望
+    'gemini-3-flash-preview',        // 第3希望
+    'gemini-2.5-flash'               // 第4希望（最終兵器）
+  ];
 
   var prompt = docType === 'quote'
     ? _buildTextStructurePrompt('quote', text)
@@ -184,39 +214,41 @@ function _geminiStructureText(text, docType) {
     },
   };
 
-  try {
-    var url = CONFIG.GEMINI_API_ENDPOINT +
-      'gemini-2.0-flash-lite' +  // ★最安モデルを使用
-      ':generateContent?key=' + apiKey;
+  var options = {
+    method: 'post', contentType: 'application/json',
+    payload: JSON.stringify(body), muteHttpExceptions: true,
+  };
 
-    var res  = UrlFetchApp.fetch(url, {
-      method: 'post', contentType: 'application/json',
-      payload: JSON.stringify(body), muteHttpExceptions: true,
-    });
+  for (var i = 0; i < modelsToTry.length; i++) {
+    var model = modelsToTry[i];
+    Logger.log('[GEMINI TEXT] ' + model + ' で試行中...');
+    var url = CONFIG.GEMINI_API_ENDPOINT + model + ':generateContent?key=' + apiKey;
 
-    if (res.getResponseCode() !== 200) {
-      Logger.log('[GEMINI TEXT] HTTP ' + res.getResponseCode());
-      return null;
+    try {
+      var res = UrlFetchApp.fetch(url, options);
+      if (res.getResponseCode() === 200) {
+        var json = JSON.parse(res.getContentText());
+        var raw  = json.candidates && json.candidates[0] &&
+                   json.candidates[0].content &&
+                   json.candidates[0].content.parts
+                   ? json.candidates[0].content.parts[0].text || '' : '';
+
+        raw = raw.replace(/```json|```/gi, '').trim();
+        var parsed = _ocr_safeParseJson(raw);
+        return parsed ? _ocr_normalize(parsed, docType) : null;
+      } else {
+        Logger.log('[GEMINI TEXT] ' + model + ' 失敗: HTTP ' + res.getResponseCode());
+        // 失敗したら次のループ（次のモデル）へ
+      }
+    } catch(e) {
+      Logger.log('[GEMINI TEXT ERROR] ' + model + ' 例外: ' + e.message);
     }
-
-    var json = JSON.parse(res.getContentText());
-    var raw  = json.candidates && json.candidates[0] &&
-               json.candidates[0].content &&
-               json.candidates[0].content.parts
-               ? json.candidates[0].content.parts[0].text || '' : '';
-
-    raw = raw.replace(/```json|```/gi, '').trim();
-    var parsed = _ocr_safeParseJson(raw);
-    return parsed ? _ocr_normalize(parsed, docType) : null;
-
-  } catch(e) {
-    Logger.log('[GEMINI TEXT ERROR] ' + e.message);
-    return null;
   }
+  return null; // 全モデル失敗
 }
 
 // ============================================================
-// Gemini Vision OCR（スキャンPDF用・最終手段）
+// Gemini Vision OCR（スキャンPDF用・AIリレー方式）
 // ============================================================
 function _geminiVisionOcr(driveFile, docType, apiKey) {
   try {
@@ -233,14 +265,25 @@ function _geminiVisionOcr(driveFile, docType, apiKey) {
       },
     };
 
-    // gemini-2.0-flash-lite（最安・無料枠対応）を優先
-    var models = ['gemini-2.0-flash-lite', CONFIG.GEMINI_PRIMARY_MODEL];
-    for (var i = 0; i < models.length; i++) {
-      var url = CONFIG.GEMINI_API_ENDPOINT + models[i] + ':generateContent?key=' + apiKey;
-      var res = UrlFetchApp.fetch(url, {
-        method: 'post', contentType: 'application/json',
-        payload: JSON.stringify(body), muteHttpExceptions: true,
-      });
+    var options = {
+      method: 'post', contentType: 'application/json',
+      payload: JSON.stringify(body), muteHttpExceptions: true,
+    };
+
+    // ★「使う順番」を設定（テキストと同じリスト）
+    var modelsToTry = [
+      'gemini-3.1-flash-lite-preview',
+      'gemini-2.0-flash-lite-001',
+      'gemini-3-flash-preview',
+      'gemini-2.5-flash'
+    ];
+
+    for (var i = 0; i < modelsToTry.length; i++) {
+      var model = modelsToTry[i];
+      Logger.log('[VISION] ' + model + ' で試行中...');
+      var url = CONFIG.GEMINI_API_ENDPOINT + model + ':generateContent?key=' + apiKey;
+
+      var res = UrlFetchApp.fetch(url, options);
       if (res.getResponseCode() === 200) {
         var json = JSON.parse(res.getContentText());
         var raw  = json.candidates && json.candidates[0] &&
@@ -250,11 +293,12 @@ function _geminiVisionOcr(driveFile, docType, apiKey) {
         raw = raw.replace(/```json|```/gi, '').trim();
         var parsed = _ocr_safeParseJson(raw);
         if (parsed) return _ocr_normalize(parsed, docType);
+      } else {
+        Logger.log('[VISION] ' + model + ' 失敗: HTTP ' + res.getResponseCode());
       }
-      Logger.log('[VISION] ' + models[i] + ' HTTP ' + res.getResponseCode());
-      Utilities.sleep(2000);
+      Utilities.sleep(2000); // 制限回避のための短いインターバル
     }
-    return null;
+    return null; // 全モデル失敗
   } catch(e) {
     Logger.log('[GEMINI VISION ERROR] ' + e.message);
     return null;
@@ -464,7 +508,7 @@ function processUploadedPdf(base64Data, fileName, docType, orderType) {
       quality = 0;
       warnings = [{
         level: 'error',
-        msg: 'OCRでテキストを取得できませんでした。手動で入力してください。'
+        msg: 'OCRでテキストを取得できませんでした。すべてのAIモデルが制限に達した可能性があります。手動で入力してください。'
       }];
     }
 

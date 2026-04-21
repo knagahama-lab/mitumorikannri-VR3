@@ -9,8 +9,8 @@ var CONFIG = {
   //    （管理コンソールで更新してもCONFIG.GEMINI_API_KEYは古い値のままになるため）
   GEMINI_API_KEY: '',  // 後方互換のため残す（実際はgetGeminiApiKey()を使う）
 
-  GEMINI_PRIMARY_MODEL:  'gemini-2.5-flash',
-  GEMINI_FALLBACK_MODEL: 'gemini-2.5-pro',
+GEMINI_PRIMARY_MODEL:  'gemini-3.1-flash-lite',
+  GEMINI_FALLBACK_MODEL: 'gemini-3-flash',
   GEMINI_API_ENDPOINT:   'https://generativelanguage.googleapis.com/v1beta/models/',
 
   WEB_UPLOAD_FOLDER_ID:  '1sB42xntGKL31GeT9OjOKTxVJwj9IQz-h',

@@ -131,6 +131,8 @@ function handleApiRequest(action, payload) {
       case 'checkDeadlines':      res = _apiCheckDeadlines(); break;
       case 'saveSettings':        res = _apiSaveSettings(payload); break;
       case 'loadSettings':        res = _apiLoadSettings(); break;
+      case 'menuConfigLoad':       res = _apiMenuConfigLoad(); break;
+      case 'menuConfigSave':       res = _apiMenuConfigSave(payload); break;
       case 'testWebhook':         res = _apiTestWebhook(payload); break;
       case 'sendAnnouncement':    res = _apiSendAnnouncement(); break;
       case 'uploadOrderWithLink': res = _apiUploadOrderWithLink(payload); break;
