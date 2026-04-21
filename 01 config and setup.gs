@@ -284,21 +284,27 @@ function _setupLedgerSheet(ss) {
 }
 
 // ============================================================
-// ★ 設定専用シート（システム設定）
-// スプレッドシートを編集するだけでシステムの動作を変更できる
+// ★ 設定専用マスタシート（ノーコード管理基盤）
 // ============================================================
 
 /**
- * 「システム設定」シートをセットアップする。
- * 既に存在する場合はスキップ（データを消さない）。
+ * 「システム設定」マスタシートをセットアップする。
+ * 各部署の表示・編集権限マトリクスを付与（13列構成）
  */
 function _setupSettingsSheet(ss) {
   var sheetName = CONFIG.SHEET_SETTINGS;
   var sheet = ss.getSheetByName(sheetName);
-  if (!sheet) sheet = ss.insertSheet(sheetName);
+  if (!sheet) {
+    sheet = ss.insertSheet(sheetName);
+  }
 
-  // ヘッダー
-  var headers = ['カテゴリ', '値', '説明'];
+  // 13列のヘッダー定義
+  var headers = [
+    'カテゴリ', '値(ステータス名/カラム名/Email)', '説明',
+    '閲覧:営業課', '閲覧:設計課', '閲覧:資材購買', '閲覧:品質管理', '閲覧:上司',
+    '編集:営業課', '編集:設計課', '編集:資材購買', '編集:品質管理', '編集:上司'
+  ];
+  
   var hr = sheet.getRange(1, 1, 1, headers.length);
   hr.setValues([headers]);
   hr.setBackground('#1a73e8');
@@ -306,52 +312,50 @@ function _setupSettingsSheet(ss) {
   hr.setFontWeight('bold');
   hr.setFontSize(11);
   sheet.setFrozenRows(1);
-  sheet.setColumnWidth(1, 180);
-  sheet.setColumnWidth(2, 200);
-  sheet.setColumnWidth(3, 350);
+  sheet.setColumnWidth(1, 140);
+  sheet.setColumnWidth(2, 220);
+  sheet.setColumnWidth(3, 220);
+  for (var c = 4; c <= 13; c++) sheet.setColumnWidth(c, 90);
 
-  // 既存データがあれば初期データは投入しない
+  // D列〜M列までの2行目以降にチェックボックスを設定
+  var maxRows = Math.max(sheet.getMaxRows(), 100);
+  sheet.getRange(2, 4, maxRows - 1, 10).insertCheckboxes();
+
+  // 既にデータが入力済みであればデフォルト投入はスキップ
   if (sheet.getLastRow() > 1) return sheet;
 
-  // 初期データ投入
+  // 初期データ投入（カラム権限とユーザー権限を追加）
+  // 権限列(D-M)はすべてTRUEを入れておく（必要に応じてユーザーが手動で外す）
+  var t = true;
   var defaults = [
     // ===== 案件ステータス =====
-    ['案件ステータス', '作成予定',        '見積書を作成する予定のステータス'],
-    ['案件ステータス', '送信済み',        '見積書を顧客に送信済みのステータス'],
-    ['案件ステータス', '受領',            '注文書を受領したステータス'],
-    ['案件ステータス', '受注済み',        '★ 受注が確定したステータス（新規追加）'],
-    ['案件ステータス', '納品済み',        '製品を納品済みのステータス'],
-    ['案件ステータス', '受領（差し替え）','注文書の差し替えを受領したステータス'],
-    ['案件ステータス', 'キャンセル',      'キャンセルとなった案件'],
-    ['案件ステータス', '非表示',          '★ 案件一覧・台帳から除外するステータス（非表示）'],
-    // ===== 台帳ステータス =====
-    ['台帳ステータス', '作成予定',        '見積書を作成予定'],
-    ['台帳ステータス', '作成中',          '見積書を作成中'],
-    ['台帳ステータス', '送信済み',        '見積書を送信済み'],
-    ['台帳ステータス', '受注済み',        '★ 受注確定（新規追加）'],
-    ['台帳ステータス', 'キャンセル',      'キャンセル'],
-    ['台帳ステータス', '非表示',          '★ 台帳から除外（非表示）'],
+    ['案件ステータス', '作成予定', '見積書を作成する予定', t,t,t,t,t, t,t,t,t,t],
+    ['案件ステータス', '送信済み', '見積書を送信済み',     t,t,t,t,t, t,t,t,t,t],
+    ['案件ステータス', '受領',     '注文書を受領',         t,t,t,t,t, t,t,t,t,t],
+    ['案件ステータス', '受注済み', '受注確定',             t,t,t,t,t, t,t,t,t,t],
+    ['案件ステータス', '納品済み', '製品を納品済み',       t,t,t,t,t, t,t,t,t,t],
+    ['案件ステータス', '受領（差し替え）','差し替え',      t,t,t,t,t, t,t,t,t,t],
+    ['案件ステータス', 'キャンセル',   'キャンセル案件',   t,t,t,t,t, t,t,t,t,t],
+    ['案件ステータス', '非表示',       'システムから除外', t,t,t,t,t, t,t,t,t,t],
     // ===== 分類 =====
-    ['分類', '試作', '試作基板の案件'],
-    ['分類', '量産', '量産基板の案件'],
-    ['分類', '修理', '修理対応の案件'],
-    ['分類', 'その他', 'その他の案件'],
-    // ===== 注文種別 =====
-    ['注文種別', '試作', '試作'],
-    ['注文種別', '量産', '量産'],
+    ['分類', '試作', '試作基板', t,t,t,t,t, t,t,t,t,t],
+    ['分類', '量産', '量産基板', t,t,t,t,t, t,t,t,t,t],
+    ['分類', '修理', '修理対応', t,t,t,t,t, t,t,t,t,t],
     // ===== システム設定 =====
-    ['システム', '非表示を除外', 'TRUE', '「非表示」ステータスを案件一覧・台帳から除外する（TRUE/FALSE）'],
-    ['システム', '1ページ件数', '30', '案件一覧の1ページあたりの表示件数'],
-    ['システム', 'OCR上限件数', '1500', '無料APIの1日あたりのOCR上限件数'],
+    ['システム', '非表示を除外', 'TRUE', t,t,t,t,t, t,t,t,t,t],
+    // ===== カラム権限制御（UIの表示・非表示、編集ロック） =====
+    ['カラム権限', '見積金額', '金額の閲覧・編集', t,t,t,t,t, t,false,false,false,t],
+    ['カラム権限', 'BOM原価',  '原価の閲覧・編集', false,true,true,false,t, false,true,true,false,t],
+    // ===== ユーザー権限 =====
+    ['ユーザー権限', Session.getActiveUser().getEmail(), '上司', t,t,t,t,t, t,t,t,t,t],
+    ['ユーザー権限', 'sales@example.com', '営業課', t,t,t,t,t, t,t,t,t,t],
   ];
 
-  // カテゴリごとに色分け
   var colorMap = {
-    '案件ステータス': '#fff8e1',
-    '台帳ステータス': '#fff3e0',
-    '分類'          : '#f1f8e9',
-    '注文種別'      : '#e8f5e9',
-    'システム'      : '#e3f2fd',
+    '案件ステータス': '#fff8e1',  '台帳ステータス': '#fff3e0',
+    '分類'          : '#f1f8e9',  '注文種別'      : '#e8f5e9',
+    'システム'      : '#e3f2fd',  'カラム権限'    : '#fce4ec',
+    'ユーザー権限'  : '#ede7f6'
   };
 
   defaults.forEach(function(row, i) {
@@ -360,10 +364,10 @@ function _setupSettingsSheet(ss) {
     r.setBackground(colorMap[row[0]] || '#ffffff');
   });
 
-  // 保護（編集は値列だけにする案内）
-  sheet.getRange(1, 1).setNote('★ このシートを編集するとシステムの動作が変わります。\n「カテゴリ」「説明」列は変えないでください。\n「値」列のみ自由に追加・削除してください。');
+  sheet.getRange(1, 1).setNote('★ このシートを編集するとシステム全体の権限とUIが変わります。\nC列〜G列は表示（閲覧）権限、H列〜L列は編集権限です。チェックを外すと画面制御がかかります。');
   return sheet;
 }
+
 
 /**
  * 設定シートから特定カテゴリの値一覧を取得する。
@@ -387,26 +391,76 @@ function getSettingValues(category) {
 }
 
 /**
- * 設定シートの全データをオブジェクト形式で取得する（Web API用）。
+ * 設定（マスタ）シートの全データをオブジェクト形式で取得する（Web API用）。
+ * 権限マトリクス（D〜M列）の情報もすべてJSONとしてパースして返却する。
  */
 function getAllSettingsData() {
   try {
     var ss = getSpreadsheet();
     var sheet = ss.getSheetByName(CONFIG.SHEET_SETTINGS);
     if (!sheet || sheet.getLastRow() <= 1) return {};
-    var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 3).getValues();
+    
+    // 最大13列まで取得
+    var cols = Math.max(sheet.getLastColumn(), 13);
+    var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, cols).getValues();
+    
     var result = {};
     data.forEach(function(r) {
-      var cat = String(r[0]).trim();
-      var val = String(r[1]).trim();
+      var cat  = String(r[0]).trim();
+      var val  = String(r[1]).trim();
       var desc = String(r[2] || '').trim();
       if (!cat || !val) return;
       if (!result[cat]) result[cat] = [];
-      result[cat].push({ value: val, description: desc });
+      
+      // 権限設定（True/False）をオブジェクト化
+      var permissions = {
+        view: {
+          '営業課':     !!r[3],
+          '設計課':     !!r[4],
+          '資材購買課': !!r[5],
+          '品質管理':   !!r[6],
+          '上司':       !!r[7]
+        },
+        edit: {
+          '営業課':     !!r[8],
+          '設計課':     !!r[9],
+          '資材購買課': !!r[10],
+          '品質管理':   !!r[11],
+          '上司':       !!r[12]
+        }
+      };
+
+      result[cat].push({ 
+        value: val, 
+        description: desc,
+        permissions: permissions
+      });
     });
     return result;
   } catch(e) {
     return {};
+  }
+}
+
+/**
+ * ログインユーザーのメールアドレスから、該当する役職・部署（Role）を取得する
+ */
+function getUserRole() {
+  try {
+    var email = Session.getActiveUser().getEmail();
+    if (!email) return 'ゲスト';
+    
+    var settings = getAllSettingsData();
+    var users = settings['ユーザー権限'] || [];
+    
+    var matchedUser = users.find(function(u) {
+      return u.value.toLowerCase() === email.toLowerCase();
+    });
+    
+    // 説明列（Description）に部署名が入っていると想定。見つからなければゲスト
+    return matchedUser ? matchedUser.description : 'ゲスト';
+  } catch(e) {
+    return 'ゲスト';
   }
 }
 

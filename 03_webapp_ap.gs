@@ -156,6 +156,11 @@ function handleApiRequest(action, payload) {
       case 'getSystemSettings':    res = _apiGetSystemSettings(); break;
       case 'updateSystemSettings': res = _apiUpdateSystemSettings(payload); break;
       case 'initSettingsSheet':    res = _apiInitSettingsSheet(); break;
+      
+      // ★ ノーコード管理基盤・権限制御用追加API
+      case 'getMasterSettings':    res = { success: true, data: getAllSettingsData() }; break;
+      case 'getUserRole':          res = { success: true, role: getUserRole() }; break;
+
       default: return { success: false, error: '不明なアクション: ' + action };
     }
     

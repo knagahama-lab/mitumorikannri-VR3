@@ -32,15 +32,96 @@ let searchTimer=null;
 let _allQuotes = [];
 let _allMatchingItems = [];
 
+// ★ ノーコード管理・完全動的権限制御用
+let _userRole = 'ゲスト';
+let _masterSettings = {};
+
 window.addEventListener('load', () => {
   renderSidebar();
   showPage('list');
   _populateMonthFilter();
-  loadData();
-  loadQuoteList();
-  loadMatchingCandidates();
-  loadOcrUsage();  // ★ OCR残り件数を起動時に取得
+  
+  // マスタ設定とユーザー権限を取得してから各種データを読み込む
+  _fetchSystemConfig(() => {
+    loadData();
+    loadQuoteList();
+    loadMatchingCandidates();
+    loadOcrUsage();
+  });
 });
+
+/**
+ * 起動時に設定マスタとユーザーロールを取得し格納する
+ */
+function _fetchSystemConfig(callback) {
+  // 並列で2つのAPIを呼ぶ簡易Promiseラッパー
+  const p1 = new Promise(resolve => {
+    google.script.run
+      .withSuccessHandler(res => { if(res.success) _masterSettings = res.data; resolve(); })
+      .withFailureHandler(() => resolve())
+      .handleApiRequest('getMasterSettings');
+  });
+  const p2 = new Promise(resolve => {
+    google.script.run
+      .withSuccessHandler(res => { if(res.success) _userRole = res.role; resolve(); })
+      .withFailureHandler(() => resolve())
+      .handleApiRequest('getUserRole');
+  });
+  
+  Promise.all([p1, p2]).then(() => {
+    _buildDynamicDropdowns();
+    if(callback) callback();
+  });
+}
+
+/**
+ * 設定マスタに基づいて各種プルダウンを動的に生成する
+ */
+function _buildDynamicDropdowns() {
+  if (!_masterSettings) return;
+  // 案件ステータスのプルダウン要素一覧をマスタから上書き
+  const sList = _masterSettings['案件ステータス'] || [];
+  if (sList.length > 0) {
+    const opts = sList.map(s => `<option value="${s.value}">${s.value}</option>`);
+    const fSel = document.getElementById('filter-status');
+    if(fSel) fSel.innerHTML = '<option value="">(全て)</option>' + opts.join('');
+    // 詳細モーダルのステータス選択なども後で動的生成時にこのリストを使う
+  }
+}
+
+/**
+ * 取得したロール（_userRole）とカラム権限マスタを突き合わせ、
+ * 表示NGなら該当DOMを非表示、編集NGならdisabledにする完全コントロール関数
+ */
+function _applyPermissions() {
+  if (!_masterSettings || !_masterSettings['カラム権限']) return;
+  const colSettings = _masterSettings['カラム権限'];
+  
+  colSettings.forEach(setting => {
+    const colName = setting.value; // 例: "見積金額"
+    const canView = setting.permissions.view[_userRole] !== false;
+    const canEdit = setting.permissions.edit[_userRole] !== false;
+    
+    // 表示権限がない列（テーブルヘッダ、セル）はCSSで非表示化
+    if (!canView) {
+      document.querySelectorAll(`[data-col="${colName}"]`).forEach(el => {
+        el.style.display = 'none';
+      });
+    }
+    
+    // 編集権限がない項目は disabled 属性を付与
+    if (!canEdit) {
+      document.querySelectorAll(`[data-edit-col="${colName}"]`).forEach(el => {
+        if (el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA' || el.tagName === 'BUTTON') {
+          el.disabled = true;
+          el.style.backgroundColor = '#f1f5f9';
+          el.style.color = '#94a3b8';
+          el.title = '現在の権限(' + _userRole + ')では編集できません';
+        }
+      });
+    }
+  });
+}
 
 // ★ OCR残り件数表示
 function loadOcrUsage() {
@@ -185,34 +266,47 @@ function _renderTable() {
   }
   const rows = data.map(r=>`
     <tr onclick="openDetail('${r.id}')" style="cursor:pointer;">
-      <td><span class="text-sub">${r.id||''}</span></td>
-      <td><strong>${r.orderNo||r.quoteNo||'—'}</strong></td>
-      <td>${r.orderSlipNo||'—'}</td>
-      <td>${r.modelCode||'—'}</td>
-      <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.client||''}</td>
-      <td>${_sBadge(r.status)}</td>
-      <td>${r.orderType?_otBadge(r.orderType):''}</td>
-      <td class="text-sub">${r.orderDate||r.quoteDate||''}</td>
-      <td class="text-sub">${r.deliveryDate||''}</td>
-      <td style="text-align:right;white-space:nowrap;">${r.orderAmount?Number(r.orderAmount).toLocaleString()+' 円':'—'}</td>
-      <td>
+      <td data-col="管理ID"><span class="text-sub">${r.id||''}</span></td>
+      <td data-col="発注書番号"><strong>${r.orderNo||r.quoteNo||'—'}</strong></td>
+      <td data-col="発注伝票No">${r.orderSlipNo||'—'}</td>
+      <td data-col="機種">${r.modelCode||'—'}</td>
+      <td data-col="顧客名" style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.client||''}</td>
+      <td data-col="ステータス">${_sBadge(r.status)}</td>
+      <td data-col="種別">${r.orderType?_otBadge(r.orderType):''}</td>
+      <td data-col="発注日" class="text-sub">${r.orderDate||r.quoteDate||''}</td>
+      <td data-col="納期" class="text-sub">${r.deliveryDate||''}</td>
+      <td data-col="注文金額" style="text-align:right;white-space:nowrap;">${r.orderAmount?Number(r.orderAmount).toLocaleString()+' 円':'—'}</td>
+      <td data-col="PDF">
         ${r.quotePdfUrl?`<a class="pdf-link" href="${r.quotePdfUrl}" target="_blank" onclick="event.stopPropagation()">見積</a> `:''}
         ${r.orderPdfUrl?`<a class="pdf-link" href="${r.orderPdfUrl}" target="_blank" onclick="event.stopPropagation()">発注</a>`:''}
         ${r.driveFolderUrl?`<br><a class="pdf-link" href="${r.driveFolderUrl}" target="_blank" onclick="event.stopPropagation()">📁</a>`:''}
       </td>
-      <td style="text-align:center; white-space:nowrap;">
+      <td data-col="操作" style="text-align:center; white-space:nowrap;">
         <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteMgmt('${r.id}', '${(r.orderNo||r.quoteNo||'').replace(/'/g,'')}')">🗑️ 削除</button>
       </td>
     </tr>`).join('');
   document.getElementById('table-container').innerHTML = `
     <table>
       <thead><tr>
-        <th>管理ID</th><th>発注書番号</th><th>発注伝票No</th><th>機種</th><th>顧客名</th>
-        <th>ステータス</th><th>種別</th><th>発注日</th><th>納期</th><th>注文金額</th><th>PDF/フォルダ</th><th>操作</th>
+        <th data-col="管理ID">管理ID</th>
+        <th data-col="発注書番号">発注書番号</th>
+        <th data-col="発注伝票No">発注伝票No</th>
+        <th data-col="機種">機種</th>
+        <th data-col="顧客名">顧客名</th>
+        <th data-col="ステータス">ステータス</th>
+        <th data-col="種別">種別</th>
+        <th data-col="発注日">発注日</th>
+        <th data-col="納期">納期</th>
+        <th data-col="注文金額">注文金額</th>
+        <th data-col="PDF">PDF/フォルダ</th>
+        <th data-col="操作">操作</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
   _renderPagination(total);
+  
+  // テーブル描画直後に権限制御スクリプトを走らせる
+  _applyPermissions();
 }
 
 function _sBadge(s){const m={'作成予定':'planned','送信済み':'sent','受領':'received','納品済み':'done'};return`<span class="badge badge-${m[s]||'planned'}">${s||'—'}</span>`;}
@@ -290,6 +384,7 @@ function openDetail(mgmtId) {
         const dataItem = res.mgmt || item;
         document.getElementById('detail-body').innerHTML = _buildDetailHtml(dataItem, res);
         if (dataItem.orderNo) document.getElementById('detail-title').textContent = '📦 注文書 ' + dataItem.orderNo;
+        _applyPermissionsToDetailModal(); // ★ 描画直後に権制限を適用
       } catch(e) { document.getElementById('detail-body').innerHTML = '<div style="color:var(--danger);padding:20px;">表示エラー: ' + e.message + '</div>'; }
     })
     .handleApiRequest('getDetail', { mgmtId });
@@ -323,10 +418,14 @@ function _buildDetailHtml(item, detail) {
   ];
 
   const infoHtml='<table style="width:100%;font-size:13px;border-collapse:collapse;">'+
-    rows.map(([k,v])=>`<tr><td style="padding:8px 10px;font-weight:600;width:30%;color:var(--text-sub);border-bottom:1px solid var(--border);background:var(--surface2);">${k}</td><td style="padding:8px 10px;border-bottom:1px solid var(--border);">${v}</td></tr>`).join('')+
+    rows.map(([k,v])=>`<tr data-col="${k}"><td style="padding:8px 10px;font-weight:600;width:30%;color:var(--text-sub);border-bottom:1px solid var(--border);background:var(--surface2);">${k}</td><td style="padding:8px 10px;border-bottom:1px solid var(--border);">${v}</td></tr>`).join('')+
     '</table>';
 
-  const statusOpts=['作成予定','送信済み','受領','納品済み'].map(s=>`<option value="${s}"${s===item.status?' selected':''}>${s}</option>`).join('');
+  // ★ ダイナミックにステータス選択肢を生成
+  const sList = (_masterSettings && _masterSettings['案件ステータス']) 
+    ? _masterSettings['案件ステータス'].map(s => s.value) 
+    : ['作成予定','送信済み','受領','受注済み','納品済み','キャンセル'];
+  const statusOpts = sList.map(s => `<option value="${s}"${s === item.status ? ' selected' : ''}>${s}</option>`).join('');
 
   // ★ 全体（親）に紐づいた見積書の表示
   const quoteCellHtml = item.quoteNo 
@@ -505,12 +604,17 @@ function _buildDetailHtml(item, detail) {
     ${linkHtml}
     <div style="display:flex;align-items:center;gap:8px;margin-top:20px;margin-bottom:16px;">
       <span style="font-size:12px;font-weight:600;color:var(--text-sub);">ステータス変更:</span>
-      <select id="status-sel" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;outline:none;">${statusOpts}</select>
-      <button class="btn btn-primary btn-sm" onclick="updateStatus('${item.id}')">更新</button>
+      <select id="status-sel" data-edit-col="案件ステータス" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;outline:none;">${statusOpts}</select>
+      <button class="btn btn-primary btn-sm" data-edit-col="案件ステータス" onclick="updateStatus('${item.id}')">更新</button>
       <span style="margin:0 8px; color:var(--border);">|</span>
       <button class="btn btn-outline btn-sm" onclick="openEditModal('${item.id}')">✏️ 案件情報を直接編集</button>
-      <button class="btn btn-danger btn-sm" onclick="deleteMgmt('${item.id}','${(item.orderNo||item.quoteNo||'').replace(/'/g,'')}')" style="margin-left:auto;">🗑️ 削除</button>
+      <button class="btn btn-danger btn-sm" data-edit-col="案件削除" onclick="deleteMgmt('${item.id}','${(item.orderNo||item.quoteNo||'').replace(/'/g,'')}')" style="margin-left:auto;">🗑️ 削除</button>
     </div>${oTable}`;
+}
+
+// 描画後、DOMツリーが展開されたタイミングでパーミッションをセット（openDetailの完了処理にhookするか、setIntervalで監視）
+function _applyPermissionsToDetailModal() {
+  setTimeout(_applyPermissions, 100);
 }
 
 function _updateLinePdfLink(selectEl, mgmtId, lineNo) {
