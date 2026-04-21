@@ -37,32 +37,43 @@ window.addEventListener('load', () => {
   if (typeof loadMatchingCandidates === 'function') loadMatchingCandidates();
 });
 
-function loadMenuConfig() {
-  try {
-    const stored = localStorage.getItem('BOM_MENU_CONFIG');
-    if (stored) { userMenuConfig = JSON.parse(stored); return; }
-  } catch(e) {}
-  userMenuConfig = JSON.parse(JSON.stringify(DEFAULT_MENU));
-}
+// 使わなくなるので中身を空にします
+function loadMenuConfig() {}
 
-function renderSidebar(){
-  loadMenuConfig();
+// サーバーから設定を読み込んでサイドバーを描画するように変更
+function renderSidebar() {
   const container = document.getElementById('sidebar-nav-container'); if(!container) return;
-  const sections = {};
-  userMenuConfig.forEach(item=>{
-    if(!item.visible) return;
-    if(!sections[item.section]) sections[item.section]=[];
-    sections[item.section].push(item);
-  });
-  let html='';
-  Object.keys(sections).forEach(section=>{
-    html += `<div class="sidebar-section-label">${section}</div>`;
-    sections[section].forEach(item=>{
-      if(item.external){ html += `<a class="nav-item nav-item-ext" href="${item.external}" target="_blank"><span class="nav-item-icon">${item.icon}</span><span class="nav-item-label">${item.label}</span></a>`; }
-      else { html += `<div class="nav-item" data-id="${item.id}" onclick="showPage('${item.id}')"><span class="nav-item-icon">${item.icon}</span><span class="nav-item-label">${item.label}</span></div>`; }
+  
+  google.script.run.withSuccessHandler(res => {
+    if (res && res.success && res.menuConfig) {
+      userMenuConfig = res.menuConfig;
+    } else {
+      userMenuConfig = JSON.parse(JSON.stringify(DEFAULT_MENU));
+    }
+    
+    const sections = {};
+    userMenuConfig.forEach(item=>{
+      if(!item.visible) return;
+      if(!sections[item.section]) sections[item.section]=[];
+      sections[item.section].push(item);
     });
-  });
-  container.innerHTML = html;
+    let html='';
+    Object.keys(sections).forEach(section=>{
+      html += `<div class="sidebar-section-label">${section}</div>`;
+      sections[section].forEach(item=>{
+        if(item.external){ html += `<a class="nav-item nav-item-ext" href="${item.external}" target="_blank"><span class="nav-item-icon">${item.icon}</span><span class="nav-item-label">${item.label}</span></a>`; }
+        else { html += `<div class="nav-item" data-id="${item.id}" onclick="showPage('${item.id}')"><span class="nav-item-icon">${item.icon}</span><span class="nav-item-label">${item.label}</span></div>`; }
+      });
+    });
+    container.innerHTML = html;
+    
+    // 現在のページのアクティブ状態を再設定
+    const activePage = document.querySelector('.page.active');
+    if (activePage) {
+      const pageId = activePage.id.replace('page-', '');
+      document.querySelectorAll('.nav-item[data-id]').forEach(t=>{ t.classList.toggle('active', t.dataset.id===pageId); });
+    }
+  }).handleApiRequest('menuConfigLoad', null);
 }
 
 function showPage(name){

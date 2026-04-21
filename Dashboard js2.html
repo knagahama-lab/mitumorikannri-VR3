@@ -1079,8 +1079,90 @@ function renderMenuConfigList() {
 function moveMenuConfigItem(index, dir) { if (index + dir < 0 || index + dir >= _editMenuConfig.length) return; const temp = _editMenuConfig[index]; _editMenuConfig[index] = _editMenuConfig[index + dir]; _editMenuConfig[index + dir] = temp; renderMenuConfigList(); }
 function deleteMenuConfigItem(index) { if (confirm('「' + _editMenuConfig[index].label + '」をメニューから削除しますか？\n※「初期状態にリセット」を押せばいつでも元に戻せます')) { _editMenuConfig.splice(index, 1); renderMenuConfigList(); } }
 function addMenuConfigItem() { const newId = 'custom_' + Date.now().toString(36); _editMenuConfig.push({ id: newId, icon: '🔗', label: '新規リンク', section: 'その他', visible: true, adminOnly: false, external: '' }); renderMenuConfigList(); setTimeout(() => { const list = document.getElementById('menu-editor-list'); if(list) list.scrollTop = list.scrollHeight; }, 100); }
-function saveMenuConfig() { localStorage.setItem('BOM_MENU_CONFIG', JSON.stringify(_editMenuConfig)); if (typeof showToast === 'function') showToast('メニュー設定を保存しました。'); if (typeof userMenuConfig !== 'undefined') { userMenuConfig = JSON.parse(JSON.stringify(_editMenuConfig)); if (typeof renderSidebar === 'function') renderSidebar(); } closeMenuConfig(); }
-function resetMenuConfig() { if (confirm('メニュー設定を完全に初期状態にリセットしますか？')) { localStorage.removeItem('BOM_MENU_CONFIG'); _editMenuConfig = JSON.parse(JSON.stringify(DEFAULT_MENU)); renderMenuConfigList(); if (typeof showToast === 'function') showToast('初期化しました。保存を押して確定してください。'); } }
+// ==========================================
+// メニュー設定（サイドバー）の編集・保存処理
+// ==========================================
+
+// メニュー項目の移動（上・下）
+function moveMenuConfigItem(index, dir) {
+  if (index + dir < 0 || index + dir >= _editMenuConfig.length) return;
+  const temp = _editMenuConfig[index];
+  _editMenuConfig[index] = _editMenuConfig[index + dir];
+  _editMenuConfig[index + dir] = temp;
+  renderMenuConfigList();
+}
+
+// メニュー項目の削除
+function deleteMenuConfigItem(index) {
+  if (confirm('「' + _editMenuConfig[index].label + '」をメニューから削除しますか？\n※「初期状態にリセット」を押せばいつでも元に戻せます')) {
+    _editMenuConfig.splice(index, 1);
+    renderMenuConfigList();
+  }
+}
+
+// 新規メニュー項目の追加
+function addMenuConfigItem() {
+  const newId = 'custom_' + Date.now().toString(36);
+  _editMenuConfig.push({
+    id: newId,
+    icon: '🔗',
+    label: '新規リンク',
+    section: 'その他',
+    visible: true,
+    adminOnly: false,
+    external: ''
+  });
+  renderMenuConfigList();
+  setTimeout(() => {
+    const list = document.getElementById('menu-editor-list');
+    if(list) list.scrollTop = list.scrollHeight;
+  }, 100);
+}
+
+// メニュー設定を保存し、全ユーザーに一斉反映する
+function saveMenuConfig() { 
+  // ボタンの表示を「保存中...」に変える（連打防止）
+  const btn = typeof event !== 'undefined' ? event.target : null;
+  let originalText = '保存';
+  if (btn && btn.tagName === 'BUTTON') {
+    originalText = btn.textContent;
+    btn.textContent = '保存中...';
+    btn.disabled = true;
+  }
+  
+  // ブラウザ(localStorage)ではなく、GAS（サーバーの金庫）へ保存リクエストを送る
+  google.script.run.withSuccessHandler(res => {
+    // ボタンを元に戻す
+    if (btn && btn.tagName === 'BUTTON') {
+      btn.textContent = originalText;
+      btn.disabled = false;
+    }
+    
+    // 保存成功時の処理
+    if (res && res.success) {
+      if (typeof showToast === 'function') showToast('メニュー設定を全ユーザーに反映しました。');
+      if (typeof userMenuConfig !== 'undefined') { 
+        userMenuConfig = JSON.parse(JSON.stringify(_editMenuConfig)); 
+        // サイドバーを新しい設定で再描画
+        if (typeof renderSidebar === 'function') renderSidebar(); 
+      } 
+      closeMenuConfig();
+    } else {
+      if (typeof showToast === 'function') showToast('保存に失敗しました', true);
+    }
+  }).handleApiRequest('menuConfigSave', { menuConfig: _editMenuConfig });
+}
+
+// メニュー設定を完全に初期状態に戻し、全ユーザーに反映する
+function resetMenuConfig() { 
+  if (confirm('メニュー設定を完全に初期状態にリセットし、全ユーザーに反映しますか？')) { 
+    _editMenuConfig = JSON.parse(JSON.stringify(DEFAULT_MENU)); 
+    renderMenuConfigList(); 
+    
+    // リセット状態をそのままサーバーに保存（全ユーザーへ即座に反映）
+    saveMenuConfig();
+  } 
+}
 
 // ============================================================
 // 管理コンソール 基本設定など
