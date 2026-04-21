@@ -119,14 +119,15 @@ function _processQuotePdf(attachment, gmailMsg, msgId) {
   }
 
   // ★AI紐付け試行（未紐付けの注文書を探す）
+  var aiRes = null;
   try {
-    aiLinkQuoteToOrder(mgmtId);
+    aiRes = aiLinkQuoteToOrder(mgmtId);
   } catch(e) {
     Logger.log('[AI LINK ERROR] ' + e.message);
   }
 
   // ★チャット通知の送信（紐付け結果を含む最新情報を取得して送信）
-  _sendChatNotification(mgmtId, 'quote');
+  _sendChatNotification(mgmtId, 'quote', 'new', aiRes);
 
   Logger.log('[QUOTE OK] ' + mgmtId);
 }
@@ -254,15 +255,16 @@ function _saveOrderData(ocr, orderType, pdfUrl, folderUrl, msgId, fallbackSubjec
     _writeOrderLines(ss, mgmtSheet, updateRow, finalMgmtId, ocr, orderType, pdfUrl, folderUrl);
     
     // AI紐付け試行 (新規または差し替え時)
+    var aiRes = null;
     try {
-      aiLinkOrderToQuote(finalMgmtId);
+      aiRes = aiLinkOrderToQuote(finalMgmtId);
     } catch(e) {
       Logger.log('[AI LINK ERROR] ' + e.message);
     }
   }
 
   // ★チャット通知の送信
-  _sendChatNotification(finalMgmtId, 'order', action);
+  _sendChatNotification(finalMgmtId, 'order', action, aiRes);
 
   return finalMgmtId;
 }
@@ -306,6 +308,9 @@ function _writeOrderLines(ss, mgmtSheet, mgmtRow, mgmtId, ocr, orderType, pdfUrl
 // ============================================================
 
 function extractPdfData(driveFile, docType) {
+  // ★ OCR使用量カウント（無料APIの残り件数追跡）
+  _incrementOcrCount();
+
   var base64 = Utilities.base64Encode(driveFile.getBlob().getBytes());
   var body = {
     contents: [{ parts: [
@@ -325,12 +330,72 @@ function extractPdfData(driveFile, docType) {
         result.candidates[0].content && result.candidates[0].content.parts) {
       text = result.candidates[0].content.parts[0].text || '';
     }
+    // ★ エラーレスポンスの詳細ログ
+    if (result.error) {
+      Logger.log('[GEMINI API ERROR] Code:' + result.error.code + ' ' + result.error.message);
+      return null;
+    }
+    if (result.promptFeedback && result.promptFeedback.blockReason) {
+      Logger.log('[GEMINI BLOCKED] ' + result.promptFeedback.blockReason);
+      return null;
+    }
     text = text.replace(/```json|```/g,'').trim();
     Logger.log('[OCR RAW] ' + text.substring(0,500));
     return JSON.parse(text);
   } catch(e) {
     Logger.log('[OCR PARSE ERROR] ' + e.message);
     return null;
+  }
+}
+
+// ============================================================
+// OCR使用量・残り件数管理
+// ============================================================
+
+var OCR_COUNT_KEY = 'OCR_COUNT_TODAY';
+var OCR_DATE_KEY  = 'OCR_COUNT_DATE';
+
+/**
+ * OCRカウンターをインクリメントする。日付が変わった場合はリセットする。
+ */
+function _incrementOcrCount() {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+    var storedDate = props.getProperty(OCR_DATE_KEY) || '';
+    var count = 0;
+    if (storedDate === today) {
+      count = parseInt(props.getProperty(OCR_COUNT_KEY) || '0', 10);
+    }
+    props.setProperty(OCR_COUNT_KEY, String(count + 1));
+    props.setProperty(OCR_DATE_KEY, today);
+  } catch(e) {
+    Logger.log('[OCR COUNT ERROR] ' + e.message);
+  }
+}
+
+/**
+ * OCR使用状況を取得する（WebAPIから呼び出される）
+ */
+function getOcrUsageInfo() {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var today = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+    var storedDate = props.getProperty(OCR_DATE_KEY) || '';
+    var used = 0;
+    if (storedDate === today) {
+      used = parseInt(props.getProperty(OCR_COUNT_KEY) || '0', 10);
+    }
+    var limit = CONFIG.GEMINI_FREE_DAILY_LIMIT || 1500;
+    return {
+      used:      used,
+      limit:     limit,
+      remaining: Math.max(0, limit - used),
+      date:      today,
+      model:     CONFIG.GEMINI_PRIMARY_MODEL,
+    };
+  } catch(e) {
+    return { used: 0, limit: 1500, remaining: 1500, error: e.message };
   }
 }
 

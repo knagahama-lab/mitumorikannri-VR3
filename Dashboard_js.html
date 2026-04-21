@@ -8,14 +8,9 @@ const DEFAULT_MENU = [
   { id:'matching',   icon:'🔗', label:'AI紐づけ',         section:'営業・進行管理', visible:true },
   { id:'calendar',   icon:'📅', label:'スケジュール',     section:'営業・進行管理', visible:true },
   { id:'ocr',        icon:'🔍', label:'簡易OCR',          section:'営業・進行管理', visible:true },
-  { id:'workflow',   icon:'🔄', label:'業務フロー',       section:'自動化・連携',   visible:true },
-  { id:'assignees',  icon:'👥', label:'担当者管理',       section:'自動化・連携',   visible:true },
-  { id:'approval',   icon:'✅', label:'製造承認',         section:'自動化・連携',   visible:true },
-  { id:'board',      icon:'🏷️', label:'基板管理',         section:'マスタ管理',     visible:true },
-  { id:'analysis',   icon:'📊', label:'分析・レポート',   section:'マスタ管理',     visible:true },
   { id:'todo',       icon:'✅', label:'ToDo',             section:'ツール',         visible:true },
   { id:'drivesearch',icon:'💾', label:'全文検索',         section:'ツール',         visible:true },
-  { id:'admin',      icon:'⚙️', label:'管理コンソール',   section:'設定',           visible:true, adminOnly:true },
+  { id:'admin',      icon:'⚙️', label:'各種設定',         section:'設定',           visible:true, adminOnly:true },
   { id:'bom_ext',    icon:'🏭', label:'BOM・原価管理',    section:'設定',           visible:true, adminOnly:true, external:'https://script.google.com/a/sun-denshi.co.jp/macros/s/AKfycbxk-6hM0VDR-iWToBvOhuaEd6pZcZTXW53tXZUzHl7AucIWvRgt-S_gTpFd1foRSf5Ung/exec?page=bom' }
 ];
 
@@ -25,8 +20,7 @@ const IS_ADMIN = (function(){
 
 const PAGE_TITLES = {
   list:'案件一覧', ledger:'見積台帳', matching:'AI紐づけ', calendar:'スケジュール',
-  ocr:'簡易OCR', todo:'ToDo', drivesearch:'全文検索', admin:'システム管理コンソール',
-  workflow:'業務フロー', assignees:'担当者管理', approval:'製造承認', board:'基板管理', analysis:'分析・レポート'
+  ocr:'簡易OCR', todo:'ToDo', drivesearch:'全文検索', admin:'各種設定'
 };
 
 const S = {
@@ -45,7 +39,30 @@ window.addEventListener('load', () => {
   loadData();
   loadQuoteList();
   loadMatchingCandidates();
+  loadOcrUsage();  // ★ OCR残り件数を起動時に取得
 });
+
+// ★ OCR残り件数表示
+function loadOcrUsage() {
+  google.script.run
+    .withSuccessHandler(function(info) {
+      const el = document.getElementById('ocr-usage-badge');
+      if (!el || !info) return;
+      const pct = Math.round((info.used / info.limit) * 100);
+      const color = pct >= 80 ? '#dc2626' : pct >= 60 ? '#f59e0b' : '#16a34a';
+      el.innerHTML = `
+        <span title="本日のOCR使用状況 (モデル: ${info.model})" style="
+          display:inline-flex; align-items:center; gap:4px;
+          background:${color}18; color:${color};
+          border:1px solid ${color}40; border-radius:9999px;
+          padding:2px 10px; font-size:11px; font-weight:600; cursor:default;
+        ">
+          🧠 OCR残り: ${info.remaining.toLocaleString()} / ${info.limit.toLocaleString()}件
+          <span style="background:${color};color:#fff;border-radius:9999px;padding:1px 5px;font-size:10px;">${pct}%使用</span>
+        </span>`;
+    })
+    .handleApiRequest('getOcrUsage', null);
+}
 
 function renderSidebar(){
   const container = document.getElementById('sidebar-nav-container');
@@ -94,11 +111,6 @@ function showPage(name){
   if(name==='todo'    && typeof loadTodos==='function')      loadTodos();
   if(name==='calendar'&& typeof loadCalendar==='function')  loadCalendar();
   if(name==='matching'&& typeof loadMatchingCandidates==='function') loadMatchingCandidates();
-  if(name==='workflow'&& typeof refreshWorkflowStatus==='function') refreshWorkflowStatus();
-  if(name==='assignees'&& typeof loadAssignees==='function') loadAssignees();
-  if(name==='approval'&& typeof loadApprovals==='function') loadApprovals();
-  if(name==='board'   && typeof loadBoardList==='function')  loadBoardList();
-  if(name==='analysis'&& typeof loadBoardAnalysis==='function') loadBoardAnalysis();
   if(name==='admin')   _onShowAdmin();
 }
 
@@ -928,9 +940,9 @@ function _renderMatchingCandidates(items) {
     }
 
     candidates = candidates.filter(c => c && (c.quoteId || c.id));
-    candidates = candidates.slice(0, 20); // ★最大20件制限
+    candidates = candidates.slice(0, 10); // ★最大10件制限
 
-    // ★候補が0件の場合、_allQuotesから強引に1件〜3件引っ張ってくる（最低1つ表示機能）
+    // ★候補が0件の場合、_allQuotesから参考表示として引っ張ってくる（最低1つ表示機能）
     if (candidates.length === 0 && typeof _allQuotes !== 'undefined' && _allQuotes.length > 0) {
       let fallback = _allQuotes.filter(q => !q.linked);
       let sameClient = fallback.filter(q => (q.client||q.destCompany||'').includes(item.orderClient || ''));
@@ -944,7 +956,7 @@ function _renderMatchingCandidates(items) {
         amount: q.quoteAmount || 0,
         subject: q.subject || '',
         score: 0,
-        reason: '類似する候補が見つからなかったため、未紐づけの見積書を参考表示しています。',
+        reason: '直接的なマッチ候補が見つかりませんでした。未紐づけの見積書を参考に表示しています。',
         items: []
       }));
     }
@@ -959,55 +971,52 @@ function _renderMatchingCandidates(items) {
       const qAmount = c.amount || (q ? q.quoteAmount : '—');
       const pdfUrl = c.quoteUrl || (q ? q.quotePdfUrl : '');
 
-      let itemNames = '—';
       let unitPrice = '—';
-      
       if (c.items && c.items.length > 0) {
-        itemNames = c.items.map(it => it.itemName).join('、');
         unitPrice = c.items[0].unitPrice != null ? '¥' + Number(c.items[0].unitPrice).toLocaleString() : '¥' + Number(qAmount).toLocaleString();
       } else if (q && q.quoteAmount != null) {
         unitPrice = '¥' + Number(q.quoteAmount).toLocaleString();
       }
 
-      const btnColor = c.score >= 80 ? 'var(--success)' : c.score > 0 ? '#fbbc04' : 'var(--text-sub)';
-      const scoreBadge = c.score > 0 
-        ? `<span style="background:${btnColor}; color:#fff; padding:2px 6px; border-radius:4px; font-size:11px;">${c.score}点</span>`
-        : `<span style="background:var(--text-sub); color:#fff; padding:2px 6px; border-radius:4px; font-size:11px;">参考表示</span>`;
+      const btnColor = c.score >= 80 ? 'var(--success)' : c.score >= 50 ? '#fbbc04' : '#94a3b8';
+      const scoreLabel = c.score > 0 ? c.score + '点' : '参考表示';
 
       return `
-      <div style="background:#fff; border:1px solid var(--border); border-left:4px solid ${btnColor}; border-radius:6px; padding:12px; margin-bottom:8px; display:flex; align-items:center; justify-content:space-between; box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+      <div style="background:#fff; border:1px solid var(--border); border-left:4px solid ${btnColor}; border-radius:6px; padding:12px; margin-bottom:10px; display:flex; align-items:center; box-shadow:0 1px 3px rgba(0,0,0,0.05); transition:transform 0.2s;" onmouseover="this.style.transform='translateX(4px)'" onmouseout="this.style.transform='translateX(0)'">
         <div style="flex:1;">
           <div style="font-weight:700; font-size:13px; color:var(--text); margin-bottom:6px; display:flex; align-items:center; gap:8px;">
-            📄 見積NO: ${qNo} 
-            ${scoreBadge}
+            📄 見積NO: <span style="color:var(--primary);">${qNo}</span>
+            <span style="background:${btnColor}; color:#fff; padding:2px 8px; border-radius:12px; font-size:10px;">${scoreLabel}</span>
           </div>
-          <div style="font-size:11px; color:var(--text-sub); display:flex; flex-wrap:wrap; gap:12px; line-height:1.5;">
+          <div style="font-size:11px; color:var(--text-sub); display:grid; grid-template-columns: 1fr 1fr; gap:4px 12px;">
             <span><b style="color:var(--text);">📝 件名:</b> ${qSubject}</span>
             <span><b style="color:var(--text);">📅 発行日:</b> ${qDate}</span>
-            <span><b style="color:var(--text);">💰 単価(金額):</b> <span style="color:var(--danger); font-weight:600;">${unitPrice}</span></span>
-            <span style="width:100%;"><b style="color:var(--text);">📦 項目明細:</b> ${itemNames}</span>
+            <span><b style="color:var(--text);">💰 金額:</b> <span style="color:var(--danger); font-weight:600;">${unitPrice}</span></span>
           </div>
-          ${c.reason ? `<div style="font-size:11px; color:var(--info); margin-top:4px;">💡 ${c.reason}</div>` : ''}
+          ${c.reason ? `<div style="font-size:10px; color:#64748b; margin-top:6px; font-style:italic;">💡 ${c.reason}</div>` : ''}
         </div>
-        <div style="display:flex; flex-direction:column; gap:6px; margin-left:12px;">
-          ${pdfUrl ? `<a href="${pdfUrl}" target="_blank" class="btn btn-outline btn-sm" style="text-align:center;">📄 PDF</a>` : ''}
-          <button class="btn btn-primary" onclick="confirmLink('${item.orderMgmtId}','${qId}')" style="white-space:nowrap; height:fit-content;">🔗 確定</button>
+        <div style="display:flex; flex-direction:column; gap:6px; margin-left:16px;">
+          ${pdfUrl ? `<a href="${pdfUrl}" target="_blank" class="btn btn-outline btn-sm" style="text-align:center; padding:4px 10px; font-size:11px; border-color:#cbd5e1;">📄 PDF</a>` : ''}
+          <button class="btn btn-primary" onclick="confirmLink('${item.orderMgmtId}','${qId}')" style="white-space:nowrap; padding:4px 12px; font-size:11px;">🔗 確定</button>
         </div>
       </div>`;
     }).join('');
 
     return `
-      <div style="background:var(--bg);border-radius:var(--radius);border:1px solid var(--border);margin-bottom:24px;box-shadow:var(--shadow);overflow:hidden;">
-        <div style="background:#fce8e6;padding:14px 20px;border-bottom:1px solid #f9d5d1;display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
-          <span class="badge" style="background:#c0392b;color:white;font-size:12px;padding:4px 10px;">📦 未紐づけ 注文書</span>
-          <strong style="font-size:16px;color:#c0392b;">${item.orderNo || item.orderMgmtId}</strong>
-          <span style="font-size:13px;color:var(--text-sub); border-left:1px solid #f9d5d1; padding-left:16px;">顧客: ${item.orderClient || '—'}</span>
-          <span style="font-size:13px;color:var(--text-sub);">発注日: ${item.orderDate || '—'}</span>
-          <span style="margin-left:auto;font-size:16px;font-weight:800;color:var(--danger);">¥${item.orderAmount ? Number(item.orderAmount).toLocaleString() : '—'}</span>
+      <div style="background:var(--bg); border-radius:var(--radius); border:1px solid var(--border); margin-bottom:24px; box-shadow:var(--shadow); overflow:hidden;">
+        <div style="background:#fef2f2; padding:14px 20px; border-bottom:1px solid #fecaca; display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
+          <span class="badge" style="background:#dc2626; color:white; font-size:11px; padding:3px 10px; border-radius:4px;">📦 未紐づけ 注文書</span>
+          <strong style="font-size:16px; color:#991b1b;">${item.orderNo || item.orderMgmtId}</strong>
+          <span style="font-size:12px; color:#b91c1c; opacity:0.8; border-left:1px solid #fca5a5; padding-left:16px;">顧客: ${item.orderClient || '—'}</span>
+          <span style="font-size:12px; color:#b91c1c; opacity:0.8;">発注日: ${item.orderDate || '—'}</span>
+          ${item.orderPdfUrl ? `<a href="${item.orderPdfUrl}" target="_blank" class="btn btn-outline" style="background:#fff; border-color:#fca5a5; color:#dc2626; font-size:11px; padding:2px 10px; margin-left:8px;">📄 発注書PDF</a>` : ''}
+          <span style="margin-left:auto; font-size:16px; font-weight:800; color:#dc2626;">¥${item.orderAmount ? Number(item.orderAmount).toLocaleString() : '—'}</span>
         </div>
-        <div style="padding:16px 20px;">
-          <div style="font-size:13px;font-weight:700;color:var(--text-sub);margin-bottom:12px;">↓ 見積書候補</div>
-          ${candRows || '<div style="padding:10px; background:#fff8e1; color:#e65100; border:1px solid #f5d9b8; border-radius:6px; font-size:12px;">候補が見つかりませんでした。</div>'}
+        <div style="padding:16px 20px; background:linear-gradient(to bottom, #fff, #f8fafc);">
+          <div style="font-size:12px; font-weight:700; color:var(--text-sub); margin-bottom:12px; display:flex; align-items:center; gap:6px;">
+            <span style="color:var(--primary);">▼</span> AIが推奨する見積書候補
+          </div>
+          ${candRows || '<div style="padding:12px; background:#f8fafc; color:#64748b; border:1px dashed #cbd5e1; border-radius:6px; font-size:12px; text-align:center;">有効な候補が見つかりませんでした。絞り込みを解除するか、再度AI解析を実行してください。</div>'}
         </div>
       </div>`;
   }).join('');
@@ -1037,12 +1046,222 @@ function confirmLink(orderMgmtId, quoteMgmtId) {
 }
 
 // ============================================================
-// その他プレースホルダー
+// 機能実装: 見積台帳 / Todo / カレンダー / Drive検索
 // ============================================================
-function runDriveSearch() { showToast('Drive検索は準備中です', true); }
-function loadLedger() { showToast('見積台帳は準備中です', true); }
-function loadTodos() { showToast('Todoリストは準備中です', true); }
-function loadCalendar() { showToast('カレンダーは準備中です', true); }
+
+// --- 見積台帳 (Ledger) ---
+function loadLedger() {
+  const container = document.getElementById('page-ledger');
+  if(!container) return;
+  container.innerHTML = '<div class="loading"><div class="spinner"></div><br>見積台帳を読み込み中...</div>';
+  
+  google.script.run
+    .withSuccessHandler(res => {
+      if(!res.success) { container.innerHTML = `<div class="loading" style="color:var(--danger);">⚠️ ${res.error}</div>`; return; }
+      const items = res.items || [];
+      if(items.length === 0) { container.innerHTML = '<div class="loading">データがありません</div>'; return; }
+      
+      const rows = items.map(r => `
+        <tr>
+          <td><span class="text-sub" style="font-size:10px;">${r.ledgerId}</span></td>
+          <td><strong>${r.quoteNo||'—'}</strong></td>
+          <td>${r.issueDate||'—'}</td>
+          <td>${r.dest||'—'}</td>
+          <td>${r.subject||'—'}</td>
+          <td><span class="badge" style="background:${_getLedgerStatusColor(r.status)};color:#fff;">${r.status}</span></td>
+          <td>${r.machineCode||'—'}</td>
+          <td style="text-align:right;">${r.amount ? '¥'+Number(r.amount).toLocaleString() : '—'}</td>
+          <td>${r.saveUrl ? `<a href="${r.saveUrl}" target="_blank" class="pdf-link">📄 表示</a>` : '—'}</td>
+        </tr>
+      `).join('');
+      
+      container.innerHTML = `
+        <div class="page-heading">
+          <div><h2>📝 見積台帳</h2><p>過去の見積提出履歴とステータスを管理します</p></div>
+          <button class="btn btn-outline" onclick="loadLedger()">🔄 更新</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>台帳ID</th><th>提出No</th><th>提出日</th><th>宛先</th><th>件名</th><th>状態</th><th>機種コード</th><th>金額</th><th>PDF</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      `;
+    })
+    .handleApiRequest('ledgerGetAll', {});
+}
+
+function _getLedgerStatusColor(s) {
+  const m = {'作成予定':'#94a3b8', '作成中':'#eab308', '送信済み':'#2563eb', 'キャンセル':'#ef4444'};
+  return m[s] || '#94a3b8';
+}
+
+// --- Todoリスト ---
+function loadTodos() {
+  const container = document.getElementById('page-todo');
+  if(!container) return;
+  container.innerHTML = '<div class="loading"><div class="spinner"></div><br>Todoを読み込み中...</div>';
+  
+  google.script.run
+    .withSuccessHandler(res => {
+      if(!res.success) { container.innerHTML = `<div>エラー: ${res.error}</div>`; return; }
+      const items = res.items || [];
+      const rows = items.map(t => `
+        <div class="summary-card" style="margin-bottom:12px; display:flex; align-items:center; gap:16px;">
+          <input type="checkbox" ${t.status==='完了'?'checked':''} onchange="toggleTodoStatus('${t.id}', this.checked)" style="width:20px;height:20px;cursor:pointer;">
+          <div style="flex:1;">
+            <div style="font-weight:700; font-size:14px; ${t.status==='完了'?'text-decoration:line-through;color:var(--text-muted);':''}">${t.title}</div>
+            <div style="font-size:11px; color:var(--text-sub); margin-top:4px;">
+              <span>👤 ${t.client||'—'}</span> | <span>📅 期限: ${t.dueDate||'—'}</span> | <span>🚩 優先度: ${t.priority||'中'}</span>
+            </div>
+            ${t.memo ? `<div style="font-size:12px; margin-top:6px; color:var(--text); border-left:2px solid var(--border); padding-left:8px;">${t.memo}</div>` : ''}
+          </div>
+          <button class="btn btn-danger btn-sm" onclick="deleteTodo('${t.id}')">🗑️</button>
+        </div>
+      `).join('');
+      
+      container.innerHTML = `
+        <div class="page-heading">
+          <div><h2>✅ ToDoリスト</h2><p>案件に付随するタスクを管理します</p></div>
+          <button class="btn btn-primary" onclick="openTodoModal()">＋ 新規タスク</button>
+        </div>
+        <div id="todo-list">${items.length ? rows : '<div class="loading">タスクはありません</div>'}</div>
+      `;
+    })
+    .handleApiRequest('getTodos', {});
+}
+
+function toggleTodoStatus(id, checked) {
+  const status = checked ? '完了' : '未着手';
+  google.script.run.withSuccessHandler(() => { showToast('更新しました'); loadTodos(); }).handleApiRequest('saveTodo', { id, status });
+}
+
+function deleteTodo(id) {
+  if(!confirm('このToDoを削除しますか？')) return;
+  google.script.run.withSuccessHandler(() => { showToast('削除しました'); loadTodos(); }).handleApiRequest('deleteTodo', { id });
+}
+
+function openTodoModal() {
+  const title = prompt('タスク名を入力してください');
+  if(!title) return;
+  google.script.run.withSuccessHandler(() => { showToast('追加しました'); loadTodos(); }).handleApiRequest('saveTodo', { title });
+}
+
+// --- カレンダー (FullCalendar) ---
+let _calendar = null;
+function loadCalendar() {
+  const container = document.getElementById('page-calendar');
+  if(!container) return;
+  container.innerHTML = '<div id="cal-main" style="background:#fff; padding:20px; border-radius:12px; box-shadow:var(--shadow-sm);"></div>';
+  
+  const calendarEl = document.getElementById('cal-main');
+  _calendar = new FullCalendar.Calendar(calendarEl, {
+    initialView: 'dayGridMonth',
+    locale: 'ja',
+    headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek' },
+    buttonText: { today: '今日', month: '月', week: '週' },
+    events: function(info, successCallback, failureCallback) {
+      google.script.run
+        .withSuccessHandler(res => {
+          if(!res.success) { failureCallback(res.error); return; }
+          const events = res.events.map(ev => ({
+            id: ev.mgmtId || ev.todoId,
+            title: ev.label,
+            start: ev.date,
+            allDay: true,
+            backgroundColor: _getEventColor(ev.type),
+            borderColor: _getEventColor(ev.type),
+            extendedProps: ev
+          }));
+          successCallback(events);
+        })
+        .handleApiRequest('getCalendar', { year: info.start.getFullYear(), month: info.start.getMonth()+1 });
+    },
+    eventClick: function(info) {
+      const ep = info.event.extendedProps;
+      if(ep.mgmtId) openDetail(ep.mgmtId);
+      else if(ep.todoId) showToast('ToDo: ' + info.event.title);
+    }
+  });
+  _calendar.render();
+}
+
+function _getEventColor(type) {
+  const colors = { order:'#2563eb', quote:'#0891b2', delivery:'#16a34a', todo:'#eab308' };
+  return colors[type] || '#94a3b8';
+}
+
+// --- Drive全文検索 ---
+function runDriveSearch() {
+  const container = document.getElementById('drive-search-container');
+  if(!container) {
+    // topbarのボタンから呼ばれた場合、まずページを切り替える
+    showPage('drivesearch');
+    return;
+  }
+}
+
+// page-drivesearchの初期化
+function initDriveSearchPage() {
+  const container = document.getElementById('drive-search-container');
+  if(!container) return;
+  container.innerHTML = `
+    <div class="page-heading">
+      <div><h2>💾 全文検索</h2><p>Google Drive内のファイルを横断検索します</p></div>
+    </div>
+    <div class="filter-bar">
+      <div class="search-box" style="flex:1;">
+        <input type="text" id="drive-kw" placeholder="ファイル名や内容のキーワードを入力..." onkeypress="if(event.key==='Enter') executeDriveSearch()">
+      </div>
+      <button class="btn btn-primary" onclick="executeDriveSearch()">🔍 検索</button>
+    </div>
+    <div id="drive-results" class="table-wrap" style="min-height:200px; padding:20px; background:#fff;">
+      <div style="color:var(--text-muted); text-align:center; padding:40px;">キーワードを入力して検索してください</div>
+    </div>
+  `;
+}
+
+function executeDriveSearch() {
+  const kw = document.getElementById('drive-kw').value.trim();
+  if(!kw) { showToast('キーワードを入力してください', true); return; }
+  
+  const resultsDiv = document.getElementById('drive-results');
+  resultsDiv.innerHTML = '<div class="loading"><div class="spinner"></div><br>Driveを検索中...</div>';
+  
+  google.script.run
+    .withSuccessHandler(res => {
+      if(!res.success) { resultsDiv.innerHTML = `<div style="color:var(--danger);">${res.error}</div>`; return; }
+      const files = res.files || [];
+      if(files.length === 0) { resultsDiv.innerHTML = '<div style="text-align:center;padding:40px;">一致するファイルは見つかりませんでした</div>'; return; }
+      
+      const rows = files.map(f => `
+        <div style="display:flex; align-items:center; gap:12px; padding:12px; border-bottom:1px solid var(--border-light);">
+          <span style="font-size:20px;">${_getFileIcon(f.mimeType)}</span>
+          <div style="flex:1;">
+            <a href="${f.url}" target="_blank" style="font-weight:600; color:var(--primary); text-decoration:none; font-size:14px;">${f.name}</a>
+            <div style="font-size:11px; color:var(--text-sub); margin-top:2px;">最終更新: ${f.updatedAt} | 📁 ${f.folderName || 'Root'}</div>
+          </div>
+        </div>
+      `).join('');
+      resultsDiv.innerHTML = rows;
+    })
+    .handleApiRequest('driveSearch', { keyword: kw });
+}
+
+function _getFileIcon(mime) {
+  if(mime.includes('pdf')) return '📄';
+  if(mime.includes('spreadsheet')) return '📊';
+  if(mime.includes('folder')) return '📁';
+  return '📝';
+}
+
+// Dashboard js2.html の `showPage` 関数内で呼び出されるように調整
+const _origShowPage = window.showPage;
+window.showPage = function(name) {
+  _origShowPage(name);
+  if(name === 'drivesearch') initDriveSearchPage();
+};
+
 function loadBoardList() { showToast('基板管理は準備中です', true); }
 function loadBoardAnalysis() { showToast('分析は準備中です', true); }
 function refreshWorkflowStatus() { showToast('ワークフローは準備中です', true); }
@@ -1146,5 +1365,32 @@ const _originalShowPage = window.showPage || function(){};
 window.showPage = function(name) {
   _originalShowPage(name);
   if (name === 'admin') _onShowAdmin();
+  if (name === 'drivesearch') initDriveSearchPage();
 };
+
+// --- 管理者ユーティリティ ---
+function openEmailConfigSheet() {
+  google.script.run.withSuccessHandler(res => {
+    if (res.success && res.spreadsheetId) {
+      // 実際にはGIDを特定するのが難しいため、SSを開くリンクを表示するか、固定GIDで試行
+      window.open(`https://docs.google.com/spreadsheets/d/${res.spreadsheetId}/edit`, '_blank');
+    } else { showToast('スプレッドシートIDが見つかりません', true); }
+  }).handleApiRequest('loadSettings', {});
+}
+
+function triggerEmailCheck() {
+  showToast('メールチェックを開始しました...');
+  google.script.run.withSuccessHandler(res => {
+    if (res.success) showToast('メールチェック完了');
+    else showToast('エラー: ' + res.error, true);
+  }).handleApiRequest('checkDeadlines', {}); // バックエンドでメールチェックを兼ねる場合
+}
+
+function reregisterTriggers() {
+  if (!confirm('システムトリガーを再登録しますか？（通常は必要ありません）')) return;
+  google.script.run.withSuccessHandler(res => {
+    if (res.success) showToast('トリガーを正常に再登録しました');
+    else showToast('再登録失敗: ' + res.error, true);
+  }).handleApiRequest('reregisterTriggers', {});
+}
 </script>

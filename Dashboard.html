@@ -276,7 +276,7 @@ tr:hover td{background:#f8fafc;}
         <div class="filter-bar">
           <div class="search-box"><input type="text" id="search-input" placeholder="発注番号・機種・顧客・件名で検索..." oninput="debounceSearch()"></div>
           <select id="filter-status" onchange="applyFilters()">
-            <option value="">すべてのステータス</option><option value="作成予定">作成予定</option><option value="送信済み">送信済み</option><option value="受領">受領</option><option value="納品済み">納品済み</option>
+            <option value="">すべてのステータス</option><option value="作成予定">作成予定</option><option value="送信済み">送信済み</option><option value="受領">受領</option><option value="受注済み">受注済み</option><option value="納品済み">納品済み</option><option value="キャンセル">キャンセル</option><option value="非表示">非表示</option>
           </select>
           <select id="filter-order-type" onchange="applyFilters()">
             <option value="">すべての種別</option><option value="試作">試作</option><option value="量産">量産</option>
@@ -301,7 +301,7 @@ tr:hover td{background:#f8fafc;}
         <div class="filter-bar">
           <div class="search-box"><input type="text" id="qs-search" placeholder="見積番号・宛先・担当者で検索..." oninput="applyQuoteFilter()"></div>
           <select id="qs-filter-status" onchange="applyQuoteFilter()">
-            <option value="">すべてのステータス</option><option value="送信済み">送信済み</option><option value="受領">受領</option><option value="作成予定">作成予定</option><option value="納品済み">納品済み</option>
+            <option value="">すべてのステータス</option><option value="送信済み">送信済み</option><option value="受領">受領</option><option value="作成予定">作成予定</option><option value="受注済み">受注済み</option><option value="納品済み">納品済み</option><option value="キャンセル">キャンセル</option><option value="非表示">非表示</option>
           </select>
           <select id="qs-filter-linked" onchange="applyQuoteFilter()">
             <option value="">紐づき状況</option><option value="linked">注文書あり</option><option value="unlinked">注文書なし</option>
@@ -320,7 +320,7 @@ tr:hover td{background:#f8fafc;}
     <div id="page-admin" class="page">
       <div class="page-heading">
         <div>
-          <h2>⚙️ システム管理コンソール</h2>
+          <h2>⚙️ 各種設定</h2>
           <p>権限管理・メール監視・メール配信・外部連携などシステム全体の設定を行います</p>
         </div>
         <button class="btn btn-outline" onclick="loadAdminSettings()" id="admin-reload-btn">📥 全設定を読み込む</button>
@@ -487,7 +487,7 @@ tr:hover td{background:#f8fafc;}
       <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
         <div class="form-field"><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">ステータス</label>
           <select id="edit-status" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;">
-            <option value="作成予定">作成予定</option><option value="送信済み">送信済み</option><option value="受領">受領</option><option value="納品済み">納品済み</option>
+            <option value="作成予定">作成予定</option><option value="送信済み">送信済み</option><option value="受領">受領</option><option value="受注済み">受注済み</option><option value="納品済み">納品済み</option><option value="受領（差し替え）">受領（差し替え）</option><option value="キャンセル">キャンセル</option><option value="非表示">非表示</option>
           </select>
         </div>
         <div class="form-field"><label style="font-size:12px;font-weight:600;color:var(--text-sub);display:block;margin-bottom:4px;">注文種別</label>
@@ -516,100 +516,6 @@ tr:hover td{background:#f8fafc;}
   </div>
 </div>
 
-<?!= include("Dashboard js2") ?>
-
-<script>
-// ============================================================
-// メニュー定義
-// ============================================================
-const DEFAULT_MENU = [
-  { id:'list',       icon:'📋', label:'案件一覧',         section:'営業・進行管理', visible:true },
-  { id:'ledger',     icon:'📝', label:'見積台帳',         section:'営業・進行管理', visible:true },
-  { id:'matching',   icon:'🔗', label:'AI紐づけ',         section:'営業・進行管理', visible:true },
-  { id:'calendar',   icon:'📅', label:'スケジュール',     section:'営業・進行管理', visible:true },
-  { id:'ocr',        icon:'🔍', label:'簡易OCR',          section:'営業・進行管理', visible:true },
-  { id:'todo',       icon:'✅', label:'ToDo',             section:'ツール',         visible:true },
-  { id:'drivesearch',icon:'💾', label:'全文検索',         section:'ツール',         visible:true },
-  { id:'admin',      icon:'⚙️', label:'管理コンソール',   section:'設定',           visible:true, adminOnly:true },
-  { id:'bom_ext',    icon:'🏭', label:'BOM・原価管理',    section:'設定',           visible:true, adminOnly:true, external:'https://script.google.com/a/sun-denshi.co.jp/macros/s/AKfycbxk-6hM0VDR-iWToBvOhuaEd6pZcZTXW53tXZUzHl7AucIWvRgt-S_gTpFd1foRSf5Ung/exec?page=bom' }
-];
-
-const IS_ADMIN = (function(){
-  try{ const val = "<? if (isAdmin) { ?>true<? } else { ?>false<? } ?>"; return val === 'true'; }catch(e){return false;}
-})();
-
-const PAGE_TITLES = {
-  list:'案件一覧', ledger:'見積台帳', matching:'AI紐づけ', calendar:'スケジュール',
-  ocr:'簡易OCR', todo:'ToDo', drivesearch:'全文検索', admin:'システム管理コンソール'
-};
-
-function renderSidebar(){
-  const container = document.getElementById('sidebar-nav-container');
-  if(!container) return;
-  const sections = {};
-  DEFAULT_MENU.forEach(item=>{
-    if(!item.visible) return;
-    if(item.adminOnly && !IS_ADMIN) return;
-    if(!sections[item.section]) sections[item.section]=[];
-    sections[item.section].push(item);
-  });
-
-  let html='';
-  Object.keys(sections).forEach(section=>{
-    html += `<div class="sidebar-section-label">${section}</div>`;
-    sections[section].forEach(item=>{
-      if(item.external){
-        html += `<a class="nav-item nav-item-ext" href="${item.external}" target="_blank">
-          <span class="nav-item-icon">${item.icon}</span><span class="nav-item-label">${item.label}</span></a>`;
-      } else {
-        html += `<div class="nav-item" data-id="${item.id}" onclick="showPage('${item.id}')">
-          <span class="nav-item-icon">${item.icon}</span><span class="nav-item-label">${item.label}</span></div>`;
-      }
-    });
-  });
-  container.innerHTML = html;
-}
-
-function showPage(name){
-  document.querySelectorAll('.nav-item[data-id]').forEach(t=>{ t.classList.toggle('active', t.dataset.id===name); });
-  const titleEl = document.getElementById('topbar-page-title');
-  if(titleEl) titleEl.textContent = PAGE_TITLES[name] || name;
-  const contentEl = document.getElementById('content');
-  if(contentEl) contentEl.scrollTop=0;
-
-  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-  const target = document.getElementById('page-'+name);
-  if(target) target.classList.add('active');
-
-  if(name==='list'){
-    const ao=document.getElementById('area-order'); const aq=document.getElementById('area-quote');
-    if(ao) ao.style.display=''; if(aq) aq.style.display='none';
-  }
-  
-  if(name==='ledger'  && typeof loadLedger==='function')    loadLedger();
-  if(name==='todo'    && typeof loadTodos==='function')      loadTodos();
-  if(name==='calendar'&& typeof loadCalendar==='function')  loadCalendar();
-  if(name==='matching'&& typeof loadMatchingCandidates==='function') loadMatchingCandidates();
-  if(name==='admin')   _onShowAdmin();
-}
-
-function toggleSidebar(){
-  document.getElementById('sidebar').classList.toggle('collapsed');
-}
-
-function showToast(msg, isError=false){
-  const t=document.getElementById('toast');
-  if(!t) return;
-  t.textContent=(isError?'✗ ':'✓ ')+msg;
-  t.style.background=isError?'#dc2626':'#1e293b';
-  t.classList.add('show');
-  setTimeout(()=>t.classList.remove('show'),3500);
-}
-
-document.addEventListener('DOMContentLoaded', function(){
-  renderSidebar();
-  showPage('list');
-});
-</script>
+<?!= include("Dashboard_js") ?>
 </body>
 </html>

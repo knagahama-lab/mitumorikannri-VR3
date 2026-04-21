@@ -152,6 +152,10 @@ function handleApiRequest(action, payload) {
       case 'reregisterTriggers':
         try { _registerTriggers(); return { success: true }; }
         catch(e) { return { success: false, error: e.message }; }
+      case 'getOcrUsage':          res = getOcrUsageInfo(); break;
+      case 'getSystemSettings':    res = _apiGetSystemSettings(); break;
+      case 'updateSystemSettings': res = _apiUpdateSystemSettings(payload); break;
+      case 'initSettingsSheet':    res = _apiInitSettingsSheet(); break;
       default: return { success: false, error: '不明なアクション: ' + action };
     }
     
@@ -806,10 +810,20 @@ function _apiQuoteListGetAll() {
     // 見積番号がある行だけを抽出
     var allRows   = mgmtData.filter(function(r) { return String(r[MGMT_COLS.QUOTE_NO - 1]).trim() !== ''; });
     
-    // 重複を排除
-    var seenQNo  = {};
+    // ★ 非表示ステータスを除外
+    var settingsConf = getSettingValues('システム') || [];
+    var excludeHidden = settingsConf.indexOf('非表示を除外') >= 0 ? true : false;
+    // デフォルトは除外する動きとして実装
+    excludeHidden = true; // または設定から読む
+    
+    var hiddenStatuses = getSettingValues('案件ステータス');
+    if (!hiddenStatuses) hiddenStatuses = [];
+    var hiddenTarget = '非表示'; // デフォルト
+
     var quoteRows = allRows.filter(function(r) {
       var qNo = String(r[MGMT_COLS.QUOTE_NO - 1]).trim();
+      var st  = String(r[MGMT_COLS.STATUS - 1] || '').trim();
+      if (st === hiddenTarget) return false;
       if (seenQNo[qNo]) return false;
       seenQNo[qNo] = true;
       return true;
@@ -862,7 +876,19 @@ function _apiQuoteListGetAll() {
 
 function _isLinkedVal(val) { return val === true || val === 'TRUE' || val === 'true'; }
 
-function _apiLedgerGetAll() { return { success: true, items: getAllLedgerData().map(_ledgerRowToObject) }; }
+function _apiLedgerGetAll() {
+  try {
+    var items = getAllLedgerData().map(_ledgerRowToObject);
+    // ★ 非表示ステータスを除外
+    var hiddenTarget = '非表示';
+    items = items.filter(function(item) {
+      return String(item.status || '').trim() !== hiddenTarget;
+    });
+    return { success: true, items: items };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
 
 function _apiLedgerSave(p) {
   try {
@@ -878,6 +904,7 @@ function _apiLedgerSave(p) {
         p.saveUrl || '', p.machineCode || '', p.boardName || '',
         p.modelNo || '', p.amount !== undefined && p.amount !== '' ? Number(p.amount) : '',
         p.submitTo || '', p.remarks || '',
+        p.emailSentDate || '',  // ★ メール送信日
       ]);
     } else {
       var last = sheet.getLastRow();
@@ -892,7 +919,9 @@ function _apiLedgerSave(p) {
         subject: LEDGER_COLS.SUBJECT, status: LEDGER_COLS.STATUS,
         saveUrl: LEDGER_COLS.SAVE_URL, machineCode: LEDGER_COLS.MACHINE_CODE,
         boardName: LEDGER_COLS.BOARD_NAME, modelNo: LEDGER_COLS.MODEL_NO,
-        amount: LEDGER_COLS.AMOUNT, submitTo: LEDGER_COLS.SUBMIT_TO, remarks: LEDGER_COLS.REMARKS,
+        amount: LEDGER_COLS.AMOUNT, submitTo: LEDGER_COLS.SUBMIT_TO,
+        remarks: LEDGER_COLS.REMARKS,
+        emailSentDate: LEDGER_COLS.EMAIL_SENT_DATE,  // ★ メール送信日
       };
       Object.keys(fields).forEach(function(key) {
         if (p[key] !== undefined) sheet.getRange(row, fields[key]).setValue(p[key]);
@@ -940,6 +969,13 @@ function _apiLedgerUpdateUrl(p) {
     sheet.getRange(targetRow, LEDGER_COLS.SAVE_URL).setValue(p.saveUrl || '');
     sheet.getRange(targetRow, LEDGER_COLS.STATUS).setValue(LEDGER_STATUS.SENT);
     if (p.issueDate) sheet.getRange(targetRow, LEDGER_COLS.ISSUE_DATE).setValue(p.issueDate);
+    // ★ メール送信日を記録（メールから自動登録された場合）
+    if (p.emailSentDate) {
+      sheet.getRange(targetRow, LEDGER_COLS.EMAIL_SENT_DATE).setValue(p.emailSentDate);
+    } else {
+      // 送信日時のスタンプを自動記録
+      sheet.getRange(targetRow, LEDGER_COLS.EMAIL_SENT_DATE).setValue(nowJST());
+    }
     return { success: true, matched: true, row: targetRow, score: bestScore };
   } catch(e) { return { success: false, error: e.message }; }
 }
@@ -1405,4 +1441,44 @@ function _apiUploadOrderWithLink(p) {
     res.linkResult = aiRes;
   }
   return res;
+}
+
+// ============================================================
+// ★ システム設定 API
+// ============================================================
+
+function _apiGetSystemSettings() {
+  try {
+    var data = getAllSettingsData();
+    var categories = {};
+    Object.keys(data).forEach(function(cat) {
+      categories[cat] = data[cat].map(function(item) { return item.value; });
+    });
+    return { success: true, settings: categories };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+function _apiUpdateSystemSettings(p) {
+  try {
+    var category = p.category;
+    var values = p.values;
+    if (!category || !values || !Array.isArray(values)) {
+      return { success: false, error: '無効なパラメータ' };
+    }
+    return updateSettingValues(category, values);
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+function _apiInitSettingsSheet() {
+  try {
+    var ss = getSpreadsheet();
+    _setupSettingsSheet(ss);
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
 }

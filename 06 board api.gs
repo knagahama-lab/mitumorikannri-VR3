@@ -424,7 +424,8 @@ function matchWithGeminiAPI(orderData, quotesList) {
   }
   
   apiKey = apiKey.trim();
-  const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + apiKey;
+  // ★ ハードコードを廃止し、CONFIG のモデルを使用（無料API対応）
+  const url = "https://generativelanguage.googleapis.com/v1beta/models/" + CONFIG.GEMINI_PRIMARY_MODEL + ":generateContent?key=" + apiKey;
 
   const prompt = `
 あなたは企業の優秀な営業事務アシスタントです。
