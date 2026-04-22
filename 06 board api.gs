@@ -2,8 +2,22 @@
 // 統合管理システム
 // ファイル 6/6: 基板・部品管理API & AIマッチング統合版
 // ============================================================
+//
+// 【BOM移行について】
+//   BOM専用GASプロジェクト（BOM-buhinnhyou）を独立させた場合、
+//   以下の BOARD_SS_ID をBOM専用SSのIDに変更するだけで
+//   このファイルの他のコードは一切変更不要です。
+//
+//   変更前: var BOARD_SS_ID = '1OEpET_rvYRFVClVuh9VzRbfcEbnpSFfSZ0ZpM8yybUQ';
+//   変更後: var BOARD_SS_ID = '★BOM専用SSのIDをここに設定★';
+//
+// 【_getMgmtRowById について】
+//   この関数は 12_price_compare_v2.gs で定義されています。
+//   このファイル内の apiComparePriceToBOM() から参照できます。
+// ============================================================
 
 var BOARD_SS_ID = '1OEpET_rvYRFVClVuh9VzRbfcEbnpSFfSZ0ZpM8yybUQ';
+// ↑ BOM専用GASを独立させたら、ここをBOM専用SSのIDに変更してください
 
 var BOARD_CONFIG = {
   SHEET_BOARD:      '基板マスタ',
@@ -424,8 +438,7 @@ function matchWithGeminiAPI(orderData, quotesList) {
   }
   
   apiKey = apiKey.trim();
-  // ★ ハードコードを廃止し、CONFIG のモデルを使用（無料API対応）
-  const url = "https://generativelanguage.googleapis.com/v1beta/models/" + CONFIG.GEMINI_PRIMARY_MODEL + ":generateContent?key=" + apiKey;
+  const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + apiKey;
 
   const prompt = `
 あなたは企業の優秀な営業事務アシスタントです。
