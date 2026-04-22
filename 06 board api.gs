@@ -1,514 +1,1068 @@
 // ============================================================
-// 統合管理システム
-// ファイル 6/6: 基板・部品管理API & AIマッチング統合版
+// 見積書・注文書管理システム
+// ファイル 3/4: Webアプリ doGet / API ルーター (完全版・超軽量通信)
 // ============================================================
 
-var BOARD_SS_ID = '1OEpET_rvYRFVClVuh9VzRbfcEbnpSFfSZ0ZpM8yybUQ';
-
-var BOARD_CONFIG = {
-  SHEET_BOARD:      '基板マスタ',
-  SHEET_MACHINE:    '機種マスタ',
-  SHEET_COMPONENTS: '部品マスタ',
-  SHEET_BOM:        'BOM',
-  SHEET_ESTIMATES:  '見積管理',
-};
-
-var BOARD_HEADERS = {
-  BOARD:      ['基板分類','基板ID','基板名','バージョン','作成日','備考','画像URL','部品表URL'],
-  MACHINE:    ['機種コード','機種名','種類','ブランド','発売日','販売台数','M基板','D基板','DE基板','E基板','C基板','S基板','特徴','フォルダURL','備考'],
-  COMPONENTS: ['部品コード','部品名','メーカー名','公表単価','仕入先','備考'],
-  BOM:        ['基板ID','部品コード','使用数量','実装位置','備考'],
-  ESTIMATES:  ['見積No','発行日','対象基板ID','見積種別','見積金額','ステータス','PDFリンク1','PDFリンク2','PDFリンク3','Excelリンク','備考'],
-};
-
-function _getBoardSS() {
-  return SpreadsheetApp.openById(BOARD_SS_ID);
-}
-
-function _getBoardSheetData(sheetName, headers) {
-  try {
-    var ss     = _getBoardSS();
-    var sheet  = ss.getSheetByName(sheetName);
-    if (!sheet) return [];
-    var values = sheet.getDataRange().getValues();
-    if (values.length < 2) return [];
-    return values.slice(1).map(function(row) {
-      var obj = {};
-      headers.forEach(function(h, i) { if (h) obj[h] = row[i] !== undefined ? row[i] : ''; });
-      return obj;
-    });
-  } catch(e) {
-    Logger.log('[BOARD SS ERROR] ' + sheetName + ': ' + e.message);
-    return [];
+function doGet(e) {
+  var userEmail = Session.getActiveUser().getEmail() || '';
+  var adminEmailsStr = PropertiesService.getScriptProperties().getProperty('ADMIN_EMAILS') || '';
+  var isAdmin = false;
+  if (!adminEmailsStr || adminEmailsStr.trim() === '') {
+    isAdmin = true; // 未設定時は全員を管理者扱いとする
+  } else {
+    var adminEmails = adminEmailsStr.split(',').map(function(s){return s.trim();});
+    isAdmin = (adminEmails.indexOf(userEmail) >= 0);
   }
-}
 
-function apiBoardGetAll() {
-  var boards = _getBoardSheetData(BOARD_CONFIG.SHEET_BOARD, BOARD_HEADERS.BOARD);
-  return { success: true, items: boards };
-}
-
-function apiBoardGetDetail(boardId, boardName) {
-  try {
-    var bom       = _getBoardBOM(boardId, boardName);
-    var estimates = _getBoardSheetData(BOARD_CONFIG.SHEET_ESTIMATES, BOARD_HEADERS.ESTIMATES)
-      .filter(function(e) { return String(e['対象基板ID']) === String(boardId); });
-    var machine   = _getMachineByBoard(boardId, boardName);
-    var totalCost = bom.reduce(function(s, item) { return s + (item['小計'] || 0); }, 0);
-    return { success: true, bom: bom, totalCost: totalCost, estimates: estimates, machine: machine };
-  } catch(e) {
-    return { success: false, error: e.message };
+  if (e && e.parameter && e.parameter.page === 'bom') {
+    var bomTmpl = HtmlService.createTemplateFromFile('BomDashboard');
+    bomTmpl.isAdmin = isAdmin;
+    return bomTmpl.evaluate()
+      .setTitle('BOM・部品管理システム')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
   }
-}
 
-function _getBoardBOM(boardId, boardName) {
-  var bomData  = _getBoardSheetData(BOARD_CONFIG.SHEET_BOM, BOARD_HEADERS.BOM);
-  var compData = _getBoardSheetData(BOARD_CONFIG.SHEET_COMPONENTS, BOARD_HEADERS.COMPONENTS);
-  var bId      = String(boardId   || '').trim();
-  var bName    = String(boardName || '').trim();
-  var compMap  = {};
-  compData.forEach(function(c) {
-    var code = String(c['部品コード'] || '').trim();
-    if (code) compMap[code] = c;
-  });
-  return bomData.filter(function(b) {
-    var bid = String(b['基板ID'] || '').trim();
-    return bid && (bid === bId || bid === bName || bName.indexOf(bid) >= 0 || bId.indexOf(bid) >= 0);
-  }).map(function(b) {
-    var code = String(b['部品コード'] || '').trim();
-    var comp = compMap[code] || {};
-    var up   = parseFloat(comp['公表単価']) || 0;
-    var qty  = parseFloat(b['使用数量'])   || 0;
-    return { '部品コード': code||'コードなし', '部品名': comp['部品名']||'未登録', '使用数量': qty, '公表単価': up, '小計': up * qty };
-  });
-}
-
-function _getMachineByBoard(boardId, boardName) {
-  var machines  = _getBoardSheetData(BOARD_CONFIG.SHEET_MACHINE, BOARD_HEADERS.MACHINE);
-  var bId       = String(boardId   || '').trim();
-  var bName     = String(boardName || '').trim();
-  var boardCols = ['M基板','D基板','DE基板','E基板','C基板','S基板'];
-  for (var i = 0; i < machines.length; i++) {
-    var m = machines[i];
-    for (var j = 0; j < boardCols.length; j++) {
-      var val = String(m[boardCols[j]] || '').trim();
-      if (val && (val === bId || val === bName || bName.indexOf(val) >= 0 || bId.indexOf(val) >= 0)) return m;
+  if (e && e.parameter && e.parameter.action === 'viewBom') {
+    var fileId = e.parameter.fileId;
+    if (!fileId) return HtmlService.createHtmlOutput('Error: No file ID provided');
+    try {
+      var file = DriveApp.getFileById(fileId);
+      var content = file.getBlob().getDataAsString('utf-8');
+      return HtmlService.createHtmlOutput(content);
+    } catch(err) {
+      return HtmlService.createHtmlOutput('Error: ' + err.message);
     }
   }
-  return null;
+
+  var dashboardTmpl = HtmlService.createTemplateFromFile('Dashboard');
+  dashboardTmpl.isAdmin = isAdmin;
+  dashboardTmpl.userEmail = userEmail;
+
+  return dashboardTmpl.evaluate()
+    .setTitle('見積・注文 管理システム')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
-function apiGetOrdersWithBoardInfo() {
-  try {
-    var orders   = getAllMgmtData().map(_rowToObject);
-    var machines = _getBoardSheetData(BOARD_CONFIG.SHEET_MACHINE, BOARD_HEADERS.MACHINE);
-    var boards   = _getBoardSheetData(BOARD_CONFIG.SHEET_BOARD,   BOARD_HEADERS.BOARD);
-    var machineMap = {};
-    machines.forEach(function(m) { var c = String(m['機種コード']||'').trim(); if(c) machineMap[c]=m; });
-    var boardMap = {};
-    boards.forEach(function(b) { var id = String(b['基板ID']||'').trim(); if(id) boardMap[id]=b; });
-    var enriched = orders.filter(function(o) { return o.orderNo; }).map(function(o) {
-      var modelCode = String(o.modelCode||'').trim();
-      var machine   = modelCode ? machineMap[modelCode] : null;
-      var boardIds  = [];
-      if (machine) {
-        ['M基板','D基板','DE基板','E基板','C基板','S基板'].forEach(function(col) {
-          var bid = String(machine[col]||'').trim();
-          if (bid) boardIds.push({ type:col, id:bid, name: boardMap[bid] ? boardMap[bid]['基板名'] : bid });
-        });
-      }
-      return { mgmtId:o.id, orderNo:o.orderNo, orderSlipNo:o.orderSlipNo, client:o.client,
-               orderDate:o.orderDate, orderAmount:o.orderAmount, status:o.status,
-               orderType:o.orderType, modelCode:modelCode,
-               machineName: machine ? String(machine['機種名']||'') : '', boards:boardIds };
-    });
-    return { success: true, items: enriched };
-  } catch(e) {
-    Logger.log('[ORDER BOARD ERROR] ' + e.message);
-    return { success: false, error: e.message };
-  }
-}
-
-function apiGetBoardAnalysis() {
-  try {
-    var allRows = getAllMgmtData().map(_rowToObject).filter(function(o) { return o.orderNo && o.modelCode; });
-    var seenNos = {};
-    var orders  = allRows.filter(function(o) {
-      var k = String(o.orderNo).trim();
-      if (seenNos[k]) return false;
-      seenNos[k] = true; return true;
-    });
-    var machines = _getBoardSheetData(BOARD_CONFIG.SHEET_MACHINE, BOARD_HEADERS.MACHINE);
-    var bom      = _getBoardSheetData(BOARD_CONFIG.SHEET_BOM,        BOARD_HEADERS.BOM);
-    var comps    = _getBoardSheetData(BOARD_CONFIG.SHEET_COMPONENTS,  BOARD_HEADERS.COMPONENTS);
-    var compMap  = {};
-    comps.forEach(function(c) { var cd = String(c['部品コード']||'').trim(); if(cd) compMap[cd]=parseFloat(c['公表単価'])||0; });
-    var boardCostMap = {};
-    bom.forEach(function(b) {
-      var bid=String(b['基板ID']||'').trim(), cd=String(b['部品コード']||'').trim();
-      boardCostMap[bid]=(boardCostMap[bid]||0)+(compMap[cd]||0)*(parseFloat(b['使用数量'])||0);
-    });
-    var machineMap = {};
-    machines.forEach(function(m) { var c=String(m['機種コード']||'').trim(); if(c) machineMap[c]=m; });
-    var summary = {};
-    orders.forEach(function(o) {
-      var code = String(o.modelCode||'').trim(); if(!code) return;
-      if (!summary[code]) {
-        var m=machineMap[code]||{}, totalBom=0, boardNames=[];
-        ['M基板','D基板','DE基板','E基板','C基板','S基板'].forEach(function(col) {
-          var bid=String(m[col]||'').trim(); if(bid){ totalBom+=boardCostMap[bid]||0; boardNames.push(bid); }
-        });
-        summary[code]={ modelCode:code, machineName:String(m['機種名']||''), orderCount:0, totalAmount:0,
-                        totalBomCost:totalBom, boards:boardNames, orders:[] };
-      }
-      summary[code].orderCount++;
-      summary[code].totalAmount += Number(o.orderAmount)||0;
-      summary[code].orders.push({ orderNo:o.orderNo, orderDate:o.orderDate, amount:o.orderAmount, status:o.status, orderType:o.orderType });
-    });
-    var result = Object.values(summary).sort(function(a,b){ return b.totalAmount-a.totalAmount; });
-    result.forEach(function(item) {
-      item.unitBomCost = item.totalBomCost;
-      if (item.totalBomCost>0 && item.totalAmount>0) {
-        var est=item.totalBomCost*item.orderCount;
-        item.grossProfit=item.totalAmount-est;
-        item.grossMarginRate=Math.round((item.grossProfit/item.totalAmount)*100);
-        item.bomCoverageNote=item.grossMarginRate>95?'BOMコスト要確認':'';
-      } else { item.grossProfit=null; item.grossMarginRate=null; item.bomCoverageNote=''; }
-    });
-    return { success: true, items: result };
-  } catch(e) {
-    Logger.log('[BOARD ANALYSIS ERROR] ' + e.message);
-    return { success: false, error: e.message };
-  }
-}
-
-function apiComparePriceToBOM(mgmtId) {
-  try {
-    var ss        = getSpreadsheet();
-    var qs        = ss.getSheetByName(CONFIG.SHEET_QUOTES);
-    var qLast     = qs.getLastRow();
-    var quoteLines = [];
-    if (qLast > 1) {
-      quoteLines = qs.getRange(2,1,qLast-1,15).getValues()
-        .filter(function(r){ return String(r[0])===String(mgmtId); })
-        .map(function(r){ return { itemName:r[6], spec:r[7], qty:r[8], unit:r[9], unitPrice:r[10], amount:r[11] }; });
-    }
-    var mgmtSheet = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT);
-    var mgmtRow   = _getMgmtRowById(mgmtSheet, mgmtId);
-    if (!mgmtRow) return { success: false, error: '管理IDが見つかりません' };
-    var modelCode = String(mgmtRow[MGMT_COLS.MODEL_CODE-1]||'').trim();
-    if (!modelCode) return { success: true, comparison: [], note: '機種コードが未設定のため比較不可' };
-    var machines = _getBoardSheetData(BOARD_CONFIG.SHEET_MACHINE, BOARD_HEADERS.MACHINE);
-    var machine  = machines.find(function(m){ return String(m['機種コード']||'').trim()===modelCode; });
-    if (!machine) return { success: true, comparison: [], note: '機種マスタに機種コード「'+modelCode+'」が見つかりません' };
-    var comps   = _getBoardSheetData(BOARD_CONFIG.SHEET_COMPONENTS, BOARD_HEADERS.COMPONENTS);
-    var compMap = {};
-    comps.forEach(function(c){ var cd=String(c['部品コード']||'').trim(); if(cd) compMap[cd]=c; });
-    var bomAll      = _getBoardSheetData(BOARD_CONFIG.SHEET_BOM, BOARD_HEADERS.BOM);
-    var allBomItems = [];
-    ['M基板','D基板','DE基板','E基板','C基板','S基板'].forEach(function(col) {
-      var bid=String(machine[col]||'').trim(); if(!bid) return;
-      bomAll.filter(function(b){ return String(b['基板ID']||'').trim()===bid; }).forEach(function(b) {
-        var cd=String(b['部品コード']||'').trim(), comp=compMap[cd]||{};
-        allBomItems.push({ boardType:col, boardId:bid, partCode:cd, partName:comp['部品名']||'未登録',
-                           bomQty:parseFloat(b['使用数量'])||0, bomUnitCost:parseFloat(comp['公表単価'])||0 });
-      });
-    });
-    var comparison = quoteLines.map(function(ql) {
-      var matched = allBomItems.find(function(b) {
-        return b.partName.indexOf(ql.itemName)>=0 || ql.itemName.indexOf(b.partName)>=0 ||
-               (b.partCode && ql.spec && ql.spec.indexOf(b.partCode)>=0);
-      });
-      return { itemName:ql.itemName, spec:ql.spec, quoteQty:ql.qty, quoteUnitPrice:ql.unitPrice,
-               bomUnitCost:matched?matched.bomUnitCost:null, bomQty:matched?matched.bomQty:null,
-               partCode:matched?matched.partCode:'',
-               diff:matched?(ql.unitPrice-matched.bomUnitCost):null,
-               diffRate:(matched&&matched.bomUnitCost>0)?Math.round(((ql.unitPrice-matched.bomUnitCost)/matched.bomUnitCost)*100):null };
-    });
-    return { success: true, modelCode:modelCode, machineName:machine['機種名']||'', comparison:comparison };
-  } catch(e) {
-    Logger.log('[PRICE COMPARE ERROR] ' + e.message);
-    return { success: false, error: e.message };
-  }
+function include(filename) {
+  return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
 
 // ============================================================
-// BOM・部品管理 API (CRUD)
+// ★ 安全な通信ルーター（エラーの元凶を排除）
 // ============================================================
-
-function _saveRowToBoardSS(sheetName, headers, uniqueCol, dataObj) {
+function handleApiRequest(action, payload) {
   try {
-    const ss = _getBoardSS();
-    let sheet = ss.getSheetByName(sheetName);
-    if (!sheet) sheet = ss.insertSheet(sheetName);
-    if (sheet.getLastRow() === 0) sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
-    const values = sheet.getDataRange().getValues();
-    const colIdx = headers.indexOf(uniqueCol);
-    const uniqueVal = String(dataObj[uniqueCol] || '');
-    let rowIdx = -1;
-    for (let i = 1; i < values.length; i++) {
-      if (String(values[i][colIdx]) === uniqueVal) { rowIdx = i + 1; break; }
-    }
-    const row = headers.map(h => dataObj[h] !== undefined ? dataObj[h] : '');
-    if (rowIdx !== -1) sheet.getRange(rowIdx, 1, 1, headers.length).setValues([row]);
-    else sheet.appendRow(row);
-    return { success: true };
-  } catch(e) { return { success: false, error: e.message }; }
-}
-
-function _deleteRowFromBoardSS(sheetName, headers, uniqueCol, uniqueVal) {
-  try {
-    const ss = _getBoardSS();
-    const sheet = ss.getSheetByName(sheetName);
-    if (!sheet) return { success: true };
-    const values = sheet.getDataRange().getValues();
-    const colIdx = headers.indexOf(uniqueCol);
-    for (let i = values.length - 1; i >= 1; i--) {
-      if (String(values[i][colIdx]) === String(uniqueVal)) sheet.deleteRow(i + 1);
-    }
-    return { success: true };
-  } catch(e) { return { success: false, error: e.message }; }
-}
-
-function apiBoardSavePart(p) { return _saveRowToBoardSS(BOARD_CONFIG.SHEET_COMPONENTS, BOARD_HEADERS.COMPONENTS, '部品コード', p); }
-function apiBoardDeletePart(id) { return _deleteRowFromBoardSS(BOARD_CONFIG.SHEET_COMPONENTS, BOARD_HEADERS.COMPONENTS, '部品コード', id); }
-function apiBoardGetParts() { return { success: true, items: _getBoardSheetData(BOARD_CONFIG.SHEET_COMPONENTS, BOARD_HEADERS.COMPONENTS) }; }
-
-function apiBoardSaveMachine(m) { return _saveRowToBoardSS(BOARD_CONFIG.SHEET_MACHINE, BOARD_HEADERS.MACHINE, '機種コード', m); }
-function apiBoardDeleteMachine(id) { return _deleteRowFromBoardSS(BOARD_CONFIG.SHEET_MACHINE, BOARD_HEADERS.MACHINE, '機種コード', id); }
-function apiBoardGetMachines() { return { success: true, items: _getBoardSheetData(BOARD_CONFIG.SHEET_MACHINE, BOARD_HEADERS.MACHINE) }; }
-
-function apiBoardSaveBoard(b) { return _saveRowToBoardSS(BOARD_CONFIG.SHEET_BOARD, BOARD_HEADERS.BOARD, '基板ID', b); }
-function apiBoardDeleteBoard(id) { return _deleteRowFromBoardSS(BOARD_CONFIG.SHEET_BOARD, BOARD_HEADERS.BOARD, '基板ID', id); }
-
-function apiBoardSaveBOM(boardId, lines) {
-  try {
-    const ss = _getBoardSS();
-    const sheet = ss.getSheetByName(BOARD_CONFIG.SHEET_BOM);
-    const values = sheet.getDataRange().getValues();
-    for (let i = values.length - 1; i >= 1; i--) {
-      if (String(values[i][0]) === String(boardId)) sheet.deleteRow(i + 1);
-    }
-    if (lines.length > 0) {
-      const headers = BOARD_HEADERS.BOM;
-      const data = lines.map(line => headers.map(h => line[h] !== undefined ? line[h] : ''));
-      sheet.getRange(sheet.getLastRow() + 1, 1, data.length, headers.length).setValues(data);
-    }
-    return { success: true };
-  } catch(e) { return { success: false, error: e.message }; }
-}
-
-// ============================================================
-// 🚀 CSVの一括インポート (配列処理による高速化版)
-// ============================================================
-function apiBoardImportBOMCSV(csvText) {
-  try {
-    if (!csvText) return { success: false, error: 'データがありません' };
-    const lines = String(csvText).split(/\r\n|\n/).filter(l => l.trim() !== '');
-    if (lines.length < 2) return { success: false, error: 'データ行がありません' };
-
-    let addedProducts = 0, addedBoards = 0, addedParts = 0, updatedBOM = 0;
-
-    const ss = _getBoardSS();
-    const machineSheet = ss.getSheetByName(BOARD_CONFIG.SHEET_MACHINE);
-    const boardSheet   = ss.getSheetByName(BOARD_CONFIG.SHEET_BOARD);
-    const compSheet    = ss.getSheetByName(BOARD_CONFIG.SHEET_COMPONENTS);
-    const bomSheet     = ss.getSheetByName(BOARD_CONFIG.SHEET_BOM);
-
-    const getMap = (sheet, keyCol) => {
-      const m = {};
-      if (sheet && sheet.getLastRow() > 1) {
-        sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn())
-             .getValues().forEach(row => m[String(row[keyCol]).trim()] = true);
-      }
-      return m;
-    };
+    payload = payload || {};
+    var res;
     
-    const existingMachines = getMap(machineSheet, 0); 
-    const existingBoards   = getMap(boardSheet, 1);   
-    const existingParts    = getMap(compSheet, 0);    
-
-    const newMachineRows = [];
-    const newBoardRows   = [];
-    const newPartRows    = [];
-    const newBOMRows     = [];
-    const existingBomSet = new Set(); 
-
-    for (let i = 1; i < lines.length; i++) {
-      const row = _parseCSVLineFast(lines[i]);
-      if (row.length < 11) continue;
-
-      const prodCode    = row[0]; 
-      const prodName    = row[1]; 
-      const boardCode   = row[3]; 
-      const boardName   = row[4]; 
-      const partCode    = row[5]; 
-      const partName    = row[6]; 
-      const makerPartNo = row[7]; 
-      const maker       = row[9]; 
-      const qty         = Number(row[10]) || 0; 
-      const note        = row.length > 15 ? row[15] : ''; 
-
-      if (!prodCode || !boardName || (!partCode && !partName)) continue;
-
-      if (!existingMachines[prodCode]) {
-        const mRow = BOARD_HEADERS.MACHINE.map(() => '');
-        mRow[0] = prodCode; mRow[1] = prodName;
-        newMachineRows.push(mRow);
-        existingMachines[prodCode] = true;
-        addedProducts++;
-      }
-
-      const bId = boardCode || (prodCode + '-' + boardName.substring(0,4));
-      if (!existingBoards[bId]) {
-        const bRow = BOARD_HEADERS.BOARD.map(() => '');
-        bRow[1] = bId; bRow[2] = boardName; bRow[5] = 'CSV自動作成';
-        newBoardRows.push(bRow);
-        existingBoards[bId] = true;
-        addedBoards++;
-      }
-
-      const pId = partCode || makerPartNo;
-      if (pId && !existingParts[pId]) {
-        const pRow = BOARD_HEADERS.COMPONENTS.map(() => '');
-        pRow[0] = pId; pRow[1] = partName; pRow[2] = maker; pRow[3] = 0; pRow[5] = makerPartNo;
-        newPartRows.push(pRow);
-        existingParts[pId] = true;
-        addedParts++;
-      }
-
-      const bomKey = bId + '|' + pId;
-      if (!existingBomSet.has(bomKey)) {
-        newBOMRows.push([bId, pId, qty, '', note]);
-        existingBomSet.add(bomKey);
-        updatedBOM++;
-      }
+    switch (action) {
+      case 'getAll':              res = _apiGetAll(); break;
+      case 'search':              res = _apiSearch(payload); break;
+      case 'uploadPdf':           res = _apiUploadPdf(payload); break;
+      case 'updateStatus':        res = _apiUpdateStatus(payload); break;
+      case 'getDetail':           res = _apiGetDetail(payload); break;
+      case 'getTodos':            res = _apiGetTodos(); break;
+      case 'saveTodo':            res = _apiSaveTodo(payload); break;
+      case 'deleteTodo':          res = _apiDeleteTodo(payload); break;
+      case 'getCalendar':         res = _apiGetCalendar(payload); break;
+      case 'getCandidates':       res = _apiGetCandidates(); break;
+      case 'confirmLink':         res = _apiConfirmLink(payload); break;
+      case 'runMatching':         res = _apiRunMatching(payload); break;
+      case 'quoteListGetAll':     res = _apiQuoteListGetAll(); break;
+      case 'getQuoteDetail':      res = _apiGetQuoteDetail(payload); break;
+      case 'ledgerGetAll':        res = _apiLedgerGetAll(); break;
+      case 'ledgerSave':          res = _apiLedgerSave(payload); break;
+      case 'ledgerDelete':        res = _apiLedgerDelete(payload); break;
+      case 'ledgerUpdateUrl':     res = _apiLedgerUpdateUrl(payload); break;
+      case 'ledgerUploadFile':    res = _apiLedgerUploadFile(payload); break;
+      case 'ledgerGetMachines':   res = _apiLedgerGetMachines(); break;
+      case 'ledgerCreateMachine': res = _apiLedgerCreateMachine(payload); break;
+      case 'appendBoardRow':      res = _apiAppendBoardRow(payload); break;
+      case 'updateMgmt':          res = _apiUpdateMgmt(payload); break;
+      case 'deleteMgmt':          res = _apiDeleteMgmt(payload); break;
+      case 'chatbotQuery':        res = apiChatbotQuery(payload); break;
+      case 'modelInfoGet':        res = _apiModelInfoGet(payload); break;
+      case 'modelInfoSave':       res = _apiModelInfoSave(payload); break;
+      case 'modelInfoUpload':     res = _apiModelInfoUpload(payload); break;
+      case 'driveSearch':         res = _apiDriveSearch(payload); break;
+      case 'driveRefreshCache':   res = { success: true, count: refreshDrivePdfCache() }; break;
+      case 'driveDeleteFile':     res = _apiDriveDeleteFile(payload); break;
+      case 'bomGetAll':           return apiBomGetAll();
+      case 'bomSavePart':         return apiBomSavePart(payload);
+      case 'bomDeletePart':       return apiBomDeletePart(payload.id);
+      case 'bomSaveProduct':      return apiBomSaveProduct(payload);
+      case 'bomDeleteProduct':    return apiBomDeleteProduct(payload.id);
+      case 'bomSaveBoard':        return apiBomSaveBoard(payload);
+      case 'bomDeleteBoard':      return apiBomDeleteBoard(payload.id);
+      case 'bomSaveBomRow':       return apiBomSaveBomRow(payload);
+      case 'bomDeleteBomRow':     return apiBomDeleteBomRow(payload.id);
+      case 'bomImportFinalList':  return apiBomImportFinalList(payload.rows);
+      case 'bomImportK10Parts':   return apiBomImportK10Parts(payload.rows);
+      case 'reregisterTriggers':
+        try { _registerTriggers(); return { success: true }; }
+        catch(e) { return { success: false, error: e.message }; }
+      case 'orderPriceCompare':      res = apiOrderPriceCompare(payload); break;
+      case 'batchOrderPriceCompare': res = apiBatchOrderPriceCompare(payload); break;
+      case 'searchUnitPrice':
+        res = { success: true, results: searchUnitPrice(payload.itemName, payload.spec, payload.client) }; break;
+      case 'searchCaseSummary':
+        var _kws = String(payload.keywords || '').split(/[\s,　]+/).filter(Boolean);
+        res = { success: true, results: searchCaseSummary(_kws) }; break;
+      case 'syncDetailDB':
+        syncAllDetailDB(); res = { success: true, message: '明細DB同期完了' }; break;
+      case 'rebuildUnitPrice':
+        rebuildUnitPriceMaster(); res = { success: true, message: '単価マスタ再構築完了' }; break;
+      case 'ocrPreview':  res = apiOcrPreview(payload);  break;
+      case 'ocrApprove':  res = apiOcrApprove(payload);  break;
+      case 'ocrDiscard':  res = apiOcrDiscard(payload);  break;
+      default: return { success: false, error: '不明なアクション: ' + action };
     }
-
-    if (newMachineRows.length > 0) machineSheet.getRange(machineSheet.getLastRow() + 1, 1, newMachineRows.length, newMachineRows[0].length).setValues(newMachineRows);
-    if (newBoardRows.length > 0)   boardSheet.getRange(boardSheet.getLastRow() + 1, 1, newBoardRows.length, newBoardRows[0].length).setValues(newBoardRows);
-    if (newPartRows.length > 0)    compSheet.getRange(compSheet.getLastRow() + 1, 1, newPartRows.length, newPartRows[0].length).setValues(newPartRows);
-    if (newBOMRows.length > 0)     bomSheet.getRange(bomSheet.getLastRow() + 1, 1, newBOMRows.length, newBOMRows[0].length).setValues(newBOMRows);
-
-    return { success: true, addedProducts, addedBoards, addedParts, updatedBOM };
+    
+    // ★ エラーの元凶だった「JSON.parse(JSON.stringify(res))」を完全削除し、そのまま返す
+    return res;
 
   } catch(e) {
-    Logger.log("BOMインポートエラー: " + e.message);
+    Logger.log('[API ERROR] ' + action + ': ' + e.message + '\n' + e.stack);
     return { success: false, error: e.message };
   }
 }
 
-function _parseCSVLineFast(line) {
-  const result = [];
-  let current = '', inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i];
-    if (char === '"' && line[i+1] === '"') { current += '"'; i++; } 
-    else if (char === '"') { inQuotes = !inQuotes; } 
-    else if (char === ',' && !inQuotes) { result.push(current.trim()); current = ''; } 
-    else { current += char; }
+// ============================================================
+// ★ 超高速＆軽量版：案件データ取得
+// ============================================================
+function _apiGetAll() {
+  try {
+    var rows = getAllMgmtData();
+
+    rows = rows.filter(function(r) {
+      var colIdx = (MGMT_COLS.IS_LATEST || 0) - 1;
+      if (colIdx < 0 || colIdx >= r.length) return true;
+      var v = String(r[colIdx] || '');
+      return v === '' || v.toUpperCase() === 'TRUE';
+    });
+
+    rows = rows.filter(function(r) {
+      var hidden = CONFIG.STATUS_HIDDEN || [];
+      return hidden.indexOf(String(r[MGMT_COLS.STATUS - 1] || '')) < 0;
+    });
+
+    var orderRows = rows.filter(function(r) {
+      return String(r[MGMT_COLS.ORDER_NO - 1]).trim() !== '';
+    });
+
+    var items = _deduplicateMgmtRows(orderRows);
+
+    var ss = getSpreadsheet();
+    var os = ss.getSheetByName(CONFIG.SHEET_ORDERS);
+    if (os && os.getLastRow() > 1) {
+      var orderData = os.getDataRange().getValues();
+      orderData.shift(); 
+
+      // 検索を高速化するための一括マッピング
+      var orderLinesMap = {};
+      orderData.forEach(function(r) {
+        var mgmtId = String(r[0]);
+        if (!mgmtId) return;
+        if (!orderLinesMap[mgmtId]) orderLinesMap[mgmtId] = [];
+        // 品名(8列目), 仕様(9列目)の文字だけを抽出
+        orderLinesMap[mgmtId].push(String(r[8] || '') + ' ' + String(r[9] || ''));
+      });
+
+      items.forEach(function(item) {
+        if (orderLinesMap[item.id]) {
+          item.detailText = orderLinesMap[item.id].join(' ').substring(0, 300); // 通信制限に引っかからないよう文字数カット
+        }
+      });
+    }
+
+    items.sort(function(a, b) {
+      var da = String(a.orderDate || a.quoteDate || '');
+      var db = String(b.orderDate || b.quoteDate || '');
+      return db.localeCompare(da);
+    });
+
+    return { success: true, total: items.length, items: items };
+  } catch(e) {
+    Logger.log('[_apiGetAll ERROR] ' + e.message + '\n' + e.stack);
+    return { success: false, error: e.message };
   }
-  result.push(current.trim());
+}
+
+// 案件重複排除ロジック
+function _deduplicateMgmtRows(rows) {
+  var seen   = {};
+  var result = [];
+  rows.forEach(function(r) {
+    var obj     = _rowToObject(r);
+    var orderNo = String(obj.orderNo  || '').trim();
+    var quoteNo = String(obj.quoteNo  || '').trim();
+    var key = orderNo || quoteNo || obj.id;
+    if (!key) return;
+    if (seen[key]) {
+      var existing = seen[key];
+      if (!existing.orderNo     && obj.orderNo)     existing.orderNo     = obj.orderNo;
+      if (!existing.quoteNo     && obj.quoteNo)     existing.quoteNo     = obj.quoteNo;
+      if (!existing.orderAmount && obj.orderAmount) existing.orderAmount = obj.orderAmount;
+      if (!existing.quoteAmount && obj.quoteAmount) existing.quoteAmount = obj.quoteAmount;
+      if (!existing.orderDate   && obj.orderDate)   existing.orderDate   = obj.orderDate;
+      if (!existing.quoteDate   && obj.quoteDate)   existing.quoteDate   = obj.quoteDate;
+      if (!existing.modelCode   && obj.modelCode)   existing.modelCode   = obj.modelCode;
+      if (!existing.orderSlipNo && obj.orderSlipNo) existing.orderSlipNo = obj.orderSlipNo;
+      if (!existing.deliveryDate && obj.deliveryDate) existing.deliveryDate = obj.deliveryDate;
+    } else {
+      seen[key] = obj;
+      result.push(obj);
+    }
+  });
   return result;
 }
 
+// ============================================================
+// ★ 超高速＆軽量版：見積書一覧 API
+// ============================================================
+function _apiQuoteListGetAll() {
+  try {
+    var ss         = getSpreadsheet();
+    var quoteSheet = ss.getSheetByName(CONFIG.SHEET_QUOTES);
+    var mgmtData  = getAllMgmtData();
+    
+    var allRows   = mgmtData.filter(function(r) { return String(r[MGMT_COLS.QUOTE_NO - 1]).trim() !== ''; });
+    
+    var seenQNo  = {};
+    var quoteRows = allRows.filter(function(r) {
+      var qNo = String(r[MGMT_COLS.QUOTE_NO - 1]).trim();
+      if (seenQNo[qNo]) return false;
+      seenQNo[qNo] = true;
+      return true;
+    });
 
-// ============================================================
-// 🤖 Gemini API を使用した高精度マッチング (安全装置つき・2.5Flash対応)
-// ============================================================
-function matchWithGeminiAPI(orderData, quotesList) {
-  let apiKey = PropertiesService.getScriptProperties().getProperty("GEMINI_API_KEY");
-  if (!apiKey) {
-    Logger.log("GEMINI_API_KEY が設定されていません。");
-    return [];
+    var quoteLineMap = {};
+    if (quoteSheet && quoteSheet.getLastRow() > 1) {
+      var qData = quoteSheet.getDataRange().getValues();
+      qData.shift(); 
+
+      qData.forEach(function(r) {
+        var mgmtId = String(r[QUOTE_COLS.MGMT_ID - 1] || '');
+        if (!mgmtId) return;
+        if (!quoteLineMap[mgmtId]) {
+          quoteLineMap[mgmtId] = {
+            issueDate:   _toDateStr(r[QUOTE_COLS.ISSUE_DATE  - 1]),
+            destCompany: String(r[QUOTE_COLS.DEST_COMPANY - 1] || ''),
+            destPerson:  String(r[QUOTE_COLS.DEST_PERSON  - 1] || ''),
+            linesText:   '' 
+          };
+        }
+        // 品名(6列目), 仕様(7列目) のみ抽出
+        quoteLineMap[mgmtId].linesText += String(r[6] || '') + ' ' + String(r[7] || '') + ' ';
+      });
+    }
+
+    var items = quoteRows.map(function(r) {
+      var mgmtId  = String(r[MGMT_COLS.ID - 1] || '');
+      var lineInfo = quoteLineMap[mgmtId] || { linesText: '' };
+      return {
+        id:          mgmtId,
+        quoteNo:     String(r[MGMT_COLS.QUOTE_NO - 1]      || ''),
+        issueDate:   lineInfo.issueDate   || _toDateStr(r[MGMT_COLS.QUOTE_DATE - 1]),
+        destCompany: lineInfo.destCompany || String(r[MGMT_COLS.CLIENT - 1] || ''),
+        destPerson:  lineInfo.destPerson  || '',
+        quoteAmount: _toNum(r[MGMT_COLS.QUOTE_AMOUNT - 1]),
+        status:      String(r[MGMT_COLS.STATUS - 1]        || ''),
+        quotePdfUrl: String(r[MGMT_COLS.QUOTE_PDF_URL - 1] || ''),
+        orderNo:     String(r[MGMT_COLS.ORDER_NO - 1]      || ''),
+        linked:      _isLinkedVal(r[MGMT_COLS.LINKED - 1]),
+        orderType:   String(r[MGMT_COLS.ORDER_TYPE - 1]    || ''),
+        modelCode:   String(r[MGMT_COLS.MODEL_CODE - 1]    || ''),
+        subject:     String(r[MGMT_COLS.SUBJECT - 1]       || ''),
+        detailText:  String(lineInfo.linesText).substring(0, 300) // 軽量化
+      };
+    });
+
+    items.sort(function(a, b) {
+      var da = String(a.issueDate || a.quoteDate || '');
+      var db = String(b.issueDate || b.quoteDate || '');
+      return db.localeCompare(da);
+    });
+
+    return { success: true, total: items.length, items: items };
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+function _isLinkedVal(val) { return val === true || val === 'TRUE' || val === 'true'; }
+
+// ──────────────────────────────────────────
+// その他 API機能（既存維持）
+// ──────────────────────────────────────────
+function _apiSearch(p) {
+  var kw    = normalizeText(p.keyword || '');
+  var st    = p.status    || '';
+  var ot    = p.orderType || '';
+  var month = p.yearMonth || '';
+  var showHidden = p.showHidden || false;
+  var data = getAllMgmtData();
+  if (!showHidden) {
+    data = data.filter(function(r) {
+      var hidden = CONFIG.STATUS_HIDDEN || [];
+      return hidden.indexOf(String(r[MGMT_COLS.STATUS - 1] || '')) < 0;
+    });
+  }
+  if (kw) data = data.filter(function(r) {
+    return [MGMT_COLS.QUOTE_NO,MGMT_COLS.ORDER_NO,MGMT_COLS.ORDER_SLIP_NO,
+            MGMT_COLS.MODEL_CODE,MGMT_COLS.SUBJECT,MGMT_COLS.CLIENT]
+      .some(function(col) { return normalizeText(String(r[col-1] || '')).indexOf(kw) >= 0; });
+  });
+  if (st)    data = data.filter(function(r) { return String(r[MGMT_COLS.STATUS-1])      === st; });
+  if (ot)    data = data.filter(function(r) { return String(r[MGMT_COLS.ORDER_TYPE-1]) === ot; });
+  if (month) data = data.filter(function(r) {
+    return String(r[MGMT_COLS.QUOTE_DATE-1]).indexOf(month) === 0 ||
+           String(r[MGMT_COLS.ORDER_DATE-1]).indexOf(month) === 0;
+  });
+  data = data.filter(function(r) {
+    return String(r[MGMT_COLS.ORDER_NO - 1]).trim() !== '';
+  });
+  var items = _deduplicateMgmtRows(data);
+  items.sort(function(a, b) {
+    var da = String(a.orderDate || '');
+    var db = String(b.orderDate || '');
+    return db.localeCompare(da);
+  });
+  return { success: true, total: items.length, items: items };
+}
+
+function _apiUploadPdf(p) {
+  if (!p.base64Data || !p.fileName || !p.docType) return { success: false, error: '必須パラメータ不足' };
+  return processUploadedPdf(p.base64Data, p.fileName, p.docType, p.orderType || '');
+}
+
+function _apiUpdateStatus(p) {
+  if (!p.mgmtId || !p.newStatus) return { success: false, error: '管理IDとステータスが必要' };
+  var valid = CONFIG.STATUS_LIST || ['作成予定','送信済み','受領','受注済み','保留','キャンセル','失注','納品済み'];
+  if (valid.indexOf(p.newStatus) < 0) return { success: false, error: '無効なステータス' };
+  var ss    = getSpreadsheet();
+  var sheet = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT);
+  var last  = sheet.getLastRow();
+  if (last <= 1) return { success: false, error: 'データなし' };
+  var ids = sheet.getRange(2, MGMT_COLS.ID, last-1, 1).getValues().flat();
+  var idx = ids.findIndex(function(v) { return String(v) === String(p.mgmtId); });
+  if (idx < 0) return { success: false, error: '未発見: ' + p.mgmtId };
+  sheet.getRange(idx+2, MGMT_COLS.STATUS).setValue(p.newStatus);
+  sheet.getRange(idx+2, MGMT_COLS.UPDATED_AT).setValue(nowJST());
+  return { success: true };
+}
+
+function _apiAppendBoardRow(p) {
+  try {
+    if (!p.sheetName || !p.rowData) return { success: false, error: 'パラメータ不足' };
+    var ss    = _getBoardSS();
+    var sheet = ss.getSheetByName(p.sheetName);
+    if (!sheet) return { success: false, error: 'シート「' + p.sheetName + '」が見つかりません' };
+    sheet.appendRow(p.rowData);
+    return { success: true };
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+function _apiUpdateMgmt(p) {
+  try {
+    if (!p.mgmtId) return { success: false, error: '管理IDが必要です' };
+    var ss    = getSpreadsheet();
+    var sheet = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT);
+    var last  = sheet.getLastRow();
+    if (last <= 1) return { success: false, error: 'データなし' };
+    var ids = sheet.getRange(2, MGMT_COLS.ID, last - 1, 1).getValues().flat();
+    var idx = ids.map(String).indexOf(String(p.mgmtId));
+    if (idx < 0) return { success: false, error: '管理ID未発見: ' + p.mgmtId };
+    var row = idx + 2;
+    var fields = {
+      quoteNo:      MGMT_COLS.QUOTE_NO,
+      orderNo:      MGMT_COLS.ORDER_NO,
+      subject:      MGMT_COLS.SUBJECT,
+      client:       MGMT_COLS.CLIENT,
+      status:       MGMT_COLS.STATUS,
+      quoteDate:    MGMT_COLS.QUOTE_DATE,
+      orderDate:    MGMT_COLS.ORDER_DATE,
+      quoteAmount:  MGMT_COLS.QUOTE_AMOUNT,
+      orderAmount:  MGMT_COLS.ORDER_AMOUNT,
+      orderType:    MGMT_COLS.ORDER_TYPE,
+      modelCode:    MGMT_COLS.MODEL_CODE,
+      orderSlipNo:  MGMT_COLS.ORDER_SLIP_NO,
+      assignee:     MGMT_COLS.ASSIGNEE,
+      deliveryDate:  MGMT_COLS.DELIVERY_DATE,
+      orderDeadline: MGMT_COLS.ORDER_DEADLINE,
+      revisionNo:    MGMT_COLS.REVISION_NO,
+      memo:         MGMT_COLS.MEMO,
+      linked:       MGMT_COLS.LINKED,
+    };
+    Object.keys(fields).forEach(function(key) {
+      if (p[key] !== undefined) {
+        sheet.getRange(row, fields[key]).setValue(p[key]);
+      }
+    });
+    sheet.getRange(row, MGMT_COLS.UPDATED_AT).setValue(nowJST());
+    if (p.linkedQuoteNo !== undefined && p.orderNo) {
+      _updateLinkedSheetByMgmtId(ss, CONFIG.SHEET_ORDERS, p.mgmtId, 3, p.linkedQuoteNo);
+    }
+    if (p.linkedOrderNo !== undefined && p.quoteNo) {
+      if (p.linkedOrderNo) sheet.getRange(row, MGMT_COLS.ORDER_NO).setValue(p.linkedOrderNo);
+      sheet.getRange(row, MGMT_COLS.LINKED).setValue('TRUE');
+      sheet.getRange(row, MGMT_COLS.STATUS).setValue(CONFIG.STATUS.RECEIVED);
+    }
+    return { success: true };
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+function _updateLinkedSheetByMgmtId(ss, sheetName, mgmtId, colIdx, value) {
+  var sheet = ss.getSheetByName(sheetName);
+  if (!sheet || sheet.getLastRow() <= 1) return;
+  var mgmtIds = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues().flat();
+  mgmtIds.forEach(function(id, i) {
+    if (String(id) === String(mgmtId)) {
+      sheet.getRange(i + 2, colIdx).setValue(value);
+    }
+  });
+}
+
+function _apiDeleteMgmt(p) {
+  try {
+    if (!p.mgmtId) return { success: false, error: '管理IDが必要です' };
+    var ss    = getSpreadsheet();
+    var sheet = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT);
+    var last  = sheet.getLastRow();
+    if (last <= 1) return { success: false, error: 'データなし' };
+    var ids = sheet.getRange(2, MGMT_COLS.ID, last - 1, 1).getValues().flat();
+    var idx = ids.map(String).indexOf(String(p.mgmtId));
+    if (idx < 0) return { success: false, error: '管理ID未発見' };
+    sheet.deleteRow(idx + 2);
+    if (p.deleteRelated) {
+      _deleteRelatedRows(ss, CONFIG.SHEET_QUOTES, p.mgmtId);
+      _deleteRelatedRows(ss, CONFIG.SHEET_ORDERS, p.mgmtId);
+    }
+    return { success: true };
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+function _deleteRelatedRows(ss, sheetName, mgmtId) {
+  var sheet = ss.getSheetByName(sheetName);
+  if (!sheet || sheet.getLastRow() <= 1) return;
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues();
+  for (var i = data.length - 1; i >= 0; i--) {
+    if (String(data[i][0]) === String(mgmtId)) {
+      sheet.deleteRow(i + 2);
+    }
+  }
+}
+
+function _apiGetDetail(p) {
+  if (!p.mgmtId) return { success: false, error: '管理IDが必要' };
+  var ss = getSpreadsheet();
+  var allMgmt    = getAllMgmtData();
+  var targetRow  = allMgmt.find(function(r) { return String(r[MGMT_COLS.ID-1]) === String(p.mgmtId); });
+  var relatedIds = [String(p.mgmtId)];
+  if (targetRow) {
+    var orderNo = String(targetRow[MGMT_COLS.ORDER_NO-1] || '').trim();
+    var quoteNo = String(targetRow[MGMT_COLS.QUOTE_NO-1] || '').trim();
+    allMgmt.forEach(function(r) {
+      var id  = String(r[MGMT_COLS.ID-1] || '');
+      var oNo = String(r[MGMT_COLS.ORDER_NO-1] || '').trim();
+      var qNo = String(r[MGMT_COLS.QUOTE_NO-1] || '').trim();
+      if (id === p.mgmtId) return;
+      if ((orderNo && oNo === orderNo) || (quoteNo && qNo === quoteNo)) {
+        relatedIds.push(id);
+      }
+    });
   }
   
-  apiKey = apiKey.trim();
-  // ★ ハードコードを廃止し、CONFIG のモデルを使用（無料API対応）
-  const url = "https://generativelanguage.googleapis.com/v1beta/models/" + CONFIG.GEMINI_PRIMARY_MODEL + ":generateContent?key=" + apiKey;
-
-  const prompt = `
-あなたは企業の優秀な営業事務アシスタントです。
-新たに受領した以下の「注文書データ」に最も合致する「見積書」を、後述の「見積書候補リスト」から見つけ出し、それぞれにスコア（0〜100点）をつけてください。
-
-【判定基準】
-・会社名の表記ゆれ（株式会社の有無、前株/後株、略称）は同一とみなす。
-・金額のズレ（税抜と税込の10%の違い、数円の端数）は同一とみなす。
-・OCR特有の誤字（0とO、1とIなど）を推測してカバーする。
-・品名や機種コードが部分一致していれば加点する。
-・見積番号が注文書の備考等に含まれていれば100点とする。
-
-【重要】
-合致しそうな見積書が1つもない場合は、必ず空の配列 [] のみを出力してください。
-出力は必ず以下のフォーマットのJSON配列のみとし、それ以外の文章やマークダウン記法(\`\`\`json など)は一切含めないでください。
-
-[
-  {
-    "quoteId": "見積書の管理ID",
-    "score": 95,
-    "reason": "金額（税抜）が一致し、宛先の表記ゆれも同一企業とみなせるため。"
+  var qs    = ss.getSheetByName(CONFIG.SHEET_QUOTES);
+  var quoteLines = [];
+  if (qs && qs.getLastRow() > 1) {
+    var qLast = qs.getLastRow();
+    var seenQLines = {};
+    qs.getRange(2,1,qLast-1,15).getValues()
+      .filter(function(r) { return relatedIds.indexOf(String(r[0])) >= 0; })
+      .forEach(function(r) {
+        var key = [r[6], r[7], r[8], r[10]].join('|');
+        if (seenQLines[key]) return;
+        seenQLines[key] = true;
+        quoteLines.push({
+          quoteNo:r[1], issueDate:_toDateStr(r[2]), destCompany:r[3], destPerson:r[4],
+          lineNo:r[5], itemName:r[6], spec:r[7], qty:r[8], unit:r[9],
+          unitPrice:r[10], amount:r[11], remarks:r[12], pdfUrl:r[13], folderUrl:r[14]
+        });
+      });
   }
-]
-
-【注文書データ】
-${JSON.stringify(orderData, null, 2)}
-
-【見積書候補リスト】
-${JSON.stringify(quotesList, null, 2)}
-  `;
-
-  const payload = {
-    contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: {
-      temperature: 0.1,
-      response_mime_type: "application/json"
-    }
-  };
-
-  const options = {
-    method: "post",
-    contentType: "application/json",
-    payload: JSON.stringify(payload),
-    muteHttpExceptions: true
-  };
-
+  
+  var os    = ss.getSheetByName(CONFIG.SHEET_ORDERS);
+  var orderLines = [];
+  if (os && os.getLastRow() > 1) {
+    var oLast = os.getLastRow();
+    var seenLines = {};
+    os.getRange(2,1,oLast-1,19).getValues()
+      .filter(function(r) { return relatedIds.indexOf(String(r[0])) >= 0; })
+      .forEach(function(r) {
+        var key = [r[8], r[9], r[12], r[14]].join('|');
+        if (seenLines[key]) return;
+        seenLines[key] = true;
+        orderLines.push({
+          orderType:r[3], orderDate:_toDateStr(r[4]), modelCode:r[5], orderSlipNo:r[6],
+          lineNo:r[7], itemName:r[8], spec:r[9], firstDelivery:_toDateStr(r[10]),
+          deliveryDest:r[11], qty:r[12], unit:r[13], unitPrice:r[14],
+          amount:r[15], remarks:r[16], pdfUrl:r[17], folderUrl:r[18]
+        });
+      });
+  }
+  
+  var allQuoteLinesForMatch = [];
   try {
-    const response = UrlFetchApp.fetch(url, options);
-    const responseText = response.getContentText();
-    
-    // API自体がエラーを返した場合の処理
-    if (!responseText) return [];
-    const json = JSON.parse(responseText);
-    
-    if (json.error) {
-      Logger.log("Gemini API Error: " + json.error.message);
-      return [];
+    if (qs && qs.getLastRow() > 1) {
+      allQuoteLinesForMatch = qs.getRange(2, 1, qs.getLastRow()-1, 15).getValues()
+        .filter(function(r) { return r[6] && r[10]; }) // 品名・単価がある行のみ
+        .map(function(r) {
+          return {
+            mgmtId:    String(r[0] || ''),
+            quoteNo:   String(r[1] || ''),
+            itemName:  String(r[6] || ''),
+            spec:      String(r[7] || ''),
+            unitPrice: r[10],
+            pdfUrl:    String(r[13] || ''),
+          };
+        });
     }
-    
-    if (!json.candidates || !json.candidates[0] || !json.candidates[0].content) {
-      return [];
-    }
-    
-    let resultText = json.candidates[0].content.parts[0].text;
-    
-    // 万が一空っぽの場合は空配列を返す
-    if (!resultText || resultText.trim() === "") {
-      return [];
-    }
-    
-    // マークダウン記号を取り除く
-    resultText = resultText.replace(/```json/gi, '').replace(/```/g, '').trim();
-    
-    // パース（データ化）で失敗してもシステムを止めない安全装置
-    try {
-      return JSON.parse(resultText);
-    } catch (parseError) {
-      Logger.log("JSONパースエラー発生。AIの生の出力: " + resultText);
-      return []; // エラーになっても空として扱い、処理を続行する
-    }
+  } catch(ex) {}
 
-  } catch (e) {
-    Logger.log("AIマッチング実行失敗: " + e.message);
-    return [];
+  return { success: true, mgmtId: p.mgmtId, quoteLines: quoteLines, orderLines: orderLines, allQuoteLines: allQuoteLinesForMatch };
+}
+
+function _apiModelInfoGet(p) {
+  try {
+    var all = getAllModelInfoData().map(_modelInfoRowToObject);
+    if (p.boardId) {
+      var found = all.find(function(r) { return r.boardId === String(p.boardId).trim(); });
+      return { success: true, item: found || null };
+    }
+    if (p.modelCode) {
+      var items = all.filter(function(r) { return r.modelCode === String(p.modelCode).trim(); });
+      return { success: true, items: items };
+    }
+    return { success: true, items: all };
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+function _apiModelInfoSave(p) {
+  try {
+    var ss    = getSpreadsheet();
+    var sheet = ss.getSheetByName(CONFIG.SHEET_MODEL_INFO);
+    if (!sheet) return { success: false, error: '基板情報管理シートが見つかりません。' };
+    var boardId = String(p.boardId || '').trim();
+    if (!boardId) return { success: false, error: '基板IDは必須です' };
+    var last = sheet.getLastRow();
+    var existingRow = -1;
+    if (last > 1) {
+      var ids = sheet.getRange(2, 1, last - 1, 1).getValues().flat();
+      var idx = ids.map(String).indexOf(boardId);
+      if (idx >= 0) existingRow = idx + 2;
+    }
+    var rowData = [
+      boardId, p.modelCode || '', p.quoteUrl || '', p.orderUrl || '',
+      p.purchaseUrl1 || '', p.purchaseUrl2 || '', p.purchaseUrl3 || '',
+      p.localServerUrl || '', p.comment || '', nowJST(),
+    ];
+    if (existingRow > 0) {
+      sheet.getRange(existingRow, 1, 1, 10).setValues([rowData]);
+    } else {
+      sheet.appendRow(rowData);
+    }
+    return { success: true, boardId: boardId };
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+function _apiModelInfoUpload(p) {
+  try {
+    if (!p.base64Data || !p.fileName) return { success: false, error: 'ファイルデータが必要です' };
+    var folder   = DriveApp.getFolderById(CONFIG.WEB_UPLOAD_FOLDER_ID);
+    var blob     = Utilities.newBlob(Utilities.base64Decode(p.base64Data), 'application/pdf', p.fileName);
+    var file     = folder.createFile(blob);
+    return { success: true, url: file.getUrl(), fileName: p.fileName };
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+var DRIVE_SEARCH_FOLDER_ID = '1oAkPV-O4FZezbGmv7sTlNA4wFljMOyv6';
+var DRIVE_CACHE_KEY     = 'DRIVE_PDF_CACHE';
+var DRIVE_CACHE_TS_KEY  = 'DRIVE_PDF_CACHE_TS';
+var DRIVE_CACHE_TTL_MS  = 60 * 60 * 1000;
+
+function _apiDriveSearch(p) {
+  try {
+    var keyword  = String(p.keyword  || '').trim().toLowerCase();
+    var dateFrom = String(p.dateFrom || '').trim();
+    var dateTo   = String(p.dateTo   || '').trim();
+    var forceRefresh = p.forceRefresh === true;
+    var allFiles = _getDrivePdfCache(forceRefresh);
+    var filtered = allFiles.filter(function(f) {
+      if (keyword && f.name.toLowerCase().indexOf(keyword) < 0) return false;
+      if (dateFrom && f.updatedAt < dateFrom) return false;
+      if (dateTo   && f.updatedAt > dateTo + 'z') return false;
+      return true;
+    });
+    filtered.sort(function(a, b) {
+      return String(b.updatedAt).localeCompare(String(a.updatedAt));
+    });
+    return { success: true, total: filtered.length, items: filtered.slice(0, 200), cacheTotal: allFiles.length, cached: true };
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+function _getDrivePdfCache(forceRefresh) {
+  var props = PropertiesService.getScriptProperties();
+  if (!forceRefresh) {
+    var ts  = props.getProperty(DRIVE_CACHE_TS_KEY);
+    var now = new Date().getTime();
+    if (ts && (now - Number(ts)) < DRIVE_CACHE_TTL_MS) {
+      try {
+        var cached = props.getProperty(DRIVE_CACHE_KEY);
+        if (cached) return JSON.parse(cached);
+      } catch(e) { }
+    }
   }
+  var files = _buildDrivePdfIndex();
+  var slim = files.map(function(f) {
+    return { id:f.id, name:f.name, url:f.url, updatedAt:f.updatedAt, createdAt:f.createdAt, size:f.size };
+  });
+  try {
+    props.setProperty(DRIVE_CACHE_KEY, JSON.stringify(slim));
+    props.setProperty(DRIVE_CACHE_TS_KEY, String(new Date().getTime()));
+  } catch(e) {
+    var trimmed = slim.slice(0, 2000);
+    props.setProperty(DRIVE_CACHE_KEY, JSON.stringify(trimmed));
+    props.setProperty(DRIVE_CACHE_TS_KEY, String(new Date().getTime()));
+  }
+  return slim;
+}
+
+function _buildDrivePdfIndex() {
+  var MITSUMORI_ROOT = '106Mb1Ucnk_zn-n2UpJkeH78Z2nbcmBCB';
+  var allFolderIds   = _getAllSubFolderIds(MITSUMORI_ROOT);
+  allFolderIds.unshift(MITSUMORI_ROOT);
+  var results  = [];
+  var seen     = {};
+  var batchSize = 10;
+  for (var i = 0; i < allFolderIds.length; i += batchSize) {
+    var batch    = allFolderIds.slice(i, i + batchSize);
+    var orParts  = batch.map(function(id) { return "'" + id + "' in parents"; });
+    var q = '(' + orParts.join(' or ') + ') and mimeType = "application/pdf" and trashed = false';
+    try {
+      var pageToken = null;
+      do {
+        var params = { q: q, pageSize: 200, fields: 'nextPageToken, files(id, name, webViewLink, size, modifiedTime, createdTime)', orderBy: 'modifiedTime desc' };
+        if (pageToken) params.pageToken = pageToken;
+        var resp = Drive.Files.list(params);
+        (resp.files || []).forEach(function(f) {
+          if (seen[f.id]) return;
+          seen[f.id] = true;
+          results.push({
+            id:        f.id,
+            name:      f.name,
+            url:       f.webViewLink,
+            size:      f.size ? Math.round(Number(f.size) / 1024) : 0,
+            updatedAt: f.modifiedTime ? f.modifiedTime.substring(0, 10) : '',
+            createdAt: f.createdTime  ? f.createdTime.substring(0, 10)  : '',
+          });
+        });
+        pageToken = resp.nextPageToken;
+      } while (pageToken);
+    } catch(fe) { }
+  }
+  return results;
+}
+
+function refreshDrivePdfCache() {
+  var files = _buildDrivePdfIndex();
+  var slim  = files.map(function(f) {
+    return { id:f.id, name:f.name, url:f.url, updatedAt:f.updatedAt, createdAt:f.createdAt, size:f.size };
+  });
+  var props = PropertiesService.getScriptProperties();
+  try { props.setProperty(DRIVE_CACHE_KEY, JSON.stringify(slim)); }
+  catch(e) { props.setProperty(DRIVE_CACHE_KEY, JSON.stringify(slim.slice(0, 2000))); }
+  props.setProperty(DRIVE_CACHE_TS_KEY, String(new Date().getTime()));
+  return slim.length;
+}
+
+function _apiDriveSearchFallback(p) { return { success: false, error: "Not supported" }; }
+
+function _getAllSubFolderIds(rootFolderId) {
+  var allIds   = [];
+  var queue    = [rootFolderId];
+  var visited  = {};
+  visited[rootFolderId] = true;
+  var maxDepth = 4;
+  var depth    = 0;
+  while (queue.length > 0 && depth < maxDepth) {
+    var currentBatch = queue.slice();
+    queue = [];
+    depth++;
+    var orParts = currentBatch.map(function(id) { return "'" + id + "' in parents"; });
+    var batchSize = 10;
+    for (var i = 0; i < orParts.length; i += batchSize) {
+      var batch = orParts.slice(i, i + batchSize);
+      var q = '(' + batch.join(' or ') + ') and mimeType = "application/vnd.google-apps.folder" and trashed = false';
+      try {
+        var resp = Drive.Files.list({ q: q, fields: 'files(id, name)', pageSize: 200 });
+        (resp.files || []).forEach(function(f) {
+          if (!visited[f.id]) { visited[f.id] = true; allIds.push(f.id); queue.push(f.id); }
+        });
+      } catch(e) { }
+    }
+  }
+  return allIds;
+}
+
+function _apiDriveDeleteFile(p) {
+  try {
+    if (!p.fileId) return { success: false, error: 'fileIdが必要です' };
+    DriveApp.getFileById(p.fileId).setTrashed(true);
+    var props  = PropertiesService.getScriptProperties();
+    var cached = props.getProperty(DRIVE_CACHE_KEY);
+    if (cached) {
+      var files   = JSON.parse(cached);
+      var updated = files.filter(function(f) { return f.id !== p.fileId; });
+      props.setProperty(DRIVE_CACHE_KEY, JSON.stringify(updated));
+    }
+    return { success: true };
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+function _apiGetQuoteDetail(p) {
+  try {
+    if (!p || !p.mgmtId) return { success: false, error: '管理IDが必要です' };
+    var ss = getSpreadsheet();
+    var mgmtData = getAllMgmtData();
+    var targetRow = mgmtData.find(function(r) {
+      return String(r[MGMT_COLS.ID - 1]) === String(p.mgmtId);
+    });
+    if (!targetRow) return { success: false, error: '管理IDが見つかりません' };
+    
+    var quoteNo = String(targetRow[MGMT_COLS.QUOTE_NO - 1] || '').trim();
+    var relatedIds = [String(p.mgmtId)];
+    if (quoteNo) {
+      mgmtData.forEach(function(r) {
+        var id = String(r[MGMT_COLS.ID - 1] || '');
+        if (id === String(p.mgmtId)) return;
+        if (String(r[MGMT_COLS.QUOTE_NO - 1] || '').trim() === quoteNo) {
+          relatedIds.push(id);
+        }
+      });
+    }
+    
+    var mgmt = _rowToObject(targetRow);
+    var quoteSheet = ss.getSheetByName(CONFIG.SHEET_QUOTES);
+    var quoteLines = [];
+    if (quoteSheet && quoteSheet.getLastRow() > 1) {
+      var qData = quoteSheet.getRange(2, 1, quoteSheet.getLastRow() - 1, 15).getValues();
+      var seen = {};
+      qData.filter(function(r) {
+        return relatedIds.indexOf(String(r[0])) >= 0;
+      }).forEach(function(r) {
+        var key = [r[6], r[7], r[8], r[10]].join('|');
+        if (seen[key]) return;
+        seen[key] = true;
+        quoteLines.push({
+          mgmtId:     String(r[0]),
+          quoteNo:    String(r[1] || ''),
+          issueDate:  _toDateStr(r[2]),
+          destCompany:String(r[3] || ''),
+          destPerson: String(r[4] || ''),
+          lineNo:     r[5],
+          itemName:   String(r[6] || ''),
+          spec:       String(r[7] || ''),
+          qty:        r[8],
+          unit:       String(r[9] || ''),
+          unitPrice:  r[10],
+          amount:     r[11],
+          remarks:    String(r[12] || ''),
+          pdfUrl:     String(r[13] || ''),
+          folderUrl:  String(r[14] || ''),
+        });
+      });
+    }
+    return { success: true, mgmt: mgmt, quoteLines: quoteLines };
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+function _apiGetCandidates() {
+  var ss    = getSpreadsheet();
+  var sheet = ss.getSheetByName('紐づけ候補');
+  if (!sheet || sheet.getLastRow() <= 1) return { success: true, items: [] };
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 17).getValues();
+  var items = data
+    .filter(function(r) { return r[0] && r[15] !== '手動確定済み' && r[11] !== 'auto_linked'; })
+    .map(function(r) {
+      return {
+        orderMgmtId:  String(r[0]),  orderNo:    String(r[1]),
+        orderClient:  String(r[2]),  orderDate:  _toDateStr(r[3]),
+        orderAmount:  r[4],
+        c1Id:    String(r[5]),  c1No:    String(r[6]),
+        c1Client:String(r[7]), c1Score: r[8],   c1Detail: String(r[9]),
+        c2Id:    String(r[10]), c2Score: r[11],
+        c3Id:    String(r[12]), c3Score: r[13],
+        status:  String(r[15]), updatedAt: _toDateStr(r[16]),
+      };
+    });
+  return { success: true, items: items };
+}
+
+function _apiConfirmLink(p) {
+  if (!p.orderMgmtId || !p.quoteMgmtId) return { success: false, error: '管理IDが必要です' };
+  return confirmManualLink(p.orderMgmtId, p.quoteMgmtId);
+}
+
+function _apiRunMatching(p) {
+  var mgmtId = p && p.mgmtId;
+  if (mgmtId) return { success: true, result: matchOrderToQuote(mgmtId) };
+  return { success: true, result: runBatchMatching() };
+}
+
+function _apiLedgerGetAll() { return { success: true, items: getAllLedgerData().map(_ledgerRowToObject) }; }
+
+function _apiLedgerSave(p) {
+  try {
+    var ss    = getSpreadsheet();
+    var sheet = ss.getSheetByName(CONFIG.SHEET_LEDGER);
+    if (!sheet) return { success: false, error: '見積台帳シートが存在しません。' };
+    var isNew    = !p.ledgerId;
+    var ledgerId = isNew ? generateLedgerId() : p.ledgerId;
+    if (isNew) {
+      sheet.appendRow([
+        ledgerId, p.quoteNo || '', p.issueDate || '', p.dest || '',
+        p.category || '', p.subject || '', p.status || LEDGER_STATUS.PENDING,
+        p.saveUrl || '', p.machineCode || '', p.boardName || '',
+        p.modelNo || '', p.amount !== undefined && p.amount !== '' ? Number(p.amount) : '',
+        p.submitTo || '', p.remarks || '', p.sentDate || '',
+      ]);
+    } else {
+      var last = sheet.getLastRow();
+      if (last <= 1) return { success: false, error: '対象行が見つかりません' };
+      var ids = sheet.getRange(2, 1, last - 1, 1).getValues().flat();
+      var idx = ids.indexOf(String(ledgerId));
+      if (idx < 0) return { success: false, error: '台帳IDが見つかりません' };
+      var row = idx + 2;
+      var fields = {
+        quoteNo: LEDGER_COLS.QUOTE_NO, issueDate: LEDGER_COLS.ISSUE_DATE,
+        dest: LEDGER_COLS.DEST, category: LEDGER_COLS.CATEGORY,
+        subject: LEDGER_COLS.SUBJECT, status: LEDGER_COLS.STATUS,
+        saveUrl: LEDGER_COLS.SAVE_URL, machineCode: LEDGER_COLS.MACHINE_CODE,
+        boardName: LEDGER_COLS.BOARD_NAME, modelNo: LEDGER_COLS.MODEL_NO,
+        amount: LEDGER_COLS.AMOUNT, submitTo: LEDGER_COLS.SUBMIT_TO,
+        remarks: LEDGER_COLS.REMARKS,
+        sentDate: LEDGER_COLS.SENT_DATE,
+      };
+      Object.keys(fields).forEach(function(key) {
+        if (p[key] !== undefined) sheet.getRange(row, fields[key]).setValue(p[key]);
+      });
+    }
+    return { success: true, ledgerId: ledgerId };
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+function _apiLedgerDelete(p) {
+  try {
+    var ss = getSpreadsheet();
+    var sheet = ss.getSheetByName(CONFIG.SHEET_LEDGER);
+    if (!sheet || !p.ledgerId) return { success: false, error: 'パラメータ不足' };
+    var last = sheet.getLastRow();
+    var ids = sheet.getRange(2, 1, last - 1, 1).getValues().flat();
+    var idx = ids.indexOf(String(p.ledgerId));
+    if (idx < 0) return { success: false, error: '対象行が見つかりません' };
+    sheet.deleteRow(idx + 2);
+    return { success: true };
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+function _apiLedgerUpdateUrl(p) {
+  try {
+    var ss    = getSpreadsheet();
+    var sheet = ss.getSheetByName(CONFIG.SHEET_LEDGER);
+    if (!sheet || sheet.getLastRow() <= 1) return { success: true, matched: false };
+    var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 10).getValues();
+    var bestIdx = -1, bestScore = 0;
+    var normSubject = _normStr(p.subject || '');
+    var normDest    = _normStr(p.dest    || '');
+    data.forEach(function(row, i) {
+      if (String(row[LEDGER_COLS.STATUS - 1]) === LEDGER_STATUS.SENT) return;
+      var rowSubject = _normStr(String(row[LEDGER_COLS.SUBJECT - 1]  || ''));
+      var rowDest    = _normStr(String(row[LEDGER_COLS.DEST - 1]     || ''));
+      var score = 0;
+      if (normSubject && rowSubject && _strIncludes(normSubject, rowSubject)) score += 50;
+      if (normDest    && rowDest    && _strIncludes(normDest,    rowDest))    score += 40;
+      if (p.quoteNo && String(row[LEDGER_COLS.QUOTE_NO - 1]) === String(p.quoteNo)) score += 30;
+      if (score > bestScore) { bestScore = score; bestIdx = i; }
+    });
+    if (bestIdx < 0 || bestScore < 40) return { success: true, matched: false };
+    var targetRow = bestIdx + 2;
+    sheet.getRange(targetRow, LEDGER_COLS.SAVE_URL).setValue(p.saveUrl || '');
+    sheet.getRange(targetRow, LEDGER_COLS.STATUS).setValue(LEDGER_STATUS.SENT);
+    if (p.issueDate) sheet.getRange(targetRow, LEDGER_COLS.ISSUE_DATE).setValue(p.issueDate);
+    return { success: true, matched: true, row: targetRow, score: bestScore };
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+function _normStr(s) { return String(s).replace(/\s+/g,'').replace(/　/g,'').toLowerCase().replace(/株式会社|有限会社|（株）|\(株\)/g,''); }
+function _strIncludes(a, b) { return a.indexOf(b) >= 0 || b.indexOf(a) >= 0; }
+
+function _apiLedgerUploadFile(p) {
+  try {
+    if (!p.base64Data || !p.fileName) return { success: false, error: 'ファイルデータ不足' };
+    var folder   = DriveApp.getFolderById(CONFIG.WEB_UPLOAD_FOLDER_ID);
+    var mimeType = p.mimeType || 'application/pdf';
+    var prefix   = (p.machineCode ? p.machineCode + '_' : '') + (p.boardName ? p.boardName + '_' : '');
+    prefix       = prefix.replace(/[/\\:*?"<>|]/g, '_').substring(0, 30);
+    var blob     = Utilities.newBlob(Utilities.base64Decode(p.base64Data), mimeType, prefix + p.fileName);
+    var file     = folder.createFile(blob);
+    return { success: true, url: file.getUrl(), fileId: file.getId(), fileName: p.fileName };
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+function _apiLedgerGetMachines() {
+  try {
+    var ss    = getSpreadsheet();
+    var sheet = ss.getSheetByName(CONFIG.SHEET_LEDGER);
+    if (!sheet || sheet.getLastRow() <= 1) return { success: true, machines: [] };
+    var col = sheet.getRange(2, LEDGER_COLS.MACHINE_CODE, sheet.getLastRow() - 1, 1).getValues().flat();
+    var seen = {}, machines = [];
+    col.forEach(function(v) { var m = String(v||'').trim(); if (m && !seen[m]) { seen[m] = true; machines.push(m); } });
+    return { success: true, machines: machines.sort() };
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+function _apiLedgerCreateMachine(p) {
+  try {
+    var machineCode = String(p.machineCode || '').trim();
+    if (!machineCode) return { success: false, error: '機種コードは必須です' };
+    var ss    = getSpreadsheet();
+    var sheet = ss.getSheetByName(CONFIG.SHEET_LEDGER);
+    if (!sheet) return { success: false, error: '見積台帳シートが存在しません' };
+    if (sheet.getLastRow() > 1) {
+      var codes = sheet.getRange(2, LEDGER_COLS.MACHINE_CODE, sheet.getLastRow() - 1, 2).getValues();
+      for (var i = 0; i < codes.length; i++) {
+        if (String(codes[i][0]).trim() === machineCode && String(codes[i][1]).trim() === '（機種フォルダ）') {
+          return { success: false, error: '機種「' + machineCode + '」はすでに登録されています' };
+        }
+      }
+    }
+    var ledgerId = generateLedgerId();
+    sheet.appendRow([ledgerId, '', '', '', '', '（機種フォルダ）', '__MACHINE_FOLDER__', '', machineCode, '', '', '', '', p.remarks || '']);
+    return { success: true, ledgerId: ledgerId, machineCode: machineCode };
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+function _apiGetTodos() {
+  var items = getAllTodoData().map(function(r) { return { id:r[0], title:r[1], client:r[2], dueDate:r[3], priority:r[4], status:r[5], linkedMgmt:r[6], memo:r[7] }; });
+  return { success: true, items: items };
+}
+
+function _apiSaveTodo(p) {
+  var ss    = getSpreadsheet();
+  var sheet = ss.getSheetByName(CONFIG.SHEET_TODO);
+  if (p.id) {
+    var last = sheet.getLastRow();
+    if (last > 1) {
+      var ids = sheet.getRange(2,1,last-1,1).getValues().flat();
+      var idx = ids.findIndex(function(v) { return String(v) === String(p.id); });
+      if (idx >= 0) {
+        sheet.getRange(idx+2, 1, 1, 8).setValues([[p.id, p.title||'', p.client||'', p.dueDate||'', p.priority||'中', p.status||'未着手', p.linkedMgmt||'', p.memo||'']]);
+        return { success: true, id: p.id };
+      }
+    }
+  }
+  var newId = generateTodoId();
+  sheet.appendRow([newId, p.title||'', p.client||'', p.dueDate||'', p.priority||'中', p.status||'未着手', p.linkedMgmt||'', p.memo||'']);
+  return { success: true, id: newId };
+}
+
+function _apiDeleteTodo(p) {
+  var ss = getSpreadsheet();
+  var sheet = ss.getSheetByName(CONFIG.SHEET_TODO);
+  var ids = sheet.getRange(2,1,sheet.getLastRow()-1,1).getValues().flat();
+  var idx = ids.findIndex(function(v) { return String(v) === String(p.id); });
+  if (idx >= 0) sheet.deleteRow(idx + 2);
+  return { success: true };
+}
+
+function _apiGetCalendar(p) {
+  var year  = p.year  || new Date().getFullYear();
+  var month = p.month || (new Date().getMonth() + 1);
+  var ym    = year + '/' + String(month).padStart(2,'0');
+  var all   = getAllMgmtData().map(_rowToObject);
+  var todos = getAllTodoData().map(function(r) { return { id:r[0], title:r[1], client:r[2], dueDate:r[3], priority:r[4], status:r[5], linkedMgmt:r[6], type:'todo' }; });
+  var events = [];
+  all.forEach(function(item) {
+    if (item.orderDate    && String(item.orderDate).indexOf(ym)    === 0) events.push({ date: item.orderDate,    label: item.client || item.orderNo,            type: 'order',    status: item.status, mgmtId: item.id });
+    if (item.deliveryDate && String(item.deliveryDate).indexOf(ym) === 0) events.push({ date: item.deliveryDate, label: '納期: ' + (item.client || item.orderNo), type: 'delivery', status: item.status, mgmtId: item.id });
+    if (item.quoteDate    && String(item.quoteDate).indexOf(ym)    === 0) events.push({ date: item.quoteDate,    label: '見積: ' + (item.client || item.quoteNo), type: 'quote',    status: item.status, mgmtId: item.id });
+  });
+  todos.forEach(function(t) {
+    if (t.dueDate && String(t.dueDate).indexOf(ym) === 0) events.push({ date: t.dueDate, label: '📝 ' + t.title, type: 'todo', status: t.status, todoId: t.id });
+  });
+  return { success: true, year: year, month: month, events: events };
+}
+
+function _apiUpdateLineStatus(p) {
+  try {
+    if (!p.mgmtId||!p.lineNo||!p.sheetType||p.newStatus===undefined) return {success:false,error:'mgmtId/lineNo/sheetType/newStatus required'};
+    var ss = getSpreadsheet();
+    var sheetName = p.sheetType==='quote' ? CONFIG.SHEET_QUOTES : CONFIG.SHEET_ORDERS;
+    var sheet = ss.getSheetByName(sheetName);
+    if (!sheet||sheet.getLastRow()<=1) return {success:false,error:'empty sheet'};
+    var colCount = p.sheetType==='quote' ? 16 : 20;
+    var lineNoCol = p.sheetType==='quote' ? 5 : 7;
+    var updated = 0;
+    sheet.getRange(2,1,sheet.getLastRow()-1,colCount).getValues().forEach(function(r,i){
+      if (String(r[0])===String(p.mgmtId) && String(r[lineNoCol])===String(p.lineNo)) {
+        sheet.getRange(i+2,colCount).setValue(p.newStatus); updated++;
+      }
+    });
+    return updated>0 ? {success:true} : {success:false,error:'row not found'};
+  } catch(e){ return {success:false,error:e.message}; }
+}
+
+function _apiCreateRevision(p) {
+  try {
+    if (!p.mgmtId) return {success:false,error:'mgmtId required'};
+    var ss = getSpreadsheet();
+    var mgmtSheet = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT);
+    var last = mgmtSheet.getLastRow();
+    if (last<=1) return {success:false,error:'no data'};
+    var ids = mgmtSheet.getRange(2,MGMT_COLS.ID,last-1,1).getValues().flat().map(String);
+    var idx = ids.indexOf(String(p.mgmtId));
+    if (idx<0) return {success:false,error:'not found'};
+    var srcRow = idx+2;
+    var src = mgmtSheet.getRange(srcRow,1,1,27).getValues()[0];
+    var curRev = String(src[MGMT_COLS.REVISION_NO-1]||'A');
+    var nextRev = String.fromCharCode(Math.min(curRev.charCodeAt(0)+1,90));
+    mgmtSheet.getRange(srcRow,MGMT_COLS.IS_LATEST).setValue('FALSE');
+    mgmtSheet.getRange(srcRow,MGMT_COLS.UPDATED_AT).setValue(nowJST());
+    var newId = generateMgmtId();
+    var newRow = src.slice();
+    while(newRow.length<33) newRow.push('');
+    newRow[MGMT_COLS.ID-1]            = newId;
+    newRow[MGMT_COLS.IS_LATEST-1]     = 'TRUE';
+    newRow[MGMT_COLS.PARENT_MGMT_ID-1]= p.mgmtId;
+    newRow[MGMT_COLS.REVISION_NO-1]   = nextRev;
+    newRow[MGMT_COLS.STATUS-1]        = CONFIG.STATUS.PLANNED;
+    newRow[MGMT_COLS.LINKED-1]        = 'FALSE';
+    newRow[MGMT_COLS.CREATED_AT-1]    = nowJST();
+    newRow[MGMT_COLS.UPDATED_AT-1]    = nowJST();
+    newRow[MGMT_COLS.GMAIL_MSG_ID-1]  = '';
+    mgmtSheet.appendRow(newRow);
+    return {success:true, newMgmtId:newId, revision:nextRev};
+  } catch(e){ return {success:false,error:e.message}; }
+}
+
+function _apiCheckDeadlines() { checkOrderDeadlines(); return {success:true}; }
+
+function _apiUploadOrderWithLink(p) {
+  const res = _apiUploadPdf(p);
+  if (res.success && res.mgmtId) {
+    const aiRes = aiLinkOrderToQuote(res.mgmtId);
+    res.linkResult = aiRes;
+  }
+  return res;
 }

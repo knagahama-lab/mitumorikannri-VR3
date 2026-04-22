@@ -843,4 +843,291 @@ function chatClear() {
   container.innerHTML = `<div id="chat-welcome" style="text-align:center;padding:40px 20px;color:var(--text-sub);"><div style="font-size:32px;margin-bottom:12px;">🤖</div><div style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:8px;">AIアシスタント</div><div style="font-size:13px;line-height:1.7;max-width:480px;margin:0 auto;">見積書・注文書について何でも聞いてください。<br>検索・比較・ステータス更新まで実行できます。</div><div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:20px;"><button class="chat-suggest-btn" onclick="chatSendSuggestion('未紐づけの注文書は何件ありますか？')">📦 未紐づけ注文書を確認</button><button class="chat-suggest-btn" onclick="chatSendSuggestion('今月の受注件数と金額を教えてください')">📊 今月の集計を見る</button><button class="chat-suggest-btn" onclick="chatSendSuggestion('OCR失敗しているファイルはありますか？')">⚠️ OCR状況を確認</button><button class="chat-suggest-btn" onclick="chatSendSuggestion('受注済みになっていない注文書を探してください')">🔍 未受注を検索</button></div></div>`;
   showToast('履歴をクリアしました');
 }
+// ============================================================
+// ファイルアップロード ＆ OCR機能
+// ============================================================
+let _ocrSessionId = null;
+
+function openUploadModal(){ 
+  S.selectedFile=null; S.orderType=''; 
+  document.getElementById('upload-status').innerHTML=''; 
+  document.getElementById('upload-btn').disabled=true; 
+  if(document.getElementById('file-input')) document.getElementById('file-input').value=''; 
+  document.getElementById('order-type-section').style.display='none'; 
+  document.getElementById('upload-modal').classList.add('open'); 
+}
+
+function closeUploadModal(){ 
+  document.getElementById('upload-modal').classList.remove('open'); 
+}
+
+function setDocType(t){ 
+  S.docType=t; S.orderType=''; 
+  const tq = document.getElementById('type-quote'); 
+  const to = document.getElementById('type-order'); 
+  if(tq) tq.classList.toggle('active', t==='quote'); 
+  if(to) to.classList.toggle('active', t==='order'); 
+  const ots = document.getElementById('order-type-section'); 
+  if(ots) ots.style.display = t === 'order' ? 'block' : 'none'; 
+  ['ot-trial','ot-mass'].forEach(id => { const el = document.getElementById(id); if(el) el.classList.remove('active'); }); 
+}
+
+function setOrderType(t){ 
+  S.orderType=t; 
+  const tr = document.getElementById('ot-trial'); 
+  const tm = document.getElementById('ot-mass'); 
+  if(tr) tr.classList.toggle('active', t==='試作'); 
+  if(tm) tm.classList.toggle('active', t==='量産'); 
+}
+
+function handleFileSelect(e){ 
+  const f=e.target.files[0]; 
+  if(f) _setFile(f); 
+}
+
+function _setFile(file){ 
+  if(!file.name.toLowerCase().endsWith('.pdf')){ showToast('PDFのみ対応',true); return; } 
+  S.selectedFile=file; 
+  document.getElementById('upload-status').innerHTML=`<p style="color:var(--success);font-size:13px;">✓ ${file.name} (${(file.size/1024).toFixed(1)} KB)</p>`; 
+  document.getElementById('upload-btn').disabled=false; 
+}
+
+function uploadFile(){
+  if(!S.selectedFile)return;
+  if(S.docType==='order'&&!S.orderType){showToast('注文種別を選択してください',true);return;}
+  const btn=document.getElementById('upload-btn'); btn.disabled=true; btn.textContent='OCR解析中...';
+  document.getElementById('upload-status').innerHTML='<div class="loading" style="padding:16px;"><div class="spinner"></div> <span style="color:var(--text-sub);font-size:13px;">Gemini OCR 解析中... （10〜30秒かかります）</span></div>';
+  const reader=new FileReader();
+  reader.onload=e=>{
+    const b64=e.target.result.split(',')[1];
+    google.script.run.withSuccessHandler(res=>{
+        btn.textContent='解析・登録'; btn.disabled=false;
+        if(!res.success){ document.getElementById('upload-status').innerHTML=`<p style="color:var(--danger);font-size:13px;">✗ ${res.error}</p>`; return; }
+        _ocrSessionId = res.sessionId; _openOcrReviewModal(res);
+      }).withFailureHandler(err=>{
+        document.getElementById('upload-status').innerHTML=`<p style="color:var(--danger);font-size:13px;">✗ 通信エラー: ${err.message}</p>`; btn.textContent='解析・登録'; btn.disabled=false;
+      }).handleApiRequest('ocrPreview',{ base64Data: b64, fileName: S.selectedFile.name, docType: S.docType, orderType: S.orderType });
+  };
+  reader.readAsDataURL(S.selectedFile);
+}
+
+function _openOcrReviewModal(res){
+  const ocr = res.ocrResult || {}; const quality = res.quality || 0; const warns = res.warnings || []; const isQuote = S.docType === 'quote';
+  const qColor = quality >= 75 ? '#16a34a' : quality >= 50 ? '#d97706' : '#dc2626'; const qLabel = quality >= 75 ? '高精度' : quality >= 50 ? '要確認' : '低精度';
+  const warnHtml = warns.map(w=> `<div style="padding:6px 10px;border-radius:5px;font-size:12px;margin-bottom:4px;background:${w.level==='error'?'#fef2f2':'#fffbeb'};color:${w.level==='error'?'#dc2626':'#d97706'};border-left:3px solid ${w.level==='error'?'#dc2626':'#d97706'};">${w.level==='error'?'❌':'⚠️'} ${w.msg}</div>`).join('');
+  const lines = ocr.lineItems || [];
+  const lineRows = lines.map((item,i)=>`
+    <tr id="ocr-line-${i}" style="border-bottom:1px solid #f0f2f5;">
+      <td style="padding:4px 6px;text-align:center;color:#94a3b8;font-size:11px;">${i+1}</td>
+      <td style="padding:4px 6px;"><input type="text" value="${_esc(item.itemName)}" onchange="ocrUpdateLine(${i},'itemName',this.value)" style="width:100%;border:1px solid #e2e8f0;border-radius:4px;padding:3px 6px;font-size:12px;"></td>
+      <td style="padding:4px 6px;"><input type="text" value="${_esc(item.spec)}" onchange="ocrUpdateLine(${i},'spec',this.value)" style="width:100%;border:1px solid #e2e8f0;border-radius:4px;padding:3px 6px;font-size:12px;"></td>
+      <td style="padding:4px 6px;"><input type="number" value="${item.qty||1}" onchange="ocrUpdateLine(${i},'qty',Number(this.value));ocrRecalcLine(${i})" style="width:60px;border:1px solid #e2e8f0;border-radius:4px;padding:3px 4px;font-size:12px;text-align:right;"></td>
+      <td style="padding:4px 6px;"><input type="number" value="${item.unitPrice||0}" id="ocr-price-${i}" onchange="ocrUpdateLine(${i},'unitPrice',Number(this.value));ocrRecalcLine(${i})" style="width:90px;border:${item.unitPrice?'1px solid #e2e8f0':'2px solid #f59e0b'};border-radius:4px;padding:3px 4px;font-size:12px;text-align:right;font-weight:${item.unitPrice?'400':'600'};"></td>
+      <td style="padding:4px 6px;text-align:right;font-size:12px;font-weight:500;color:#2563eb;" id="ocr-amt-${i}">${(item.amount||0).toLocaleString()}</td>
+      <td style="padding:4px 6px;text-align:center;"><button onclick="ocrDeleteLine(${i})" style="border:none;background:none;color:#dc2626;cursor:pointer;font-size:14px;">✕</button></td>
+    </tr>`).join('');
+  const headerFields = isQuote ? `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">見積番号 <span style="color:#dc2626;">*</span></label><input type="text" id="ocr-documentNo" value="${_esc(ocr.documentNo)}" style="width:100%;border:1px solid ${ocr.documentNo?'#e2e8f0':'#f59e0b'};border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">発行日</label><input type="text" id="ocr-issueDate" value="${_esc(ocr.issueDate||ocr.documentDate)}" placeholder="YYYY/MM/DD" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">宛先会社名</label><input type="text" id="ocr-destCompany" value="${_esc(ocr.destCompany)}" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">件名</label><input type="text" id="ocr-subject" value="${_esc(ocr.subject)}" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px;">
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">小計</label><input type="number" id="ocr-subtotal" value="${ocr.subtotal||0}" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;text-align:right;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">消費税</label><input type="number" id="ocr-tax" value="${ocr.tax||0}" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;text-align:right;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">合計金額</label><input type="number" id="ocr-totalAmount" value="${ocr.totalAmount||0}" style="width:100%;border:1px solid ${ocr.totalAmount?'#e2e8f0':'#f59e0b'};border-radius:6px;padding:6px 8px;font-size:13px;text-align:right;font-weight:600;"></div>
+    </div>` : `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">注文番号 <span style="color:#dc2626;">*</span></label><input type="text" id="ocr-documentNo" value="${_esc(ocr.documentNo)}" style="width:100%;border:1px solid ${ocr.documentNo?'#e2e8f0':'#f59e0b'};border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">発注日</label><input type="text" id="ocr-issueDate" value="${_esc(ocr.documentDate)}" placeholder="YYYY/MM/DD" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">発注者</label><input type="text" id="ocr-destCompany" value="${_esc(ocr.clientName)}" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">件名</label><input type="text" id="ocr-subject" value="${_esc(ocr.subject)}" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">対応見積番号</label><input type="text" id="ocr-linkedQuoteNo" value="${_esc(ocr.linkedQuoteNo)}" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">合計金額</label><input type="number" id="ocr-totalAmount" value="${ocr.totalAmount||0}" style="width:100%;border:1px solid ${ocr.totalAmount?'#e2e8f0':'#f59e0b'};border-radius:6px;padding:6px 8px;font-size:13px;text-align:right;font-weight:600;"></div>
+    </div>`;
+
+  const pdfPreviewBtn = res.pdfUrl ? `<a href="${res.pdfUrl}" target="_blank" style="display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border:1px solid #2563eb;border-radius:5px;color:#2563eb;font-size:12px;text-decoration:none;">📄 PDFを確認</a>` : '';
+  document.getElementById('upload-status').innerHTML = `
+    <div id="ocr-review-panel" style="margin-top:8px;">
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;margin-bottom:10px;">
+        <div style="flex:1;"><div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;"><span style="font-size:12px;font-weight:600;">OCR品質スコア</span><span style="background:${qColor};color:#fff;border-radius:4px;padding:1px 8px;font-size:11px;">${quality}点 ${qLabel}</span>${pdfPreviewBtn}</div><div style="height:6px;background:#e2e8f0;border-radius:3px;overflow:hidden;"><div style="width:${quality}%;height:100%;background:${qColor};border-radius:3px;"></div></div></div>
+      </div>
+      ${warnHtml ? `<div style="margin-bottom:10px;">${warnHtml}</div>` : ''}
+      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin-bottom:10px;">
+        <div style="font-size:12px;font-weight:600;margin-bottom:10px;">📝 ${isQuote?'見積書':'注文書'}情報<span style="font-size:11px;font-weight:400;color:#94a3b8;margin-left:6px;">黄色枠は要確認</span></div>
+        ${headerFields}
+      </div>
+      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin-bottom:12px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;"><span style="font-size:12px;font-weight:600;">📋 明細行 <span id="ocr-line-count">${lines.length}</span>行</span><button onclick="ocrAddLine()" style="border:1px solid #2563eb;background:none;color:#2563eb;border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer;">＋ 行追加</button></div>
+        <div style="overflow-x:auto;">
+          <table style="width:100%;border-collapse:collapse;min-width:550px;" id="ocr-line-table">
+            <thead><tr style="background:#f8fafc;font-size:11px;color:#64748b;"><th style="padding:5px 6px;text-align:center;width:30px;">#</th><th style="padding:5px 6px;text-align:left;">品名</th><th style="padding:5px 6px;text-align:left;">仕様</th><th style="padding:5px 6px;text-align:right;width:60px;">数量</th><th style="padding:5px 6px;text-align:right;width:100px;">単価 *</th><th style="padding:5px 6px;text-align:right;width:90px;">金額</th><th style="padding:5px 6px;width:30px;"></th></tr></thead>
+            <tbody id="ocr-lines-body">${lineRows}</tbody>
+          </table>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button onclick="ocrDiscard()" style="border:1px solid #e2e8f0;background:#fff;color:#64748b;border-radius:6px;padding:7px 16px;font-size:13px;cursor:pointer;">✕ 破棄</button>
+        <button onclick="ocrApprove()" id="ocr-approve-btn" style="border:none;background:#2563eb;color:#fff;border-radius:6px;padding:7px 20px;font-size:13px;font-weight:600;cursor:pointer;">✅ 確認・承認してDB登録</button>
+      </div>
+    </div>`;
+  window._ocrLines = JSON.parse(JSON.stringify(lines)); window._ocrDocType = S.docType;
+}
+
+function ocrUpdateLine(idx, field, val){ if(window._ocrLines && window._ocrLines[idx]) window._ocrLines[idx][field] = val; }
+function ocrRecalcLine(idx){ const line = window._ocrLines && window._ocrLines[idx]; if(!line) return; const amt = (line.unitPrice||0) * (line.qty||1); line.amount = amt; const el = document.getElementById('ocr-amt-'+idx); if(el) el.textContent = amt.toLocaleString(); }
+function ocrDeleteLine(idx){ if(!window._ocrLines) return; window._ocrLines.splice(idx, 1); const row = document.getElementById('ocr-line-'+idx); if(row) row.style.display='none'; const cnt = document.getElementById('ocr-line-count'); if(cnt) cnt.textContent = window._ocrLines.filter((_,i)=>{ const r=document.getElementById('ocr-line-'+i); return r && r.style.display!=='none'; }).length; }
+function ocrAddLine(){ if(!window._ocrLines) window._ocrLines = []; const idx = window._ocrLines.length; window._ocrLines.push({itemName:'',spec:'',qty:1,unit:'式',unitPrice:0,amount:0,remarks:''}); const tbody = document.getElementById('ocr-lines-body'); if(!tbody) return; const tr = document.createElement('tr'); tr.id = 'ocr-line-'+idx; tr.style.borderBottom = '1px solid #f0f2f5'; tr.innerHTML = `<td style="padding:4px 6px;text-align:center;color:#94a3b8;font-size:11px;">${idx+1}</td><td style="padding:4px 6px;"><input type="text" onchange="ocrUpdateLine(${idx},'itemName',this.value)" style="width:100%;border:1px solid #e2e8f0;border-radius:4px;padding:3px 6px;font-size:12px;"></td><td style="padding:4px 6px;"><input type="text" onchange="ocrUpdateLine(${idx},'spec',this.value)" style="width:100%;border:1px solid #e2e8f0;border-radius:4px;padding:3px 6px;font-size:12px;"></td><td style="padding:4px 6px;"><input type="number" value="1" onchange="ocrUpdateLine(${idx},'qty',Number(this.value));ocrRecalcLine(${idx})" style="width:60px;border:1px solid #e2e8f0;border-radius:4px;padding:3px 4px;font-size:12px;text-align:right;"></td><td style="padding:4px 6px;"><input type="number" value="0" id="ocr-price-${idx}" onchange="ocrUpdateLine(${idx},'unitPrice',Number(this.value));ocrRecalcLine(${idx})" style="width:90px;border:2px solid #f59e0b;border-radius:4px;padding:3px 4px;font-size:12px;text-align:right;font-weight:600;"></td><td style="padding:4px 6px;text-align:right;font-size:12px;font-weight:500;color:#2563eb;" id="ocr-amt-${idx}">0</td><td style="padding:4px 6px;text-align:center;"><button onclick="ocrDeleteLine(${idx})" style="border:none;background:none;color:#dc2626;cursor:pointer;font-size:14px;">✕</button></td>`; tbody.appendChild(tr); }
+function ocrDiscard(){ if(!_ocrSessionId){ closeUploadModal(); return; } google.script.run.withSuccessHandler(()=>{ _ocrSessionId=null; closeUploadModal(); showToast('破棄しました'); }).handleApiRequest('ocrDiscard',{sessionId:_ocrSessionId}); }
+
+// ============================================================
+// ファイルアップロード ＆ OCR機能
+// ============================================================
+let _ocrSessionId = null;
+
+function openUploadModal(){ 
+  S.selectedFile=null; S.orderType=''; 
+  document.getElementById('upload-status').innerHTML=''; 
+  document.getElementById('upload-btn').disabled=true; 
+  if(document.getElementById('file-input')) document.getElementById('file-input').value=''; 
+  document.getElementById('order-type-section').style.display='none'; 
+  document.getElementById('upload-modal').classList.add('open'); 
+}
+
+function closeUploadModal(){ 
+  document.getElementById('upload-modal').classList.remove('open'); 
+}
+
+function setDocType(t){ 
+  S.docType=t; S.orderType=''; 
+  const tq = document.getElementById('type-quote'); 
+  const to = document.getElementById('type-order'); 
+  if(tq) tq.classList.toggle('active', t==='quote'); 
+  if(to) to.classList.toggle('active', t==='order'); 
+  const ots = document.getElementById('order-type-section'); 
+  if(ots) ots.style.display = t === 'order' ? 'block' : 'none'; 
+  ['ot-trial','ot-mass'].forEach(id => { const el = document.getElementById(id); if(el) el.classList.remove('active'); }); 
+}
+
+function setOrderType(t){ 
+  S.orderType=t; 
+  const tr = document.getElementById('ot-trial'); 
+  const tm = document.getElementById('ot-mass'); 
+  if(tr) tr.classList.toggle('active', t==='試作'); 
+  if(tm) tm.classList.toggle('active', t==='量産'); 
+}
+
+function handleFileSelect(e){ 
+  const f=e.target.files[0]; 
+  if(f) _setFile(f); 
+}
+
+function _setFile(file){ 
+  if(!file.name.toLowerCase().endsWith('.pdf')){ showToast('PDFのみ対応',true); return; } 
+  S.selectedFile=file; 
+  document.getElementById('upload-status').innerHTML=`<p style="color:var(--success);font-size:13px;">✓ ${file.name} (${(file.size/1024).toFixed(1)} KB)</p>`; 
+  document.getElementById('upload-btn').disabled=false; 
+}
+
+function uploadFile(){
+  if(!S.selectedFile)return;
+  if(S.docType==='order'&&!S.orderType){showToast('注文種別を選択してください',true);return;}
+  const btn=document.getElementById('upload-btn'); btn.disabled=true; btn.textContent='OCR解析中...';
+  document.getElementById('upload-status').innerHTML='<div class="loading" style="padding:16px;"><div class="spinner"></div> <span style="color:var(--text-sub);font-size:13px;">Gemini OCR 解析中... （10〜30秒かかります）</span></div>';
+  const reader=new FileReader();
+  reader.onload=e=>{
+    const b64=e.target.result.split(',')[1];
+    google.script.run.withSuccessHandler(res=>{
+        btn.textContent='解析・登録'; btn.disabled=false;
+        if(!res.success){ document.getElementById('upload-status').innerHTML=`<p style="color:var(--danger);font-size:13px;">✗ ${res.error}</p>`; return; }
+        _ocrSessionId = res.sessionId; _openOcrReviewModal(res);
+      }).withFailureHandler(err=>{
+        document.getElementById('upload-status').innerHTML=`<p style="color:var(--danger);font-size:13px;">✗ 通信エラー: ${err.message}</p>`; btn.textContent='解析・登録'; btn.disabled=false;
+      }).handleApiRequest('ocrPreview',{ base64Data: b64, fileName: S.selectedFile.name, docType: S.docType, orderType: S.orderType });
+  };
+  reader.readAsDataURL(S.selectedFile);
+}
+
+function _openOcrReviewModal(res){
+  const ocr = res.ocrResult || {}; const quality = res.quality || 0; const warns = res.warnings || []; const isQuote = S.docType === 'quote';
+  const qColor = quality >= 75 ? '#16a34a' : quality >= 50 ? '#d97706' : '#dc2626'; const qLabel = quality >= 75 ? '高精度' : quality >= 50 ? '要確認' : '低精度';
+  const warnHtml = warns.map(w=> `<div style="padding:6px 10px;border-radius:5px;font-size:12px;margin-bottom:4px;background:${w.level==='error'?'#fef2f2':'#fffbeb'};color:${w.level==='error'?'#dc2626':'#d97706'};border-left:3px solid ${w.level==='error'?'#dc2626':'#d97706'};">${w.level==='error'?'❌':'⚠️'} ${w.msg}</div>`).join('');
+  const lines = ocr.lineItems || [];
+  const lineRows = lines.map((item,i)=>`
+    <tr id="ocr-line-${i}" style="border-bottom:1px solid #f0f2f5;">
+      <td style="padding:4px 6px;text-align:center;color:#94a3b8;font-size:11px;">${i+1}</td>
+      <td style="padding:4px 6px;"><input type="text" value="${_esc(item.itemName)}" onchange="ocrUpdateLine(${i},'itemName',this.value)" style="width:100%;border:1px solid #e2e8f0;border-radius:4px;padding:3px 6px;font-size:12px;"></td>
+      <td style="padding:4px 6px;"><input type="text" value="${_esc(item.spec)}" onchange="ocrUpdateLine(${i},'spec',this.value)" style="width:100%;border:1px solid #e2e8f0;border-radius:4px;padding:3px 6px;font-size:12px;"></td>
+      <td style="padding:4px 6px;"><input type="number" value="${item.qty||1}" onchange="ocrUpdateLine(${i},'qty',Number(this.value));ocrRecalcLine(${i})" style="width:60px;border:1px solid #e2e8f0;border-radius:4px;padding:3px 4px;font-size:12px;text-align:right;"></td>
+      <td style="padding:4px 6px;"><input type="number" value="${item.unitPrice||0}" id="ocr-price-${i}" onchange="ocrUpdateLine(${i},'unitPrice',Number(this.value));ocrRecalcLine(${i})" style="width:90px;border:${item.unitPrice?'1px solid #e2e8f0':'2px solid #f59e0b'};border-radius:4px;padding:3px 4px;font-size:12px;text-align:right;font-weight:${item.unitPrice?'400':'600'};"></td>
+      <td style="padding:4px 6px;text-align:right;font-size:12px;font-weight:500;color:#2563eb;" id="ocr-amt-${i}">${(item.amount||0).toLocaleString()}</td>
+      <td style="padding:4px 6px;text-align:center;"><button onclick="ocrDeleteLine(${i})" style="border:none;background:none;color:#dc2626;cursor:pointer;font-size:14px;">✕</button></td>
+    </tr>`).join('');
+  const headerFields = isQuote ? `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">見積番号 <span style="color:#dc2626;">*</span></label><input type="text" id="ocr-documentNo" value="${_esc(ocr.documentNo)}" style="width:100%;border:1px solid ${ocr.documentNo?'#e2e8f0':'#f59e0b'};border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">発行日</label><input type="text" id="ocr-issueDate" value="${_esc(ocr.issueDate||ocr.documentDate)}" placeholder="YYYY/MM/DD" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">宛先会社名</label><input type="text" id="ocr-destCompany" value="${_esc(ocr.destCompany)}" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">件名</label><input type="text" id="ocr-subject" value="${_esc(ocr.subject)}" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px;">
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">小計</label><input type="number" id="ocr-subtotal" value="${ocr.subtotal||0}" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;text-align:right;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">消費税</label><input type="number" id="ocr-tax" value="${ocr.tax||0}" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;text-align:right;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">合計金額</label><input type="number" id="ocr-totalAmount" value="${ocr.totalAmount||0}" style="width:100%;border:1px solid ${ocr.totalAmount?'#e2e8f0':'#f59e0b'};border-radius:6px;padding:6px 8px;font-size:13px;text-align:right;font-weight:600;"></div>
+    </div>` : `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">注文番号 <span style="color:#dc2626;">*</span></label><input type="text" id="ocr-documentNo" value="${_esc(ocr.documentNo)}" style="width:100%;border:1px solid ${ocr.documentNo?'#e2e8f0':'#f59e0b'};border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">発注日</label><input type="text" id="ocr-issueDate" value="${_esc(ocr.documentDate)}" placeholder="YYYY/MM/DD" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">発注者</label><input type="text" id="ocr-destCompany" value="${_esc(ocr.clientName)}" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">件名</label><input type="text" id="ocr-subject" value="${_esc(ocr.subject)}" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">対応見積番号</label><input type="text" id="ocr-linkedQuoteNo" value="${_esc(ocr.linkedQuoteNo)}" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">合計金額</label><input type="number" id="ocr-totalAmount" value="${ocr.totalAmount||0}" style="width:100%;border:1px solid ${ocr.totalAmount?'#e2e8f0':'#f59e0b'};border-radius:6px;padding:6px 8px;font-size:13px;text-align:right;font-weight:600;"></div>
+    </div>`;
+
+  const pdfPreviewBtn = res.pdfUrl ? `<a href="${res.pdfUrl}" target="_blank" style="display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border:1px solid #2563eb;border-radius:5px;color:#2563eb;font-size:12px;text-decoration:none;">📄 PDFを確認</a>` : '';
+  document.getElementById('upload-status').innerHTML = `
+    <div id="ocr-review-panel" style="margin-top:8px;">
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;margin-bottom:10px;">
+        <div style="flex:1;"><div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;"><span style="font-size:12px;font-weight:600;">OCR品質スコア</span><span style="background:${qColor};color:#fff;border-radius:4px;padding:1px 8px;font-size:11px;">${quality}点 ${qLabel}</span>${pdfPreviewBtn}</div><div style="height:6px;background:#e2e8f0;border-radius:3px;overflow:hidden;"><div style="width:${quality}%;height:100%;background:${qColor};border-radius:3px;"></div></div></div>
+      </div>
+      ${warnHtml ? `<div style="margin-bottom:10px;">${warnHtml}</div>` : ''}
+      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin-bottom:10px;">
+        <div style="font-size:12px;font-weight:600;margin-bottom:10px;">📝 ${isQuote?'見積書':'注文書'}情報<span style="font-size:11px;font-weight:400;color:#94a3b8;margin-left:6px;">黄色枠は要確認</span></div>
+        ${headerFields}
+      </div>
+      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin-bottom:12px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;"><span style="font-size:12px;font-weight:600;">📋 明細行 <span id="ocr-line-count">${lines.length}</span>行</span><button onclick="ocrAddLine()" style="border:1px solid #2563eb;background:none;color:#2563eb;border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer;">＋ 行追加</button></div>
+        <div style="overflow-x:auto;">
+          <table style="width:100%;border-collapse:collapse;min-width:550px;" id="ocr-line-table">
+            <thead><tr style="background:#f8fafc;font-size:11px;color:#64748b;"><th style="padding:5px 6px;text-align:center;width:30px;">#</th><th style="padding:5px 6px;text-align:left;">品名</th><th style="padding:5px 6px;text-align:left;">仕様</th><th style="padding:5px 6px;text-align:right;width:60px;">数量</th><th style="padding:5px 6px;text-align:right;width:100px;">単価 *</th><th style="padding:5px 6px;text-align:right;width:90px;">金額</th><th style="padding:5px 6px;width:30px;"></th></tr></thead>
+            <tbody id="ocr-lines-body">${lineRows}</tbody>
+          </table>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button onclick="ocrDiscard()" style="border:1px solid #e2e8f0;background:#fff;color:#64748b;border-radius:6px;padding:7px 16px;font-size:13px;cursor:pointer;">✕ 破棄</button>
+        <button onclick="ocrApprove()" id="ocr-approve-btn" style="border:none;background:#2563eb;color:#fff;border-radius:6px;padding:7px 20px;font-size:13px;font-weight:600;cursor:pointer;">✅ 確認・承認してDB登録</button>
+      </div>
+    </div>`;
+  window._ocrLines = JSON.parse(JSON.stringify(lines)); window._ocrDocType = S.docType;
+}
+
+function ocrUpdateLine(idx, field, val){ if(window._ocrLines && window._ocrLines[idx]) window._ocrLines[idx][field] = val; }
+function ocrRecalcLine(idx){ const line = window._ocrLines && window._ocrLines[idx]; if(!line) return; const amt = (line.unitPrice||0) * (line.qty||1); line.amount = amt; const el = document.getElementById('ocr-amt-'+idx); if(el) el.textContent = amt.toLocaleString(); }
+function ocrDeleteLine(idx){ if(!window._ocrLines) return; window._ocrLines.splice(idx, 1); const row = document.getElementById('ocr-line-'+idx); if(row) row.style.display='none'; const cnt = document.getElementById('ocr-line-count'); if(cnt) cnt.textContent = window._ocrLines.filter((_,i)=>{ const r=document.getElementById('ocr-line-'+i); return r && r.style.display!=='none'; }).length; }
+function ocrAddLine(){ if(!window._ocrLines) window._ocrLines = []; const idx = window._ocrLines.length; window._ocrLines.push({itemName:'',spec:'',qty:1,unit:'式',unitPrice:0,amount:0,remarks:''}); const tbody = document.getElementById('ocr-lines-body'); if(!tbody) return; const tr = document.createElement('tr'); tr.id = 'ocr-line-'+idx; tr.style.borderBottom = '1px solid #f0f2f5'; tr.innerHTML = `<td style="padding:4px 6px;text-align:center;color:#94a3b8;font-size:11px;">${idx+1}</td><td style="padding:4px 6px;"><input type="text" onchange="ocrUpdateLine(${idx},'itemName',this.value)" style="width:100%;border:1px solid #e2e8f0;border-radius:4px;padding:3px 6px;font-size:12px;"></td><td style="padding:4px 6px;"><input type="text" onchange="ocrUpdateLine(${idx},'spec',this.value)" style="width:100%;border:1px solid #e2e8f0;border-radius:4px;padding:3px 6px;font-size:12px;"></td><td style="padding:4px 6px;"><input type="number" value="1" onchange="ocrUpdateLine(${idx},'qty',Number(this.value));ocrRecalcLine(${idx})" style="width:60px;border:1px solid #e2e8f0;border-radius:4px;padding:3px 4px;font-size:12px;text-align:right;"></td><td style="padding:4px 6px;"><input type="number" value="0" id="ocr-price-${idx}" onchange="ocrUpdateLine(${idx},'unitPrice',Number(this.value));ocrRecalcLine(${idx})" style="width:90px;border:2px solid #f59e0b;border-radius:4px;padding:3px 4px;font-size:12px;text-align:right;font-weight:600;"></td><td style="padding:4px 6px;text-align:right;font-size:12px;font-weight:500;color:#2563eb;" id="ocr-amt-${idx}">0</td><td style="padding:4px 6px;text-align:center;"><button onclick="ocrDeleteLine(${idx})" style="border:none;background:none;color:#dc2626;cursor:pointer;font-size:14px;">✕</button></td>`; tbody.appendChild(tr); }
+function ocrDiscard(){ if(!_ocrSessionId){ closeUploadModal(); return; } google.script.run.withSuccessHandler(()=>{ _ocrSessionId=null; closeUploadModal(); showToast('破棄しました'); }).handleApiRequest('ocrDiscard',{sessionId:_ocrSessionId}); }
+
+function ocrApprove(){
+  if(!_ocrSessionId){ showToast('セッションが無効です',true); return; }
+  const btn = document.getElementById('ocr-approve-btn'); btn.disabled=true; btn.textContent='登録中...';
+  const corrected = { documentNo:(document.getElementById('ocr-documentNo')||{}).value||'', issueDate:(document.getElementById('ocr-issueDate')||{}).value||'', documentDate:(document.getElementById('ocr-issueDate')||{}).value||'', destCompany:(document.getElementById('ocr-destCompany')||{}).value||'', clientName:(document.getElementById('ocr-destCompany')||{}).value||'', subject:(document.getElementById('ocr-subject')||{}).value||'', linkedQuoteNo:(document.getElementById('ocr-linkedQuoteNo')||{}).value||'', subtotal:Number((document.getElementById('ocr-subtotal')||{}).value||0), tax:Number((document.getElementById('ocr-tax')||{}).value||0), totalAmount:Number((document.getElementById('ocr-totalAmount')||{}).value||0), lineItems:(window._ocrLines||[]).filter(l=>l.itemName) };
+  google.script.run.withSuccessHandler(res=>{
+    btn.disabled=false; btn.textContent='✅ 確認・承認してDB登録';
+    if(!res.success){ showToast('登録失敗: '+res.error, true); return; }
+    _ocrSessionId=null; document.getElementById('upload-status').innerHTML=`<div style="background:#e6f4ea;border-radius:8px;padding:14px;font-size:13px;"><strong style="color:#16a34a;font-size:14px;">✅ DB登録完了</strong><br><span style="color:#374151;">${corrected.documentNo||'—'} / ${corrected.destCompany||'—'}</span><br><span style="color:#6b7280;">明細: ${res.lineCount}行 ／ 合計: ${corrected.totalAmount?corrected.totalAmount.toLocaleString()+' 円':'—'}</span></div>`;
+    showToast('✅ 登録完了しました'); loadData(); if(typeof loadQuoteList==='function') loadQuoteList();
+  }).withFailureHandler(err=>{ btn.disabled=false; btn.textContent='✅ 確認・承認してDB登録'; showToast('通信エラー: '+err.message, true); }).handleApiRequest('ocrApprove',{ sessionId: _ocrSessionId, correctedOcr: corrected });
+}
 </script>
