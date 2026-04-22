@@ -777,7 +777,7 @@ function _renderLedgerTree(items) {
       boardItems.forEach(r => {
         const safeId = (r.ledgerId || '').replace(/'/g, "\\'");
         // インライン編集用のステータスプルダウン
-        const statuses = ['作成予定', '作成中', '送信済み', 'キャンセル'];
+        const statuses = ['作成予定', '作成中', '送信済み', '受注済み', 'キャンセル'];
         const statusOpts = statuses.map(s => `<option value="${s}" ${s === r.status ? 'selected' : ''}>${s}</option>`).join('');
         const statusSelect = `<select onchange="event.stopPropagation(); quickUpdateLedgerStatus('${safeId}', this.value)" style="padding:2px 4px;font-size:11px;border-radius:4px;border:1px solid var(--border);background:#fff;cursor:pointer;">${statusOpts}</select>`;
 
@@ -812,7 +812,7 @@ function _renderLedgerFlat(items) {
     const safeId = (r.ledgerId || '').replace(/'/g, "\\'");
     
     // インライン編集用のステータスプルダウン
-    const statuses = ['作成予定', '作成中', '送信済み', 'キャンセル'];
+    const statuses = ['作成予定', '作成中', '送信済み', '受注済み', 'キャンセル'];
     const statusOpts = statuses.map(s => `<option value="${s}" ${s === r.status ? 'selected' : ''}>${s}</option>`).join('');
     const statusSelect = `<select onchange="event.stopPropagation(); quickUpdateLedgerStatus('${safeId}', this.value)" style="padding:2px 4px;font-size:11px;border-radius:4px;border:1px solid var(--border);background:#fff;cursor:pointer;">${statusOpts}</select>`;
 
@@ -914,7 +914,7 @@ function _renderLedgerFlat(items) {
     const safeId = (r.ledgerId || '').replace(/'/g, "\\'");
     
     // インライン編集用のステータスプルダウン
-    const statuses = ['作成予定', '作成中', '送信済み', 'キャンセル'];
+    const statuses = ['作成予定', '作成中', '送信済み', '受注済み', 'キャンセル'];
     const statusOpts = statuses.map(s => `<option value="${s}" ${s === r.status ? 'selected' : ''}>${s}</option>`).join('');
     const statusSelect = `<select onchange="event.stopPropagation(); quickUpdateLedgerStatus('${safeId}', this.value)" style="padding:2px 4px;font-size:11px;border-radius:4px;border:1px solid var(--border);background:#fff;cursor:pointer;">${statusOpts}</select>`;
 

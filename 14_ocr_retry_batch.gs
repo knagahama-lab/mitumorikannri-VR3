@@ -5,11 +5,13 @@
 
 const OCR_RETRY_CONFIG = {
   MODEL: 'gemini-3.1-flash-lite',
-  SLEEP_MS: 5000,         // 15回/分（RPM）の制限回避のため5秒待機
-  MAX_EXEC_SECONDS: 270,  // GASタイムアウトエラー回避（4.5分で強制終了）
-  MAX_RETRY: 3,           // 最大リトライ回数
+  SLEEP_MS: 5000, 
+  MAX_EXEC_SECONDS: 270,
+  MAX_RETRY: 3,
   STATUS_COL_NAME: 'OCRステータス',
-  RETRY_COL_NAME: 'リトライ回数'
+  RETRY_COL_NAME: 'リトライ回数',
+  // ★ 追加：バッチ専用キーを取得するためのプロパティ名
+  BATCH_API_KEY_NAME: 'AIzaSyDTIYYD0tzwbavG87PLgNmVppFaGOsCVSo' 
 };
 
 /**
@@ -221,4 +223,3 @@ function _parseGeminiJsonResponse(result) {
     return {};
   }
 }
-

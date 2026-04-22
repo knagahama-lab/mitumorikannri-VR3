@@ -5,13 +5,13 @@
 
 var CONFIG = {
   SPREADSHEET_ID: PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID') || '',
-  // ★ GEMINI_API_KEY は起動時固定ではなく、毎回getGeminiApiKey()から取得すること
-  //    （管理コンソールで更新してもCONFIG.GEMINI_API_KEYは古い値のままになるため）
-  GEMINI_API_KEY: '',  // 後方互換のため残す（実際はgetGeminiApiKey()を使う）
+  GEMINI_API_KEY: PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || '',
 
-GEMINI_PRIMARY_MODEL:  'gemini-3.1-flash-lite',
-  GEMINI_FALLBACK_MODEL: 'gemini-3-flash',
+  // ★ Google AI Studio 無料API対応モデル（1日1500件、毎分15件まで無料）
+  GEMINI_PRIMARY_MODEL:  'gemini-2.0-flash',
+  GEMINI_FALLBACK_MODEL: 'gemini-1.5-flash',
   GEMINI_API_ENDPOINT:   'https://generativelanguage.googleapis.com/v1beta/models/',
+  GEMINI_FREE_DAILY_LIMIT: 1500,  // 無料APIの1日あたりの上限リクエスト数
 
   WEB_UPLOAD_FOLDER_ID:  '1sB42xntGKL31GeT9OjOKTxVJwj9IQz-h',
   ORDER_TRIAL_FOLDER_ID: '1wVeYlt-9GsortfOsUggBsWta8GtXIRvS',
@@ -29,9 +29,10 @@ GEMINI_PRIMARY_MODEL:  'gemini-3.1-flash-lite',
   SHEET_TODO:       'Todoリスト',
   SHEET_LEDGER:     '見積台帳',
   SHEET_MODEL_INFO: '基板情報管理',
+  SHEET_SETTINGS:   'システム設定',  // ★ 新規: 設定専用シート
 
-  RATE_LIMIT_WAIT_MS: 20000,
-  RATE_LIMIT_RETRIES: 2,
+  RATE_LIMIT_WAIT_MS: 5000,
+  RATE_LIMIT_RETRIES: 3,
 
   GOOGLE_CHAT_WEBHOOK_URL: PropertiesService.getScriptProperties().getProperty('GOOGLE_CHAT_WEBHOOK_URL') || '',
 
@@ -43,6 +44,7 @@ GEMINI_PRIMARY_MODEL:  'gemini-3.1-flash-lite',
     DELIVERED: '納品済み',
     CANCELLED: 'キャンセル',
     REVISED:   '受領（差し替え）',
+    HIDDEN:    '非表示',          // ★ 新規: 一覧から除外するステータス
   },
   ORDER_TYPE: { TRIAL: '試作', MASS: '量産' },
 };
@@ -153,23 +155,23 @@ var MODEL_INFO_COLS = {
   UPDATED_AT:       10,
 };
 
-// ===== 見積台帳 列定義（14列）=====
+// ===== 見積台帳 列定義（15列）=====
 var LEDGER_COLS = {
-  LEDGER_ID:    1,
-  QUOTE_NO:     2,
-  ISSUE_DATE:   3,
-  DEST:         4,
-  CATEGORY:     5,
-  SUBJECT:      6,
-  STATUS:       7,
-  SAVE_URL:     8,
-  MACHINE_CODE: 9,
-  BOARD_NAME:   10,
-  MODEL_NO:     11,
-  AMOUNT:       12,
-  SUBMIT_TO:    13,
-  REMARKS:      14,
-  SENT_DATE:    15,  // ★ メール送信日（登録日）追加
+  LEDGER_ID:       1,
+  QUOTE_NO:        2,
+  ISSUE_DATE:      3,
+  DEST:            4,
+  CATEGORY:        5,
+  SUBJECT:         6,
+  STATUS:          7,
+  SAVE_URL:        8,
+  MACHINE_CODE:    9,
+  BOARD_NAME:      10,
+  MODEL_NO:        11,
+  AMOUNT:          12,
+  SUBMIT_TO:       13,
+  REMARKS:         14,
+  EMAIL_SENT_DATE: 15,  // ★ メール送信日（追加）
 };
 
 var LEDGER_STATUS = {
@@ -197,9 +199,13 @@ function initialSetup() {
   _setupModelInfoSheet(ss);
   _registerTriggers();
 
+  // ★ 設定専用シートもセットアップ
+  _setupSettingsSheet(ss);
+
   SpreadsheetApp.getUi().alert(
     '初期化完了！\n\n' +
     '「メール監視設定」シートにキーワード・メールアドレスを入力してください。\n' +
+    '「システム設定」シートでステータスや分類を自由に編集できます。\n' +
     'その後、新しいバージョンでWebアプリをデプロイしてください。'
   );
 }
@@ -254,12 +260,12 @@ function _setupTodoSheet(ss) {
 function _setupLedgerSheet(ss) {
   var headers = ['台帳ID','見積No.','発行日','宛先（企業名）','分類','件名','ステータス','保存先URL','機種コード','基板名','型番','見積金額','提出先担当者','備考','メール送信日'];
   var sheet = _createOrSetupSheet(ss, CONFIG.SHEET_LEDGER, headers, '#FFF3E0');
-  var catRule = SpreadsheetApp.newDataValidation()
-    .requireValueInList(['試作','量産','修理','その他'], true).build();
-  sheet.getRange(2, 5, 1000, 1).setDataValidation(catRule);
-  var stRule = SpreadsheetApp.newDataValidation()
-    .requireValueInList(['作成予定','作成中','送信済み','キャンセル'], true).build();
-  sheet.getRange(2, 7, 1000, 1).setDataValidation(stRule);
+  var catList = getSettingValues('分類') || ['試作','量産','修理','その他'];
+  var stList  = getSettingValues('台帳ステータス') || ['作成予定','作成中','送信済み','受注済み','キャンセル','非表示'];
+  sheet.getRange(2, 5, 1000, 1).setDataValidation(
+    SpreadsheetApp.newDataValidation().requireValueInList(catList, true).build());
+  sheet.getRange(2, 7, 1000, 1).setDataValidation(
+    SpreadsheetApp.newDataValidation().requireValueInList(stList, true).build());
   sheet.setColumnWidth(1,  140);
   sheet.setColumnWidth(2,  110);
   sheet.setColumnWidth(3,  100);
@@ -274,6 +280,257 @@ function _setupLedgerSheet(ss) {
   sheet.setColumnWidth(12, 100);
   sheet.setColumnWidth(13, 130);
   sheet.setColumnWidth(14, 250);
+  sheet.setColumnWidth(15, 130);
+}
+
+// ============================================================
+// ★ 設定専用マスタシート（ノーコード管理基盤）
+// ============================================================
+
+/**
+ * 「システム設定」マスタシートをセットアップする。
+ * 各部署の表示・編集権限マトリクスを付与（13列構成）
+ */
+function _setupSettingsSheet(ss) {
+  var sheetName = CONFIG.SHEET_SETTINGS;
+  var sheet = ss.getSheetByName(sheetName);
+  if (!sheet) {
+    sheet = ss.insertSheet(sheetName);
+  }
+
+  // 13列のヘッダー定義
+  var headers = [
+    'カテゴリ', '値(ステータス名/カラム名/Email)', '説明',
+    '閲覧:営業課', '閲覧:設計課', '閲覧:資材購買', '閲覧:品質管理', '閲覧:上司',
+    '編集:営業課', '編集:設計課', '編集:資材購買', '編集:品質管理', '編集:上司'
+  ];
+  
+  var hr = sheet.getRange(1, 1, 1, headers.length);
+  hr.setValues([headers]);
+  hr.setBackground('#1a73e8');
+  hr.setFontColor('#ffffff');
+  hr.setFontWeight('bold');
+  hr.setFontSize(11);
+  sheet.setFrozenRows(1);
+  sheet.setColumnWidth(1, 140);
+  sheet.setColumnWidth(2, 220);
+  sheet.setColumnWidth(3, 220);
+  for (var c = 4; c <= 13; c++) sheet.setColumnWidth(c, 90);
+
+  // D列〜M列までの2行目以降にチェックボックスを設定
+  var maxRows = Math.max(sheet.getMaxRows(), 100);
+  sheet.getRange(2, 4, maxRows - 1, 10).insertCheckboxes();
+
+  // 既にデータが入力済みであればデフォルト投入はスキップ
+  if (sheet.getLastRow() > 1) return sheet;
+
+  // 初期データ投入（カラム権限とユーザー権限を追加）
+  // 権限列(D-M)はすべてTRUEを入れておく（必要に応じてユーザーが手動で外す）
+  var t = true;
+  var defaults = [
+    // ===== 案件ステータス =====
+    ['案件ステータス', '作成予定', '見積書を作成する予定', t,t,t,t,t, t,t,t,t,t],
+    ['案件ステータス', '送信済み', '見積書を送信済み',     t,t,t,t,t, t,t,t,t,t],
+    ['案件ステータス', '受領',     '注文書を受領',         t,t,t,t,t, t,t,t,t,t],
+    ['案件ステータス', '受注済み', '受注確定',             t,t,t,t,t, t,t,t,t,t],
+    ['案件ステータス', '納品済み', '製品を納品済み',       t,t,t,t,t, t,t,t,t,t],
+    ['案件ステータス', '受領（差し替え）','差し替え',      t,t,t,t,t, t,t,t,t,t],
+    ['案件ステータス', 'キャンセル',   'キャンセル案件',   t,t,t,t,t, t,t,t,t,t],
+    ['案件ステータス', '非表示',       'システムから除外', t,t,t,t,t, t,t,t,t,t],
+    // ===== 分類 =====
+    ['分類', '試作', '試作基板', t,t,t,t,t, t,t,t,t,t],
+    ['分類', '量産', '量産基板', t,t,t,t,t, t,t,t,t,t],
+    ['分類', '修理', '修理対応', t,t,t,t,t, t,t,t,t,t],
+    // ===== システム設定 =====
+    ['システム', '非表示を除外', 'TRUE', t,t,t,t,t, t,t,t,t,t],
+    // ===== カラム権限制御（UIの表示・非表示、編集ロック） =====
+    ['カラム権限', '見積金額', '金額の閲覧・編集', t,t,t,t,t, t,false,false,false,t],
+    ['カラム権限', 'BOM原価',  '原価の閲覧・編集', false,true,true,false,t, false,true,true,false,t],
+    // ===== ユーザー権限 =====
+    ['ユーザー権限', Session.getActiveUser().getEmail(), '上司', t,t,t,t,t, t,t,t,t,t],
+    ['ユーザー権限', 'sales@example.com', '営業課', t,t,t,t,t, t,t,t,t,t],
+  ];
+
+  var colorMap = {
+    '案件ステータス': '#fff8e1',  '台帳ステータス': '#fff3e0',
+    '分類'          : '#f1f8e9',  '注文種別'      : '#e8f5e9',
+    'システム'      : '#e3f2fd',  'カラム権限'    : '#fce4ec',
+    'ユーザー権限'  : '#ede7f6'
+  };
+
+  defaults.forEach(function(row, i) {
+    var r = sheet.getRange(i + 2, 1, 1, row.length);
+    r.setValues([row]);
+    r.setBackground(colorMap[row[0]] || '#ffffff');
+  });
+
+  sheet.getRange(1, 1).setNote('★ このシートを編集するとシステム全体の権限とUIが変わります。\nC列〜G列は表示（閲覧）権限、H列〜L列は編集権限です。チェックを外すと画面制御がかかります。');
+  return sheet;
+}
+
+
+/**
+ * 設定シートから特定カテゴリの値一覧を取得する。
+ * @param {string} category - カテゴリ名（例: '案件ステータス'）
+ * @return {string[]} 値の配列
+ */
+function getSettingValues(category) {
+  try {
+    var ss = getSpreadsheet();
+    var sheet = ss.getSheetByName(CONFIG.SHEET_SETTINGS);
+    if (!sheet || sheet.getLastRow() <= 1) return null;
+    var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues();
+    var result = data
+      .filter(function(r) { return String(r[0]).trim() === category && String(r[1]).trim() !== ''; })
+      .map(function(r) { return String(r[1]).trim(); });
+    return result.length > 0 ? result : null;
+  } catch(e) {
+    Logger.log('[getSettingValues] ERROR: ' + e.message);
+    return null;
+  }
+}
+
+/**
+ * 設定（マスタ）シートの全データをオブジェクト形式で取得する（Web API用）。
+ * 権限マトリクス（D〜M列）の情報もすべてJSONとしてパースして返却する。
+ */
+function getAllSettingsData() {
+  try {
+    var ss = getSpreadsheet();
+    var sheet = ss.getSheetByName(CONFIG.SHEET_SETTINGS);
+    if (!sheet || sheet.getLastRow() <= 1) return {};
+    
+    // 最大13列まで取得
+    var cols = Math.max(sheet.getLastColumn(), 13);
+    var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, cols).getValues();
+    
+    var result = {};
+    data.forEach(function(r) {
+      var cat  = String(r[0]).trim();
+      var val  = String(r[1]).trim();
+      var desc = String(r[2] || '').trim();
+      if (!cat || !val) return;
+      if (!result[cat]) result[cat] = [];
+      
+      // 権限設定（True/False）をオブジェクト化
+      var permissions = {
+        view: {
+          '営業課':     !!r[3],
+          '設計課':     !!r[4],
+          '資材購買課': !!r[5],
+          '品質管理':   !!r[6],
+          '上司':       !!r[7]
+        },
+        edit: {
+          '営業課':     !!r[8],
+          '設計課':     !!r[9],
+          '資材購買課': !!r[10],
+          '品質管理':   !!r[11],
+          '上司':       !!r[12]
+        }
+      };
+
+      result[cat].push({ 
+        value: val, 
+        description: desc,
+        permissions: permissions
+      });
+    });
+    return result;
+  } catch(e) {
+    return {};
+  }
+}
+
+/**
+ * ログインユーザーのメールアドレスから、該当する役職・部署（Role）を取得する
+ */
+function getUserRole() {
+  try {
+    var email = Session.getActiveUser().getEmail();
+    if (!email) return 'ゲスト';
+    
+    var settings = getAllSettingsData();
+    var users = settings['ユーザー権限'] || [];
+    
+    var matchedUser = users.find(function(u) {
+      return u.value.toLowerCase() === email.toLowerCase();
+    });
+    
+    // 説明列（Description）に部署名が入っていると想定。見つからなければゲスト
+    return matchedUser ? matchedUser.description : 'ゲスト';
+  } catch(e) {
+    return 'ゲスト';
+  }
+}
+
+/**
+ * 設定シートの値を更新する（Web API用）。
+ * @param {string} category - カテゴリ名
+ * @param {string[]} values - 新しい値の配列
+ */
+function updateSettingValues(category, values) {
+  try {
+    var ss = getSpreadsheet();
+    var sheet = ss.getSheetByName(CONFIG.SHEET_SETTINGS);
+    if (!sheet) return { success: false, error: 'システム設定シートが見つかりません' };
+
+    // 既存の同カテゴリ行を削除
+    var lastRow = sheet.getLastRow();
+    if (lastRow > 1) {
+      var data = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+      // 後ろから削除（行番号のズレを防ぐ）
+      for (var i = data.length - 1; i >= 0; i--) {
+        if (String(data[i][0]).trim() === category) {
+          sheet.deleteRow(i + 2);
+        }
+      }
+    }
+
+    // 新しい値を追加
+    var colorMap = {
+      '案件ステータス': '#fff8e1', '台帳ステータス': '#fff3e0',
+      '分類': '#f1f8e9', '注文種別': '#e8f5e9', 'システム': '#e3f2fd'
+    };
+    var color = colorMap[category] || '#ffffff';
+    values.forEach(function(val) {
+      if (!String(val).trim()) return;
+      var newRow = sheet.getLastRow() + 1;
+      sheet.getRange(newRow, 1, 1, 3).setValues([[category, val, '']]);
+      sheet.getRange(newRow, 1, 1, 3).setBackground(color);
+    });
+
+    // データ入力規則を更新
+    _refreshDataValidations(ss);
+
+    return { success: true };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * 設定シートの変更後にスプレッドシートのデータ入力規則を再適用する。
+ */
+function _refreshDataValidations(ss) {
+  try {
+    var mgmtSheet = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT);
+    var stList = getSettingValues('案件ステータス') ||
+      ['作成予定','送信済み','受領','受注済み','納品済み','キャンセル','受領（差し替え）','非表示'];
+    if (mgmtSheet && mgmtSheet.getLastRow() > 1) {
+      mgmtSheet.getRange(2, MGMT_COLS.STATUS, 1000, 1).setDataValidation(
+        SpreadsheetApp.newDataValidation().requireValueInList(stList, true).build());
+    }
+    var ledSheet = ss.getSheetByName(CONFIG.SHEET_LEDGER);
+    var stLedList = getSettingValues('台帳ステータス') ||
+      ['作成予定','作成中','送信済み','受注済み','キャンセル','非表示'];
+    if (ledSheet && ledSheet.getLastRow() > 1) {
+      ledSheet.getRange(2, LEDGER_COLS.STATUS, 1000, 1).setDataValidation(
+        SpreadsheetApp.newDataValidation().requireValueInList(stLedList, true).build());
+    }
+  } catch(e) {
+    Logger.log('[_refreshDataValidations] ERROR: ' + e.message);
+  }
 }
 
 function _setupModelInfoSheet(ss) {
@@ -328,7 +585,9 @@ function getAllLedgerData() {
   var ss    = getSpreadsheet();
   var sheet = ss.getSheetByName(CONFIG.SHEET_LEDGER);
   if (!sheet || sheet.getLastRow() <= 1) return [];
-  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 14).getValues();
+  // ★ 15列に拡張（メール送信日対応）
+  var readCols = Math.max(sheet.getLastColumn(), 15);
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, readCols).getValues();
   data.forEach(function(row, i) {
     var hasContent = row.slice(1).some(function(v) { return String(v).trim() !== ''; });
     if (!hasContent) return;
@@ -344,21 +603,21 @@ function getAllLedgerData() {
 
 function _ledgerRowToObject(row) {
   return {
-    ledgerId:    String(row[0]  || ''),
-    quoteNo:     String(row[1]  || ''),
-    issueDate:   _toDateStr(row[2]),
-    dest:        String(row[3]  || ''),
-    category:    String(row[4]  || ''),
-    subject:     String(row[5]  || ''),
-    status:      String(row[6]  || ''),
-    saveUrl:     String(row[7]  || ''),
-    machineCode: String(row[8]  || ''),
-    boardName:   String(row[9]  || ''),
-    modelNo:     String(row[10] || ''),
-    amount:      (row[11] !== '' && row[11] !== null && row[11] !== undefined) ? Number(row[11]) : null,
-    submitTo:    String(row[12] || ''),
-    remarks:     String(row[13] || ''),
-    sentDate:    _toDateStr(row[14]),  // ★ メール送信日
+    ledgerId:      String(row[0]  || ''),
+    quoteNo:       String(row[1]  || ''),
+    issueDate:     _toDateStr(row[2]),
+    dest:          String(row[3]  || ''),
+    category:      String(row[4]  || ''),
+    subject:       String(row[5]  || ''),
+    status:        String(row[6]  || ''),
+    saveUrl:       String(row[7]  || ''),
+    machineCode:   String(row[8]  || ''),
+    boardName:     String(row[9]  || ''),
+    modelNo:       String(row[10] || ''),
+    amount:        (row[11] !== '' && row[11] !== null && row[11] !== undefined) ? Number(row[11]) : null,
+    submitTo:      String(row[12] || ''),
+    remarks:       String(row[13] || ''),
+    emailSentDate: _toDateStr(row[14]),  // ★ メール送信日
   };
 }
 
@@ -448,17 +707,8 @@ function matchEmailConfig(filename, subject, fromAddr, toAddr) {
 // ユーティリティ
 // ============================================================
 
-// ============================================================
-// ★ Gemini APIキー取得（必ずこの関数を使うこと）
-// CONFIGオブジェクトはGAS起動時に1回だけ評価されるため
-// 管理コンソールで更新してもCONFIG.GEMINI_API_KEYは古い値のまま。
-// この関数は毎回スクリプトプロパティから最新値を読み込む。
-// ============================================================
-function getGeminiApiKey() {
-  return PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || '';
-}
-
-function getSpreadsheet() {  var id = CONFIG.SPREADSHEET_ID ||
+function getSpreadsheet() {
+  var id = CONFIG.SPREADSHEET_ID ||
            PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
   return SpreadsheetApp.openById(id);
 }
@@ -561,7 +811,7 @@ function testGeminiConnection() {
 }
 
 function checkAvailableModels() {
-  var apiKey = getGeminiApiKey();
+  var apiKey = CONFIG.GEMINI_API_KEY;
   var url    = 'https://generativelanguage.googleapis.com/v1beta/models?key=' + apiKey;
   var res    = UrlFetchApp.fetch(url, {muteHttpExceptions: true});
   var data   = JSON.parse(res.getContentText());
