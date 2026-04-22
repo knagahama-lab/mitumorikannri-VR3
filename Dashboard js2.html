@@ -1,9 +1,12 @@
 <script>
+// グローバル変数参照（window経由）
+// S, window._allQuotes 等は Dashboard_js.html の window.S = {...} として定義済み
+
 // ============================================================
 // ファイルアップロード (OCR) 
 // ============================================================
 function openUploadModal(){
-  S.selectedFile=null;S.orderType='';
+  window.S.selectedFile=null;window.S.orderType='';
   document.getElementById('upload-status').innerHTML='';
   document.getElementById('upload-btn').disabled=true;
   document.getElementById('file-input').value='';
@@ -12,7 +15,7 @@ function openUploadModal(){
 }
 function closeUploadModal(){document.getElementById('upload-modal').classList.remove('open');}
 function setDocType(t){
-  S.docType=t; S.orderType='';
+  window.S.docType=t; window.S.orderType='';
   document.getElementById('type-quote').classList.toggle('active',t==='quote');
   document.getElementById('type-order').classList.toggle('active',t==='order');
   document.getElementById('order-type-section').style.display=t==='order'?'block':'none';
@@ -22,7 +25,7 @@ function setDocType(t){
   });
 }
 function setOrderType(t){
-  S.orderType=t;
+  window.S.orderType=t;
   // ★ ボタンの選択状態を視覚的に更新
   document.getElementById('ot-trial').classList.toggle('active', t==='試作');
   document.getElementById('ot-mass').classList.toggle('active',  t==='量産');
@@ -30,7 +33,7 @@ function setOrderType(t){
 function handleFileSelect(e){const f=e.target.files[0];if(f)_setFile(f);}
 function _setFile(file){
   if(!file.name.toLowerCase().endsWith('.pdf')){showToast('PDFのみ対応',true);return;}
-  S.selectedFile=file;
+  window.S.selectedFile=file;
   document.getElementById('upload-status').innerHTML=`<p style="color:var(--success);font-size:13px;">✓ ${file.name} (${(file.size/1024).toFixed(1)} KB)</p>`;
   document.getElementById('upload-btn').disabled=false;
 }
@@ -40,8 +43,8 @@ function _setFile(file){
 let _ocrSessionId = null; // 現在のセッションID
 
 function uploadFile(){
-  if(!S.selectedFile)return;
-  if(S.docType==='order'&&!S.orderType){showToast('注文種別を選択してください',true);return;}
+  if(!window.S.selectedFile)return;
+  if(window.S.docType==='order'&&!window.S.orderType){showToast('注文種別を選択してください',true);return;}
   const btn=document.getElementById('upload-btn');
   btn.disabled=true; btn.textContent='OCR解析中...';
   document.getElementById('upload-status').innerHTML=
@@ -70,12 +73,12 @@ function uploadFile(){
       })
       .handleApiRequest('ocrPreview',{
         base64Data: b64,
-        fileName:   S.selectedFile.name,
-        docType:    S.docType,
-        orderType:  S.orderType,
+        fileName:   window.S.selectedFile.name,
+        docType:    window.S.docType,
+        orderType:  window.S.orderType,
       });
   };
-  reader.readAsDataURL(S.selectedFile);
+  reader.readAsDataURL(window.S.selectedFile);
 }
 
 // ============================================================
@@ -85,7 +88,7 @@ function _openOcrReviewModal(res){
   const ocr     = res.ocrResult || {};
   const quality = res.quality   || 0;
   const warns   = res.warnings  || [];
-  const isQuote = S.docType === 'quote';
+  const isQuote = window.S.docType === 'quote';
 
   // 品質バーの色
   const qColor = quality >= 75 ? '#16a34a' : quality >= 50 ? '#d97706' : '#dc2626';
@@ -245,7 +248,7 @@ function _openOcrReviewModal(res){
 
   // 明細データをwindowに保持（編集用）
   window._ocrLines = JSON.parse(JSON.stringify(lines));
-  window._ocrDocType = S.docType;
+  window._ocrDocType = window.S.docType;
 }
 
 // OCR確認モーダルの操作関数
@@ -371,7 +374,7 @@ function _showOrderUploadResult(res){
 // 詳細モーダル表示 ＆ 紐づけ機能
 // ============================================================
 function openDetail(mgmtId) {
-  let item = S.all.find(r => r.id === mgmtId) || (typeof _allQuotes !== 'undefined' ? _allQuotes.find(r => r.id === mgmtId) : null) || { id: mgmtId, client: 'データ取得中...', status: '' };
+  let item = window.S.all.find(r => r.id === mgmtId) || (typeof window._allQuotes !== 'undefined' ? window._allQuotes.find(r => r.id === mgmtId) : null) || { id: mgmtId, client: 'データ取得中...', status: '' };
   
   document.getElementById('detail-title').textContent = '📋 ' + (item.orderNo || item.quoteNo || mgmtId);
   document.getElementById('detail-modal').classList.add('open');
@@ -391,7 +394,7 @@ function openDetail(mgmtId) {
 function closeDetailModal(){document.getElementById('detail-modal').classList.remove('open');}
 
 function openQuoteDetail(mgmtId, quoteNo) {
-  let item = S.all.find(r => r.id === mgmtId) || (typeof _allQuotes !== 'undefined' ? _allQuotes.find(r => r.id === mgmtId) : null) || { id: mgmtId, quoteNo: quoteNo || mgmtId, client: '', status: '' };
+  let item = window.S.all.find(r => r.id === mgmtId) || (typeof window._allQuotes !== 'undefined' ? window._allQuotes.find(r => r.id === mgmtId) : null) || { id: mgmtId, quoteNo: quoteNo || mgmtId, client: '', status: '' };
   document.getElementById('quote-detail-title').textContent = '📄 見積書 ' + (item.quoteNo || mgmtId);
   document.getElementById('quote-detail-modal').classList.add('open');
   document.getElementById('quote-detail-body').innerHTML = '<div class="loading"><div class="spinner"></div></div>';
@@ -490,8 +493,8 @@ function _buildDetailHtml(item, detail) {
   let linkHtml = '';
   if (item.orderNo && !item.quoteNo) {
     let quoteOpts = '';
-    if (typeof _allQuotes !== 'undefined') {
-      const unlinkedQuotes = _allQuotes.filter(q => !q.linked);
+    if (typeof window._allQuotes !== 'undefined') {
+      const unlinkedQuotes = window._allQuotes.filter(q => !q.linked);
       quoteOpts = unlinkedQuotes.map(q => {
         let itemNames = q.subject || '—'; let unitPrice = '—';
         if (detail && detail.allQuoteLines && detail.allQuoteLines.length > 0) {
@@ -552,13 +555,13 @@ function _manualLinkQuote(orderMgmtId) {
 function updateStatus(mgmtId){
   const ns=document.getElementById('status-sel').value;
   google.script.run.withSuccessHandler(res=>{
-    if(res.success){ showToast('ステータスを「'+ns+'」に変更しました'); const it=S.all.find(r=>r.id===mgmtId);if(it)it.status=ns; S.filtered=S.filtered.map(r=>r.id===mgmtId?{...r,status:ns}:r); _renderTable();_updateSummary();closeDetailModal(); }
+    if(res.success){ showToast('ステータスを「'+ns+'」に変更しました'); const it=window.S.all.find(r=>r.id===mgmtId);if(it)it.status=ns; window.S.filtered=window.S.filtered.map(r=>r.id===mgmtId?{...r,status:ns}:r); _renderTable();_updateSummary();closeDetailModal(); }
     else showToast('更新失敗: '+res.error,true);
   }).handleApiRequest('updateStatus',{mgmtId,newStatus:ns});
 }
 
 function openEditModal(mgmtId) {
-  const item = S.all.find(r => r.id === mgmtId) || (typeof _allQuotes !== 'undefined' ? _allQuotes.find(r => r.id === mgmtId) : null);
+  const item = window.S.all.find(r => r.id === mgmtId) || (typeof window._allQuotes !== 'undefined' ? window._allQuotes.find(r => r.id === mgmtId) : null);
   if (!item) { showToast('データが見つかりません', true); return; }
   const v = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
   v('edit-mgmt-id', mgmtId); v('edit-quote-no', item.quoteNo); v('edit-order-no', item.orderNo);
@@ -606,7 +609,7 @@ function loadMatchingCandidates() {
   container.innerHTML = '<div class="loading"><div class="spinner"></div><br>AIが抽出した紐づけ候補を読み込み中...</div>';
   google.script.run.withSuccessHandler(res => {
     if (!res.success) { container.innerHTML = '<div class="alert alert-danger" style="color:var(--danger);">エラー: ' + res.error + '</div>'; return; }
-    _allMatchingItems = res.items || []; _renderMatchingCandidates(_allMatchingItems);
+    window._allMatchingItems = res.items || []; _renderMatchingCandidates(window._allMatchingItems);
   }).withFailureHandler(err => { container.innerHTML = '<div class="alert alert-danger" style="color:var(--danger);">通信エラー: ' + err.message + '</div>'; }).handleApiRequest('getCandidates', null);
 }
 
@@ -635,21 +638,21 @@ function _renderMatchingCandidates(items) {
     candidates = candidates.filter(c => c && (c.quoteId || c.id)).slice(0, 20);
 
     // ★ 候補が0件の場合、未紐づけ見積書から1件〜3件引っ張ってくる（最低1つ表示）
-    if (candidates.length === 0 && typeof _allQuotes !== 'undefined' && _allQuotes.length > 0) {
-      let fallback = _allQuotes.filter(q => !q.linked);
+    if (candidates.length === 0 && typeof window._allQuotes !== 'undefined' && window._allQuotes.length > 0) {
+      let fallback = window._allQuotes.filter(q => !q.linked);
       let sameClient = fallback.filter(q => (q.client||q.destCompany||'').includes(item.orderClient || ''));
       if (sameClient.length > 0) fallback = sameClient;
       candidates = fallback.slice(0, 3).map(q => ({ quoteId: q.id, quoteNo: q.quoteNo || 'Noなし', client: q.client || q.destCompany || '不明', issueDate: q.issueDate || '—', amount: q.quoteAmount || 0, subject: q.subject || '', score: 0, reason: '類似する候補が見つからなかったため、未紐づけの見積書を参考表示しています。', items: [] }));
       
       if (candidates.length === 0) {
-          let anyUnlinked = _allQuotes.filter(q => !q.linked).slice(0,1);
+          let anyUnlinked = window._allQuotes.filter(q => !q.linked).slice(0,1);
           if (anyUnlinked.length > 0) { let q = anyUnlinked[0]; candidates.push({ quoteId: q.id, quoteNo: q.quoteNo || 'Noなし', client: q.client || q.destCompany || '不明', issueDate: q.issueDate || '—', amount: q.quoteAmount || 0, subject: q.subject || '', score: 0, reason: '未紐づけの見積書を参考表示しています。', items: [] }); }
       }
     }
 
     const candRows = candidates.map(c => {
       const qId = c.quoteId || c.id;
-      const q = (typeof _allQuotes !== 'undefined') ? _allQuotes.find(aq => String(aq.id) === String(qId)) : null;
+      const q = (typeof window._allQuotes !== 'undefined') ? window._allQuotes.find(aq => String(aq.id) === String(qId)) : null;
       const qNo = c.quoteNo || (q ? q.quoteNo : '不明'); const qDate = c.issueDate || (q ? q.issueDate : '—');
       const qSubject = c.subject || (q ? q.subject : '—'); const qAmount = c.amount || (q ? q.quoteAmount : '—');
       const pdfUrl = c.quoteUrl || (q ? q.quotePdfUrl : '');
@@ -675,7 +678,7 @@ function _renderMatchingCandidates(items) {
     }).join('');
 
     // ★ 注文書のPDFリンクを取得してボタンを作る
-    const mgmtItem = S.all.find(r => String(r.id) === String(item.orderMgmtId));
+    const mgmtItem = window.S.all.find(r => String(r.id) === String(item.orderMgmtId));
     const orderPdfUrl = (mgmtItem ? mgmtItem.orderPdfUrl : '') || item.orderPdfUrl || '';
     const orderPdfBtn = orderPdfUrl ? `<a href="${orderPdfUrl}" target="_blank" onclick="event.stopPropagation()" style="text-decoration:none; background:#fff; border:1px solid #f9d5d1; color:#c0392b; font-size:11px; padding:3px 8px; border-radius:4px; font-weight:600; box-shadow:0 1px 2px rgba(0,0,0,0.05); display:inline-flex; align-items:center; gap:4px; margin-left:8px;">📄 注文書PDF</a>` : '';
 
@@ -699,8 +702,8 @@ function _renderMatchingCandidates(items) {
 
 function filterMatchingCandidates() {
   const kw = document.getElementById('matching-search').value.toLowerCase();
-  if (!kw) { _renderMatchingCandidates(_allMatchingItems); return; }
-  const filtered = _allMatchingItems.filter(item => String(item.orderNo||'').toLowerCase().includes(kw) || String(item.orderMgmtId||'').toLowerCase().includes(kw) || String(item.orderClient||'').toLowerCase().includes(kw));
+  if (!kw) { _renderMatchingCandidates(window._allMatchingItems); return; }
+  const filtered = window._allMatchingItems.filter(item => String(item.orderNo||'').toLowerCase().includes(kw) || String(item.orderMgmtId||'').toLowerCase().includes(kw) || String(item.orderClient||'').toLowerCase().includes(kw));
   _renderMatchingCandidates(filtered);
 }
 
@@ -1219,75 +1222,8 @@ var _adminLoaded = false;
 function _onShowAdmin() { if (!_adminLoaded) { _adminLoaded = true; loadAdminSettings(); } if (!document.querySelector('.admin-tab.active')) { switchAdminTab('basic'); } }
 const _originalShowPage = window.showPage || function(){};
 window.showPage = function(name) { _originalShowPage(name); if (name === 'admin') _onShowAdmin(); };
-</script>
 
-<!-- ============================================================
-     AIチャット CSS & JS（16_chatbot_v2.gs 連携）
-============================================================ -->
-<style>
-.chat-suggest-btn{
-  border:1px solid var(--border);background:var(--card);color:var(--text);
-  border-radius:20px;padding:6px 14px;font-size:12px;cursor:pointer;
-  transition:all .15s;font-family:inherit;
-}
-.chat-suggest-btn:hover{background:var(--primary-light);border-color:var(--primary);color:var(--primary);}
 
-.chat-bubble{display:flex;gap:10px;max-width:100%;animation:fadeIn .2s ease;}
-.chat-bubble.user{flex-direction:row-reverse;}
-@keyframes fadeIn{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
-
-.chat-avatar{
-  width:32px;height:32px;border-radius:50%;display:flex;align-items:center;
-  justify-content:center;font-size:14px;flex-shrink:0;margin-top:2px;
-}
-.chat-avatar.ai{background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;}
-.chat-avatar.user{background:var(--bg);border:1px solid var(--border);color:var(--text-sub);}
-
-.chat-content{flex:1;min-width:0;}
-.chat-bubble.user .chat-content{display:flex;justify-content:flex-end;}
-
-.chat-msg{
-  display:inline-block;max-width:85%;padding:10px 14px;border-radius:12px;
-  font-size:13px;line-height:1.65;word-break:break-word;
-}
-.chat-bubble.ai .chat-msg{
-  background:var(--card);border:1px solid var(--border);
-  border-radius:4px 12px 12px 12px;color:var(--text);
-}
-.chat-bubble.user .chat-msg{
-  background:var(--primary);color:#fff;
-  border-radius:12px 4px 12px 12px;
-}
-
-/* AIの回答内のテキスト整形 */
-.chat-bubble.ai .chat-msg table{width:100%;border-collapse:collapse;margin:8px 0;font-size:12px;}
-.chat-bubble.ai .chat-msg th{background:#f8fafc;padding:5px 8px;border:1px solid var(--border);font-weight:600;text-align:left;}
-.chat-bubble.ai .chat-msg td{padding:5px 8px;border:1px solid var(--border);}
-.chat-bubble.ai .chat-msg strong{font-weight:600;color:var(--primary);}
-.chat-bubble.ai .chat-msg a{color:var(--primary);text-decoration:none;}
-.chat-bubble.ai .chat-msg a:hover{text-decoration:underline;}
-.chat-bubble.ai .chat-msg code{background:#f1f5f9;border-radius:3px;padding:1px 5px;font-size:11px;}
-
-/* アクションタグ */
-.chat-action-tag{
-  display:inline-flex;align-items:center;gap:4px;
-  background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;
-  border-radius:4px;padding:2px 8px;font-size:11px;margin:4px 2px 0;
-}
-.chat-action-tag.success{background:#f0fdf4;color:#16a34a;border-color:#bbf7d0;}
-.chat-action-tag.warn{background:#fffbeb;color:#d97706;border-color:#fde68a;}
-
-/* ローディングdots */
-.chat-dots{display:inline-flex;gap:4px;align-items:center;padding:4px 0;}
-.chat-dots span{width:6px;height:6px;border-radius:50%;background:var(--text-muted);animation:dot .8s infinite;}
-.chat-dots span:nth-child(2){animation-delay:.2s;}
-.chat-dots span:nth-child(3){animation-delay:.4s;}
-@keyframes dot{0%,80%,100%{transform:scale(0.8);opacity:.4;}40%{transform:scale(1);opacity:1;}}
-
-#page-aichat .page{padding:0;}
-</style>
-
-<script>
 // ============================================================
 // AIチャット JavaScript
 // ============================================================
@@ -1473,3 +1409,69 @@ function chatClear() {
   showToast('履歴をクリアしました');
 }
 </script>
+
+<!-- ============================================================
+     AIチャット CSS & JS（16_chatbot_v2.gs 連携）
+============================================================ -->
+<style>
+.chat-suggest-btn{
+  border:1px solid var(--border);background:var(--card);color:var(--text);
+  border-radius:20px;padding:6px 14px;font-size:12px;cursor:pointer;
+  transition:all .15s;font-family:inherit;
+}
+.chat-suggest-btn:hover{background:var(--primary-light);border-color:var(--primary);color:var(--primary);}
+
+.chat-bubble{display:flex;gap:10px;max-width:100%;animation:fadeIn .2s ease;}
+.chat-bubble.user{flex-direction:row-reverse;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
+
+.chat-avatar{
+  width:32px;height:32px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;font-size:14px;flex-shrink:0;margin-top:2px;
+}
+.chat-avatar.ai{background:linear-gradient(135deg,#2563eb,#7c3aed);color:#fff;}
+.chat-avatar.user{background:var(--bg);border:1px solid var(--border);color:var(--text-sub);}
+
+.chat-content{flex:1;min-width:0;}
+.chat-bubble.user .chat-content{display:flex;justify-content:flex-end;}
+
+.chat-msg{
+  display:inline-block;max-width:85%;padding:10px 14px;border-radius:12px;
+  font-size:13px;line-height:1.65;word-break:break-word;
+}
+.chat-bubble.ai .chat-msg{
+  background:var(--card);border:1px solid var(--border);
+  border-radius:4px 12px 12px 12px;color:var(--text);
+}
+.chat-bubble.user .chat-msg{
+  background:var(--primary);color:#fff;
+  border-radius:12px 4px 12px 12px;
+}
+
+/* AIの回答内のテキスト整形 */
+.chat-bubble.ai .chat-msg table{width:100%;border-collapse:collapse;margin:8px 0;font-size:12px;}
+.chat-bubble.ai .chat-msg th{background:#f8fafc;padding:5px 8px;border:1px solid var(--border);font-weight:600;text-align:left;}
+.chat-bubble.ai .chat-msg td{padding:5px 8px;border:1px solid var(--border);}
+.chat-bubble.ai .chat-msg strong{font-weight:600;color:var(--primary);}
+.chat-bubble.ai .chat-msg a{color:var(--primary);text-decoration:none;}
+.chat-bubble.ai .chat-msg a:hover{text-decoration:underline;}
+.chat-bubble.ai .chat-msg code{background:#f1f5f9;border-radius:3px;padding:1px 5px;font-size:11px;}
+
+/* アクションタグ */
+.chat-action-tag{
+  display:inline-flex;align-items:center;gap:4px;
+  background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;
+  border-radius:4px;padding:2px 8px;font-size:11px;margin:4px 2px 0;
+}
+.chat-action-tag.success{background:#f0fdf4;color:#16a34a;border-color:#bbf7d0;}
+.chat-action-tag.warn{background:#fffbeb;color:#d97706;border-color:#fde68a;}
+
+/* ローディングdots */
+.chat-dots{display:inline-flex;gap:4px;align-items:center;padding:4px 0;}
+.chat-dots span{width:6px;height:6px;border-radius:50%;background:var(--text-muted);animation:dot .8s infinite;}
+.chat-dots span:nth-child(2){animation-delay:.2s;}
+.chat-dots span:nth-child(3){animation-delay:.4s;}
+@keyframes dot{0%,80%,100%{transform:scale(0.8);opacity:.4;}40%{transform:scale(1);opacity:1;}}
+
+#page-aichat .page{padding:0;}
+</style>

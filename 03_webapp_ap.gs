@@ -824,6 +824,7 @@ function _apiQuoteListGetAll() {
     var hiddenStatuses = getSettingValues('案件ステータス');
     if (!hiddenStatuses) hiddenStatuses = [];
     var hiddenTarget = '非表示'; // デフォルト
+    var seenQNo = {};
 
     var quoteRows = allRows.filter(function(r) {
       var qNo = String(r[MGMT_COLS.QUOTE_NO - 1]).trim();
