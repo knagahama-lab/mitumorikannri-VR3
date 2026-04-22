@@ -4,14 +4,14 @@
 // ============================================================
 
 const OCR_RETRY_CONFIG = {
-  MODEL: 'gemini-3.1-flash-lite',
+  // CONFIGのフォールバックモデルを直接指定する
+  MODEL: typeof CONFIG !== 'undefined' && CONFIG.GEMINI_FALLBACK_MODEL ? CONFIG.GEMINI_FALLBACK_MODEL : 'gemini-3-flash',
   SLEEP_MS: 5000, 
   MAX_EXEC_SECONDS: 270,
   MAX_RETRY: 3,
   STATUS_COL_NAME: 'OCRステータス',
   RETRY_COL_NAME: 'リトライ回数',
-  // ★ 追加：バッチ専用キーを取得するためのプロパティ名
-  BATCH_API_KEY_NAME: 'AIzaSyDTIYYD0tzwbavG87PLgNmVppFaGOsCVSo' 
+  BATCH_API_KEY_NAME: 'GEMINI_API_KEY_BATCH' 
 };
 
 /**
@@ -222,4 +222,50 @@ function _parseGeminiJsonResponse(result) {
     Logger.log('[JSON PARSE ERROR] ' + e.message);
     return {};
   }
+}
+/**
+ * 件名や日付が未入力（または「—」）の行を探し、
+ * 強制的にOCRステータスを「補完待ち」にリセットする関数
+ */
+function resetEmptyFieldsForOcrRetry() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT); // CONFIGのシート名定義を使用
+  if (!sheet) return;
+
+  var values = sheet.getDataRange().getValues();
+  var headers = values[0];
+
+  var statusColIdx = headers.indexOf(OCR_RETRY_CONFIG.STATUS_COL_NAME);
+  var retryColIdx = headers.indexOf(OCR_RETRY_CONFIG.RETRY_COL_NAME);
+
+  if (statusColIdx === -1) {
+    Logger.log('OCRステータス列が見つかりません。先に runOcrRetryBatch を一度実行してください。');
+    return;
+  }
+
+  // 対象のカラムインデックス
+  var subjectColIdx = MGMT_COLS.SUBJECT - 1;
+  var quoteDateColIdx = MGMT_COLS.QUOTE_DATE - 1;
+  var orderDateColIdx = MGMT_COLS.ORDER_DATE - 1;
+
+  var resetCount = 0;
+
+  for (var i = 1; i < values.length; i++) {
+    var subject = String(values[i][subjectColIdx] || '').trim();
+    var quoteDate = String(values[i][quoteDateColIdx] || '').trim();
+    var orderDate = String(values[i][orderDateColIdx] || '').trim();
+
+    // 条件：件名が空欄 または 「—」 、もしくは日付が両方空欄
+    var isSubjectEmpty = (subject === '' || subject === '—' || subject === '-');
+    var isDateEmpty = (quoteDate === '' && orderDate === '');
+
+    if (isSubjectEmpty || isDateEmpty) {
+      // ステータスを「補完待ち」、リトライ回数を「0」に書き換える
+      sheet.getRange(i + 1, statusColIdx + 1).setValue('補完待ち');
+      sheet.getRange(i + 1, retryColIdx + 1).setValue(0);
+      resetCount++;
+    }
+  }
+  
+  Logger.log(resetCount + ' 件のデータを「補完待ち」にセットしました。');
 }
