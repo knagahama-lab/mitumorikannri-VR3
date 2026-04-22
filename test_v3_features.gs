@@ -39,3 +39,21 @@ function testChatNotification() {
     _sendChatNotification(testId, testId.startsWith('MQ') ? 'quote' : 'order');
   }
 }
+/**
+ * この関数を実行して、夜間用APIキーを強制的に保存する
+ */
+function forceSaveBatchKey() {
+  // ★ ここを " " で囲むのを忘れずに！
+  var key = "AIzaSyARY7ly2Mt6li6gcqR68GWAXHtsY0V"; 
+  
+  // 保存実行
+  PropertiesService.getScriptProperties().setProperty('GEMINI_API_KEY_MATCHING', key);
+  
+  // 確認
+  var savedKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY_MATCHING');
+  if (savedKey === key) {
+    Logger.log("成功！プロパティが正常に保存されました: " + savedKey.substring(0, 5) + "...");
+  } else {
+    Logger.log("エラー：保存に失敗しました。");
+  }
+}

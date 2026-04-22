@@ -4,18 +4,21 @@
 // ============================================================
 
 const OCR_RETRY_CONFIG = {
-  // CONFIGのフォールバックモデルを直接指定する
-  MODEL: typeof CONFIG !== 'undefined' && CONFIG.GEMINI_FALLBACK_MODEL ? CONFIG.GEMINI_FALLBACK_MODEL : 'gemini-3-flash',
-  SLEEP_MS: 5000, 
-  MAX_EXEC_SECONDS: 270,
-  MAX_RETRY: 3,
+  // 確実に枠(RPD 20)があるモデルを指定
+  MODEL: 'gemini-2.5-flash', 
+  // 5 RPM（1分間に5回）制限を回避するため15秒待機にする
+  SLEEP_MS: 15000,            
+  MAX_EXEC_SECONDS: 270,      // GASタイムアウトエラー回避（4.5分で強制終了）
+  MAX_RETRY: 3,               // 最大リトライ回数
   STATUS_COL_NAME: 'OCRステータス',
   RETRY_COL_NAME: 'リトライ回数',
+  // スクリプトプロパティに保存した夜間用APIキーの名称
   BATCH_API_KEY_NAME: 'GEMINI_API_KEY_BATCH' 
 };
 
 /**
  * 【Time-driven Trigger】夜間に定期実行されるバッチのメイン関数
+ * トリガー設定から「1日1回 深夜」に設定して使用します
  */
 function runOcrRetryBatch() {
   const startTime = new Date().getTime();
@@ -66,38 +69,37 @@ function runOcrRetryBatch() {
   ];
 
   for (var i = 1; i < values.length; i++) {
-    // タイムアウト検証（もし処理開始から4分30秒経過していたらループを抜ける）
+    // タイムアウト検証
     var elapsedSeconds = (new Date().getTime() - startTime) / 1000;
     if (elapsedSeconds > OCR_RETRY_CONFIG.MAX_EXEC_SECONDS) {
-      Logger.log('[OCR RETRY] タイムアウト回避規定時間に達したため、処理を中断・次回に持ち越します。完了行: ' + i);
+      Logger.log('[OCR RETRY] タイムアウト回避規定時間に達したため中断。完了行: ' + i);
       break;
     }
 
     var rowId    = values[i][MGMT_COLS.ID - 1] || 'Unknown';
-    var pdfUrl   = values[i][MGMT_COLS.QUOTE_PDF_URL - 1] || values[i][MGMT_COLS.ORDER_PDF_URL - 1]; // どちらかを取得
+    var pdfUrl   = values[i][MGMT_COLS.QUOTE_PDF_URL - 1] || values[i][MGMT_COLS.ORDER_PDF_URL - 1]; 
     var status   = values[i][statusColIdx] || '';
     var retryCnt = Number(values[i][retryColIdx]) || 0;
 
-    // 抽出条件：ステータスが「補完待ち」かつ リトライ回数が3未満
+    // 抽出条件：ステータスが「補完待ち」かつ リトライ回数が上限未満
     if (status === '補完待ち' && retryCnt < OCR_RETRY_CONFIG.MAX_RETRY) {
       
       if (!pdfUrl) {
-         // PDFが存在しない場合はこれ以上進めないため手動にする
          sheet.getRange(i + 1, statusColIdx + 1).setValue('手動確認');
          continue;
       }
 
-      // 実際に対象カラムのうち、空欄のものを特定
+      // 不足項目の特定
       var missingHeaders = [];
       var missingIndexes = [];
       targetColIndexes.forEach(function(colIdx) {
-        if (!values[i][colIdx] || String(values[i][colIdx]).trim() === '') {
+        var val = String(values[i][colIdx] || '').trim();
+        if (val === '' || val === '—' || val === '-') {
           missingHeaders.push(headers[colIdx]);
           missingIndexes.push(colIdx);
         }
       });
 
-      // もしすべて埋まっている（不足なし）場合はステータスを完了にしてスキップ
       if (missingHeaders.length === 0) {
         sheet.getRange(i + 1, statusColIdx + 1).setValue('完了');
         continue;
@@ -113,12 +115,11 @@ function runOcrRetryBatch() {
         var mimeType = file.getMimeType() || 'application/pdf';
         var base64 = Utilities.base64Encode(file.getBlob().getBytes());
 
-        // プロンプト生成
         var prompt = 'この画像は書類（見積書または注文書）です。\n' + 
                      '前回のデータベース登録時に以下の項目が読み取りできませんでした。\n' +
                      '画像から [' + missingHeaders.join(', ') + '] のみを推測・抽出し、厳格なJSON形式で返してください。\n' +
-                     'JSONキーには、こちらの指定した日本語のカラム名をそのまま利用してください。値が取得できない場合は空文字としてください。\n' +
-                     'ルール: 有効なJSONのみ。マークダウンや説明は一切記載しないこと。金額などは極力数字で返却。';
+                     'JSONキーには日本語のカラム名をそのまま利用してください。値が取得できない場合は空文字としてください。\n' +
+                     'ルール: 有効なJSONのみ。マークダウンや説明は一切記載しないこと。金額などは数字のみ。';
 
         var body = {
           contents: [{ parts: [
@@ -128,10 +129,8 @@ function runOcrRetryBatch() {
           generationConfig: { temperature: 0.1, responseMimeType: 'application/json' }
         };
 
-        // API実行
         var apiRes = _callGeminiApiOcrRetry(OCR_RETRY_CONFIG.MODEL, body);
         
-        // 取得した結果をパース
         var extractedData = {};
         if (apiRes) extractedData = _parseGeminiJsonResponse(apiRes);
 
@@ -140,14 +139,12 @@ function runOcrRetryBatch() {
           var hName = headers[colIdx];
           var extVal = extractedData[hName];
           if (extVal && String(extVal).trim() !== '') {
-            // スプレッドシートへ書き込み
             sheet.getRange(i + 1, colIdx + 1).setValue(extVal);
           } else {
              isAllFilled = false;
           }
         });
 
-        // リトライ回数更新
         var nextRetry = retryCnt + 1;
         sheet.getRange(i + 1, retryColIdx + 1).setValue(nextRetry);
 
@@ -161,14 +158,14 @@ function runOcrRetryBatch() {
         Logger.log('[OCR RETRY ERROR] ' + rowId + ': ' + e.message);
       }
       
-      // ★ 最重要：RPM(15回/分)制限回避。API呼び出し後は必ず待機
+      // API制限回避の待機
       Utilities.sleep(OCR_RETRY_CONFIG.SLEEP_MS);
     }
   }
 }
 
 /**
- * URLからGoogle DriveのFile IDを抽出する
+ * URLからGoogle DriveのFile IDを抽出
  */
 function _extractFileIdFromUrl(url) {
   var match = url.match(/[-\w]{25,}/);
@@ -176,19 +173,27 @@ function _extractFileIdFromUrl(url) {
 }
 
 /**
- * Gemini APIへの直接リクエスト関数（バッチ処理専用）
+ * Gemini APIへの直接リクエスト（バッチ専用APIキー対応）
  */
 function _callGeminiApiOcrRetry(model, body) {
-  var key = typeof CONFIG !== 'undefined' && CONFIG.GEMINI_API_KEY 
-            ? CONFIG.GEMINI_API_KEY 
-            : PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
-            
-  if (!key) throw new Error('GEMINI_API_KEY未設定');
+  // 1. スクリプトプロパティから直接取得を試みる
+  var batchKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY_BATCH');
   
-  var endpoint = typeof CONFIG !== 'undefined' && CONFIG.GEMINI_API_ENDPOINT
-                 ? CONFIG.GEMINI_API_ENDPOINT
-                 : 'https://generativelanguage.googleapis.com/v1beta/models/';
-                 
+  var key = "";
+  if (batchKey) {
+    Logger.log("[DEBUG] 夜間用キー(BATCH)を使用します: " + batchKey.substring(0, 5) + "...");
+    key = batchKey;
+  } else {
+    Logger.log("[DEBUG] 夜間用キーが見つからないため、通常キーを使用します。");
+    key = typeof CONFIG !== 'undefined' && CONFIG.GEMINI_API_KEY 
+          ? CONFIG.GEMINI_API_KEY 
+          : PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  }
+            
+  if (!key) throw new Error('APIキーがどこにも設定されていません');
+  
+  // 以降の通信処理はそのまま
+  var endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/';
   var url = endpoint + model + ':generateContent?key=' + key;
   
   var res = UrlFetchApp.fetch(url, {
@@ -198,15 +203,11 @@ function _callGeminiApiOcrRetry(model, body) {
     muteHttpExceptions: true
   });
   
-  if (res.getResponseCode() !== 200) {
-    Logger.log('[API NON-200 ERROR] ' + res.getContentText());
-    return null;
-  }
   return JSON.parse(res.getContentText());
 }
 
 /**
- * JSON解析のヘルパー関数
+ * JSON解析
  */
 function _parseGeminiJsonResponse(result) {
   try {
@@ -223,13 +224,13 @@ function _parseGeminiJsonResponse(result) {
     return {};
   }
 }
+
 /**
- * 件名や日付が未入力（または「—」）の行を探し、
- * 強制的にOCRステータスを「補完待ち」にリセットする関数
+ * 空欄データを「補完待ち」にセットする（手動リセット用）
  */
 function resetEmptyFieldsForOcrRetry() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT); // CONFIGのシート名定義を使用
+  var sheet = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT);
   if (!sheet) return;
 
   var values = sheet.getDataRange().getValues();
@@ -239,33 +240,21 @@ function resetEmptyFieldsForOcrRetry() {
   var retryColIdx = headers.indexOf(OCR_RETRY_CONFIG.RETRY_COL_NAME);
 
   if (statusColIdx === -1) {
-    Logger.log('OCRステータス列が見つかりません。先に runOcrRetryBatch を一度実行してください。');
+    Logger.log('OCRステータス列がありません。runOcrRetryBatchを一度実行してください。');
     return;
   }
 
-  // 対象のカラムインデックス
-  var subjectColIdx = MGMT_COLS.SUBJECT - 1;
-  var quoteDateColIdx = MGMT_COLS.QUOTE_DATE - 1;
-  var orderDateColIdx = MGMT_COLS.ORDER_DATE - 1;
-
   var resetCount = 0;
-
   for (var i = 1; i < values.length; i++) {
-    var subject = String(values[i][subjectColIdx] || '').trim();
-    var quoteDate = String(values[i][quoteDateColIdx] || '').trim();
-    var orderDate = String(values[i][orderDateColIdx] || '').trim();
-
-    // 条件：件名が空欄 または 「—」 、もしくは日付が両方空欄
-    var isSubjectEmpty = (subject === '' || subject === '—' || subject === '-');
-    var isDateEmpty = (quoteDate === '' && orderDate === '');
-
-    if (isSubjectEmpty || isDateEmpty) {
-      // ステータスを「補完待ち」、リトライ回数を「0」に書き換える
+    var subject = String(values[i][MGMT_COLS.SUBJECT - 1] || '').trim();
+    var qDate = String(values[i][MGMT_COLS.QUOTE_DATE - 1] || '').trim();
+    
+    // 件名が空欄・「—」・「-」の場合、または日付が空の場合
+    if (subject === '' || subject === '—' || subject === '-' || qDate === '') {
       sheet.getRange(i + 1, statusColIdx + 1).setValue('補完待ち');
       sheet.getRange(i + 1, retryColIdx + 1).setValue(0);
       resetCount++;
     }
   }
-  
-  Logger.log(resetCount + ' 件のデータを「補完待ち」にセットしました。');
+  Logger.log(resetCount + ' 件を「補完待ち」にセットしました。');
 }

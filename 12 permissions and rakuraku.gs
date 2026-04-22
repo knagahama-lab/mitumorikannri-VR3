@@ -9,22 +9,6 @@ var VIEWER_SHEET = '閲覧権限管理';
 // ① 閲覧権限管理
 // ============================================================
 
-function _getViewerSheet() {
-  var ss = getSpreadsheet();
-  var sheet = ss.getSheetByName(VIEWER_SHEET);
-  if (!sheet) {
-    sheet = ss.insertSheet(VIEWER_SHEET);
-    var headers = ['行番号', 'メールアドレス', '氏名', '部署', '権限レベル', '備考', '登録日時'];
-    sheet.getRange(1, 1, 1, headers.length).setValues([headers])
-      .setBackground('#7c3aed').setFontColor('#ffffff').setFontWeight('bold');
-    sheet.setFrozenRows(1);
-    sheet.setColumnWidth(2, 200);
-    sheet.setColumnWidth(3, 120);
-    sheet.setColumnWidth(5, 100);
-  }
-  return sheet;
-}
-
 function _apiGetViewerPermissions() {
   try {
     var sheet = _getViewerSheet();
@@ -136,7 +120,7 @@ function _apiSaveMailSendSettings(p) {
 /**
  * イベント発生時にグループメール配信する
  * eventKey: 'quote_created' | 'order_received' | 'link_confirmed' | 'link_failed' |
- *           'approval_required' | 'approval_done' | 'approval_rejected' | 'delivery_alert'
+ * 'approval_required' | 'approval_done' | 'approval_rejected' | 'delivery_alert'
  */
 function sendEventMail(eventKey, data) {
   try {
