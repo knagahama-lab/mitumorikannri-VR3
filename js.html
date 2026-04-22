@@ -119,6 +119,34 @@ function _updateSummary() { const now = new Date(); const ym = now.getFullYear()
 function _sBadge(s){const m={'作成予定':'planned','送信済み':'sent','受領':'received','受注済み':'received','納品済み':'done','キャンセル':'planned'};return`<span class="badge badge-${m[s]||'planned'}">${s||'—'}</span>`;}
 function _otBadge(t){if(t==='試作')return'<span class="badge badge-trial">試作</span>';if(t==='量産')return'<span class="badge badge-mass">量産</span>';return'';}
 
+// ステータス手動切替ドロップダウン（注文書・見積書一覧共通）
+function _statusSelectHtml(id, currentStatus, editType) {
+  const mgmtStatuses = ['作成予定','送信済み','受領','受注済み','納品済み','キャンセル'];
+  const ledgerStatuses = ['作成予定','作成中','送信済み','受注済み','キャンセル'];
+  const statuses = (editType === 'ledger') ? ledgerStatuses : mgmtStatuses;
+  const st = currentStatus || '作成予定';
+  const stClassMap = {'作成予定':'st-planned','送信済み':'st-sent','受領':'st-received','受注済み':'st-received','納品済み':'st-done','作成中':'st-planned','キャンセル':'st-planned'};
+  const stClass = stClassMap[st] || 'st-planned';
+  const opts = statuses.map(s => `<option value="${s}"${s===st?' selected':''}>${s}</option>`).join('');
+  const safeId = String(id).replace(/'/g,"\\'");
+  const onChange = (editType === 'ledger')
+    ? `quickUpdateLedgerStatus('${safeId}', this.value)`
+    : `quickUpdateMgmtStatus('${safeId}', this.value)`;
+  const classMapJs = "{'作成予定':'st-planned','送信済み':'st-sent','受領':'st-received','受注済み':'st-received','納品済み':'st-done','作成中':'st-planned','キャンセル':'st-planned'}";
+  return `<select class="status-select-inline ${stClass}" onchange="event.stopPropagation();${onChange};this.className='status-select-inline '+((${classMapJs})[this.value]||'st-planned')">${opts}</select>`;
+}
+// mgmtのステータス即時更新
+function quickUpdateMgmtStatus(mgmtId, newStatus) {
+  const item = S.all.find(r => r.id === mgmtId);
+  if (item) item.status = newStatus;
+  const qItem = _allQuotes.find(r => r.id === mgmtId);
+  if (qItem) qItem.status = newStatus;
+  google.script.run.withSuccessHandler(res => {
+    if (res.success) { showToast('ステータスを更新しました'); _updateSummary(); }
+    else { showToast('更新失敗: ' + res.error, true); }
+  }).handleApiRequest('updateStatus', { mgmtId: mgmtId, newStatus: newStatus });
+}
+
 function _renderTable() {
   const start = (S.page-1)*S.limit; const data = S.filtered.slice(start, start+S.limit); const total = S.filtered.length;
   if(document.getElementById('result-count')) document.getElementById('result-count').textContent = total+'件中 '+(total>0?start+1:0)+'–'+Math.min(start+S.limit,total)+'件';
@@ -131,7 +159,7 @@ function _renderTable() {
       <td class="editable-cell" onclick="startInlineEdit(event, '${r.id}', 'orderSlipNo', '${_esc(r.orderSlipNo||'')}', 'mgmt')">${r.orderSlipNo||'—'}</td>
       <td class="editable-cell" onclick="startInlineEdit(event, '${r.id}', 'modelCode', '${_esc(r.modelCode||'')}', 'mgmt')">${r.modelCode||'—'}</td>
       <td class="editable-cell" onclick="startInlineEdit(event, '${r.id}', 'client', '${_esc(r.client||'')}', 'mgmt')" style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.client||''}</td>
-      <td>${_sBadge(r.status)}</td>
+      <td onclick="event.stopPropagation();">${_statusSelectHtml(r.id, r.status, 'mgmt')}</td>
       <td>${r.orderType?_otBadge(r.orderType):''}</td>
       <td class="text-sub">${r.orderDate||r.quoteDate||''}</td>
       <td class="text-sub">${r.deliveryDate||''}</td>
@@ -140,15 +168,34 @@ function _renderTable() {
         ${r.quotePdfUrl?`<a class="pdf-link" href="${r.quotePdfUrl}" target="_blank" onclick="event.stopPropagation()">見積</a> `:''}
         ${r.orderPdfUrl?`<a class="pdf-link" href="${r.orderPdfUrl}" target="_blank" onclick="event.stopPropagation()">発注</a>`:''}
       </td>
+      <td onclick="event.stopPropagation();" style="min-width:120px;">
+        ${r.quoteNo
+          ? `<span style="font-size:11px;color:var(--primary);font-weight:600;">${r.quoteNo}</span><button class="btn btn-outline btn-sm" style="margin-left:4px;font-size:10px;padding:2px 6px;" onclick="event.stopPropagation();_openQuickLinkOrder('${r.id}')">変更</button>`
+          : `<button class="btn btn-outline btn-sm" style="font-size:10px;padding:2px 8px;" onclick="event.stopPropagation();_openQuickLinkOrder('${r.id}')">🔗 見積No.入力</button>`}
+      </td>
       <td style="text-align:center; white-space:nowrap;">
         <button class="btn btn-outline btn-sm" onclick="event.stopPropagation(); openDetail('${r.id}')">📄 詳細</button>
         <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteMgmt('${r.id}', '${(r.orderNo||r.quoteNo||'').replace(/'/g,'')}')">🗑️ 削除</button>
       </td>
     </tr>`).join('');
-  document.getElementById('table-container').innerHTML = `<div style="overflow-x:auto;"><table><thead><tr><th>管理ID</th><th>発注書番号</th><th>発注伝票No</th><th>機種</th><th>顧客名</th><th>ステータス</th><th>種別</th><th>発注日</th><th>納期</th><th>注文金額</th><th>PDF</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  document.getElementById('table-container').innerHTML = `<div style="overflow-x:auto;"><table><thead><tr><th>管理ID</th><th>発注書番号</th><th>発注伝票No</th><th>機種</th><th>顧客名</th><th>ステータス</th><th>種別</th><th>発注日</th><th>納期</th><th>注文金額</th><th>PDF</th><th>紐づき見積No.</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   _renderPagination(total);
 }
-function _renderPagination(total) { const pages=Math.ceil(total/S.limit); if(pages<=1){document.getElementById('pagination').innerHTML='';return;} let h=''; for(let i=1;i<=Math.min(pages,10);i++) h+=`<button class="page-btn ${i===S.page?'active':''}" onclick="goPage(${i})">${i}</button>`; document.getElementById('pagination').innerHTML=h; }
+function _renderPagination(total) {
+  const pages = Math.ceil(total/S.limit);
+  const pEl = document.getElementById('pagination');
+  if (!pEl) return;
+  if (pages <= 1) { pEl.innerHTML = ''; return; }
+  let h = '';
+  if (S.page > 1) h += `<button class="page-btn" onclick="goPage(${S.page-1})">‹</button>`;
+  const start = Math.max(1, S.page - 4);
+  const end = Math.min(pages, start + 8);
+  if (start > 1) h += `<button class="page-btn" onclick="goPage(1)">1</button><span style="padding:4px 2px;color:var(--text-sub);">…</span>`;
+  for (let i = start; i <= end; i++) h += `<button class="page-btn ${i===S.page?'active':''}" onclick="goPage(${i})">${i}</button>`;
+  if (end < pages) h += `<span style="padding:4px 2px;color:var(--text-sub);">…</span><button class="page-btn" onclick="goPage(${pages})">${pages}</button>`;
+  if (S.page < pages) h += `<button class="page-btn" onclick="goPage(${S.page+1})">›</button>`;
+  pEl.innerHTML = h;
+}
 function goPage(n){S.page=n;_renderTable();}
 function debounceSearch(){clearTimeout(searchTimer);searchTimer=setTimeout(applyFilters,300);}
 
@@ -200,8 +247,13 @@ function _renderQuoteTable() {
       <td style="font-size:12px;color:var(--text-sub);">${r.issueDate || r.quoteDate || '—'}</td>
       <td class="editable-cell" onclick="startInlineEdit(event, '${realId}', '${fromLedger?'dest':'client'}', '${_esc(r.destCompany||r.client||'')}', '${editType}')" style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.destCompany||r.client||''}">${r.destCompany || r.client || '—'}</td>
       <td class="editable-cell" onclick="startInlineEdit(event, '${realId}', '${fromLedger?'amount':'quoteAmount'}', '${r.quoteAmount||''}', '${editType}')" style="text-align:right;white-space:nowrap;">${r.quoteAmount ? Number(r.quoteAmount).toLocaleString() + ' 円' : '—'}</td>
-      <td>${_sBadge(r.status)}</td>
+      <td onclick="event.stopPropagation();">${_statusSelectHtml(selectId, r.status, fromLedger ? 'ledger' : 'mgmt')}</td>
       <td>${r.linked ? '<span class="badge badge-linked">✓ 注文書あり</span>' : '<span style="font-size:11px;color:var(--text-sub);">未受注</span>'}</td>
+      <td onclick="event.stopPropagation();" style="min-width:120px;">
+        ${r.orderNo
+          ? `<span style="font-size:11px;color:var(--danger);font-weight:600;">${r.orderNo}</span><button class="btn btn-outline btn-sm" style="margin-left:4px;font-size:10px;padding:2px 6px;" onclick="event.stopPropagation();_openQuickLinkQuote('${fromLedger ? 'LEDGER_'+r._ledgerId : r.id}')">変更</button>`
+          : `<button class="btn btn-outline btn-sm" style="font-size:10px;padding:2px 8px;" onclick="event.stopPropagation();_openQuickLinkQuote('${fromLedger ? 'LEDGER_'+r._ledgerId : r.id}')">🔗 注文書番号入力</button>`}
+      </td>
       <td>${r.quotePdfUrl ? '<a class="pdf-link" href="' + r.quotePdfUrl + '" target="_blank" onclick="event.stopPropagation()">📄 PDF</a>' : '—'}</td>
       <td style="text-align:center; white-space:nowrap;">
         <button class="btn btn-outline btn-sm" onclick="event.stopPropagation(); ${fromLedger ? `if(typeof openLedgerAddModal==='function')openLedgerAddModal('${r._ledgerId}')` : `openQuoteDetail('${r.id}')`}">📄 詳細</button>
@@ -209,7 +261,7 @@ function _renderQuoteTable() {
       </td>
     </tr>`;
   }).join('');
-  document.getElementById('quotelist-container').innerHTML = `<div style="overflow-x:auto;"><table><thead><tr><th>見積No.</th><th>件名（ファイル名）</th><th>発行日</th><th>宛先</th><th>金額</th><th>ステータス</th><th>紐づけ状況</th><th>PDF</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  document.getElementById('quotelist-container').innerHTML = `<div style="overflow-x:auto;"><table><thead><tr><th>見積No.</th><th>件名（ファイル名）</th><th>発行日</th><th>宛先</th><th>金額</th><th>ステータス</th><th>紐づけ状況</th><th>注文書番号</th><th>PDF</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   const pages = Math.ceil(total / _quoteLimit); if (pages <= 1) { document.getElementById('qs-pagination').innerHTML = ''; return; }
   let pHtml = ''; for (let i = 1; i <= Math.min(pages, 10); i++) pHtml += `<button class="page-btn ${i === _quotePage ? 'active' : ''}" onclick="goQuotePage(${i})">${i}</button>`; document.getElementById('qs-pagination').innerHTML = pHtml;
 }
@@ -279,9 +331,21 @@ function _buildDetailHtml(item, detail) {
   const _qCandidates = detail.allQuoteLines ? [...new Map(detail.allQuoteLines.filter(q => q.mgmtId && q.quoteNo).map(q => [q.mgmtId, q])).values()] : [];
   const _qOptions = '<option value="" data-pdf-url="">-- 見積書を選択 --</option>' + _qCandidates.map(c => `<option value="${c.mgmtId}" data-pdf-url="${c.pdfUrl || ''}">${c.quoteNo}${c.itemName?' 「'+c.itemName+'」':''}</option>`).join('');
 
+  // 見積書候補の検索バー付きオプション生成
+  let _allQuoteCandidates = _qCandidates.slice();
+  
   const oTable = detail.orderLines && detail.orderLines.length ? `
-    <div style="margin-top:20px;"><h4>発注書 明細</h4>
-    <p style="font-size:11px;color:var(--text-sub);margin-bottom:6px;">💡 「紐づく見積」欄で各明細行に対応する見積書を選択・確定できます</p>
+    <div style="margin-top:20px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:8px;">
+        <h4 style="margin:0;">発注書 明細</h4>
+        <div style="display:flex;align-items:center;gap:6px;background:#f0f6ff;border:1px solid #bfdbfe;border-radius:6px;padding:5px 10px;">
+          <span style="font-size:11px;font-weight:600;color:#2563eb;">🔍 見積書候補を絞り込む:</span>
+          <input type="text" id="detail-quote-search" placeholder="見積No・件名・顧客名..." 
+            style="padding:4px 8px;border:1px solid #bfdbfe;border-radius:4px;font-size:12px;outline:none;width:200px;"
+            oninput="_filterDetailQuoteOptions(this.value,'${item.id}',${detail.orderLines.map(l=>l.lineNo).join(',') ? '['+detail.orderLines.map(l=>l.lineNo).join(',')+']' : '[]'})">
+        </div>
+      </div>
+      <p style="font-size:11px;color:var(--text-sub);margin-bottom:6px;">💡 「紐づく見積」欄で各明細行に対応する見積書を選択・確定できます</p>
     <div style="overflow-x:auto;">
     <table style="min-width:800px;width:100%;border-collapse:collapse;font-size:12px;">
       <thead><tr style="background:#f8f9fa;">
@@ -358,6 +422,61 @@ function _linkLineConfirm(orderMgmtId, lineNo) { const sel = document.getElement
 function _manualLinkQuote(orderMgmtId) { const quoteMgmtId = document.getElementById('manual-link-quote-id').value; if(!quoteMgmtId) { showToast('プルダウンから見積書を選択してください', true); return; } google.script.run.withSuccessHandler(res=>{ if(res.success){ showToast('紐づけました'); loadData(); closeDetailModal(); } else showToast('失敗: '+res.error, true); }).handleApiRequest('confirmOrderLink', { orderMgmtId: orderMgmtId, quoteMgmtId: quoteMgmtId }); }
 
 function updateStatus(mgmtId){ const ns=document.getElementById('status-sel').value; google.script.run.withSuccessHandler(res=>{ if(res.success){ showToast('ステータスを「'+ns+'」に変更しました'); const it=S.all.find(r=>r.id===mgmtId);if(it)it.status=ns; S.filtered=S.filtered.map(r=>r.id===mgmtId?{...r,status:ns}:r); _renderTable();_updateSummary();closeDetailModal(); } else showToast('更新失敗: '+res.error,true); }).handleApiRequest('updateStatus',{mgmtId,newStatus:ns}); }
+
+// ─── ④ 発注書詳細の紐づけ候補 見積書検索フィルタ ───
+function _filterDetailQuoteOptions(kw, mgmtId, lineNos) {
+  const lines = Array.isArray(lineNos) ? lineNos : [];
+  if (!kw) {
+    // すべてのselectを元に戻す（全候補表示）
+    lines.forEach(lineNo => {
+      const sel = document.getElementById('line-sel-' + mgmtId + '-' + lineNo);
+      if (!sel) return;
+      Array.from(sel.options).forEach(opt => { opt.style.display = ''; });
+    });
+    return;
+  }
+  const kwLower = kw.toLowerCase();
+  lines.forEach(lineNo => {
+    const sel = document.getElementById('line-sel-' + mgmtId + '-' + lineNo);
+    if (!sel) return;
+    Array.from(sel.options).forEach(opt => {
+      if (!opt.value) { opt.style.display = ''; return; }
+      opt.style.display = opt.text.toLowerCase().includes(kwLower) ? '' : 'none';
+    });
+  });
+}
+
+// ─── ⑤ 注文書一覧から見積書No.を直接入力して紐づけ ───
+function _openQuickLinkOrder(mgmtId) {
+  const item = S.all.find(r => r.id === mgmtId);
+  const current = item ? (item.quoteNo || '') : '';
+  const inputVal = prompt('紐づける見積書No.を入力してください:\n（空欄で保存すると紐づけを解除します）', current);
+  if (inputVal === null) return; // キャンセル
+  const payload = { mgmtId: mgmtId, quoteNo: inputVal.trim() || '' };
+  google.script.run.withSuccessHandler(res => {
+    if (res.success) {
+      showToast(inputVal.trim() ? '見積書No.「' + inputVal.trim() + '」と紐づけました' : '紐づけを解除しました');
+      if (item) item.quoteNo = inputVal.trim();
+      loadData(); loadQuoteList();
+    } else { showToast('更新失敗: ' + res.error, true); }
+  }).handleApiRequest('updateMgmt', payload);
+}
+
+// ─── ⑤ 見積書一覧から注文書番号を直接入力して紐づけ ───
+function _openQuickLinkQuote(mgmtId) {
+  const item = _allQuotes.find(r => r.id === mgmtId) || S.all.find(r => r.id === mgmtId);
+  const current = item ? (item.orderNo || '') : '';
+  const inputVal = prompt('紐づける注文書番号を入力してください:\n（空欄で保存すると紐づけを解除します）', current);
+  if (inputVal === null) return; // キャンセル
+  const payload = { mgmtId: mgmtId, orderNo: inputVal.trim() || '' };
+  google.script.run.withSuccessHandler(res => {
+    if (res.success) {
+      showToast(inputVal.trim() ? '注文書「' + inputVal.trim() + '」と紐づけました' : '紐づけを解除しました');
+      if (item) { item.orderNo = inputVal.trim(); item.linked = !!inputVal.trim(); }
+      loadData(); loadQuoteList();
+    } else { showToast('更新失敗: ' + res.error, true); }
+  }).handleApiRequest('updateMgmt', payload);
+}
 
 function openEditModal(mgmtId) {
   const item = S.all.find(r => r.id === mgmtId) || _allQuotes.find(r => r.id === mgmtId);
@@ -436,6 +555,312 @@ function saveAdminAccess() { google.script.run.withSuccessHandler(function(r) { 
 function saveAdminMailSend() { google.script.run.withSuccessHandler(function(r) { if (r && r.success) showToast('メール配信設定を保存しました'); else showToast('保存失敗', true); }).handleApiRequest('saveSettings', { notifyEmails: _gv('cfg-notify-emails') }); }
 function saveAdminRakuraku() { var payload = { rakurakuCompany: _gv('cfg-rakuraku-company'), rakurakuEndpoint: _gv('cfg-rakuraku-endpoint') }; var apiKey = _gv('cfg-rakuraku-apikey'); if (apiKey) payload.rakurakuApiKey = apiKey; google.script.run.withSuccessHandler(function(r) { if (r && r.success) showToast('楽楽販売設定を保存しました'); else showToast('保存失敗', true); }).handleApiRequest('saveSettings', payload); }
 function saveAdminExternal() { google.script.run.withSuccessHandler(function(r) { if (r && r.success) showToast('外部連携設定を保存しました'); else showToast('保存失敗', true); }).handleApiRequest('saveSettings', { n8nOrderWebhook: _gv('cfg-n8n-order-webhook'), n8nQuoteWebhook: _gv('cfg-n8n-quote-webhook'), customWebhook: _gv('cfg-custom-webhook') }); }
-function _onShowAdmin() { if (!_adminLoaded) { _adminLoaded = true; loadAdminSettings(); } if (!document.querySelector('.admin-tab.active')) { switchAdminTab('basic'); } }
+function _onShowAdmin() {
+  if (!_adminLoaded) { _adminLoaded = true; loadAdminSettings(); }
+  if (!document.querySelector('.admin-tab.active')) { switchAdminTab('basic'); }
+}
+
+// ─── ③ 見積台帳モーダル確実に開く（ledger-add-modal使用） ───
+function openLedgerAddModal(ledgerId) {
+  const modal = document.getElementById('ledger-add-modal');
+  if (!modal) { console.warn('ledger-add-modal not found'); return; }
+  // フォームをリセット
+  ['ledger-edit-id','ledger-quote-no','ledger-dest','ledger-machine-code','ledger-subject',
+   'ledger-amount','ledger-board-name','ledger-model-no','ledger-save-url','ledger-remarks'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  if (document.getElementById('ledger-issue-date')) document.getElementById('ledger-issue-date').value = '';
+  if (document.getElementById('ledger-status')) document.getElementById('ledger-status').value = '作成予定';
+
+  if (ledgerId) {
+    const item = _allLedgerItems.find(r => r.ledgerId === ledgerId);
+    if (item) {
+      const sv = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
+      sv('ledger-edit-id', ledgerId);
+      sv('ledger-quote-no', item.quoteNo);
+      sv('ledger-dest', item.dest || item.submitTo || '');
+      sv('ledger-machine-code', item.machineCode || item.modelCode || '');
+      sv('ledger-subject', item.subject);
+      sv('ledger-amount', item.amount || '');
+      sv('ledger-board-name', item.boardName || '');
+      sv('ledger-model-no', item.modelNo || '');
+      sv('ledger-save-url', item.saveUrl || '');
+      sv('ledger-remarks', item.remarks || '');
+      if (item.issueDate || item.sentDate) {
+        const d = (item.issueDate || item.sentDate || '').replace(/\//g, '-');
+        if (document.getElementById('ledger-issue-date')) document.getElementById('ledger-issue-date').value = d;
+      }
+      if (document.getElementById('ledger-status')) document.getElementById('ledger-status').value = item.status || '作成予定';
+      const titleEl = document.getElementById('ledger-add-title');
+      if (titleEl) titleEl.textContent = '📝 見積台帳を編集';
+    }
+  } else {
+    const titleEl = document.getElementById('ledger-add-title');
+    if (titleEl) titleEl.textContent = '📝 見積予定を追加';
+    const today = new Date();
+    const dd = document.getElementById('ledger-issue-date');
+    if (dd) dd.value = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0') + '-' + String(today.getDate()).padStart(2,'0');
+  }
+  modal.classList.add('open');
+}
+
+function closeLedgerAddModal() {
+  const modal = document.getElementById('ledger-add-modal');
+  if (modal) modal.classList.remove('open');
+}
+
+function _openLedgerAddModalWithMachine(machine) {
+  openLedgerAddModal(null);
+  const el = document.getElementById('ledger-machine-code');
+  if (el) el.value = machine;
+}
+
+function saveLedgerEntry() {
+  const v = id => { const el = document.getElementById(id); return el ? el.value.trim() : ''; };
+  const subject = v('ledger-subject');
+  if (!subject) { showToast('件名は必須です', true); return; }
+  const toSlash = s => s ? s.replace(/-/g, '/') : '';
+  const payload = {
+    ledgerId: v('ledger-edit-id') || undefined,
+    quoteNo: v('ledger-quote-no') || undefined,
+    issueDate: toSlash(v('ledger-issue-date')) || undefined,
+    dest: v('ledger-dest') || undefined,
+    machineCode: v('ledger-machine-code') || undefined,
+    subject: subject,
+    status: v('ledger-status') || '作成予定',
+    amount: v('ledger-amount') ? Number(v('ledger-amount')) : undefined,
+    boardName: v('ledger-board-name') || undefined,
+    modelNo: v('ledger-model-no') || undefined,
+    saveUrl: v('ledger-save-url') || undefined,
+    remarks: v('ledger-remarks') || undefined,
+  };
+  Object.keys(payload).forEach(k => { if (payload[k] === undefined) delete payload[k]; });
+  google.script.run.withSuccessHandler(res => {
+    if (res.success) {
+      showToast('保存しました');
+      closeLedgerAddModal();
+      loadLedger();
+      loadQuoteList();
+    } else { showToast('保存失敗: ' + (res.error || ''), true); }
+  }).handleApiRequest('ledgerSave', payload);
+}
+
+function deleteLedgerEntry(ledgerId) {
+  if (!confirm('この見積台帳データを削除しますか？')) return;
+  google.script.run.withSuccessHandler(res => {
+    if (res.success) { showToast('削除しました'); loadLedger(); loadQuoteList(); }
+    else showToast('削除失敗: ' + (res.error || ''), true);
+  }).handleApiRequest('ledgerDelete', { ledgerId });
+}
+
+// ─── goQuotePage（見積書一覧ページネーション） ───
+function goQuotePage(n) { _quotePage = n; _renderQuoteTable(); }
+
+// ============================================================
+// ★ メニュー設定（管理コンソール > メニュー設定タブ）
+// ── 表示/非表示・順番変更・追加・URL添付・全ユーザー反映 ──
+// ============================================================
+let _editMenuConfig = [];
+
+function renderMenuConfigList() {
+  const container = document.getElementById('menu-editor-list');
+  if (!container) return;
+  // 未初期化なら現在のユーザー設定 or デフォルトを引き継ぐ
+  if (!_editMenuConfig || _editMenuConfig.length === 0) {
+    if (typeof userMenuConfig !== 'undefined' && userMenuConfig.length > 0) {
+      _editMenuConfig = JSON.parse(JSON.stringify(userMenuConfig));
+    } else {
+      _editMenuConfig = JSON.parse(JSON.stringify(DEFAULT_MENU));
+    }
+  }
+  container.innerHTML = _editMenuConfig.map((item, index) => `
+    <div style="background:#fff; border:1px solid var(--border); border-radius:6px; padding:8px 12px;
+      display:flex; align-items:center; gap:8px; box-shadow:0 1px 2px rgba(0,0,0,0.05); margin-bottom:4px;">
+
+      <!-- 上下移動ボタン -->
+      <div style="display:flex; flex-direction:column; gap:2px; flex-shrink:0;">
+        <button class="btn btn-outline btn-sm"
+          style="padding:0; font-size:10px; height:20px; line-height:1; width:24px;"
+          onclick="moveMenuConfigItem(${index}, -1)"
+          ${index === 0 ? 'disabled' : ''}>▲</button>
+        <button class="btn btn-outline btn-sm"
+          style="padding:0; font-size:10px; height:20px; line-height:1; width:24px;"
+          onclick="moveMenuConfigItem(${index}, 1)"
+          ${index === _editMenuConfig.length - 1 ? 'disabled' : ''}>▼</button>
+      </div>
+
+      <!-- アイコン -->
+      <input type="text" value="${_escAttr(item.icon||'')}"
+        style="width:40px; text-align:center; padding:6px; border:1px solid var(--border); border-radius:4px; font-size:16px;"
+        onchange="_editMenuConfig[${index}].icon=this.value"
+        title="絵文字アイコン（例: 📋）">
+
+      <!-- メニュー名 -->
+      <input type="text" value="${_escAttr(item.label||'')}"
+        style="flex:1; min-width:100px; padding:6px 8px; border:1px solid var(--border); border-radius:4px; font-size:12px;"
+        onchange="_editMenuConfig[${index}].label=this.value"
+        title="メニュー名">
+
+      <!-- セクション名 -->
+      <input type="text" value="${_escAttr(item.section||'')}"
+        style="width:110px; padding:6px 8px; border:1px solid var(--border); border-radius:4px; font-size:11px; color:var(--text-sub);"
+        onchange="_editMenuConfig[${index}].section=this.value"
+        placeholder="セクション名"
+        title="サイドバーのセクション見出し">
+
+      <!-- 外部URL -->
+      <input type="text" value="${_escAttr(item.external||'')}"
+        placeholder="外部URL (https://...)"
+        style="width:170px; padding:6px 8px; border:1px solid var(--border); border-radius:4px; font-size:11px;"
+        onchange="_editMenuConfig[${index}].external=this.value"
+        title="設定するとクリック時に別タブでURLを開きます">
+
+      <!-- 表示・管理者専用 チェックボックス -->
+      <div style="display:flex; flex-direction:column; gap:4px; flex-shrink:0; width:120px;">
+        <label style="display:flex; align-items:center; gap:4px; font-size:11px; cursor:pointer; white-space:nowrap;">
+          <input type="checkbox" ${item.visible ? 'checked' : ''}
+            onchange="_editMenuConfig[${index}].visible=this.checked">
+          <span>メニューに表示</span>
+        </label>
+        <label style="display:flex; align-items:center; gap:4px; font-size:11px; cursor:pointer; white-space:nowrap; color:var(--danger);">
+          <input type="checkbox" ${item.adminOnly ? 'checked' : ''}
+            onchange="_editMenuConfig[${index}].adminOnly=this.checked">
+          <span>管理者のみ</span>
+        </label>
+      </div>
+
+      <!-- 削除ボタン -->
+      <button class="btn btn-danger btn-sm"
+        style="padding:5px 8px; flex-shrink:0;"
+        onclick="deleteMenuConfigItem(${index})"
+        title="このメニュー項目を削除">✕</button>
+    </div>
+  `).join('');
+}
+
+function _escAttr(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// 項目の上下移動
+function moveMenuConfigItem(index, dir) {
+  if (index + dir < 0 || index + dir >= _editMenuConfig.length) return;
+  const temp = _editMenuConfig[index];
+  _editMenuConfig[index] = _editMenuConfig[index + dir];
+  _editMenuConfig[index + dir] = temp;
+  renderMenuConfigList();
+}
+
+// 項目の削除
+function deleteMenuConfigItem(index) {
+  if (confirm('「' + _editMenuConfig[index].label + '」をメニューから削除しますか？\n※「初期状態にリセット」でいつでも元に戻せます')) {
+    _editMenuConfig.splice(index, 1);
+    renderMenuConfigList();
+  }
+}
+
+// 新規メニュー項目を追加
+function addMenuConfigItem() {
+  const newId = 'custom_' + Date.now().toString(36);
+  _editMenuConfig.push({
+    id: newId,
+    icon: '🔗',
+    label: '新規リンク',
+    section: 'その他',
+    visible: true,
+    adminOnly: false,
+    external: ''
+  });
+  renderMenuConfigList();
+  // 末尾へスクロール
+  setTimeout(() => {
+    const list = document.getElementById('menu-editor-list');
+    if (list) list.scrollTop = list.scrollHeight;
+  }, 100);
+}
+
+// 💾 保存して全ユーザーに反映
+function saveMenuConfig() {
+  const saveBtn = document.querySelector('#admin-tab-menu .btn-primary');
+  if (saveBtn) { saveBtn.textContent = '⏳ 保存中...'; saveBtn.disabled = true; }
+
+  google.script.run
+    .withSuccessHandler(res => {
+      if (saveBtn) { saveBtn.textContent = '💾 保存して反映'; saveBtn.disabled = false; }
+      if (res && res.success) {
+        showToast('✅ メニュー設定を全ユーザーに反映しました');
+        // ローカルのuserMenuConfigを更新してサイドバーを即再描画
+        userMenuConfig = JSON.parse(JSON.stringify(_editMenuConfig));
+        renderSidebar();
+      } else {
+        showToast('保存に失敗しました: ' + (res ? res.error : '不明'), true);
+      }
+    })
+    .withFailureHandler(err => {
+      if (saveBtn) { saveBtn.textContent = '💾 保存して反映'; saveBtn.disabled = false; }
+      showToast('通信エラー: ' + err.message, true);
+    })
+    .handleApiRequest('menuConfigSave', { menuConfig: _editMenuConfig });
+}
+
+// 🔄 初期状態にリセットして全ユーザーに反映
+function resetMenuConfig() {
+  if (!confirm('メニュー設定を完全に初期状態にリセットし、全ユーザーに反映しますか？\n現在の設定は失われます。')) return;
+  _editMenuConfig = JSON.parse(JSON.stringify(DEFAULT_MENU));
+  renderMenuConfigList();
+  // リセット内容をサーバーへ即保存
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res && res.success) {
+        showToast('✅ メニューを初期状態にリセットしました');
+        userMenuConfig = JSON.parse(JSON.stringify(DEFAULT_MENU));
+        renderSidebar();
+      } else {
+        showToast('リセット保存に失敗: ' + (res ? res.error : '不明'), true);
+      }
+    })
+    .withFailureHandler(err => showToast('通信エラー: ' + err.message, true))
+    .handleApiRequest('menuConfigSave', { menuConfig: _editMenuConfig });
+}
+
+// 管理コンソール タブ切り替え（menuタブ選択時にリスト初期化）
+function switchAdminTab(tab) {
+  document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.admin-tab-content').forEach(c => c.style.display = 'none');
+  const tabEl = document.getElementById('atab-' + tab);
+  const contentEl = document.getElementById('admin-tab-' + tab);
+  if (tabEl) tabEl.classList.add('active');
+  if (contentEl) contentEl.style.display = 'block';
+  // メニュー設定タブを開いた時は常にリスト再描画
+  if (tab === 'menu') {
+    // サーバーから最新のメニュー設定を読み込んでから描画
+    _loadMenuConfigFromServer();
+  }
+}
+
+// サーバーから最新メニュー設定を取得して編集リストに反映
+function _loadMenuConfigFromServer() {
+  const container = document.getElementById('menu-editor-list');
+  if (container) container.innerHTML = '<div style="padding:16px;color:var(--text-sub);font-size:13px;">⏳ 設定を読み込み中...</div>';
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res && res.success && res.menuConfig && res.menuConfig.length > 0) {
+        _editMenuConfig = res.menuConfig;
+        userMenuConfig = JSON.parse(JSON.stringify(res.menuConfig));
+      } else {
+        _editMenuConfig = JSON.parse(JSON.stringify(DEFAULT_MENU));
+      }
+      renderMenuConfigList();
+    })
+    .withFailureHandler(() => {
+      // 通信失敗時はローカルのuserMenuConfigを使う
+      _editMenuConfig = userMenuConfig.length > 0
+        ? JSON.parse(JSON.stringify(userMenuConfig))
+        : JSON.parse(JSON.stringify(DEFAULT_MENU));
+      renderMenuConfigList();
+    })
+    .handleApiRequest('menuConfigLoad', null);
+}
+
 
 </script>
