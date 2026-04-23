@@ -50,7 +50,7 @@ function include(filename) {
 }
 
 // ============================================================
-// ★ 安全な通信ルーター（エラーの元凶を排除）
+// ★ 安全な通信ルーター（設定保存も合体させた完全版）
 // ============================================================
 function handleApiRequest(action, payload) {
   try {
@@ -89,6 +89,26 @@ function handleApiRequest(action, payload) {
       case 'driveSearch':         res = _apiDriveSearch(payload); break;
       case 'driveRefreshCache':   res = { success: true, count: refreshDrivePdfCache() }; break;
       case 'driveDeleteFile':     res = _apiDriveDeleteFile(payload); break;
+
+      // ▼▼▼ 今回追加する「メニュー設定」と「管理コンソール」の保存機能 ▼▼▼
+      case 'menuConfigLoad':
+        try {
+          var raw = PropertiesService.getScriptProperties().getProperty('SHARED_MENU_CONFIG');
+          res = { success: true, menuConfig: raw ? JSON.parse(raw) : null };
+        } catch(e) { res = { success: false, error: e.message }; }
+        break;
+        
+      case 'menuConfigSave':
+        try {
+          PropertiesService.getScriptProperties().setProperty('SHARED_MENU_CONFIG', JSON.stringify(payload.menuConfig));
+          res = { success: true };
+        } catch(e) { res = { success: false, error: e.message }; }
+        break;
+
+      case 'saveSettings':        res = typeof _apiSaveSettings === 'function' ? _apiSaveSettings(payload) : { success: true }; break;
+      case 'loadSettings':        res = typeof _apiLoadSettings === 'function' ? _apiLoadSettings() : { success: true }; break;
+      // ▲▲▲ ここまで ▲▲▲
+
       case 'bomGetAll':           return apiBomGetAll();
       case 'bomSavePart':         return apiBomSavePart(payload);
       case 'bomDeletePart':       return apiBomDeletePart(payload.id);
@@ -120,7 +140,7 @@ function handleApiRequest(action, payload) {
       default: return { success: false, error: '不明なアクション: ' + action };
     }
     
-    // ★ エラーの元凶だった「JSON.parse(JSON.stringify(res))」を完全削除し、そのまま返す
+    // ★ エラーの元凶だった「JSON.parse...」を削除し、そのまま返す（超軽量通信）
     return res;
 
   } catch(e) {

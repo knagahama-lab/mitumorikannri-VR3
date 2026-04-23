@@ -1,39 +1,4 @@
 <script>
-// ============================================================
-// ファイルアップロード (OCR) 
-// ============================================================
-function openUploadModal(){
-  S.selectedFile=null;S.orderType='';
-  document.getElementById('upload-status').innerHTML='';
-  document.getElementById('upload-btn').disabled=true;
-  document.getElementById('file-input').value='';
-  document.getElementById('order-type-section').style.display='none';
-  document.getElementById('upload-modal').classList.add('open');
-}
-function closeUploadModal(){document.getElementById('upload-modal').classList.remove('open');}
-function setDocType(t){
-  S.docType=t; S.orderType='';
-  document.getElementById('type-quote').classList.toggle('active',t==='quote');
-  document.getElementById('type-order').classList.toggle('active',t==='order');
-  document.getElementById('order-type-section').style.display=t==='order'?'block':'none';
-  // 注文種別ボタンの選択状態をリセット
-  ['ot-trial','ot-mass'].forEach(function(id){
-    var el=document.getElementById(id); if(el) el.classList.remove('active');
-  });
-}
-function setOrderType(t){
-  S.orderType=t;
-  // ★ ボタンの選択状態を視覚的に更新
-  document.getElementById('ot-trial').classList.toggle('active', t==='試作');
-  document.getElementById('ot-mass').classList.toggle('active',  t==='量産');
-}
-function handleFileSelect(e){const f=e.target.files[0];if(f)_setFile(f);}
-function _setFile(file){
-  if(!file.name.toLowerCase().endsWith('.pdf')){showToast('PDFのみ対応',true);return;}
-  S.selectedFile=file;
-  document.getElementById('upload-status').innerHTML=`<p style="color:var(--success);font-size:13px;">✓ ${file.name} (${(file.size/1024).toFixed(1)} KB)</p>`;
-  document.getElementById('upload-btn').disabled=false;
-}
 
 // ★ OCR確認フロー対応版 uploadFile
 // Step1: OCRプレビュー取得 → Step2: 確認モーダルで修正 → Step3: 承認してDB登録
@@ -1121,7 +1086,6 @@ function addMenuConfigItem() {
 
 // メニュー設定を保存し、全ユーザーに一斉反映する
 function saveMenuConfig() { 
-  // ボタンの表示を「保存中...」に変える（連打防止）
   const btn = typeof event !== 'undefined' ? event.target : null;
   let originalText = '保存';
   if (btn && btn.tagName === 'BUTTON') {
@@ -1130,26 +1094,26 @@ function saveMenuConfig() {
     btn.disabled = true;
   }
   
-  // ブラウザ(localStorage)ではなく、GAS（サーバーの金庫）へ保存リクエストを送る
   google.script.run.withSuccessHandler(res => {
-    // ボタンを元に戻す
-    if (btn && btn.tagName === 'BUTTON') {
-      btn.textContent = originalText;
-      btn.disabled = false;
-    }
-    
-    // 保存成功時の処理
     if (res && res.success) {
-      if (typeof showToast === 'function') showToast('メニュー設定を全ユーザーに反映しました。');
-      if (typeof userMenuConfig !== 'undefined') { 
-        userMenuConfig = JSON.parse(JSON.stringify(_editMenuConfig)); 
-        // サイドバーを新しい設定で再描画
-        if (typeof renderSidebar === 'function') renderSidebar(); 
-      } 
-      closeMenuConfig();
+      if (typeof showToast === 'function') showToast('✅ メニュー設定を全ユーザーに反映しました。');
+      
+      // ★ 保存成功時、1秒後に自動で画面をリロード（再読み込み）してメニューを最新化する！
+      setTimeout(() => {
+        window.location.reload();
+      }, 1000);
+
     } else {
-      if (typeof showToast === 'function') showToast('保存に失敗しました', true);
+      if (btn && btn.tagName === 'BUTTON') {
+        btn.textContent = originalText;
+        btn.disabled = false;
+      }
+      let errMsg = res && res.error ? res.error : '原因不明の通信エラー';
+      if (typeof showToast === 'function') showToast('⚠️ 保存失敗: ' + errMsg, true);
     }
+  }).withFailureHandler(err => {
+    if (btn && btn.tagName === 'BUTTON') { btn.textContent = originalText; btn.disabled = false; }
+    if (typeof showToast === 'function') showToast('⚠️ 通信エラー: ' + err.message, true);
   }).handleApiRequest('menuConfigSave', { menuConfig: _editMenuConfig });
 }
 
@@ -1472,4 +1436,5 @@ function chatClear() {
     </div>`;
   showToast('履歴をクリアしました');
 }
+
 </script>

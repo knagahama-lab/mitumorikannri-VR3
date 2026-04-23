@@ -50,7 +50,7 @@ function include(filename) {
 }
 
 // ============================================================
-// ★ 安全な通信ルーター
+// ★ 安全な通信ルーター（全機能・独立保存対応版）
 // ============================================================
 function handleApiRequest(action, payload) {
   try {
@@ -89,6 +89,22 @@ function handleApiRequest(action, payload) {
       case 'driveSearch':         res = _apiDriveSearch(payload); break;
       case 'driveRefreshCache':   res = { success: true, count: refreshDrivePdfCache() }; break;
       case 'driveDeleteFile':     res = _apiDriveDeleteFile(payload); break;
+
+      // ★ 修正箇所：他の関数に頼らず、ここで直接設定を保存・読み込みします！
+      case 'menuConfigLoad':
+        try {
+          var raw = PropertiesService.getScriptProperties().getProperty('SHARED_MENU_CONFIG');
+          res = { success: true, menuConfig: raw ? JSON.parse(raw) : null };
+        } catch(e) { res = { success: false, error: e.message }; }
+        break;
+        
+      case 'menuConfigSave':
+        try {
+          PropertiesService.getScriptProperties().setProperty('SHARED_MENU_CONFIG', JSON.stringify(payload.menuConfig));
+          res = { success: true };
+        } catch(e) { res = { success: false, error: e.message }; }
+        break;
+
       case 'bomGetAll':           return apiBomGetAll();
       case 'bomSavePart':         return apiBomSavePart(payload);
       case 'bomDeletePart':       return apiBomDeletePart(payload.id);
@@ -100,12 +116,13 @@ function handleApiRequest(action, payload) {
       case 'bomDeleteBomRow':     return apiBomDeleteBomRow(payload.id);
       case 'bomImportFinalList':  return apiBomImportFinalList(payload.rows);
       case 'bomImportK10Parts':   return apiBomImportK10Parts(payload.rows);
-      case 'reregisterTriggers':
-        try { _registerTriggers(); return { success: true }; }
-        catch(e) { return { success: false, error: e.message }; }
+      case 'reregisterTriggers':  
+        try { _registerTriggers(); res = { success: true }; } 
+        catch(e) { res = { success: false, error: e.message }; } 
+        break;
       case 'orderPriceCompare':      res = apiOrderPriceCompare(payload); break;
       case 'batchOrderPriceCompare': res = apiBatchOrderPriceCompare(payload); break;
-      case 'searchUnitPrice':
+      case 'searchUnitPrice':        
         res = { success: true, results: searchUnitPrice(payload.itemName, payload.spec, payload.client) }; break;
       case 'searchCaseSummary':
         var _kws = String(payload.keywords || '').split(/[\s,　]+/).filter(Boolean);
@@ -117,10 +134,70 @@ function handleApiRequest(action, payload) {
       case 'ocrPreview':  res = apiOcrPreview(payload);  break;
       case 'ocrApprove':  res = apiOcrApprove(payload);  break;
       case 'ocrDiscard':  res = apiOcrDiscard(payload);  break;
-      default: return { success: false, error: '不明なアクション: ' + action };
+      case 'confirmOrderLink': res = _apiConfirmOrderLink(payload); break;
+      
+      // ── 設定保存・読込（管理コンソール） ──
+      case 'saveSettings': {
+        var _p = payload || {};
+        var _props = PropertiesService.getScriptProperties();
+        if (_p.adminEmails     !== undefined) _props.setProperty('ADMIN_EMAILS', String(_p.adminEmails || '').trim());
+        if (_p.chatWebhook     !== undefined) _props.setProperty('GOOGLE_CHAT_WEBHOOK_URL', String(_p.chatWebhook || '').trim());
+        if (_p.geminiKey && _p.geminiKey !== '') _props.setProperty('GEMINI_API_KEY', String(_p.geminiKey).trim());
+        if (_p.spreadsheetId && _p.spreadsheetId !== '') _props.setProperty('SPREADSHEET_ID', String(_p.spreadsheetId).trim());
+        if (_p.notifyEmails   !== undefined) _props.setProperty('NOTIFY_EMAILS', String(_p.notifyEmails || '').trim());
+        if (_p.n8nOrderWebhook!== undefined) _props.setProperty('N8N_ORDER_WEBHOOK', String(_p.n8nOrderWebhook || '').trim());
+        if (_p.n8nQuoteWebhook!== undefined) _props.setProperty('N8N_QUOTE_WEBHOOK', String(_p.n8nQuoteWebhook || '').trim());
+        if (_p.customWebhook  !== undefined) _props.setProperty('CUSTOM_WEBHOOK', String(_p.customWebhook || '').trim());
+        if (_p.rakurakuApiKey && _p.rakurakuApiKey !== '') _props.setProperty('RAKURAKU_API_KEY', String(_p.rakurakuApiKey).trim());
+        if (_p.rakurakuCompany !== undefined) _props.setProperty('RAKURAKU_COMPANY', String(_p.rakurakuCompany || '').trim());
+        if (_p.rakurakuEndpoint !== undefined) _props.setProperty('RAKURAKU_ENDPOINT', String(_p.rakurakuEndpoint || '').trim());
+        
+        var _nc = {};
+        try { _nc = JSON.parse(_props.getProperty('NOTIFY_SETTINGS') || '{}'); } catch(_ne) {}
+        if (_p.notifyOrder !== undefined) _nc.notifyOrder = !!_p.notifyOrder;
+        if (_p.notifyQuote !== undefined) _nc.notifyQuote = !!_p.notifyQuote;
+        if (_p.notifyDl     !== undefined) _nc.notifyDl    = !!_p.notifyDl;
+        if (_p.alertDays   !== undefined) _nc.alertDays   = Number(_p.alertDays) || 3;
+        _props.setProperty('NOTIFY_SETTINGS', JSON.stringify(_nc));
+        res = { success: true };
+        break;
+      }
+
+      case 'loadSettings': {
+        var _lp = PropertiesService.getScriptProperties();
+        var _lnc = {};
+        try { _lnc = JSON.parse(_lp.getProperty('NOTIFY_SETTINGS') || '{}'); } catch(_le) {}
+        var _lgk = _lp.getProperty('GEMINI_API_KEY') || '';
+        res = {
+          success: true,
+          adminEmails:     _lp.getProperty('ADMIN_EMAILS') || '',
+          chatWebhook:     _lp.getProperty('GOOGLE_CHAT_WEBHOOK_URL') || '',
+          spreadsheetId:   _lp.getProperty('SPREADSHEET_ID') || '',
+          notifyEmails:    _lp.getProperty('NOTIFY_EMAILS') || '',
+          n8nOrderWebhook: _lp.getProperty('N8N_ORDER_WEBHOOK') || '',
+          n8nQuoteWebhook: _lp.getProperty('N8N_QUOTE_WEBHOOK') || '',
+          customWebhook:   _lp.getProperty('CUSTOM_WEBHOOK') || '',
+          rakurakuCompany: _lp.getProperty('RAKURAKU_COMPANY') || '',
+          rakurakuEndpoint:_lp.getProperty('RAKURAKU_ENDPOINT') || '',
+          geminiKeyIsSet:  !!_lgk,
+          geminiKeyHint:   _lgk ? ('....' + _lgk.slice(-4)) : '',
+          settings: {
+            notifyOrder: _lnc.notifyOrder !== false,
+            notifyQuote: _lnc.notifyQuote !== false,
+            notifyDl:    _lnc.notifyDl     !== false,
+            alertDays:   _lnc.alertDays   || 3,
+            webhookUrl:  _lp.getProperty('GOOGLE_CHAT_WEBHOOK_URL') || ''
+          }
+        };
+        break;
+      }
+
+      default: 
+        return { success: false, error: '不明なアクション: ' + action };
     }
     
-    return JSON.parse(JSON.stringify(res));
+    // JSONに変換して返す（データ形式の安全確保）
+    return JSON.parse(JSON.stringify(res || { success: true }));
 
   } catch(e) {
     Logger.log('[API ERROR] ' + action + ': ' + e.message + '\n' + e.stack);
@@ -129,55 +206,63 @@ function handleApiRequest(action, payload) {
 }
 
 // ============================================================
-// ★ 極限軽量版：案件データ取得（通信エラー完全回避）
+// ★ 極限軽量版：案件データ取得（通信エラー完全回避・安全版）
 // ============================================================
 function _apiGetAll() {
   try {
-    var rows = getAllMgmtData();
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName('01_案件管理(自動)');
+    if (!sheet) return { success: false, error: '案件管理シートが見つかりません' };
 
-    rows = rows.filter(function(r) {
-      var colIdx = (MGMT_COLS.IS_LATEST || 0) - 1;
-      if (colIdx < 0 || colIdx >= r.length) return true;
-      var v = String(r[colIdx] || '');
-      return v === '' || v.toUpperCase() === 'TRUE';
+    var lastRow = sheet.getLastRow();
+    if (lastRow <= 1) return { success: true, total: 0, items: [] };
+
+    // データを一括取得
+    var data = sheet.getRange(2, 1, lastRow - 1, 33).getValues();
+
+    // フィルタリング（最新フラグがTRUE、かつ非表示ステータスでない、かつ発注番号があるもの）
+    var orderRows = data.filter(function(r) {
+      var isLatest = String(r[30] || ''); // 31列目 (IS_LATEST)
+      var status = String(r[5] || '');    // 6列目 (STATUS)
+      var orderNo = String(r[2] || '').trim(); // 3列目 (ORDER_NO)
+
+      if (isLatest !== '' && isLatest.toUpperCase() !== 'TRUE') return false;
+      if (status === '非表示') return false;
+      if (orderNo === '') return false;
+      
+      return true;
     });
 
-    rows = rows.filter(function(r) {
-      var hidden = CONFIG.STATUS_HIDDEN || [];
-      return hidden.indexOf(String(r[MGMT_COLS.STATUS - 1] || '')) < 0;
+    // オブジェクトの配列に変換
+    var items = orderRows.map(function(r) {
+      return {
+        id:             String(r[0] || ''),
+        quoteNo:        String(r[1] || ''),
+        orderNo:        String(r[2] || ''),
+        subject:        String(r[3] || ''),
+        client:         String(r[4] || ''),
+        status:         String(r[5] || ''),
+        quoteDate:      _toDateStr(r[6]),
+        orderDate:      _toDateStr(r[7]),
+        quoteAmount:    _toNum(r[8]),
+        orderAmount:    _toNum(r[9]),
+        orderType:      String(r[17] || ''),
+        modelCode:      String(r[18] || ''),
+        orderSlipNo:    String(r[19] || ''),
+        deliveryDate:   _toDateStr(r[21]),
+        quotePdfUrl:    String(r[13] || ''),
+        orderPdfUrl:    String(r[14] || ''),
+        driveFolderUrl: String(r[15] || '')
+      };
     });
 
-    var orderRows = rows.filter(function(r) {
-      return String(r[MGMT_COLS.ORDER_NO - 1]).trim() !== '';
-    });
-
-    var items = _deduplicateMgmtRows(orderRows);
-
-    var ss = getSpreadsheet();
-    var os = ss.getSheetByName(CONFIG.SHEET_ORDERS);
-    if (os && os.getLastRow() > 1) {
-      var orderData = os.getDataRange().getValues();
-      orderData.shift(); 
-
-      items.forEach(function(item) {
-        var lines = orderData.filter(function(r) { return String(r[0]) === item.id; });
-        if (lines.length > 0) {
-          // 品名(8列目), 仕様(9列目) だけを抽出し、長すぎる場合は強制的にカット（通信エラー防止）
-          var textParts = lines.map(function(r) {
-            return String(r[8] || '') + ' ' + String(r[9] || '');
-          });
-          item.detailText = textParts.join(' ').substring(0, 300);
-        }
-      });
-    }
-
+    // 発注日の新しい順にソート
     items.sort(function(a, b) {
       var da = String(a.orderDate || a.quoteDate || '');
       var db = String(b.orderDate || b.quoteDate || '');
       return db.localeCompare(da);
     });
 
-    // 通信エラーを防ぐため、JSON文字列化して返す
     return JSON.parse(JSON.stringify({ success: true, total: items.length, items: items }));
   } catch(e) {
     return { success: false, error: e.message };
@@ -185,75 +270,54 @@ function _apiGetAll() {
 }
 
 // ============================================================
-// ★ 極限軽量版：見積書一覧 API（通信エラー完全回避）
+// ★ 極限軽量版：見積書一覧 API（通信エラー完全回避・安全版）
 // ============================================================
 function _apiQuoteListGetAll() {
   try {
-    var ss         = getSpreadsheet();
-    var quoteSheet = ss.getSheetByName(CONFIG.SHEET_QUOTES);
-    var mgmtData  = getAllMgmtData();
-    
-    var allRows   = mgmtData.filter(function(r) { return String(r[MGMT_COLS.QUOTE_NO - 1]).trim() !== ''; });
-    
-    var seenQNo  = {};
-    var quoteRows = allRows.filter(function(r) {
-      var qNo = String(r[MGMT_COLS.QUOTE_NO - 1]).trim();
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName('01_案件管理(自動)');
+    if (!sheet) return { success: false, error: '案件管理シートが見つかりません' };
+
+    var lastRow = sheet.getLastRow();
+    if (lastRow <= 1) return { success: true, total: 0, items: [] };
+
+    var data = sheet.getRange(2, 1, lastRow - 1, 33).getValues();
+
+    var seenQNo = {};
+    var quoteRows = data.filter(function(r) {
+      var qNo = String(r[1] || '').trim(); // 2列目 (QUOTE_NO)
+      if (qNo === '') return false;
       if (seenQNo[qNo]) return false;
       seenQNo[qNo] = true;
       return true;
     });
 
-    var quoteLineMap = {};
-    if (quoteSheet && quoteSheet.getLastRow() > 1) {
-      var qData = quoteSheet.getDataRange().getValues();
-      qData.shift(); 
-
-      qData.forEach(function(r) {
-        var mgmtId = String(r[QUOTE_COLS.MGMT_ID - 1] || '');
-        if (!mgmtId) return;
-        if (!quoteLineMap[mgmtId]) {
-          quoteLineMap[mgmtId] = {
-            issueDate:   _toDateStr(r[QUOTE_COLS.ISSUE_DATE  - 1]),
-            destCompany: String(r[QUOTE_COLS.DEST_COMPANY - 1] || ''),
-            destPerson:  String(r[QUOTE_COLS.DEST_PERSON  - 1] || ''),
-            linesText:   '' 
-          };
-        }
-        // 品名(6列目), 仕様(7列目) のみ抽出して軽量化
-        quoteLineMap[mgmtId].linesText += String(r[6] || '') + ' ' + String(r[7] || '') + ' ';
-      });
-    }
-
     var items = quoteRows.map(function(r) {
-      var mgmtId  = String(r[MGMT_COLS.ID - 1] || '');
-      var lineInfo = quoteLineMap[mgmtId] || { linesText: '' };
+      var isLinked = String(r[16] || '').toUpperCase() === 'TRUE'; // 17列目 (LINKED)
       return {
-        id:          mgmtId,
-        quoteNo:     String(r[MGMT_COLS.QUOTE_NO - 1]      || ''),
-        issueDate:   lineInfo.issueDate   || _toDateStr(r[MGMT_COLS.QUOTE_DATE - 1]),
-        destCompany: lineInfo.destCompany || String(r[MGMT_COLS.CLIENT - 1] || ''),
-        destPerson:  lineInfo.destPerson  || '',
-        quoteAmount: _toNum(r[MGMT_COLS.QUOTE_AMOUNT - 1]),
-        status:      String(r[MGMT_COLS.STATUS - 1]        || ''),
-        quotePdfUrl: String(r[MGMT_COLS.QUOTE_PDF_URL - 1] || ''),
-        orderNo:     String(r[MGMT_COLS.ORDER_NO - 1]      || ''),
-        linked:      _isLinkedVal(r[MGMT_COLS.LINKED - 1]),
-        orderType:   String(r[MGMT_COLS.ORDER_TYPE - 1]    || ''),
-        modelCode:   String(r[MGMT_COLS.MODEL_CODE - 1]    || ''),
-        subject:     String(r[MGMT_COLS.SUBJECT - 1]       || ''),
-        // 文字数を制限して通信パンクを防ぐ
-        detailText:  String(lineInfo.linesText).substring(0, 300)
+        id:          String(r[0] || ''),
+        quoteNo:     String(r[1] || ''),
+        issueDate:   _toDateStr(r[6]),
+        destCompany: String(r[4] || ''),
+        subject:     String(r[3] || ''),
+        quoteAmount: _toNum(r[8]),
+        status:      String(r[5] || ''),
+        quotePdfUrl: String(r[13] || ''),
+        orderNo:     String(r[2] || ''),
+        linked:      isLinked
       };
     });
 
     items.sort(function(a, b) {
-      var da = String(a.issueDate || a.quoteDate || '');
-      var db = String(b.issueDate || b.quoteDate || '');
+      var da = String(a.issueDate || '');
+      var db = String(b.issueDate || '');
       return db.localeCompare(da);
     });
 
     return JSON.parse(JSON.stringify({ success: true, total: items.length, items: items }));
-  } catch(e) { return { success: false, error: e.message }; }
+  } catch(e) { 
+    return { success: false, error: e.message }; 
+  }
 }
 
 

@@ -45,24 +45,78 @@ function showToast(msg, isError=false){
   t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),3500);
 }
 
-// ── サイドバー ──
+// サーバーから設定を読み込んでサイドバーを描画する（金庫優先版）
 function renderSidebar() {
-  const container = document.getElementById('sidebar-nav-container'); if(!container) return;
+  const container = document.getElementById('sidebar-nav-container'); 
+  if(!container) return;
+  
+  // サーバーの金庫にデータを取りに行く
   google.script.run.withSuccessHandler(res => {
-    if (res && res.success && res.menuConfig) userMenuConfig = res.menuConfig; else userMenuConfig = JSON.parse(JSON.stringify(DEFAULT_MENU));
+    // 金庫にデータがあればそれを使う、なければ初期設定を使う
+    if (res && res.success && res.menuConfig) {
+      userMenuConfig = res.menuConfig;
+    } else {
+      userMenuConfig = JSON.parse(JSON.stringify(DEFAULT_MENU));
+    }
+    
+    // 描画処理
     const sections = {};
-    userMenuConfig.forEach(item=>{ if(!item.visible) return; if(!sections[item.section]) sections[item.section]=[]; sections[item.section].push(item); });
-    let html='';
-    Object.keys(sections).forEach(section=>{
+    userMenuConfig.forEach(item => {
+      if(!item.visible) return;
+      if(!sections[item.section]) sections[item.section] = [];
+      sections[item.section].push(item);
+    });
+
+    let html = '';
+    Object.keys(sections).forEach(section => {
       html += `<div class="sidebar-section-label">${section}</div>`;
-      sections[section].forEach(item=>{
-        if(item.external) html += `<a class="nav-item nav-item-ext" href="${item.external}" target="_blank"><span class="nav-item-icon">${item.icon}</span><span class="nav-item-label">${item.label}</span></a>`;
-        else html += `<div class="nav-item" data-id="${item.id}" onclick="showPage('${item.id}')"><span class="nav-item-icon">${item.icon}</span><span class="nav-item-label">${item.label}</span></div>`;
+      sections[section].forEach(item => {
+        if(item.external) { 
+          html += `<a class="nav-item nav-item-ext" href="${item.external}" target="_blank"><span class="nav-item-icon">${item.icon}</span><span class="nav-item-label">${item.label}</span></a>`; 
+        } else { 
+          html += `<div class="nav-item" data-id="${item.id}" onclick="showPage('${item.id}')"><span class="nav-item-icon">${item.icon}</span><span class="nav-item-label">${item.label}</span></div>`; 
+        }
       });
     });
     container.innerHTML = html;
-    const activePage = document.querySelector('.page.active'); if (activePage) { const pageId = activePage.id.replace('page-', ''); document.querySelectorAll('.nav-item[data-id]').forEach(t=>{ t.classList.toggle('active', t.dataset.id===pageId); }); }
-  }).handleApiRequest('menuConfigLoad', null);
+    
+    // 現在のページをアクティブにする
+    const activePage = document.querySelector('.page.active');
+    if (activePage) {
+      const pageId = activePage.id.replace('page-', '');
+      document.querySelectorAll('.nav-item[data-id]').forEach(t => { 
+        t.classList.toggle('active', t.dataset.id === pageId); 
+      });
+    }
+  }).handleApiRequest('menuConfigLoad', null); // ← ここで金庫を開けに行っています
+}
+function _drawSidebar(config, container) {
+  const sections = {};
+  config.forEach(item => {
+    if (!item.visible) return;
+    if (item.adminOnly && !IS_ADMIN) return;
+    if (!sections[item.section]) sections[item.section] = [];
+    sections[item.section].push(item);
+  });
+  let html = '';
+  Object.keys(sections).forEach(section => {
+    html += `<div class="sidebar-section-label">${section}</div>`;
+    sections[section].forEach(item => {
+      if (item.external) {
+        html += `<a class="nav-item nav-item-ext" href="${item.external}" target="_blank"><span class="nav-item-icon">${item.icon}</span><span class="nav-item-label">${item.label}</span></a>`;
+      } else {
+        html += `<div class="nav-item" data-id="${item.id}" onclick="showPage('${item.id}')"><span class="nav-item-icon">${item.icon}</span><span class="nav-item-label">${item.label}</span></div>`;
+      }
+    });
+  });
+  container.innerHTML = html;
+  const activePage = document.querySelector('.page.active');
+  if (activePage) {
+    const pageId = activePage.id.replace('page-', '');
+    document.querySelectorAll('.nav-item[data-id]').forEach(t => {
+      t.classList.toggle('active', t.dataset.id === pageId);
+    });
+  }
 }
 
 function showPage(name){
@@ -76,7 +130,7 @@ function showPage(name){
   if(name==='ledger' && typeof loadLedger==='function') loadLedger();
   if(name==='calendar' && typeof loadCalendar==='function') loadCalendar();
   if(name==='matching' && typeof loadMatchingCandidates==='function') loadMatchingCandidates();
-  if(name==='drivesearch' && typeof clearDriveSearch==='function') clearDriveSearch();
+  if(name==='drivesearch') { initDriveSearchPage(); }
   if(name==='admin') _onShowAdmin();
 }
 function toggleSidebar(){ document.getElementById('sidebar').classList.toggle('collapsed'); }
@@ -549,12 +603,18 @@ function loadAdminSettings() {
 }
 function _sv(id, val) { var el = document.getElementById(id); if (el) el.value = val; } function _sc(id, checked) { var el = document.getElementById(id); if (el) el.checked = !!checked; }
 function _gv(id) { var el = document.getElementById(id); return el ? el.value.trim() : ''; } function _gc(id) { var el = document.getElementById(id); return el ? el.checked : false; }
-function saveAdminBasic() { var payload = { adminEmails: _gv('cfg-admin-emails'), chatWebhook: _gv('cfg-chat-webhook'), notifyOrder: _gc('cfg-notify-order'), notifyQuote: _gc('cfg-notify-quote'), notifyDl: _gc('cfg-notify-deadline'), alertDays: parseInt(_gv('cfg-alert-days')) || 3 }; var geminiKey = _gv('cfg-gemini-key'); if (geminiKey) payload.geminiKey = geminiKey; var ssId = _gv('cfg-spreadsheet-id'); if (ssId) payload.spreadsheetId = ssId; google.script.run.withSuccessHandler(function(r) { if (r && r.success) { showToast('基本設定を保存しました'); } else { showToast('保存失敗', true); } }).handleApiRequest('saveSettings', payload); }
-function saveAdminNotify() { google.script.run.withSuccessHandler(function(r) { if (r && r.success) showToast('通知設定を保存しました'); else showToast('保存失敗', true); }).handleApiRequest('saveSettings', { notifyOrder: _gc('cfg-notify-order'), notifyQuote: _gc('cfg-notify-quote'), notifyDl: _gc('cfg-notify-deadline'), alertDays: parseInt(_gv('cfg-alert-days')) || 3 }); }
-function saveAdminAccess() { google.script.run.withSuccessHandler(function(r) { if (r && r.success) showToast('閲覧権限を保存しました'); else showToast('保存失敗', true); }).handleApiRequest('saveSettings', { adminEmails: _gv('cfg-admin-emails-access') }); }
-function saveAdminMailSend() { google.script.run.withSuccessHandler(function(r) { if (r && r.success) showToast('メール配信設定を保存しました'); else showToast('保存失敗', true); }).handleApiRequest('saveSettings', { notifyEmails: _gv('cfg-notify-emails') }); }
-function saveAdminRakuraku() { var payload = { rakurakuCompany: _gv('cfg-rakuraku-company'), rakurakuEndpoint: _gv('cfg-rakuraku-endpoint') }; var apiKey = _gv('cfg-rakuraku-apikey'); if (apiKey) payload.rakurakuApiKey = apiKey; google.script.run.withSuccessHandler(function(r) { if (r && r.success) showToast('楽楽販売設定を保存しました'); else showToast('保存失敗', true); }).handleApiRequest('saveSettings', payload); }
-function saveAdminExternal() { google.script.run.withSuccessHandler(function(r) { if (r && r.success) showToast('外部連携設定を保存しました'); else showToast('保存失敗', true); }).handleApiRequest('saveSettings', { n8nOrderWebhook: _gv('cfg-n8n-order-webhook'), n8nQuoteWebhook: _gv('cfg-n8n-quote-webhook'), customWebhook: _gv('cfg-custom-webhook') }); }
+function saveAdminBasic() { var payload = { adminEmails: _gv('cfg-admin-emails'), chatWebhook: _gv('cfg-chat-webhook'), notifyOrder: _gc('cfg-notify-order') ? 1 : 0, notifyQuote: _gc('cfg-notify-quote') ? 1 : 0, notifyDl: _gc('cfg-notify-deadline') ? 1 : 0, alertDays: parseInt(_gv('cfg-alert-days')) || 3 }; var geminiKey = _gv('cfg-gemini-key'); if (geminiKey) payload.geminiKey = geminiKey; var ssId = _gv('cfg-spreadsheet-id'); if (ssId) payload.spreadsheetId = ssId; google.script.run
+    .withSuccessHandler(function(r) { if (r && r.success) showToast('✅ 基本設定を保存しました'); else showToast('保存失敗: ' + (r ? r.error : ''), true); })
+    .withFailureHandler(function(e) { showToast('通信エラー: ' + e.message, true); })
+    .handleApiRequest('saveSettings', payload); }
+function saveAdminNotify() { google.script.run.withSuccessHandler(function(r) { if (r && r.success) showToast('通知設定を保存しました'); else showToast('サーバー保存失敗（GAS再デプロイが必要です）', true); }).withFailureHandler(function(e){showToast('通信エラー: '+e.message,true);})
+    .handleApiRequest('saveSettings', { notifyOrder: _gc('cfg-notify-order') ? 1 : 0, notifyQuote: _gc('cfg-notify-quote') ? 1 : 0, notifyDl: _gc('cfg-notify-deadline') ? 1 : 0, alertDays: parseInt(_gv('cfg-alert-days')) || 3 }); }
+function saveAdminAccess() { google.script.run.withSuccessHandler(function(r) { if (r && r.success) showToast('閲覧権限を保存しました'); else showToast('サーバー保存失敗（GAS再デプロイが必要です）', true); }).withFailureHandler(function(e){showToast('通信エラー: '+e.message,true);})
+    .handleApiRequest('saveSettings', { adminEmails: _gv('cfg-admin-emails-access') }); }
+function saveAdminMailSend() { google.script.run.withSuccessHandler(function(r) { if (r && r.success) showToast('メール配信設定を保存しました'); else showToast('サーバー保存失敗（GAS再デプロイが必要です）', true); }).withFailureHandler(function(e){showToast('通信エラー: '+e.message,true);})
+    .handleApiRequest('saveSettings', { notifyEmails: _gv('cfg-notify-emails') }); }
+function saveAdminRakuraku() { var payload = { rakurakuCompany: _gv('cfg-rakuraku-company'), rakurakuEndpoint: _gv('cfg-rakuraku-endpoint') }; var apiKey = _gv('cfg-rakuraku-apikey'); if (apiKey) payload.rakurakuApiKey = apiKey; google.script.run.withSuccessHandler(function(r) { if (r && r.success) showToast('楽楽販売設定を保存しました'); else showToast('サーバー保存失敗（GAS再デプロイが必要です）', true); }).handleApiRequest('saveSettings', payload); }
+function saveAdminExternal() { google.script.run.withSuccessHandler(function(r) { if (r && r.success) showToast('外部連携設定を保存しました'); else showToast('サーバー保存失敗（GAS再デプロイが必要です）', true); }).handleApiRequest('saveSettings', { n8nOrderWebhook: _gv('cfg-n8n-order-webhook'), n8nQuoteWebhook: _gv('cfg-n8n-quote-webhook'), customWebhook: _gv('cfg-custom-webhook') }); }
 function _onShowAdmin() {
   if (!_adminLoaded) { _adminLoaded = true; loadAdminSettings(); }
   if (!document.querySelector('.admin-tab.active')) { switchAdminTab('basic'); }
@@ -779,48 +839,23 @@ function addMenuConfigItem() {
   }, 100);
 }
 
-// 💾 保存して全ユーザーに反映
-function saveMenuConfig() {
-  const saveBtn = document.querySelector('#admin-tab-menu .btn-primary');
-  if (saveBtn) { saveBtn.textContent = '⏳ 保存中...'; saveBtn.disabled = true; }
 
-  google.script.run
-    .withSuccessHandler(res => {
-      if (saveBtn) { saveBtn.textContent = '💾 保存して反映'; saveBtn.disabled = false; }
-      if (res && res.success) {
-        showToast('✅ メニュー設定を全ユーザーに反映しました');
-        // ローカルのuserMenuConfigを更新してサイドバーを即再描画
-        userMenuConfig = JSON.parse(JSON.stringify(_editMenuConfig));
-        renderSidebar();
-      } else {
-        showToast('保存に失敗しました: ' + (res ? res.error : '不明'), true);
-      }
-    })
-    .withFailureHandler(err => {
-      if (saveBtn) { saveBtn.textContent = '💾 保存して反映'; saveBtn.disabled = false; }
-      showToast('通信エラー: ' + err.message, true);
-    })
-    .handleApiRequest('menuConfigSave', { menuConfig: _editMenuConfig });
-}
 
 // 🔄 初期状態にリセットして全ユーザーに反映
 function resetMenuConfig() {
-  if (!confirm('メニュー設定を完全に初期状態にリセットし、全ユーザーに反映しますか？\n現在の設定は失われます。')) return;
+  if (!confirm('メニュー設定を完全に初期状態にリセットしますか？\n現在の設定は失われます。')) return;
   _editMenuConfig = JSON.parse(JSON.stringify(DEFAULT_MENU));
   renderMenuConfigList();
-  // リセット内容をサーバーへ即保存
+  // ローカルに即時反映
+  userMenuConfig = JSON.parse(JSON.stringify(DEFAULT_MENU));
+  renderSidebar(true);
+  showToast('✅ メニューを初期状態にリセットしました');
+  // GASへの保存も試みる
+  var resetStr = JSON.stringify(_editMenuConfig);
   google.script.run
-    .withSuccessHandler(res => {
-      if (res && res.success) {
-        showToast('✅ メニューを初期状態にリセットしました');
-        userMenuConfig = JSON.parse(JSON.stringify(DEFAULT_MENU));
-        renderSidebar();
-      } else {
-        showToast('リセット保存に失敗: ' + (res ? res.error : '不明'), true);
-      }
-    })
-    .withFailureHandler(err => showToast('通信エラー: ' + err.message, true))
-    .handleApiRequest('menuConfigSave', { menuConfig: _editMenuConfig });
+    .withSuccessHandler(function() {})
+    .withFailureHandler(function() {})
+    .handleApiRequest('saveSettings', { menuConfigJson: resetStr });
 }
 
 // 管理コンソール タブ切り替え（menuタブ選択時にリスト初期化）
@@ -843,24 +878,412 @@ function _loadMenuConfigFromServer() {
   const container = document.getElementById('menu-editor-list');
   if (container) container.innerHTML = '<div style="padding:16px;color:var(--text-sub);font-size:13px;">⏳ 設定を読み込み中...</div>';
   google.script.run
-    .withSuccessHandler(res => {
-      if (res && res.success && res.menuConfig && res.menuConfig.length > 0) {
-        _editMenuConfig = res.menuConfig;
-        userMenuConfig = JSON.parse(JSON.stringify(res.menuConfig));
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        // loadSettings の返却値から menuConfig を取り出す
+        var mc = null;
+        if (res.menuConfig && res.menuConfig.length > 0) {
+          mc = res.menuConfig;
+        } else if (res.menuConfigJson) {
+          try { mc = JSON.parse(res.menuConfigJson); } catch(e2) {}
+        }
+        if (mc && mc.length > 0) {
+          _editMenuConfig = mc;
+          userMenuConfig = JSON.parse(JSON.stringify(mc));
+        } else {
+          _editMenuConfig = userMenuConfig.length > 0
+            ? JSON.parse(JSON.stringify(userMenuConfig))
+            : JSON.parse(JSON.stringify(DEFAULT_MENU));
+        }
       } else {
         _editMenuConfig = JSON.parse(JSON.stringify(DEFAULT_MENU));
       }
       renderMenuConfigList();
     })
-    .withFailureHandler(() => {
-      // 通信失敗時はローカルのuserMenuConfigを使う
+    .withFailureHandler(function() {
       _editMenuConfig = userMenuConfig.length > 0
         ? JSON.parse(JSON.stringify(userMenuConfig))
         : JSON.parse(JSON.stringify(DEFAULT_MENU));
       renderMenuConfigList();
     })
-    .handleApiRequest('menuConfigLoad', null);
+    .handleApiRequest('loadSettings', {});
 }
 
 
+// ============================================================
+// ★ 全文検索（Google Drive ファイル検索）
+// ============================================================
+let _driveSearchInitialized = false;
+
+function initDriveSearchPage() {
+  const wrap = document.getElementById('drive-search-container-wrap');
+  if (!wrap) return;
+  if (!_driveSearchInitialized) {
+    _driveSearchInitialized = true;
+    wrap.innerHTML = `
+      <div class="page-heading" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
+        <div>
+          <h2 style="font-size:18px;font-weight:700;">💾 全文検索</h2>
+          <p style="font-size:12px;color:var(--text-sub);margin-top:2px;">Google Drive 内のPDF・ファイルをキーワードで検索します</p>
+        </div>
+        <button class="btn btn-outline btn-sm" onclick="refreshDriveCache()">🔄 キャッシュ更新</button>
+      </div>
+      <div class="filter-bar" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:16px;">
+        <div class="search-box" style="flex:1;min-width:220px;">
+          <input type="text" id="drive-search-input"
+            placeholder="ファイル名・キーワードで検索..."
+            onkeydown="if(event.key==='Enter')runDriveSearch()"
+            style="width:100%;padding:8px 12px 8px 32px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:#f8fafc;outline:none;">
+        </div>
+        <div style="display:flex;align-items:center;gap:4px;">
+          <label style="font-size:11px;color:var(--text-sub);white-space:nowrap;">作成日 From:</label>
+          <input type="date" id="drive-date-from"
+            style="padding:7px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;outline:none;">
+        </div>
+        <div style="display:flex;align-items:center;gap:4px;">
+          <label style="font-size:11px;color:var(--text-sub);white-space:nowrap;">To:</label>
+          <input type="date" id="drive-date-to"
+            style="padding:7px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;outline:none;">
+        </div>
+        <button id="drive-search-btn" class="btn btn-primary" onclick="runDriveSearch()">🔍 検索</button>
+        <button class="btn btn-outline" onclick="clearDriveSearch()">クリア</button>
+      </div>
+      <div class="table-wrap">
+        <div class="table-toolbar" style="display:flex;align-items:center;justify-content:space-between;">
+          <h2>検索結果</h2>
+          <span id="drive-result-count" style="font-size:12px;color:var(--text-sub);"></span>
+        </div>
+        <div id="drive-search-container" style="min-height:180px;padding:20px;text-align:center;color:var(--text-muted);">
+          キーワードを入力して「検索」ボタンを押してください
+        </div>
+      </div>`;
+  }
+}
+
+function runDriveSearch() {
+  const kwEl = document.getElementById('drive-search-input');
+  const fromEl = document.getElementById('drive-date-from');
+  const toEl = document.getElementById('drive-date-to');
+  const btn = document.getElementById('drive-search-btn');
+  const container = document.getElementById('drive-search-container');
+  if (!kwEl || !container) return;
+  const keyword = kwEl.value.trim();
+  const dateFrom = (fromEl ? fromEl.value : '').replace(/-/g, '/');
+  const dateTo = (toEl ? toEl.value : '').replace(/-/g, '/');
+  if (btn) { btn.disabled = true; btn.textContent = '検索中...'; }
+  container.innerHTML = '<div class="loading"><div class="spinner"></div><br>Drive を検索中...</div>';
+  google.script.run
+    .withSuccessHandler(res => {
+      if (btn) { btn.disabled = false; btn.textContent = '🔍 検索'; }
+      if (!res.success) {
+        container.innerHTML = '<div style="color:var(--danger);padding:20px;">⚠️ ' + res.error + '</div>';
+        return;
+      }
+      _renderDriveResults(res.items || [], res.total || (res.items||[]).length, keyword);
+    })
+    .withFailureHandler(err => {
+      if (btn) { btn.disabled = false; btn.textContent = '🔍 検索'; }
+      container.innerHTML = '<div style="color:var(--danger);padding:20px;">通信エラー: ' + err.message + '</div>';
+    })
+    .handleApiRequest('driveSearch', { keyword, dateFrom, dateTo });
+}
+
+function _renderDriveResults(items, total, keyword) {
+  const cntEl = document.getElementById('drive-result-count');
+  if (cntEl) cntEl.textContent = total + '件';
+  const container = document.getElementById('drive-search-container');
+  if (!container) return;
+  if (items.length === 0) {
+    container.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted);">「' + (keyword||'') + '」に一致するファイルが見つかりません</div>';
+    return;
+  }
+  // キーワードをハイライト
+  const hl = (text) => {
+    if (!keyword) return text;
+    return text.replace(new RegExp(keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'),
+      m => `<mark style="background:#fef08a;border-radius:2px;">${m}</mark>`);
+  };
+  const rows = items.map(item => `
+    <tr id="drive-row-${item.id}">
+      <td style="padding:10px 12px;">
+        <a href="${item.url}" target="_blank" style="color:var(--primary);text-decoration:none;font-weight:600;font-size:13px;">
+          📄 ${hl(item.name)}
+        </a>
+      </td>
+      <td style="padding:10px 12px;font-size:12px;color:var(--text-sub);white-space:nowrap;">${item.createdAt || item.updatedAt || '—'}</td>
+      <td style="padding:10px 12px;font-size:12px;color:var(--text-sub);">${item.size ? (Number(item.size)/1024).toFixed(1) + ' KB' : '—'}</td>
+      <td style="padding:10px 12px;white-space:nowrap;">
+        <a href="${item.url}" target="_blank" class="btn btn-outline btn-sm">📂 開く</a>
+        <button class="btn btn-danger btn-sm" style="margin-left:4px;"
+          onclick="deleteDriveFile('${item.id}','${item.name.replace(/'/g,'')}')">🗑️</button>
+      </td>
+    </tr>`).join('');
+  container.innerHTML = `
+    <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;">
+        <thead>
+          <tr style="background:#f8fafc;">
+            <th style="padding:8px 12px;text-align:left;font-size:11px;color:var(--text-sub);font-weight:700;border-bottom:1px solid var(--border);">ファイル名</th>
+            <th style="padding:8px 12px;text-align:left;font-size:11px;color:var(--text-sub);font-weight:700;border-bottom:1px solid var(--border);">作成日</th>
+            <th style="padding:8px 12px;text-align:left;font-size:11px;color:var(--text-sub);font-weight:700;border-bottom:1px solid var(--border);">サイズ</th>
+            <th style="padding:8px 12px;text-align:left;font-size:11px;color:var(--text-sub);font-weight:700;border-bottom:1px solid var(--border);">操作</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+function deleteDriveFile(fileId, fileName) {
+  if (!confirm('「' + fileName + '」をゴミ箱に移動しますか？')) return;
+  google.script.run.withSuccessHandler(res => {
+    if (res.success) { showToast('削除しました'); document.getElementById('drive-row-' + fileId)?.remove(); }
+    else showToast('削除失敗: ' + res.error, true);
+  }).handleApiRequest('driveDeleteFile', { fileId });
+}
+
+function clearDriveSearch() {
+  const kw = document.getElementById('drive-search-input');
+  const df = document.getElementById('drive-date-from');
+  const dt = document.getElementById('drive-date-to');
+  const cnt = document.getElementById('drive-result-count');
+  const con = document.getElementById('drive-search-container');
+  if (kw) kw.value = '';
+  if (df) df.value = '';
+  if (dt) dt.value = '';
+  if (cnt) cnt.textContent = '';
+  if (con) con.innerHTML = 'キーワードを入力して「検索」ボタンを押してください';
+}
+
+function refreshDriveCache() {
+  showToast('Drive キャッシュを更新中...');
+  google.script.run
+    .withSuccessHandler(r => showToast('✅ キャッシュ更新完了 (' + (r.count||0) + '件)'))
+    .withFailureHandler(err => showToast('キャッシュ更新失敗: ' + err.message, true))
+    .handleApiRequest('driveRefreshCache', {});
+}
+
+// ============================================================
+// ★ スケジュール（FullCalendar 月表示）
+//   ・見積書発行日 📄  ・注文書発注日 📦  ・納期 🚚  ・台帳予定日 📝
+// ============================================================
+let _calendarInstance = null;
+
+function loadCalendar() {
+  const container = document.getElementById('cal-container');
+  if (!container) return;
+  if (_calendarInstance) {
+    _calendarInstance.render();
+    return;
+  }
+
+  _calendarInstance = new FullCalendar.Calendar(container, {
+    initialView: 'dayGridMonth',
+    locale: 'ja',
+    height: 'auto',
+    headerToolbar: {
+      left:   'prev,next today',
+      center: 'title',
+      right:  'dayGridMonth,listMonth'
+    },
+    buttonText: { today: '今日', month: '月', list: '一覧' },
+
+    // ─── イベントカラー凡例 ───
+    // 📄 見積発行日   #2563eb (青)
+    // 📦 注文書発注日 #dc2626 (赤)
+    // 🚚 納期         #16a34a (緑)
+    // 📝 台帳予定     #d97706 (オレンジ)
+
+    eventContent: function(arg) {
+      const icon = arg.event.extendedProps.icon || '📌';
+      const label = arg.event.title || '';
+      return {
+        html: `<div style="font-size:11px;white-space:normal;line-height:1.4;padding:2px 4px;overflow:hidden;cursor:pointer;" title="${label}">
+                 <strong>${icon} ${label}</strong>
+               </div>`
+      };
+    },
+
+    events: function(info, successCallback, failureCallback) {
+      const midDate = new Date((info.start.getTime() + info.end.getTime()) / 2);
+
+      // ① GAS API からイベント取得
+      google.script.run
+        .withSuccessHandler(res => {
+          let fcEvents = [];
+
+          // API からのイベント
+          if (res && res.success) {
+            fcEvents = (res.events || []).map(ev => {
+              const typeMap = {
+                quote:    { color: '#2563eb', icon: '📄' },
+                order:    { color: '#dc2626', icon: '📦' },
+                delivery: { color: '#16a34a', icon: '🚚' },
+                ledger:   { color: '#d97706', icon: '📝' },
+                todo:     { color: '#7c3aed', icon: '✅' },
+              };
+              const t = typeMap[ev.type] || { color: '#64748b', icon: '📌' };
+              return {
+                title:           ev.label,
+                start:           String(ev.date).replace(/\//g, '-'),
+                backgroundColor: t.color,
+                borderColor:     t.color,
+                extendedProps:   { icon: t.icon, mgmtId: ev.mgmtId, todoId: ev.todoId, type: ev.type }
+              };
+            });
+          }
+
+          // ② ローカルデータから補完（S.all + _allQuotes + _allLedgerItems）
+          const localEvents = _buildLocalCalendarEvents();
+          // API イベントと重複しないキーで結合
+          const apiKeys = new Set(fcEvents.map(e => e.title + '|' + e.start));
+          localEvents.forEach(e => {
+            if (!apiKeys.has(e.title + '|' + e.start)) fcEvents.push(e);
+          });
+
+          successCallback(fcEvents);
+        })
+        .withFailureHandler(() => {
+          // API 失敗時はローカルデータのみ表示
+          successCallback(_buildLocalCalendarEvents());
+        })
+        .handleApiRequest('getCalendar', {
+          year:  midDate.getFullYear(),
+          month: midDate.getMonth() + 1
+        });
+    },
+
+    eventClick: function(info) {
+      _openCalEventDetail(info.event);
+    }
+  });
+
+  _calendarInstance.render();
+}
+
+// ─── ローカルデータからカレンダーイベントを生成 ───
+function _buildLocalCalendarEvents() {
+  const events = [];
+  const toDateStr = d => {
+    if (!d) return null;
+    const s = String(d).replace(/\//g, '-').trim();
+    return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.substring(0, 10) : null;
+  };
+
+  // 注文書一覧 (S.all) — 発注日・納期
+  (S.all || []).forEach(r => {
+    const label = r.orderNo || r.quoteNo || r.client || '案件';
+    const orderDate = toDateStr(r.orderDate);
+    const delivDate = toDateStr(r.deliveryDate);
+    const quoteDate = toDateStr(r.quoteDate);
+    if (orderDate) events.push({
+      title: '📦 発注: ' + label,
+      start: orderDate,
+      backgroundColor: '#dc2626', borderColor: '#dc2626',
+      extendedProps: { icon: '📦', mgmtId: r.id, type: 'order' }
+    });
+    if (delivDate) events.push({
+      title: '🚚 納期: ' + label,
+      start: delivDate,
+      backgroundColor: '#16a34a', borderColor: '#16a34a',
+      extendedProps: { icon: '🚚', mgmtId: r.id, type: 'delivery' }
+    });
+    if (quoteDate && !orderDate) events.push({
+      title: '📄 見積: ' + label,
+      start: quoteDate,
+      backgroundColor: '#2563eb', borderColor: '#2563eb',
+      extendedProps: { icon: '📄', mgmtId: r.id, type: 'quote' }
+    });
+  });
+
+  // 見積書一覧 (_allQuotes) — 発行日
+  (_allQuotes || []).forEach(r => {
+    if (r._fromLedger) return; // 台帳分は下で処理
+    const d = toDateStr(r.issueDate || r.quoteDate);
+    if (!d) return;
+    events.push({
+      title: '📄 見積: ' + (r.quoteNo || r.subject || r.client || '—'),
+      start: d,
+      backgroundColor: '#2563eb', borderColor: '#2563eb',
+      extendedProps: { icon: '📄', mgmtId: r.id, type: 'quote' }
+    });
+  });
+
+  // 台帳 (_allLedgerItems) — 発行予定日
+  (_allLedgerItems || []).forEach(r => {
+    if (r.status === '__MACHINE_FOLDER__' || r.status === 'キャンセル') return;
+    const d = toDateStr(r.issueDate || r.sentDate);
+    if (!d) return;
+    events.push({
+      title: '📝 台帳: ' + (r.quoteNo || r.subject || '—'),
+      start: d,
+      backgroundColor: '#d97706', borderColor: '#d97706',
+      extendedProps: { icon: '📝', type: 'ledger', ledgerId: r.ledgerId }
+    });
+  });
+
+  return events;
+}
+
+// ─── カレンダーイベントクリック ───
+function _openCalEventDetail(ev) {
+  const props = ev.extendedProps || {};
+  if (props.mgmtId) {
+    const isQuote = props.type === 'quote';
+    if (isQuote) openQuoteDetail(props.mgmtId, '');
+    else openDetail(props.mgmtId);
+  } else if (props.ledgerId) {
+    openLedgerAddModal(props.ledgerId);
+  } else if (props.todoId) {
+    showToast('Todo詳細は準備中です');
+  }
+}
+
+// カレンダーを強制リロード（データ更新後に呼ぶ）
+function reloadCalendar() {
+  if (_calendarInstance) {
+    _calendarInstance.refetchEvents();
+  }
+}
+// メニュー設定を保存し、全ユーザーに一斉反映する
+function saveMenuConfig() { 
+  const btn = typeof event !== 'undefined' ? event.target : null;
+  let originalText = '保存';
+  if (btn && btn.tagName === 'BUTTON') {
+    originalText = btn.textContent;
+    btn.textContent = '保存中...';
+    btn.disabled = true;
+  }
+  
+  google.script.run.withSuccessHandler(res => {
+    if (btn && btn.tagName === 'BUTTON') {
+      btn.textContent = originalText;
+      btn.disabled = false;
+    }
+    if (res && res.success) {
+      if (typeof showToast === 'function') showToast('✅ メニュー設定を全ユーザーに反映しました。');
+      if (typeof userMenuConfig !== 'undefined') { 
+        userMenuConfig = JSON.parse(JSON.stringify(_editMenuConfig)); 
+        if (typeof renderSidebar === 'function') renderSidebar(); 
+      } 
+      closeMenuConfig();
+    } else {
+      // ★ 修正：何が原因で失敗したのか、サーバーからのエラーメッセージを直接表示する！
+      let errMsg = res && res.error ? res.error : '原因不明の通信エラー';
+      if (typeof showToast === 'function') showToast('⚠️ 保存失敗: ' + errMsg, true);
+    }
+  }).withFailureHandler(err => {
+    if (btn && btn.tagName === 'BUTTON') { btn.textContent = originalText; btn.disabled = false; }
+    if (typeof showToast === 'function') showToast('⚠️ 通信エラー: ' + err.message, true);
+  }).handleApiRequest('menuConfigSave', { menuConfig: _editMenuConfig });
+}
+
+// メニュー設定を完全に初期状態に戻し、全ユーザーに反映する
+function resetMenuConfig() { 
+  if (confirm('メニュー設定を完全に初期状態にリセットし、全ユーザーに反映しますか？')) { 
+    _editMenuConfig = JSON.parse(JSON.stringify(DEFAULT_MENU)); 
+    renderMenuConfigList(); 
+    saveMenuConfig();
+  } 
+}
 </script>
