@@ -843,18 +843,7 @@ function chatClear() {
   container.innerHTML = `<div id="chat-welcome" style="text-align:center;padding:40px 20px;color:var(--text-sub);"><div style="font-size:32px;margin-bottom:12px;">🤖</div><div style="font-size:16px;font-weight:600;color:var(--text);margin-bottom:8px;">AIアシスタント</div><div style="font-size:13px;line-height:1.7;max-width:480px;margin:0 auto;">見積書・注文書について何でも聞いてください。<br>検索・比較・ステータス更新まで実行できます。</div><div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:20px;"><button class="chat-suggest-btn" onclick="chatSendSuggestion('未紐づけの注文書は何件ありますか？')">📦 未紐づけ注文書を確認</button><button class="chat-suggest-btn" onclick="chatSendSuggestion('今月の受注件数と金額を教えてください')">📊 今月の集計を見る</button><button class="chat-suggest-btn" onclick="chatSendSuggestion('OCR失敗しているファイルはありますか？')">⚠️ OCR状況を確認</button><button class="chat-suggest-btn" onclick="chatSendSuggestion('受注済みになっていない注文書を探してください')">🔍 未受注を検索</button></div></div>`;
   showToast('履歴をクリアしました');
 }
-// --- PDF登録モーダルを開く ---
-function openUploadModal() {
-  const modal = document.getElementById('upload-modal');
-  if (modal) {
-    modal.style.display = 'flex';
-    // 初期状態の設定
-    setDocType('quote'); 
-    document.getElementById('upload-status').innerHTML = '';
-    document.getElementById('file-input').value = '';
-    document.getElementById('upload-btn').disabled = true;
-  }
-}
+function openUploadModal
 
 // --- PDF登録モーダルを閉じる ---
 function closeUploadModal() {

@@ -294,6 +294,115 @@ tr:hover td{background:#f8fafc;}
       <button class="topbar-btn" onclick="showPage('drivesearch')">🔍 全文検索</button>
       <button class="topbar-btn primary" onclick="openUploadModal()">＋ PDF登録</button>
     </div>
+
+<script>
+
+  function openUploadModal() {
+    var modal = document.getElementById('upload-modal');
+    if (modal) {
+      modal.style.display = 'flex';
+      var statusEl = document.getElementById('upload-status');
+      if (statusEl) statusEl.innerHTML = '';
+      var fileInput = document.getElementById('file-input');
+      if (fileInput) fileInput.value = '';
+    } else {
+      alert('エラー：アップロード画面（upload-modal）が見つかりません。');
+    }
+  }
+
+  function closeUploadModal() {
+    var modal = document.getElementById('upload-modal');
+    if (modal) modal.style.display = 'none';
+  }
+
+  function setDocType(type) {
+    if(typeof S !== 'undefined') S.docType = type;
+    var qBtn = document.getElementById('type-quote');
+    var oBtn = document.getElementById('type-order');
+    var oSec = document.getElementById('order-type-section');
+    if (type === 'quote') {
+      if(qBtn) qBtn.classList.add('btn-primary');
+      if(oBtn) oBtn.classList.remove('btn-primary');
+      if(oSec) oSec.style.display = 'none';
+    } else {
+      if(qBtn) qBtn.classList.remove('btn-primary');
+      if(oBtn) oBtn.classList.add('btn-primary');
+      if(oSec) oSec.style.display = 'block';
+    }
+  }
+
+  function setOrderType(ot) {
+    if(typeof S !== 'undefined') S.orderType = ot;
+    var tBtn = document.getElementById('ot-trial');
+    var mBtn = document.getElementById('ot-mass');
+    if(ot === '試作') {
+      if(tBtn) tBtn.classList.add('btn-primary');
+      if(mBtn) mBtn.classList.remove('btn-primary');
+    } else {
+      if(tBtn) tBtn.classList.remove('btn-primary');
+      if(mBtn) mBtn.classList.add('btn-primary');
+    }
+  }
+
+  // ① ファイルが選ばれたら「確定ボタン」のロックを解除する
+  document.addEventListener('change', function(e) {
+    if (e.target && e.target.id === 'file-input') {
+      var btn = document.getElementById('upload-btn');
+      if (btn) btn.disabled = (e.target.files.length === 0);
+    }
+  });
+
+  // ② 確定ボタンを押したときのデータ送信処理
+  window.uploadFile = function() {
+    var fileInput = document.getElementById('file-input');
+    var uploadBtn = document.getElementById('upload-btn');
+    var statusEl = document.getElementById('upload-status');
+    
+    if (!fileInput || fileInput.files.length === 0) {
+      alert('ファイルを選択してください。');
+      return;
+    }
+    
+    var file = fileInput.files[0];
+    uploadBtn.disabled = true;
+    if (statusEl) statusEl.innerHTML = '⏳ 読み込み中... そのままお待ちください。';
+    
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      // PDFを裏側に送れる形式（Base64）に変換
+      var base64 = e.target.result.split(',')[1];
+      var payload = {
+        base64Data: base64,
+        fileName: file.name,
+        docType: (typeof S !== 'undefined' && S.docType) ? S.docType : 'quote',
+        orderType: (typeof S !== 'undefined' && S.orderType) ? S.orderType : '試作'
+      };
+      
+     // GASの金庫（サーバー）へ送信！
+      google.script.run.withSuccessHandler(function(res) {
+        if (res && res.success) {
+          if (statusEl) statusEl.innerHTML = '✅ 読み込み完了！';
+          // ★ 真っ白になるのを防ぐため、強制リロードをやめてメッセージを出す安全な方式に変更
+          setTimeout(function() {
+            window.closeUploadModal();
+            alert('PDFの登録が完了しました！\n画面を更新（F5キー）して最新の情報を確認してください。');
+          }, 1000);
+        } else {
+          var err = res && res.error ? res.error : '不明なエラー';
+          if (statusEl) statusEl.innerHTML = '❌ 失敗: ' + err;
+          uploadBtn.disabled = false;
+        }
+      }).withFailureHandler(function(err) {
+        if (statusEl) statusEl.innerHTML = '❌ 通信エラー: ' + err.message;
+        uploadBtn.disabled = false;
+      }).handleApiRequest('uploadPdf', payload);
+    };
+    reader.readAsDataURL(file);
+  };  
+  // HTML側が違う名前で呼んでいた時のための保険
+  window.uploadPdf = window.uploadFile;
+</script>
+</script>
   </header>
 
   <div id="content">

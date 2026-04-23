@@ -149,7 +149,8 @@ function apiOcrApprove(p) {
     Logger.log('[OCR APPROVE ERROR] ' + e.message);
     return { success: false, error: e.message };
   }
-}
+} // ← ★ ここに「関数を閉じるカッコ」が必要でした！
+
 
 // ============================================================
 // API: 破棄（一時ファイルを削除してセッションを消す）

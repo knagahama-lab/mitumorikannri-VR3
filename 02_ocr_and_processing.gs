@@ -183,18 +183,22 @@ function _saveOrderData(ocr, orderType, pdfUrl, folderUrl, msgId, fallbackSubjec
   var ss            = getSpreadsheet();
   var mgmtSheet     = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT);
   var action        = ocr.actionType || 'new'; // new, revision, cancellation
-  var linkedQuoteNo = ocr.linkedQuoteNo || '';
+  
+  // ★ OCRから「見積No」を確実に取得する
+  var searchQuoteNo = ocr.quoteNo || ocr.linkedQuoteNo || ''; 
   var finalMgmtId, updateRow;
 
-  // 既存レコードの探索（修正・キャンセルの場合、または見積番号紐付けがある場合）
+  // 既存レコードの探索（修正・キャンセルの場合、または「下地」となる見積番号がある場合）
   var mgmtRow = -1;
   if (action === 'revision' || action === 'cancellation') {
     mgmtRow = _findExistingMgmtRowForOrder(ss, ocr.documentNo, ocr.subject || fallbackSubject);
-  } else if (linkedQuoteNo) {
-    mgmtRow = findMgmtRowByQuoteNo(linkedQuoteNo);
+  } else if (searchQuoteNo) {
+    // ★ ここで先ほど作った「下地（見積No）」を探しに行きます！
+    mgmtRow = findMgmtRowByQuoteNo(searchQuoteNo);
   }
 
   if (mgmtRow > 0) {
+    // 💡 【パターンA】下地が見つかった場合（スマートマージ実行！）
     finalMgmtId = mgmtSheet.getRange(mgmtRow, MGMT_COLS.ID).getValue();
     updateRow   = mgmtRow;
     
@@ -203,8 +207,9 @@ function _saveOrderData(ocr, orderType, pdfUrl, folderUrl, msgId, fallbackSubjec
       var currentMemo = mgmtSheet.getRange(mgmtRow, MGMT_COLS.MEMO).getValue();
       mgmtSheet.getRange(mgmtRow, MGMT_COLS.MEMO).setValue(currentMemo + "\n[CANCEL] " + (ocr.reason || 'キャンセル通知受領'));
     } else {
-      // 差し替えまたは通常更新
-      var status = (action === 'revision') ? CONFIG.STATUS.REVISED : CONFIG.STATUS.RECEIVED;
+      // ★ 件名や顧客名などの「人間が入力したデータ」は残し、注文の空欄だけを上書き！
+      var status = (action === 'revision') ? CONFIG.STATUS.REVISED : CONFIG.STATUS.RECEIVED; // 受注状態にする
+      
       mgmtSheet.getRange(mgmtRow, MGMT_COLS.ORDER_NO).setValue(ocr.documentNo    || '');
       mgmtSheet.getRange(mgmtRow, MGMT_COLS.ORDER_DATE).setValue(ocr.documentDate || '');
       mgmtSheet.getRange(mgmtRow, MGMT_COLS.ORDER_AMOUNT).setValue(ocr.subtotal   || 0);
@@ -219,18 +224,19 @@ function _saveOrderData(ocr, orderType, pdfUrl, folderUrl, msgId, fallbackSubjec
       mgmtSheet.getRange(mgmtRow, MGMT_COLS.ORDER_PDF_URL).setValue(pdfUrl);
       mgmtSheet.getRange(mgmtRow, MGMT_COLS.DRIVE_FOLDER_URL).setValue(folderUrl);
       mgmtSheet.getRange(mgmtRow, MGMT_COLS.STATUS).setValue(status);
-      mgmtSheet.getRange(mgmtRow, MGMT_COLS.LINKED).setValue('TRUE');
+      mgmtSheet.getRange(mgmtRow, MGMT_COLS.LINKED).setValue('TRUE'); // 紐付け完了マーク
       mgmtSheet.getRange(mgmtRow, MGMT_COLS.ORDER_TYPE).setValue(orderType);
       mgmtSheet.getRange(mgmtRow, MGMT_COLS.MODEL_CODE).setValue(ocr.modelCode    || '');
       mgmtSheet.getRange(mgmtRow, MGMT_COLS.ORDER_SLIP_NO).setValue(ocr.orderSlipNo || '');
     }
     mgmtSheet.getRange(mgmtRow, MGMT_COLS.UPDATED_AT).setValue(nowJST());
+    
   } else {
-    // 新規作成
+    // 💡 【パターンB】下地が見つからなかった場合（完全新規）
     finalMgmtId = generateMgmtId();
     var newRow  = mgmtSheet.getLastRow() + 1;
     updateRow   = newRow;
-    var row = new Array(27).fill('');
+    var row = new Array(35).fill(''); // 列数不足のエラーを防ぐため多めに確保
     row[MGMT_COLS.ID - 1]               = finalMgmtId;
     row[MGMT_COLS.ORDER_NO - 1]         = ocr.documentNo    || '';
     row[MGMT_COLS.SUBJECT - 1]          = ocr.subject       || fallbackSubject;
@@ -247,23 +253,29 @@ function _saveOrderData(ocr, orderType, pdfUrl, folderUrl, msgId, fallbackSubjec
     row[MGMT_COLS.CREATED_AT - 1]       = nowJST();
     row[MGMT_COLS.UPDATED_AT - 1]       = nowJST();
     row[MGMT_COLS.GMAIL_MSG_ID - 1]     = msgId || '';
-    mgmtSheet.getRange(newRow, 1, 1, 27).setValues([row]);
+    
+    // 新規追加時でも見積Noがあれば入れておく
+    if(searchQuoteNo) row[MGMT_COLS.QUOTE_NO - 1] = searchQuoteNo;
+
+    mgmtSheet.getRange(newRow, 1, 1, row.length).setValues([row]);
   }
 
   // キャンセル以外は明細を書き込む
   if (action !== 'cancellation') {
     _writeOrderLines(ss, mgmtSheet, updateRow, finalMgmtId, ocr, orderType, pdfUrl, folderUrl);
     
-    // AI紐付け試行 (新規または差し替え時)
+    // ★ 下地合体が出来なかった（完全新規の）場合のみ、AIによる見積紐付け推測を行う
     var aiRes = null;
-    try {
-      aiRes = aiLinkOrderToQuote(finalMgmtId);
-    } catch(e) {
-      Logger.log('[AI LINK ERROR] ' + e.message);
+    if (mgmtRow <= 0) {
+      try {
+        aiRes = aiLinkOrderToQuote(finalMgmtId);
+      } catch(e) {
+        Logger.log('[AI LINK ERROR] ' + e.message);
+      }
     }
   }
 
-  // ★チャット通知の送信
+  // チャット通知の送信
   _sendChatNotification(finalMgmtId, 'order', action, aiRes);
 
   return finalMgmtId;

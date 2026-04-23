@@ -859,6 +859,20 @@ function _apiLedgerSave(p) {
     var isNew    = !p.ledgerId;
     var ledgerId = isNew ? generateLedgerId() : p.ledgerId;
     if (isNew) {
+// ============================================================
+// ★ 見積台帳への保存（＋案件一覧への下地作成）
+// ============================================================
+function _apiLedgerSave(p) {
+  try {
+    var ss    = getSpreadsheet();
+    var sheet = ss.getSheetByName(CONFIG.SHEET_LEDGER);
+    if (!sheet) return { success: false, error: '見積台帳シートが存在しません。' };
+    
+    var isNew    = !p.ledgerId;
+    var ledgerId = isNew ? generateLedgerId() : p.ledgerId;
+    
+    if (isNew) {
+      // 1. 見積台帳シートへ行を追加
       sheet.appendRow([
         ledgerId, p.quoteNo || '', p.issueDate || '', p.dest || '',
         p.category || '', p.subject || '', p.status || LEDGER_STATUS.PENDING,
@@ -866,6 +880,44 @@ function _apiLedgerSave(p) {
         p.modelNo || '', p.amount !== undefined && p.amount !== '' ? Number(p.amount) : '',
         p.submitTo || '', p.remarks || '', p.sentDate || '',
       ]);
+      
+      // 2. ★ 案件一覧（管理シート）にも「下地」を自動作成する
+      if (typeof _syncToMgmtSheet === 'function') {
+        _syncToMgmtSheet(p.quoteNo, p.subject, p.dest);
+      }
+      
+    } else {
+      // 既存データの更新処理
+      var last = sheet.getLastRow();
+      if (last <= 1) return { success: false, error: '対象行が見つかりません' };
+      var ids = sheet.getRange(2, 1, last - 1, 1).getValues().flat();
+      var idx = ids.indexOf(String(ledgerId));
+      if (idx < 0) return { success: false, error: '台帳IDが見つかりません' };
+      
+      var row = idx + 2;
+      var fields = {
+        quoteNo: LEDGER_COLS.QUOTE_NO, issueDate: LEDGER_COLS.ISSUE_DATE,
+        dest: LEDGER_COLS.DEST, category: LEDGER_COLS.CATEGORY,
+        subject: LEDGER_COLS.SUBJECT, status: LEDGER_COLS.STATUS,
+        saveUrl: LEDGER_COLS.SAVE_URL, machineCode: LEDGER_COLS.MACHINE_CODE,
+        boardName: LEDGER_COLS.BOARD_NAME, modelNo: LEDGER_COLS.MODEL_NO,
+        amount: LEDGER_COLS.AMOUNT, submitTo: LEDGER_COLS.SUBMIT_TO,
+        remarks: LEDGER_COLS.REMARKS,
+        sentDate: LEDGER_COLS.SENT_DATE,
+      };
+      
+      Object.keys(fields).forEach(function(key) {
+        if (p[key] !== undefined) {
+          sheet.getRange(row, fields[key]).setValue(p[key]);
+        }
+      });
+    }
+    
+    return { success: true, ledgerId: ledgerId };
+  } catch(e) { 
+    return { success: false, error: e.message }; 
+  }
+}
     } else {
       var last = sheet.getLastRow();
       if (last <= 1) return { success: false, error: '対象行が見つかりません' };
@@ -1141,4 +1193,35 @@ function _rowToObject(r) {
     createdAt:      _toDateStr(r[MGMT_COLS.CREATED_AT - 1]),
     updatedAt:      _toDateStr(r[MGMT_COLS.UPDATED_AT - 1]),
   };
+}
+// ============================================================
+// ★ 新機能：見積台帳から案件一覧へ「下地（空枠）」を自動作成
+// ============================================================
+function _syncToMgmtSheet(quoteNo, subject, client) {
+  if (!quoteNo) return; // 見積Noがない場合はスキップ
+
+  var ss = getSpreadsheet();
+  var mgmtSheet = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT); // 案件一覧シート
+  var data = mgmtSheet.getDataRange().getValues();
+  
+  // 既に同じ見積Noの案件が存在するかチェック（重複防止）
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][MGMT_COLS.QUOTE_NO - 1]) === String(quoteNo)) {
+      return; // 既に存在するので何もしない
+    }
+  }
+
+  // 新しい案件IDを発行して、空枠（下地）の行を作成
+  var newId = generateMgmtId(); 
+  var newRow = new Array(35).fill(''); // 空の配列を作成（列数に合わせて調整）
+  
+  newRow[MGMT_COLS.ID - 1]         = newId;
+  newRow[MGMT_COLS.IS_LATEST - 1]  = 'TRUE';
+  newRow[MGMT_COLS.STATUS - 1]     = '見積提出済'; // ★初期ステータス
+  newRow[MGMT_COLS.QUOTE_NO - 1]   = quoteNo;
+  newRow[MGMT_COLS.SUBJECT - 1]    = subject || '';
+  newRow[MGMT_COLS.CLIENT - 1]     = client || '';
+  newRow[MGMT_COLS.CREATED_AT - 1] = nowJST();
+
+  mgmtSheet.appendRow(newRow);
 }
