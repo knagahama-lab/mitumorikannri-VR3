@@ -137,6 +137,12 @@ function handleApiRequest(action, payload) {
       case 'syncLedgerModelCodes':   res = syncLedgerModelCodes(); break;
       case 'syncModelNameToMgmt':    res = syncModelNameToMgmt(payload.modelCode, payload.modelName); break;
       case 'initModelMasterSheet':   res = initModelMasterSheet(); break;
+      // ── 外部API連携管理 ──
+      case 'externalApiList':    res = _apiExternalApiList(); break;
+      case 'externalApiSave':    res = _apiExternalApiSave(payload); break;
+      case 'externalApiDelete':  res = _apiExternalApiDelete(payload); break;
+      case 'externalApiTest':    res = _apiExternalApiTest(payload); break;
+      case 'externalApiTrigger': res = _apiExternalApiTrigger(payload); break;
       // ── 発注期限アラート（10_alert_monitor.gs）──
       case 'checkDeadlines': {
         var dlAlerts = checkOrderDeadlines();
@@ -1104,4 +1110,102 @@ function _apiUploadOrderWithLink(p) {
     res.linkResult = aiRes;
   }
   return res;
+}
+
+// ── 外部API連携管理 ──
+var EXTERNAL_API_KEY = 'EXTERNAL_API_CONNECTIONS';
+
+function _apiExternalApiList() {
+  try {
+    var raw = PropertiesService.getScriptProperties().getProperty(EXTERNAL_API_KEY);
+    var items = raw ? JSON.parse(raw) : [];
+    // APIキーはマスキングして返す
+    var masked = items.map(function(c) {
+      return { id:c.id, name:c.name, type:c.type, endpoint:c.endpoint, trigger:c.trigger, fields:c.fields, desc:c.desc, enabled:c.enabled, hasApiKey:!!(c.apikey) };
+    });
+    return { success: true, items: masked };
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+function _apiExternalApiSave(p) {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var raw = props.getProperty(EXTERNAL_API_KEY);
+    var items = raw ? JSON.parse(raw) : [];
+    if (p.id) {
+      var idx = items.findIndex(function(c){ return c.id === p.id; });
+      if (idx >= 0) {
+        // apikey が空の場合は既存のものを保持
+        if (!p.apikey) p.apikey = items[idx].apikey;
+        items[idx] = Object.assign(items[idx], p);
+      } else {
+        items.push(p);
+      }
+    } else {
+      p.id = 'api_' + new Date().getTime().toString(36);
+      p.createdAt = new Date().toISOString();
+      items.push(p);
+    }
+    props.setProperty(EXTERNAL_API_KEY, JSON.stringify(items));
+    return { success: true };
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+function _apiExternalApiDelete(p) {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var raw = props.getProperty(EXTERNAL_API_KEY);
+    var items = raw ? JSON.parse(raw) : [];
+    items = items.filter(function(c){ return c.id !== p.id; });
+    props.setProperty(EXTERNAL_API_KEY, JSON.stringify(items));
+    return { success: true };
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+function _apiExternalApiTest(p) {
+  try {
+    var endpoint = p.endpoint || '';
+    if (!endpoint) return { success: false, error: 'エンドポイントが指定されていません' };
+    var type = p.type || 'gas_webhook';
+    if (type === 'spreadsheet') {
+      // スプレッドシートIDの場合は開けるか確認
+      var ss = SpreadsheetApp.openById(endpoint);
+      return { success: true, statusCode: 200, message: 'スプレッドシート接続OK: ' + ss.getName() };
+    }
+    // Webhook / REST API
+    var options = { method: 'get', muteHttpExceptions: true };
+    if (p.apikey) options.headers = { 'Authorization': 'Bearer ' + p.apikey };
+    var response = UrlFetchApp.fetch(endpoint, options);
+    var code = response.getResponseCode();
+    return { success: code >= 200 && code < 400, statusCode: code };
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+function _apiExternalApiTrigger(p) {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var raw = props.getProperty(EXTERNAL_API_KEY);
+    var items = raw ? JSON.parse(raw) : [];
+    var conn = items.find(function(c){ return c.id === p.id; });
+    if (!conn) return { success: false, error: '連携設定が見つかりません' };
+    if (!conn.enabled) return { success: false, error: 'この連携は無効です' };
+    return _sendExternalApi(conn, { trigger: 'manual', timestamp: new Date().toISOString() });
+  } catch(e) { return { success: false, error: e.message }; }
+}
+
+function _sendExternalApi(conn, data) {
+  try {
+    var endpoint = conn.endpoint || '';
+    if (!endpoint) return { success: false, error: 'エンドポイント未設定' };
+    if (conn.type === 'spreadsheet') {
+      // スプレッドシートへの書き込みは別途実装
+      return { success: true, message: 'スプレッドシート連携は手動操作が必要です' };
+    }
+    var payload = JSON.stringify(data);
+    var options = { method: 'post', contentType: 'application/json', payload: payload, muteHttpExceptions: true };
+    if (conn.apikey) options.headers = { 'Authorization': 'Bearer ' + conn.apikey };
+    var response = UrlFetchApp.fetch(endpoint, options);
+    var code = response.getResponseCode();
+    return { success: code >= 200 && code < 400, statusCode: code };
+  } catch(e) { return { success: false, error: e.message }; }
 }

@@ -291,6 +291,7 @@ function _renderQuoteTable() {
       <td class="editable-cell" onclick="startInlineEdit(event, '${realId}', 'quoteNo', '${_esc(r.quoteNo||'')}', '${editType}')"><strong>${r.quoteNo || '—'}</strong>${ledgerBadge}</td>
       <td class="editable-cell" onclick="startInlineEdit(event, '${realId}', 'subject', '${_esc(r.subject||'')}', '${editType}')" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.subject || ''}">${r.subject || '—'}</td>
       <td style="font-size:12px;color:var(--text-sub);">${r.issueDate || r.quoteDate || '—'}</td>
+      <td class="editable-cell" onclick="startInlineEditAutocomplete(event, '${realId}', '${fromLedger?'machineCode':'modelCode'}', '${_esc(r.modelCode||r.machineCode||'')}', '${editType}')" style="min-width:80px;">${r.modelCode||r.machineCode||'<span style="color:var(--text-muted);">—</span>'}</td>
       <td class="editable-cell" onclick="startInlineEdit(event, '${realId}', '${fromLedger?'dest':'client'}', '${_esc(r.destCompany||r.client||'')}', '${editType}')" style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.destCompany||r.client||''}">${r.destCompany || r.client || '—'}</td>
       <td class="editable-cell" onclick="startInlineEdit(event, '${realId}', '${fromLedger?'amount':'quoteAmount'}', '${r.quoteAmount||''}', '${editType}')" style="text-align:right;white-space:nowrap;">${r.quoteAmount ? Number(r.quoteAmount).toLocaleString() + ' 円' : '—'}</td>
       <td onclick="event.stopPropagation();">${_statusSelectHtml(selectId, r.status, fromLedger ? 'ledger' : 'mgmt')}</td>
@@ -307,7 +308,7 @@ function _renderQuoteTable() {
       </td>
     </tr>`;
   }).join('');
-  document.getElementById('quotelist-container').innerHTML = `<div style="overflow-x:auto;"><table><thead><tr><th>見積No.</th><th>件名（ファイル名）</th><th>発行日</th><th>宛先</th><th>金額</th><th>ステータス</th><th>紐づけ状況</th><th>注文書番号</th><th>PDF</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  document.getElementById('quotelist-container').innerHTML = `<div style="overflow-x:auto;"><table><thead><tr><th>見積No.</th><th>件名（ファイル名）</th><th>発行日</th><th>機種</th><th>宛先</th><th>金額</th><th>ステータス</th><th>紐づけ状況</th><th>注文書番号</th><th>PDF</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   const pages = Math.ceil(total / _quoteLimit); if (pages <= 1) { document.getElementById('qs-pagination').innerHTML = ''; return; }
   let pHtml = ''; for (let i = 1; i <= Math.min(pages, 10); i++) pHtml += `<button class="page-btn ${i === _quotePage ? 'active' : ''}" onclick="goQuotePage(${i})">${i}</button>`; document.getElementById('qs-pagination').innerHTML = pHtml;
 }
@@ -981,6 +982,7 @@ function switchAdminTab(tab) {
     // サーバーから最新のメニュー設定を読み込んでから描画
     _loadMenuConfigFromServer();
   }
+  if (tab === 'apiconn') loadApiConnList();
 }
 
 // ============================================================
@@ -1298,6 +1300,369 @@ function _loadMenuConfigFromServer() {
       renderMenuConfigList();
     })
     .handleApiRequest('menuConfigLoad', null);
+}
+
+// ── ★ PDF アップロード & OCR ──
+var _ocrSessionId = null;
+function openUploadModal(){
+  S.selectedFile=null; S.orderType='';
+  document.getElementById('upload-status').innerHTML='';
+  document.getElementById('upload-btn').disabled=true;
+  document.getElementById('file-input').value='';
+  document.getElementById('order-type-section').style.display='none';
+  document.getElementById('upload-modal').classList.add('open');
+}
+function closeUploadModal(){ document.getElementById('upload-modal').classList.remove('open'); }
+function setDocType(t){
+  S.docType=t; S.orderType='';
+  document.getElementById('type-quote').classList.toggle('active',t==='quote');
+  document.getElementById('type-order').classList.toggle('active',t==='order');
+  document.getElementById('order-type-section').style.display=t==='order'?'block':'none';
+  ['ot-trial','ot-mass'].forEach(id=>{ const el=document.getElementById(id); if(el) el.classList.remove('active'); });
+}
+function setOrderType(t){
+  S.orderType=t;
+  document.getElementById('ot-trial').classList.toggle('active', t==='試作');
+  document.getElementById('ot-mass').classList.toggle('active', t==='量産');
+}
+function handleFileSelect(e){ const f=e.target.files[0]; if(f) _setFile(f); }
+function _setFile(file){
+  if(!file.name.toLowerCase().endsWith('.pdf')){ showToast('PDFのみ対応',true); return; }
+  S.selectedFile=file;
+  document.getElementById('upload-status').innerHTML=`<p style="color:var(--success);font-size:13px;">✓ ${file.name} (${(file.size/1024).toFixed(1)} KB)</p>`;
+  document.getElementById('upload-btn').disabled=false;
+}
+function uploadFile(){
+  if(!S.selectedFile) return;
+  if(S.docType==='order' && !S.orderType){ showToast('注文種別を選択してください',true); return; }
+  const btn=document.getElementById('upload-btn'); btn.disabled=true; btn.textContent='OCR解析中...';
+  document.getElementById('upload-status').innerHTML='<div class="loading" style="padding:16px;"><div class="spinner"></div><span style="color:var(--text-sub);font-size:13px;">Gemini OCR 解析中...</span></div>';
+  const reader=new FileReader();
+  reader.onload=e=>{
+    const b64=e.target.result.split(',')[1];
+    google.script.run
+      .withSuccessHandler(res=>{
+        btn.textContent='解析・登録'; btn.disabled=false;
+        if(!res.success){ document.getElementById('upload-status').innerHTML=`<p style="color:var(--danger);font-size:13px;">✗ ${res.error||'エラー'}</p>`; return; }
+        _ocrSessionId=res.sessionId; _openOcrReviewModal(res);
+      })
+      .withFailureHandler(err=>{ document.getElementById('upload-status').innerHTML=`<p style="color:var(--danger);font-size:13px;">✗ 通信エラー</p>`; btn.textContent='解析・登録'; btn.disabled=false; })
+      .handleApiRequest('ocrPreview',{ base64Data:b64, fileName:S.selectedFile.name, docType:S.docType, orderType:S.orderType });
+  };
+  reader.readAsDataURL(S.selectedFile);
+}
+function _openOcrReviewModal(res){
+  const ocr=res.ocrResult||{}; const quality=res.quality||0; const warns=res.warnings||[]; const isQuote=S.docType==='quote';
+  const qColor=quality>=75?'#16a34a':quality>=50?'#d97706':'#dc2626'; const qLabel=quality>=75?'高精度':quality>=50?'要確認':'低精度';
+  const warnHtml=warns.map(w=>`<div style="padding:6px 10px;border-radius:5px;font-size:12px;margin-bottom:4px;background:${w.level==='error'?'#fef2f2':'#fffbeb'};color:${w.level==='error'?'#dc2626':'#d97706'};border-left:3px solid ${w.level==='error'?'#dc2626':'#d97706'};">${w.level==='error'?'❌':'⚠️'} ${w.msg}</div>`).join('');
+  const lines=ocr.lineItems||[];
+  const lineRows=lines.map((item,i)=>`
+    <tr id="ocr-line-${i}" style="border-bottom:1px solid #f0f2f5;">
+      <td style="padding:4px 6px;text-align:center;color:#94a3b8;font-size:11px;">${i+1}</td>
+      <td style="padding:4px 6px;"><input type="text" value="${_esc(item.itemName)}" onchange="ocrUpdateLine(${i},'itemName',this.value)" style="width:100%;border:1px solid #e2e8f0;border-radius:4px;padding:3px 6px;font-size:12px;"></td>
+      <td style="padding:4px 6px;"><input type="text" value="${_esc(item.spec)}" onchange="ocrUpdateLine(${i},'spec',this.value)" style="width:100%;border:1px solid #e2e8f0;border-radius:4px;padding:3px 6px;font-size:12px;"></td>
+      <td style="padding:4px 6px;"><input type="number" value="${item.qty||1}" onchange="ocrUpdateLine(${i},'qty',Number(this.value));ocrRecalcLine(${i})" style="width:60px;border:1px solid #e2e8f0;border-radius:4px;padding:3px 4px;font-size:12px;text-align:right;"></td>
+      <td style="padding:4px 6px;"><input type="number" value="${item.unitPrice||0}" id="ocr-price-${i}" onchange="ocrUpdateLine(${i},'unitPrice',Number(this.value));ocrRecalcLine(${i})" style="width:90px;border:${item.unitPrice?'1px solid #e2e8f0':'2px solid #f59e0b'};border-radius:4px;padding:3px 4px;font-size:12px;text-align:right;font-weight:${item.unitPrice?'400':'600'};"></td>
+      <td style="padding:4px 6px;text-align:right;font-size:12px;font-weight:500;color:#2563eb;" id="ocr-amt-${i}">${(item.amount||0).toLocaleString()}</td>
+      <td style="padding:4px 6px;text-align:center;"><button onclick="ocrDeleteLine(${i})" style="border:none;background:none;color:#dc2626;cursor:pointer;font-size:14px;">✕</button></td>
+    </tr>`).join('');
+  const headerFields=isQuote?`
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">見積番号 <span style="color:#dc2626;">*</span></label><input type="text" id="ocr-documentNo" value="${_esc(ocr.documentNo)}" style="width:100%;border:1px solid ${ocr.documentNo?'#e2e8f0':'#f59e0b'};border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">発行日</label><input type="text" id="ocr-issueDate" value="${_esc(ocr.issueDate||ocr.documentDate)}" placeholder="YYYY/MM/DD" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">宛先会社名</label><input type="text" id="ocr-destCompany" value="${_esc(ocr.destCompany)}" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">件名</label><input type="text" id="ocr-subject" value="${_esc(ocr.subject)}" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px;">
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">小計</label><input type="number" id="ocr-subtotal" value="${ocr.subtotal||0}" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;text-align:right;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">消費税</label><input type="number" id="ocr-tax" value="${ocr.tax||0}" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;text-align:right;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">合計金額</label><input type="number" id="ocr-totalAmount" value="${ocr.totalAmount||0}" style="width:100%;border:1px solid ${ocr.totalAmount?'#e2e8f0':'#f59e0b'};border-radius:6px;padding:6px 8px;font-size:13px;text-align:right;font-weight:600;"></div>
+    </div>`:`
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">注文番号 <span style="color:#dc2626;">*</span></label><input type="text" id="ocr-documentNo" value="${_esc(ocr.documentNo)}" style="width:100%;border:1px solid ${ocr.documentNo?'#e2e8f0':'#f59e0b'};border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">発注日</label><input type="text" id="ocr-issueDate" value="${_esc(ocr.documentDate)}" placeholder="YYYY/MM/DD" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">発注者</label><input type="text" id="ocr-destCompany" value="${_esc(ocr.clientName)}" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">件名</label><input type="text" id="ocr-subject" value="${_esc(ocr.subject)}" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">対応見積番号</label><input type="text" id="ocr-linkedQuoteNo" value="${_esc(ocr.linkedQuoteNo)}" style="width:100%;border:1px solid #e2e8f0;border-radius:6px;padding:6px 8px;font-size:13px;"></div>
+      <div><label style="font-size:11px;color:#64748b;display:block;margin-bottom:3px;">合計金額</label><input type="number" id="ocr-totalAmount" value="${ocr.totalAmount||0}" style="width:100%;border:1px solid ${ocr.totalAmount?'#e2e8f0':'#f59e0b'};border-radius:6px;padding:6px 8px;font-size:13px;text-align:right;font-weight:600;"></div>
+    </div>`;
+  const pdfPreviewBtn=res.pdfUrl?`<a href="${res.pdfUrl}" target="_blank" style="display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border:1px solid #2563eb;border-radius:5px;color:#2563eb;font-size:12px;text-decoration:none;">📄 PDFを確認</a>`:'';
+  document.getElementById('upload-status').innerHTML=`
+    <div id="ocr-review-panel" style="margin-top:8px;">
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;margin-bottom:10px;">
+        <div style="flex:1;"><div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;"><span style="font-size:12px;font-weight:600;">OCR品質スコア</span><span style="background:${qColor};color:#fff;border-radius:4px;padding:1px 8px;font-size:11px;">${quality}点 ${qLabel}</span>${pdfPreviewBtn}</div><div style="height:6px;background:#e2e8f0;border-radius:3px;overflow:hidden;"><div style="width:${quality}%;height:100%;background:${qColor};border-radius:3px;"></div></div></div>
+      </div>
+      ${warnHtml?`<div style="margin-bottom:10px;">${warnHtml}</div>`:''}
+      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin-bottom:10px;">
+        <div style="font-size:12px;font-weight:600;margin-bottom:10px;">📝 ${isQuote?'見積書':'注文書'}情報<span style="font-size:11px;font-weight:400;color:#94a3b8;margin-left:6px;">黄色枠は要確認</span></div>
+        ${headerFields}
+      </div>
+      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin-bottom:12px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;"><span style="font-size:12px;font-weight:600;">📋 明細行 <span id="ocr-line-count">${lines.length}</span>行</span><button onclick="ocrAddLine()" style="border:1px solid #2563eb;background:none;color:#2563eb;border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer;">＋ 行追加</button></div>
+        <div style="overflow-x:auto;">
+          <table style="width:100%;border-collapse:collapse;min-width:550px;" id="ocr-line-table">
+            <thead><tr style="background:#f8fafc;font-size:11px;color:#64748b;"><th style="padding:5px 6px;text-align:center;width:30px;">#</th><th style="padding:5px 6px;text-align:left;">品名</th><th style="padding:5px 6px;text-align:left;">仕様</th><th style="padding:5px 6px;text-align:right;width:60px;">数量</th><th style="padding:5px 6px;text-align:right;width:100px;">単価 *</th><th style="padding:5px 6px;text-align:right;width:90px;">金額</th><th style="padding:5px 6px;width:30px;"></th></tr></thead>
+            <tbody id="ocr-lines-body">${lineRows}</tbody>
+          </table>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button onclick="ocrDiscard()" style="border:1px solid #e2e8f0;background:#fff;color:#64748b;border-radius:6px;padding:7px 16px;font-size:13px;cursor:pointer;">✕ 破棄</button>
+        <button onclick="ocrApprove()" id="ocr-approve-btn" style="border:none;background:#2563eb;color:#fff;border-radius:6px;padding:7px 20px;font-size:13px;font-weight:600;cursor:pointer;">✅ 確認・承認してDB登録</button>
+      </div>
+    </div>`;
+  window._ocrLines=JSON.parse(JSON.stringify(lines)); window._ocrDocType=S.docType;
+}
+function ocrUpdateLine(idx,field,val){ if(window._ocrLines&&window._ocrLines[idx]) window._ocrLines[idx][field]=val; }
+function ocrRecalcLine(idx){ const line=window._ocrLines&&window._ocrLines[idx]; if(!line) return; const amt=(line.unitPrice||0)*(line.qty||1); line.amount=amt; const el=document.getElementById('ocr-amt-'+idx); if(el) el.textContent=amt.toLocaleString(); }
+function ocrDeleteLine(idx){ if(!window._ocrLines) return; window._ocrLines.splice(idx,1); const row=document.getElementById('ocr-line-'+idx); if(row) row.style.display='none'; }
+function ocrAddLine(){
+  if(!window._ocrLines) window._ocrLines=[];
+  const idx=window._ocrLines.length; window._ocrLines.push({itemName:'',spec:'',qty:1,unit:'式',unitPrice:0,amount:0,remarks:''});
+  const tbody=document.getElementById('ocr-lines-body'); if(!tbody) return;
+  const tr=document.createElement('tr'); tr.id='ocr-line-'+idx; tr.style.borderBottom='1px solid #f0f2f5';
+  tr.innerHTML=`<td style="padding:4px 6px;text-align:center;color:#94a3b8;font-size:11px;">${idx+1}</td><td style="padding:4px 6px;"><input type="text" onchange="ocrUpdateLine(${idx},'itemName',this.value)" style="width:100%;border:1px solid #e2e8f0;border-radius:4px;padding:3px 6px;font-size:12px;"></td><td style="padding:4px 6px;"><input type="text" onchange="ocrUpdateLine(${idx},'spec',this.value)" style="width:100%;border:1px solid #e2e8f0;border-radius:4px;padding:3px 6px;font-size:12px;"></td><td style="padding:4px 6px;"><input type="number" value="1" onchange="ocrUpdateLine(${idx},'qty',Number(this.value));ocrRecalcLine(${idx})" style="width:60px;border:1px solid #e2e8f0;border-radius:4px;padding:3px 4px;font-size:12px;text-align:right;"></td><td style="padding:4px 6px;"><input type="number" value="0" id="ocr-price-${idx}" onchange="ocrUpdateLine(${idx},'unitPrice',Number(this.value));ocrRecalcLine(${idx})" style="width:90px;border:2px solid #f59e0b;border-radius:4px;padding:3px 4px;font-size:12px;text-align:right;font-weight:600;"></td><td style="padding:4px 6px;text-align:right;font-size:12px;font-weight:500;color:#2563eb;" id="ocr-amt-${idx}">0</td><td style="padding:4px 6px;text-align:center;"><button onclick="ocrDeleteLine(${idx})" style="border:none;background:none;color:#dc2626;cursor:pointer;font-size:14px;">✕</button></td>`;
+  tbody.appendChild(tr);
+}
+function ocrDiscard(){
+  if(!_ocrSessionId){ closeUploadModal(); return; }
+  google.script.run.withSuccessHandler(()=>{ _ocrSessionId=null; closeUploadModal(); showToast('破棄しました'); }).handleApiRequest('ocrDiscard',{sessionId:_ocrSessionId});
+}
+function ocrApprove(){
+  if(!_ocrSessionId){ showToast('セッションが無効です',true); return; }
+  const btn=document.getElementById('ocr-approve-btn'); btn.disabled=true; btn.textContent='登録中...';
+  const corrected={
+    documentNo:(document.getElementById('ocr-documentNo')||{}).value||'',
+    issueDate:(document.getElementById('ocr-issueDate')||{}).value||'',
+    documentDate:(document.getElementById('ocr-issueDate')||{}).value||'',
+    destCompany:(document.getElementById('ocr-destCompany')||{}).value||'',
+    clientName:(document.getElementById('ocr-destCompany')||{}).value||'',
+    subject:(document.getElementById('ocr-subject')||{}).value||'',
+    linkedQuoteNo:(document.getElementById('ocr-linkedQuoteNo')||{}).value||'',
+    subtotal:Number((document.getElementById('ocr-subtotal')||{}).value||0),
+    tax:Number((document.getElementById('ocr-tax')||{}).value||0),
+    totalAmount:Number((document.getElementById('ocr-totalAmount')||{}).value||0),
+    lineItems:(window._ocrLines||[]).filter(l=>l.itemName)
+  };
+  google.script.run
+    .withSuccessHandler(res=>{
+      btn.disabled=false; btn.textContent='✅ 確認・承認してDB登録';
+      if(!res.success){ showToast('登録失敗: '+res.error,true); return; }
+      _ocrSessionId=null;
+      document.getElementById('upload-status').innerHTML=`<div style="background:#e6f4ea;border-radius:8px;padding:14px;font-size:13px;"><strong style="color:#16a34a;font-size:14px;">✅ DB登録完了</strong><br><span>${corrected.documentNo||'—'} / ${corrected.destCompany||'—'}</span><br><span style="color:#6b7280;">明細: ${res.lineCount}行 ／ 合計: ${corrected.totalAmount?corrected.totalAmount.toLocaleString()+' 円':'—'}</span></div>`;
+      showToast('✅ 登録完了しました'); loadData(); if(typeof loadQuoteList==='function') loadQuoteList();
+    })
+    .withFailureHandler(err=>{ btn.disabled=false; btn.textContent='✅ 確認・承認してDB登録'; showToast('通信エラー: '+err.message,true); })
+    .handleApiRequest('ocrApprove',{ sessionId:_ocrSessionId, correctedOcr:corrected });
+}
+
+// ── ★ 見積一覧 機種列オートコンプリート ──
+let _modelCodeCache = [];
+
+function startInlineEditAutocomplete(e, id, field, val, type) {
+  e.stopPropagation();
+  const td = e.currentTarget;
+  if (td.querySelector('input')) return;
+  const dlId = 'dl-model-autocomplete';
+  if (!document.getElementById(dlId)) {
+    const dl = document.createElement('datalist');
+    dl.id = dlId;
+    document.body.appendChild(dl);
+  }
+  const _fillDatalist = (codes) => {
+    const dl = document.getElementById(dlId);
+    if (!dl) return;
+    dl.innerHTML = codes.map(c => `<option value="${_esc(c.code)}">${c.code}${c.name?' — '+c.name:''}</option>`).join('');
+  };
+  if (_modelCodeCache.length > 0) {
+    _fillDatalist(_modelCodeCache);
+  } else {
+    google.script.run.withSuccessHandler(res => {
+      if (res && res.success && res.items) {
+        _modelCodeCache = res.items.map(r => ({ code: r.modelCode||'', name: r.modelName||'' })).filter(r=>r.code);
+        _fillDatalist(_modelCodeCache);
+      }
+    }).handleApiRequest('modelMasterList', null);
+  }
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.setAttribute('list', dlId);
+  input.className = 'inline-edit-input';
+  input.value = val === '—' ? '' : val;
+  input.style.cssText = 'width:100%;min-width:80px;';
+  input.onblur = () => saveInlineEdit(td, id, field, input.value, val, type);
+  input.onkeydown = (ev) => {
+    if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); }
+    if (ev.key === 'Escape') { td.innerHTML = val || '<span style="color:var(--text-muted);">—</span>'; }
+  };
+  td.innerHTML = ''; td.appendChild(input); input.focus();
+}
+
+// ── ★ 台帳 PDF アップロード ──
+function previewLedgerPdf(input) {
+  const f = input.files[0];
+  if (!f) return;
+  if (!f.name.toLowerCase().endsWith('.pdf')) { showToast('PDFのみ対応',true); input.value=''; return; }
+  document.getElementById('ledger-pdf-name').textContent = f.name + ' (' + (f.size/1024).toFixed(1) + ' KB)';
+  document.getElementById('ledger-pdf-upload-btn').style.display = 'inline-flex';
+  document.getElementById('ledger-pdf-status').textContent = '';
+}
+function uploadLedgerPdf() {
+  const input = document.getElementById('ledger-pdf-file');
+  const f = input.files[0]; if (!f) { showToast('PDFを選択してください',true); return; }
+  const btn = document.getElementById('ledger-pdf-upload-btn');
+  btn.disabled = true; btn.textContent = '⏳ アップロード中...';
+  document.getElementById('ledger-pdf-status').innerHTML = '<span style="color:var(--text-sub);">アップロード中...</span>';
+  const machineCode = (document.getElementById('ledger-machine-code')||{}).value||'';
+  const boardName = (document.getElementById('ledger-board-name')||{}).value||'';
+  const reader = new FileReader();
+  reader.onload = e => {
+    const b64 = e.target.result.split(',')[1];
+    google.script.run
+      .withSuccessHandler(res => {
+        btn.disabled = false; btn.textContent = '⬆ アップロード';
+        if (res && res.success) {
+          document.getElementById('ledger-save-url').value = res.url;
+          document.getElementById('ledger-pdf-status').innerHTML = '<span style="color:var(--success);">✅ アップロード完了 — URLを自動入力しました</span>';
+          document.getElementById('ledger-pdf-upload-btn').style.display = 'none';
+          showToast('✅ PDFをアップロードしました');
+        } else {
+          document.getElementById('ledger-pdf-status').innerHTML = '<span style="color:var(--danger);">❌ ' + ((res&&res.error)||'アップロード失敗') + '</span>';
+        }
+      })
+      .withFailureHandler(err => {
+        btn.disabled = false; btn.textContent = '⬆ アップロード';
+        document.getElementById('ledger-pdf-status').innerHTML = '<span style="color:var(--danger);">❌ 通信エラー</span>';
+      })
+      .handleApiRequest('ledgerUploadFile', { base64Data: b64, fileName: f.name, machineCode, boardName });
+  };
+  reader.readAsDataURL(f);
+}
+
+// ── ★ 外部API連携管理 ──
+let _apiConnList = [];
+
+function loadApiConnList() {
+  document.getElementById('api-conn-list').innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-sub);">⏳ 読み込み中...</div>';
+  google.script.run.withSuccessHandler(res => {
+    _apiConnList = (res && res.items) || [];
+    _renderApiConnList();
+  }).withFailureHandler(() => {
+    document.getElementById('api-conn-list').innerHTML = '<div style="padding:20px;color:var(--danger);">読み込みエラー</div>';
+  }).handleApiRequest('externalApiList', null);
+}
+
+function _renderApiConnList() {
+  const el = document.getElementById('api-conn-list'); if (!el) return;
+  if (_apiConnList.length === 0) {
+    el.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-sub);font-size:13px;">まだ外部API連携が登録されていません。<br>「＋ 新規追加」から追加してください。</div>';
+    return;
+  }
+  const typeLabel = { gas_webhook:'GAS Webhook', spreadsheet:'スプレッドシート', custom_webhook:'Webhook', rest_api:'REST API' };
+  const triggerLabel = { manual:'手動', on_order:'注文登録時', on_quote:'見積登録時', on_status:'ステータス変更時', daily:'毎日' };
+  el.innerHTML = _apiConnList.map(c => `
+    <div style="border:1px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:10px;background:#fff;display:flex;align-items:flex-start;gap:12px;">
+      <div style="flex:1;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+          <span style="font-weight:700;font-size:14px;">${_esc(c.name||'—')}</span>
+          <span style="font-size:10px;padding:2px 7px;border-radius:10px;background:${c.enabled?'#dcfce7':'#f1f5f9'};color:${c.enabled?'#15803d':'#64748b'};">${c.enabled?'有効':'無効'}</span>
+          <span style="font-size:10px;padding:2px 7px;border-radius:10px;background:#eff6ff;color:#2563eb;">${typeLabel[c.type]||c.type}</span>
+          <span style="font-size:10px;padding:2px 7px;border-radius:10px;background:#fdf4ff;color:#7c3aed;">${triggerLabel[c.trigger]||c.trigger}</span>
+        </div>
+        <div style="font-size:11px;color:var(--text-sub);word-break:break-all;">${_esc(c.endpoint||'')}</div>
+        ${c.desc?`<div style="font-size:11px;color:var(--text-muted);margin-top:3px;">${_esc(c.desc)}</div>`:''}
+      </div>
+      <div style="display:flex;gap:6px;flex-shrink:0;">
+        <button class="btn btn-outline btn-sm" onclick="editApiConn('${_esc(c.id)}')">✏️ 編集</button>
+        <button class="btn btn-outline btn-sm" onclick="triggerApiConn('${_esc(c.id)}')" style="color:#6366f1;border-color:#6366f1;" title="手動送信">▶ 送信</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteApiConn('${_esc(c.id)}')">🗑️</button>
+      </div>
+    </div>`).join('');
+}
+
+function openApiConnModal(id) {
+  ['api-conn-name','api-conn-endpoint','api-conn-apikey','api-conn-fields','api-conn-desc'].forEach(i => { const el=document.getElementById(i); if(el) el.value=''; });
+  document.getElementById('api-conn-edit-id').value = '';
+  document.getElementById('api-conn-type').value = 'gas_webhook';
+  document.getElementById('api-conn-trigger').value = 'manual';
+  document.getElementById('api-conn-enabled').checked = true;
+  document.getElementById('api-conn-test-result').innerHTML = '';
+  document.getElementById('api-conn-modal-title').textContent = '🔌 外部API連携を追加';
+  document.getElementById('api-conn-modal').classList.add('open');
+}
+
+function editApiConn(id) {
+  const c = _apiConnList.find(r => r.id === id); if (!c) return;
+  document.getElementById('api-conn-edit-id').value = c.id||'';
+  document.getElementById('api-conn-name').value = c.name||'';
+  document.getElementById('api-conn-type').value = c.type||'gas_webhook';
+  document.getElementById('api-conn-endpoint').value = c.endpoint||'';
+  document.getElementById('api-conn-apikey').value = '';
+  document.getElementById('api-conn-trigger').value = c.trigger||'manual';
+  document.getElementById('api-conn-fields').value = c.fields||'';
+  document.getElementById('api-conn-desc').value = c.desc||'';
+  document.getElementById('api-conn-enabled').checked = c.enabled !== false;
+  document.getElementById('api-conn-test-result').innerHTML = '';
+  document.getElementById('api-conn-modal-title').textContent = '🔌 外部API連携を編集';
+  document.getElementById('api-conn-modal').classList.add('open');
+}
+
+function closeApiConnModal() { document.getElementById('api-conn-modal').classList.remove('open'); }
+
+function saveApiConn() {
+  const name = document.getElementById('api-conn-name').value.trim();
+  const endpoint = document.getElementById('api-conn-endpoint').value.trim();
+  if (!name) { showToast('連携名を入力してください',true); return; }
+  if (!endpoint) { showToast('エンドポイントURLを入力してください',true); return; }
+  const apikey = document.getElementById('api-conn-apikey').value.trim();
+  const payload = {
+    id: document.getElementById('api-conn-edit-id').value||undefined,
+    name, type: document.getElementById('api-conn-type').value,
+    endpoint, trigger: document.getElementById('api-conn-trigger').value,
+    fields: document.getElementById('api-conn-fields').value.trim(),
+    desc: document.getElementById('api-conn-desc').value.trim(),
+    enabled: document.getElementById('api-conn-enabled').checked,
+  };
+  if (apikey) payload.apikey = apikey;
+  google.script.run.withSuccessHandler(res => {
+    if (res && res.success) { showToast('✅ 保存しました'); closeApiConnModal(); loadApiConnList(); }
+    else showToast('❌ 保存失敗: '+(res&&res.error||''),true);
+  }).handleApiRequest('externalApiSave', payload);
+}
+
+function deleteApiConn(id) {
+  if (!confirm('この連携設定を削除しますか？')) return;
+  google.script.run.withSuccessHandler(res => {
+    if (res && res.success) { showToast('削除しました'); loadApiConnList(); }
+    else showToast('削除失敗',true);
+  }).handleApiRequest('externalApiDelete', { id });
+}
+
+function testApiConn() {
+  const endpoint = document.getElementById('api-conn-endpoint').value.trim();
+  if (!endpoint) { showToast('エンドポイントを入力してください',true); return; }
+  document.getElementById('api-conn-test-result').innerHTML = '<span style="color:var(--text-sub);">⏳ 接続テスト中...</span>';
+  const payload = {
+    endpoint, type: document.getElementById('api-conn-type').value,
+    apikey: document.getElementById('api-conn-apikey').value.trim()||undefined
+  };
+  google.script.run.withSuccessHandler(res => {
+    if (res && res.success) {
+      document.getElementById('api-conn-test-result').innerHTML = `<span style="color:var(--success);">✅ 接続成功 (${res.statusCode||200})</span>`;
+    } else {
+      document.getElementById('api-conn-test-result').innerHTML = `<span style="color:var(--danger);">❌ 失敗: ${res&&res.error||'エラー'}</span>`;
+    }
+  }).withFailureHandler(() => {
+    document.getElementById('api-conn-test-result').innerHTML = '<span style="color:var(--danger);">❌ 通信エラー</span>';
+  }).handleApiRequest('externalApiTest', payload);
+}
+
+function triggerApiConn(id) {
+  if (!confirm('この連携を手動送信しますか？')) return;
+  google.script.run.withSuccessHandler(res => {
+    if (res && res.success) showToast('✅ 送信しました');
+    else showToast('❌ 送信失敗: '+(res&&res.error||''),true);
+  }).handleApiRequest('externalApiTrigger', { id });
 }
 
 
