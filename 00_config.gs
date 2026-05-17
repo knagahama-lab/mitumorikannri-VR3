@@ -15,8 +15,8 @@ var CONFIG = {
   SPREADSHEET_ID: PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID') || '',
   GEMINI_API_KEY: '',  // 必ず getGeminiApiKey() を使うこと
 
-  GEMINI_PRIMARY_MODEL:  'gemini-3.1-flash-lite',
-  GEMINI_FALLBACK_MODEL: 'gemini-3-flash',
+  GEMINI_PRIMARY_MODEL:  'gemini-1.5-flash-latest',
+  GEMINI_FALLBACK_MODEL: 'gemini-1.5-flash-8b',
   GEMINI_API_ENDPOINT:   'https://generativelanguage.googleapis.com/v1beta/models/',
 
   WEB_UPLOAD_FOLDER_ID:  '1sB42xntGKL31GeT9OjOKTxVJwj9IQz-h',
@@ -425,7 +425,7 @@ function getAllLedgerData() {
   var ss    = getSpreadsheet();
   var sheet = ss.getSheetByName(CONFIG.SHEET_LEDGER);
   if (!sheet || sheet.getLastRow() <= 1) return [];
-  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 14).getValues();
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 15).getValues();
   data.forEach(function(row, i) {
     var hasContent = row.slice(1).some(function(v) { return String(v).trim() !== ''; });
     if (!hasContent) return;

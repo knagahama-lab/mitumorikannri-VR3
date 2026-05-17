@@ -101,8 +101,12 @@ function handleApiRequest(action, payload) {
       case 'bomImportFinalList':  return apiBomImportFinalList(payload.rows);
       case 'bomImportK10Parts':   return apiBomImportK10Parts(payload.rows);
       case 'reregisterTriggers':
-        try { _registerTriggers(); return { success: true }; }
-        catch(e) { return { success: false, error: e.message }; }
+        try {
+          _registerTriggers();
+          try { setupMonitoringTriggers(); } catch(e2) { Logger.log('[reregisterTriggers] monitoring: ' + e2.message); }
+          try { setupModelMasterTriggers(); } catch(e3) { Logger.log('[reregisterTriggers] modelMaster: ' + e3.message); }
+          return { success: true };
+        } catch(e) { return { success: false, error: e.message }; }
       case 'orderPriceCompare':      res = apiOrderPriceCompare(payload); break;
       case 'batchOrderPriceCompare': res = apiBatchOrderPriceCompare(payload); break;
       case 'searchUnitPrice':

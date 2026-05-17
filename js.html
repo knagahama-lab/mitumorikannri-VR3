@@ -36,8 +36,9 @@ let _adminLoaded = false; // ★ 管理コンソール初期化フラグ
 
 window.addEventListener('load', () => {
   renderSidebar(); showPage('list'); try { _populateMonthFilter(); } catch(e){}
-  loadData(); loadQuoteList(); 
+  loadData(); loadQuoteList();
   if (typeof loadMatchingCandidates === 'function') loadMatchingCandidates();
+  if (typeof loadOcrUsage === 'function') loadOcrUsage();
 });
 
 function _esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
@@ -1663,6 +1664,212 @@ function triggerApiConn(id) {
     if (res && res.success) showToast('✅ 送信しました');
     else showToast('❌ 送信失敗: '+(res&&res.error||''),true);
   }).handleApiRequest('externalApiTrigger', { id });
+}
+
+// ── AI紐づけ候補・マッチング ──
+function loadMatchingCandidates() {
+  const container = document.getElementById('matching-container'); if(!container) return;
+  container.innerHTML = '<div class="loading"><div class="spinner"></div><br>AIが抽出した紐づけ候補を読み込み中...</div>';
+  google.script.run.withSuccessHandler(res => {
+    if (!res.success) { container.innerHTML = '<div class="alert alert-danger">エラー: ' + res.error + '</div>'; return; }
+    _allMatchingItems = res.items || []; _renderMatchingCandidates(_allMatchingItems);
+  }).withFailureHandler(err => { container.innerHTML = '<div class="alert alert-danger">通信エラー: ' + err.message + '</div>'; }).handleApiRequest('getCandidates', null);
+}
+
+function runBatchMatching() {
+  showToast('Gemini AIによる全件マッチングを開始しました...');
+  document.getElementById('matching-container').innerHTML = '<div class="loading"><div class="spinner"></div><br>🤖 Gemini AIが未紐づけの注文書と見積書を解析中...<br><span style="font-size:12px;color:var(--text-sub)">※数十秒〜数分かかります</span></div>';
+  google.script.run.withSuccessHandler(res => {
+    if (res.success) { showToast('完了！ 自動確定: ' + (res.result.autoCount||0) + '件'); loadMatchingCandidates(); loadData(); }
+    else { showToast('エラー: ' + res.error, true); loadMatchingCandidates(); }
+  }).withFailureHandler(err => { showToast('通信エラー: ' + err.message, true); loadMatchingCandidates(); }).handleApiRequest('runMatching', {});
+}
+
+function _renderMatchingCandidates(items) {
+  const container = document.getElementById('matching-container'); if(!container) return;
+  if (items.length === 0) { container.innerHTML = '<div style="text-align:center; padding:40px; background:#fff; border-radius:8px;"><strong style="color:var(--success); font-size:16px;">✓ 要確認の紐づけ候補はありません</strong></div>'; return; }
+  const cards = items.map(item => {
+    let candidates = item.candidates || [];
+    if (candidates.length === 0) {
+      if (item.c1Id) candidates.push({ quoteId: item.c1Id, quoteNo: item.c1No, client: item.c1Client, score: item.c1Score, detail: item.c1Detail });
+      if (item.c2Id) candidates.push({ quoteId: item.c2Id, quoteNo: '', client: '', score: item.c2Score, detail: '' });
+      if (item.c3Id) candidates.push({ quoteId: item.c3Id, quoteNo: '', client: '', score: item.c3Score, detail: '' });
+    }
+    candidates = candidates.filter(c => c && (c.quoteId || c.id)).slice(0, 10);
+    if (candidates.length === 0 && typeof _allQuotes !== 'undefined' && _allQuotes.length > 0) {
+      let fallback = _allQuotes.filter(q => !q.linked); let sameClient = fallback.filter(q => (q.client||q.destCompany||'').includes(item.orderClient || ''));
+      if (sameClient.length > 0) fallback = sameClient;
+      candidates = fallback.slice(0, 3).map(q => ({ quoteId: q.id, quoteNo: q.quoteNo || 'Noなし', client: q.client || q.destCompany || '不明', issueDate: q.issueDate || '—', amount: q.quoteAmount || 0, subject: q.subject || '', score: 0, reason: '参考表示' }));
+    }
+    const candRows = candidates.map(c => {
+      const qId = c.quoteId || c.id; const q = _allQuotes.find(aq => String(aq.id) === String(qId));
+      const qNo = c.quoteNo || (q ? q.quoteNo : '不明'); const qDate = c.issueDate || (q ? q.issueDate : '—');
+      const qSubject = c.subject || (q ? q.subject : '—'); const unitPrice = c.amount || (q ? q.quoteAmount : '—');
+      const pdfUrl = c.quoteUrl || (q ? q.quotePdfUrl : '');
+      const btnColor = c.score >= 80 ? 'var(--success)' : c.score > 0 ? '#fbbc04' : 'var(--text-sub)';
+      const scoreBadge = c.score > 0 ? `<span style="background:${btnColor}; color:#fff; padding:2px 6px; border-radius:4px; font-size:11px;">${c.score}点</span>` : `<span style="background:var(--text-sub); color:#fff; padding:2px 6px; border-radius:4px; font-size:11px;">参考表示</span>`;
+      return `<div style="background:#fff; border:1px solid var(--border); border-left:4px solid ${btnColor}; border-radius:6px; padding:12px; margin-bottom:8px; display:flex; align-items:center; justify-content:space-between; box-shadow:0 1px 3px rgba(0,0,0,0.05);"><div style="flex:1;"><div style="font-weight:700; font-size:13px; color:var(--text); margin-bottom:6px; display:flex; align-items:center; gap:8px;">📄 見積NO: ${qNo} ${scoreBadge}</div><div style="font-size:11px; color:var(--text-sub); display:flex; flex-wrap:wrap; gap:12px; line-height:1.5;"><span>📝 件名: ${qSubject}</span><span>📅 発行日: ${qDate}</span><span>💰 金額: <span style="color:var(--danger); font-weight:600;">¥${Number(unitPrice).toLocaleString()}</span></span></div></div><div style="display:flex; flex-direction:column; gap:6px; margin-left:12px; flex-shrink:0;">${pdfUrl ? `<a href="${pdfUrl}" target="_blank" class="btn btn-outline btn-sm" style="text-align:center;">📄 PDF</a>` : ''}<button class="btn btn-primary" onclick="confirmLink('${item.orderMgmtId}','${qId}', () => { loadMatchingCandidates(); })">🔗 確定</button></div></div>`;
+    }).join('');
+    const mgmtItem = S.all.find(r => String(r.id) === String(item.orderMgmtId)); const orderPdfUrl = (mgmtItem ? mgmtItem.orderPdfUrl : '') || item.orderPdfUrl || '';
+    const orderPdfBtn = orderPdfUrl ? `<a href="${orderPdfUrl}" target="_blank" style="text-decoration:none; background:#fff; border:1px solid #f9d5d1; color:#c0392b; font-size:11px; padding:3px 8px; border-radius:4px; font-weight:600; display:inline-flex; align-items:center; gap:4px; margin-left:8px;">📄 注文書PDF</a>` : '';
+    return `<div style="background:var(--bg);border-radius:var(--radius);border:1px solid var(--border);margin-bottom:24px;box-shadow:var(--shadow);overflow:hidden;"><div style="background:#fce8e6;padding:14px 20px;border-bottom:1px solid #f9d5d1;display:flex;align-items:center;flex-wrap:wrap;"><span class="badge" style="background:#c0392b;color:white;font-size:12px;padding:4px 10px;margin-right:12px;">📦 未紐づけ 注文書</span><div style="display:flex;align-items:center;gap:8px;"><strong style="font-size:16px;color:#c0392b;">${item.orderNo || item.orderMgmtId}</strong>${orderPdfBtn}</div><span style="font-size:13px;color:var(--text-sub); border-left:1px solid #f9d5d1; padding-left:16px; margin-left:16px;">顧客: ${item.orderClient || '—'}</span><span style="margin-left:auto;font-size:16px;font-weight:800;color:var(--danger);">¥${item.orderAmount ? Number(item.orderAmount).toLocaleString() : '—'}</span></div><div style="padding:16px 20px;"><div style="font-size:13px;font-weight:700;color:var(--text-sub);margin-bottom:12px;">↓ 見積書候補</div>${candRows || '<div style="padding:10px; background:#fff8e1; color:#e65100; border:1px solid #f5d9b8; border-radius:6px; font-size:12px;">候補なし</div>'}</div></div>`;
+  }).join('');
+  container.innerHTML = `<div>${cards}</div>`;
+}
+
+function filterMatchingCandidates() {
+  const kw = document.getElementById('matching-search').value.toLowerCase();
+  if (!kw) { _renderMatchingCandidates(_allMatchingItems); return; }
+  const filtered = _allMatchingItems.filter(item => String(item.orderNo||'').toLowerCase().includes(kw) || String(item.orderMgmtId||'').toLowerCase().includes(kw) || String(item.orderClient||'').toLowerCase().includes(kw));
+  _renderMatchingCandidates(filtered);
+}
+
+function confirmLink(orderMgmtId, quoteMgmtId, onSuccess) {
+  if (!confirm('紐づけを確定しますか？')) return;
+  google.script.run.withSuccessHandler(res => {
+    if (res.success) { showToast('✅ 紐づけ完了'); loadData(); if(onSuccess) onSuccess(); else loadMatchingCandidates(); }
+    else { showToast('失敗: ' + res.error, true); }
+  }).handleApiRequest('confirmOrderLink', { orderMgmtId, quoteMgmtId });
+}
+
+// ── 注文書↔見積書 紐づけモーダル (手動検索用) ──
+var _lmState = { orderMgmtId: null, orderData: null, candidates: [], selectedQuoteMgmtId: null, selectedQuoteNo: null, selectedQuoteAmount: null, selectedQuotePdfUrl: null, orderAmount: 0 };
+function openOrderLinkModal(mgmtId){
+  _lmState = { orderMgmtId: mgmtId, orderData: null, candidates: [], selectedQuoteMgmtId: null, selectedQuoteNo: null, selectedQuoteAmount: null, selectedQuotePdfUrl: null, orderAmount: 0 };
+  document.getElementById('order-link-overlay').classList.add('open'); document.getElementById('lm-linked-banner').style.display = 'none'; document.getElementById('lm-quote-detail-area').style.display = 'none'; document.getElementById('lm-title-sub').textContent = '管理ID: ' + mgmtId + ' — 発注書の明細に対応する見積書を選択してください';
+  _lmUpdateConfirmBtn(); lmSwitchTab('ai'); _lmLoadOrder(mgmtId); _lmLoadCandidates(mgmtId);
+}
+function closeOrderLinkModal(){ document.getElementById('order-link-overlay').classList.remove('open'); }
+function lmSwitchTab(tab){ ['ai','manual'].forEach(t => { const tabEl = document.getElementById('lm-tab-' + t); const panelEl = document.getElementById('lm-panel-' + t); if(tabEl) tabEl.classList.toggle('active', t === tab); if(panelEl) panelEl.classList.toggle('active', t === tab); }); }
+function _lmLoadOrder(mgmtId){
+  document.getElementById('lm-order-detail-body').innerHTML = '<tr><td colspan="6" style="text-align:center;padding:16px;"><div class="lm-spinner"></div></td></tr>';
+  google.script.run.withSuccessHandler(res => { _lmRenderOrderDetail(res); }).withFailureHandler(e => { document.getElementById('lm-order-detail-body').innerHTML = '<tr><td colspan="6" style="color:#c5221f;padding:12px;">エラー</td></tr>'; }).handleApiRequest('getDetail', { mgmtId });
+}
+function _lmRenderOrderDetail(res){
+  const lines = (res && res.orderLines) || []; const tbody = document.getElementById('lm-order-detail-body'); const pdfUrl = lines.length > 0 && lines[0].pdfUrl ? lines[0].pdfUrl : null;
+  const pdfBtn = document.getElementById('lm-order-pdf-btn');
+  if(pdfUrl){ pdfBtn.href = pdfUrl; document.getElementById('lm-order-pdf-label').textContent = '発注書PDFを開く'; pdfBtn.style.opacity = '1'; } else { pdfBtn.href = '#'; document.getElementById('lm-order-pdf-label').textContent = '発注書PDF（未登録）'; pdfBtn.style.opacity = '0.5'; }
+  if(lines.length === 0){ tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:12px;color:var(--lm-sub);">明細データなし</td></tr>'; return; }
+  let totalAmt = 0;
+  tbody.innerHTML = lines.map((l, i) => { totalAmt += Number(l.amount) || 0; return `<tr><td style="color:var(--lm-sub);">${i+1}</td><td style="font-weight:600;">${l.itemName||'—'}</td><td style="color:var(--lm-sub);font-size:11px;">${l.spec||''}</td><td class="td-r">${l.qty||''}</td><td class="td-r" style="color:var(--lm-primary);">${l.unitPrice ? Number(l.unitPrice).toLocaleString()+'円' : '—'}</td><td class="td-r" style="font-weight:600;">${l.amount ? '¥'+Number(l.amount).toLocaleString() : '—'}</td></tr>`; }).join('');
+  if(totalAmt > 0){ tbody.innerHTML += `<tr style="background:#f8f9fa;"><td colspan="5" style="text-align:right;font-weight:700;font-size:12px;color:var(--lm-sub);">合計</td><td class="td-r" style="font-weight:700;">¥${totalAmt.toLocaleString()}</td></tr>`; }
+  _lmState.orderAmount = totalAmt;
+}
+function _lmLoadCandidates(mgmtId){
+  document.getElementById('lm-candidates-area').innerHTML = '<div class="lm-loading"><div class="lm-spinner"></div><br>AIが類似見積書を検索中...</div>';
+  google.script.run.withSuccessHandler(res => { _lmRenderCandidates(res); }).handleApiRequest('getOrderLinkCandidates', { mgmtId });
+}
+function _lmRenderCandidates(res){
+  const area = document.getElementById('lm-candidates-area'); const candidates = (res && res.candidates) || []; _lmState.candidates = candidates;
+  if(res && res.linkedQuoteNo){ document.getElementById('lm-linked-banner').style.display = 'flex'; document.getElementById('lm-linked-text').textContent = '紐づけ済み: 見積番号 ' + res.linkedQuoteNo; if(res.linkedMgmtId) _lmSelectQuote(res.linkedMgmtId, res.linkedQuoteNo, res.linkedAmount, res.linkedPdfUrl, true); }
+  if(candidates.length === 0){ area.innerHTML = '<div style="text-align:center;padding:24px;color:var(--lm-sub);"><div style="font-size:28px;margin-bottom:8px;">🔍</div><div style="font-size:13px;">AI候補が見つかりませんでした</div><div style="font-size:12px;margin-top:4px;">「手動検索」タブから見積番号・件名で検索してください</div></div>'; return; }
+  area.innerHTML = candidates.map((c, i) => {
+    const score = c.score || 0; const scoreCls = score >= 80 ? 'score-high' : score >= 60 ? 'score-mid' : 'score-low'; const amount = c.quoteAmount ? '¥' + Number(c.quoteAmount).toLocaleString() : '不明';
+    return `<div class="lm-quote-candidate" id="lm-cand-${i}" onclick="lmSelectCandidate(${i})"><div class="lm-qc-top"><span class="lm-qc-no">${c.quoteNo || '見積番号不明'}</span><span class="lm-score-badge ${scoreCls}">一致度 ${score}点</span></div><div class="lm-qc-meta"><span>📅 ${c.issueDate||'—'}</span><span>🏢 ${c.destCompany||c.client||'—'}</span><span>💴 ${amount}</span></div></div>`;
+  }).join('');
+}
+function lmSelectCandidate(idx){ const c = _lmState.candidates[idx]; if(!c) return; _lmState.candidates.forEach((_, i) => { const el = document.getElementById('lm-cand-' + i); if(el) el.classList.remove('selected'); }); const el = document.getElementById('lm-cand-' + idx); if(el) el.classList.add('selected'); _lmSelectQuote(c.quoteMgmtId, c.quoteNo, c.quoteAmount, c.quotePdfUrl || c.pdfUrl, false); }
+function _lmSelectQuote(mgmtId, quoteNo, amount, pdfUrl, skipHighlight){
+  _lmState.selectedQuoteMgmtId = mgmtId; _lmState.selectedQuoteNo = quoteNo; _lmState.selectedQuoteAmount = amount; _lmState.selectedQuotePdfUrl = pdfUrl; _lmUpdateConfirmBtn();
+  const infoEl = document.getElementById('lm-selected-info'); if(infoEl){ infoEl.className = 'lm-selected-info has-selection'; infoEl.textContent = '✅ ' + (quoteNo || '見積書') + ' を選択中'; }
+  document.getElementById('lm-quote-detail-area').style.display = 'block';
+  const qPdfBtn = document.getElementById('lm-quote-pdf-btn'); if(pdfUrl){ qPdfBtn.href = pdfUrl; document.getElementById('lm-quote-pdf-label').textContent = '見積書PDFを開く'; qPdfBtn.style.opacity = '1'; } else { qPdfBtn.href = '#'; document.getElementById('lm-quote-pdf-label').textContent = '見積書PDF（未登録）'; qPdfBtn.style.opacity = '0.5'; }
+  _lmRenderPriceCompare(amount);
+}
+function _lmRenderPriceCompare(quoteAmount){
+  const area = document.getElementById('lm-price-compare-area'); const orderAmt = _lmState.orderAmount || 0; const quoteAmt = Number(quoteAmount) || 0;
+  if(!orderAmt || !quoteAmt){ area.innerHTML = '<div style="font-size:12px;color:var(--lm-sub);margin-top:6px;">金額情報が不足しています</div>'; return; }
+  const diff = quoteAmt - orderAmt; const diffPct = Math.round(Math.abs(diff) / orderAmt * 100); const isOk = Math.abs(diffPct) <= 5; const barW = Math.min(diffPct * 2, 100); const barColor= isOk ? '#34a853' : '#ea4335';
+  area.innerHTML = `<div class="lm-price-compare"><div style="font-size:11px;font-weight:700;color:var(--lm-sub);margin-bottom:6px;">💴 金額比較</div><div class="lm-price-row"><span class="label">📦 発注書 金額</span><span class="val">¥${orderAmt.toLocaleString()}</span></div><div class="lm-price-row"><span class="label">📄 見積書 金額</span><span class="val">¥${quoteAmt.toLocaleString()}</span></div><div class="lm-price-row"><span class="label">差額</span><span class="val ${isOk?'price-ok':'price-ng'}">${(diff>=0?'+':'') + diff.toLocaleString()}（${diffPct}%）</span></div><div class="price-diff-bar"><div class="price-diff-fill" style="width:${barW}%;background:${barColor};"></div></div>${isOk ? '<div style="font-size:11px;color:#137333;margin-top:4px;">✅ 金額が一致（±5%以内）しています</div>' : '<div style="font-size:11px;color:#c5221f;margin-top:4px;">⚠️ 金額差異あり（' + diffPct + '%差）— 確認してください</div>'}</div>`;
+}
+function lmManualSearch(){
+  const kw = ((document.getElementById('lm-manual-kw').value) || '').trim().toLowerCase(); let results = _allQuotes.filter(q => !q._fromLedger || q.quotePdfUrl);
+  if(kw) results = results.filter(q => (q.quoteNo||'').toLowerCase().includes(kw) || (q.destCompany||q.client||'').toLowerCase().includes(kw) || (q.subject||'').toLowerCase().includes(kw));
+  const area = document.getElementById('lm-manual-results');
+  if(results.length === 0){ area.innerHTML = '<div style="font-size:12px;color:var(--lm-sub);padding:6px 0;">該当する見積書が見つかりません</div>'; return; }
+  area.innerHTML = results.slice(0, 40).map(q => {
+    const amt = q.quoteAmount ? '¥' + Number(q.quoteAmount).toLocaleString() : ''; const isSel= _lmState.selectedQuoteMgmtId === q.id;
+    return `<div class="lm-manual-item${isSel?' selected':''}" onclick="lmSelectManual('${q.id}','${(q.quoteNo||'').replace(/'/g,'')}',${q.quoteAmount||0},'${(q.quotePdfUrl||'').replace(/'/g,'')}')"><div><span style="font-weight:700;color:var(--lm-primary);">${q.quoteNo||'—'}</span><span style="margin-left:8px;color:var(--lm-sub);">${q.destCompany||q.client||''}</span></div><div>${amt} <span style="color:var(--lm-sub);font-size:11px;">${q.issueDate||q.quoteDate||''}</span></div></div>`;
+  }).join('');
+}
+function lmSelectManual(mgmtId, quoteNo, amount, pdfUrl){ _lmSelectQuote(mgmtId, quoteNo, amount, pdfUrl, false); document.querySelectorAll('.lm-manual-item').forEach(el => el.classList.remove('selected')); document.querySelectorAll('.lm-manual-item').forEach(el => { if(el.textContent.includes(quoteNo)) el.classList.add('selected'); }); }
+function lmConfirmLink(){
+  if(!_lmState.selectedQuoteMgmtId) return;
+  const btn = document.getElementById('lm-confirm-btn'); btn.disabled = true; btn.textContent = '⏳ 保存中...';
+  google.script.run.withSuccessHandler(res => {
+    if(res && res.success){ showToast('✅ 紐づけしました'); closeOrderLinkModal(); loadData(); loadQuoteList(); loadMatchingCandidates(); }
+    else { showToast('❌ エラー', true); btn.disabled = false; btn.textContent = '🔗 紐づけを確定する'; }
+  }).handleApiRequest('confirmOrderLink', { orderMgmtId: _lmState.orderMgmtId, quoteMgmtId: _lmState.selectedQuoteMgmtId, quoteNo: _lmState.selectedQuoteNo });
+}
+function lmUnlinkCurrent(){ document.getElementById('lm-linked-banner').style.display = 'none'; _lmState.selectedQuoteMgmtId = null; _lmState.selectedQuoteNo = null; _lmUpdateConfirmBtn(); const infoEl = document.getElementById('lm-selected-info'); if(infoEl){ infoEl.className = 'lm-selected-info'; infoEl.textContent = '見積書が選択されていません'; } document.getElementById('lm-quote-detail-area').style.display = 'none'; }
+function _lmUpdateConfirmBtn(){ const btn = document.getElementById('lm-confirm-btn'); if(btn) btn.disabled = !_lmState.selectedQuoteMgmtId; }
+
+// ── 全文検索 ──
+function initDriveSearchPage(){
+  const wrap = document.getElementById('drive-search-container-wrap'); if(!wrap || wrap.dataset.initialized) return;
+  wrap.dataset.initialized = '1';
+  wrap.innerHTML = `<div class="page-heading"><div><h2>💾 全文検索</h2><p>Google Drive内のPDFをファイル名で検索します</p></div></div><div class="filter-bar"><div class="search-box" style="flex:1;"><input type="text" id="drive-kw" placeholder="ファイル名のキーワードを入力..." onkeypress="if(event.key==='Enter') executeDriveSearch()"></div><input type="date" id="drive-date-from" style="padding:7px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12px;"><span style="color:var(--text-sub);">〜</span><input type="date" id="drive-date-to" style="padding:7px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12px;"><button class="btn btn-primary" onclick="executeDriveSearch()">🔍 検索</button><button class="btn btn-outline" onclick="refreshDriveCache()">🔄 キャッシュ更新</button></div><div class="table-wrap"><div class="table-toolbar"><h2>検索結果</h2><span id="drive-result-count"></span></div><div id="drive-results" style="min-height:200px;padding:20px;text-align:center;color:var(--text-muted);">キーワードを入力して検索してください</div></div>`;
+}
+function executeDriveSearch(){
+  const kw = (document.getElementById('drive-kw').value || '').trim(); const from = (document.getElementById('drive-date-from').value || ''); const to = (document.getElementById('drive-date-to').value || '');
+  const res = document.getElementById('drive-results'); if(res) res.innerHTML = '<div class="loading"><div class="spinner"></div><br>Driveを検索中...</div>';
+  google.script.run.withSuccessHandler(r => {
+    if(!r.success){ if(res) res.innerHTML = '<div style="color:var(--danger);">' + r.error + '</div>'; return; }
+    const items = r.items || []; const cnt = document.getElementById('drive-result-count'); if(cnt) cnt.textContent = items.length + '件';
+    if(items.length === 0){ if(res) res.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted);">一致するファイルが見つかりません</div>'; return; }
+    const rows = items.map(f => `<div style="display:flex;align-items:center;gap:12px;padding:12px;border-bottom:1px solid var(--border-light);"><span style="font-size:20px;">📄</span><div style="flex:1;"><a href="${f.url}" target="_blank" style="font-weight:600;color:var(--primary);text-decoration:none;font-size:14px;">${f.name}</a><div style="font-size:11px;color:var(--text-sub);margin-top:2px;">更新日: ${f.updatedAt} / ${f.size ? f.size + 'KB' : ''}</div></div></div>`).join('');
+    if(res) res.innerHTML = rows;
+  }).handleApiRequest('driveSearch', { keyword: kw, dateFrom: from, dateTo: to });
+}
+function refreshDriveCache(){ showToast('Driveキャッシュを更新中...'); google.script.run.withSuccessHandler(r => showToast('キャッシュ更新完了 (' + (r.count||0) + '件)')).handleApiRequest('driveRefreshCache', {}); }
+function clearDriveSearch(){ if(document.getElementById('drive-kw')) document.getElementById('drive-kw').value=''; if(document.getElementById('drive-results')) document.getElementById('drive-results').innerHTML='<div class="loading">キーワードを入力して検索してください</div>'; }
+
+// ── カレンダー ──
+let _calendarInstance = null;
+function loadCalendar() {
+  const container = document.getElementById('cal-container'); if(!container) return;
+  if (_calendarInstance) { _calendarInstance.render(); return; }
+  _calendarInstance = new FullCalendar.Calendar(container, {
+    initialView: 'dayGridMonth', locale: 'ja', headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,listMonth' }, buttonText: { today: '今日', month: '月', list: '予定リスト' }, height: 'auto',
+    eventContent: function(arg) {
+      const title = arg.event.title || ''; const type = arg.event.extendedProps.type || '';
+      let icon = '📌'; if (title.includes('見積') || type === 'quote') icon = '📄'; if (title.includes('注文') || type === 'order') icon = '📦'; if (title.includes('納期') || type === 'delivery') icon = '🚚'; if (title.includes('Todo') || type === 'todo') icon = '✅';
+      return { html: `<div style="font-size:11px; white-space:normal; line-height:1.4; padding:3px 4px; overflow:hidden; cursor:pointer;" title="クリックして詳細を表示"><strong>${icon} ${title}</strong></div>` };
+    },
+    events: function(info, successCallback, failureCallback) {
+      const midDate = new Date((info.start.getTime() + info.end.getTime()) / 2);
+      google.script.run.withSuccessHandler(res => {
+        if (!res.success) { failureCallback(res.error); return; }
+        const fcEvents = (res.events || []).map(ev => {
+          let bgColor = '#3498db'; if (ev.type === 'delivery') bgColor = '#e74c3c'; if (ev.type === 'quote') bgColor = '#2ecc71'; if (ev.type === 'todo') bgColor = '#f39c12';
+          return { title: ev.label, start: String(ev.date).replace(/\//g, '-'), backgroundColor: bgColor, borderColor: bgColor, extendedProps: { mgmtId: ev.mgmtId, todoId: ev.todoId, label: ev.label, type: ev.type } };
+        });
+        successCallback(fcEvents);
+      }).handleApiRequest('getCalendar', { year: midDate.getFullYear(), month: midDate.getMonth() + 1 });
+    },
+    eventClick: function(info) { openCalEventDetail(info.event.extendedProps); }
+  });
+  _calendarInstance.render();
+}
+function openCalEventDetail(evProps) {
+  if (!evProps) return;
+  if (evProps.mgmtId) { const isQuote = (evProps.label && evProps.label.includes('見積')) || evProps.type === 'quote'; if (isQuote) { openQuoteDetail(evProps.mgmtId, ''); } else { openDetail(evProps.mgmtId); } }
+  else if (evProps.todoId) { showToast('Todo詳細は準備中です', true); }
+}
+
+// ── プレースホルダー / OCRメーター ──
+function loadTodos() { document.getElementById('todo-container') && (document.getElementById('todo-container').innerHTML = '<div class="loading">Todoリストは準備中です</div>'); }
+function loadBoardList() { document.getElementById('board-container') && (document.getElementById('board-container').innerHTML = '<div class="loading">基板管理は準備中です</div>'); }
+function loadBoardAnalysis() { document.getElementById('analysis-container') && (document.getElementById('analysis-container').innerHTML = '<div class="loading">分析は準備中です</div>'); }
+function refreshWorkflowStatus() { document.getElementById('workflow-container') && (document.getElementById('workflow-container').innerHTML = '<div class="loading">ワークフローは準備中です</div>'); }
+function loadAssignees() { document.getElementById('assignee-container') && (document.getElementById('assignee-container').innerHTML = '<div class="loading">担当者管理は準備中です</div>'); }
+function loadApprovals() { document.getElementById('approval-container') && (document.getElementById('approval-container').innerHTML = '<div class="loading">製造承認は準備中です</div>'); }
+function loadOcrUsage(){
+  google.script.run.withSuccessHandler(function(info){
+    const el = document.getElementById('ocr-usage-badge'); if(!el || !info) return;
+    const pct = Math.round((info.used / info.limit) * 100); const color = pct >= 80 ? '#dc2626' : pct >= 60 ? '#f59e0b' : '#16a34a';
+    el.innerHTML = `<span style="display:inline-flex;align-items:center;gap:4px;background:${color}18;color:${color};border:1px solid ${color}40;border-radius:9999px;padding:2px 10px;font-size:11px;font-weight:600;cursor:default;" title="本日のOCR使用状況">🧠 残り: ${(info.remaining||0).toLocaleString()} / ${(info.limit||0).toLocaleString()}</span>`;
+  }).handleApiRequest('getOcrUsage', null);
 }
 
 
