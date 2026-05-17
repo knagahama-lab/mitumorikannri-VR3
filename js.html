@@ -114,6 +114,49 @@ function saveInlineEdit(td, id, field, newVal, oldVal, type) {
   }
 }
 
+// ── ★インライン編集（日付型）──
+function startInlineEditDate(e, id, field, val, type) {
+  e.stopPropagation();
+  const td = e.currentTarget;
+  if (td.querySelector('input')) return;
+  // YYYY/MM/DD → YYYY-MM-DD に変換
+  const inputVal = val ? val.replace(/\//g, '-') : '';
+  const input = document.createElement('input');
+  input.type = 'date';
+  input.className = 'inline-edit-input';
+  input.value = inputVal;
+  input.style.cssText = 'padding:2px 4px;font-size:13px;border:1px solid var(--primary);border-radius:4px;width:130px;';
+  input.onblur = () => {
+    const raw = input.value; // YYYY-MM-DD
+    const formatted = raw ? raw.replace(/-/g, '/') : ''; // YYYY/MM/DD
+    if (formatted === val) { td.innerHTML = val || '<span style="color:var(--text-muted);">—</span>'; return; }
+    td.innerHTML = '<span style="color:#94a3b8;font-size:11px;">🔄 保存中...</span>';
+    const payload = { mgmtId: id };
+    payload[field] = formatted;
+    google.script.run.withSuccessHandler(res => {
+      if (res && res.success) {
+        showToast('✅ 納期を更新しました');
+        const item = S.all.find(r => r.id === id);
+        if (item) item[field] = formatted;
+        td.innerHTML = formatted || '<span style="color:var(--text-muted);">—</span>';
+      } else {
+        showToast('❌ 更新失敗', true);
+        td.innerHTML = val || '<span style="color:var(--text-muted);">—</span>';
+      }
+    }).withFailureHandler(() => {
+      showToast('❌ 通信エラー', true);
+      td.innerHTML = val || '<span style="color:var(--text-muted);">—</span>';
+    }).handleApiRequest('updateMgmt', payload);
+  };
+  input.onkeydown = (ev) => {
+    if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); }
+    if (ev.key === 'Escape') { td.innerHTML = val || '<span style="color:var(--text-muted);">—</span>'; }
+  };
+  td.innerHTML = '';
+  td.appendChild(input);
+  input.focus();
+}
+
 // ── 案件一覧 ──
 function normalizeSearchText(str){ return String(str||'').toLowerCase().replace(/[Ａ-Ｚａ-ｚ０-９]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)).replace(/[\u3000]/g, ' '); }
 function loadData() { const container = document.getElementById('table-container'); if(!container) return; container.innerHTML = '<div class="loading"><div class="spinner"></div><br>データ読み込み中...</div>'; google.script.run.withSuccessHandler(res => { if (!res || !res.success) { container.innerHTML = '<div class="loading" style="color:var(--danger);">⚠️ データ取得失敗</div>'; return; } S.all = res.items || []; S.filtered = S.all.slice(); S.page = 1; _updateSummary(); _renderTable(); }).handleApiRequest('getAll', null); }
@@ -165,7 +208,7 @@ function _renderTable() {
       <td onclick="event.stopPropagation();">${_statusSelectHtml(r.id, r.status, 'mgmt')}</td>
       <td>${r.orderType?_otBadge(r.orderType):''}</td>
       <td class="text-sub">${r.orderDate||r.quoteDate||''}</td>
-      <td class="text-sub">${r.deliveryDate||''}</td>
+      <td class="editable-cell" onclick="startInlineEditDate(event, '${r.id}', 'deliveryDate', '${_esc(r.deliveryDate||'')}', 'mgmt')" title="クリックして納期を編集" style="white-space:nowrap;">${r.deliveryDate ? r.deliveryDate : '<span style="color:var(--text-muted);">—</span>'}</td>
       <td class="editable-cell" onclick="startInlineEdit(event, '${r.id}', 'orderAmount', '${r.orderAmount||''}', 'mgmt')" style="text-align:right;">${r.orderAmount?Number(r.orderAmount).toLocaleString()+' 円':'—'}</td>
       <td>
         ${r.quotePdfUrl?`<a class="pdf-link" href="${r.quotePdfUrl}" target="_blank" onclick="event.stopPropagation()">見積</a> `:''}
