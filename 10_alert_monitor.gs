@@ -51,7 +51,22 @@ function _loadMonitorConfig() {
   }
 }
 
-// Gmailへの通知送信（Webhookに加えてメールでも通知）
+// プレーンテキスト → HTML変換（URLをリンク化・改行を<br>に変換）
+function _textToHtml(text) {
+  // HTMLエスケープ
+  var escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  // URL検出してリンク化（http/https）
+  escaped = escaped.replace(/(https?:\/\/[^\s　　、。\n]+)/g, function(url) {
+    return '<a href="' + url + '" style="color:#1a73e8;">' + url + '</a>';
+  });
+  // 改行→<br>
+  return escaped.replace(/\n/g, '<br>\n');
+}
+
+// Gmailへの通知送信（Webhookに加えてメールでも通知）HTML形式でURLをクリッカブルに
 function _sendAlertEmail(message) {
   try {
     var notifyEmails = PropertiesService.getScriptProperties().getProperty('NOTIFY_EMAILS') || '';
@@ -59,9 +74,13 @@ function _sendAlertEmail(message) {
     var emails = notifyEmails.split(',').map(function(e){ return e.trim(); }).filter(Boolean);
     var subject = '【見積管理システム】アラート通知 ' +
                   Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
+    var htmlBody =
+      '<div style="font-family:sans-serif;font-size:14px;line-height:1.8;color:#333;">' +
+      _textToHtml(message) +
+      '</div>';
     emails.forEach(function(email) {
       try {
-        GmailApp.sendEmail(email, subject, message);
+        GmailApp.sendEmail(email, subject, message, { htmlBody: htmlBody });
       } catch(e2) {
         Logger.log('[_sendAlertEmail] 送信失敗: ' + email + ' / ' + e2.message);
       }
@@ -243,27 +262,38 @@ function _checkDeliveryDates() {
     var overdue = [];
 
     data.forEach(function(row) {
-      var status       = String(row[MGMT_COLS.STATUS       - 1] || '');
-      var deliveryDate = row[MGMT_COLS.DELIVERY_DATE - 1];
-      var client       = String(row[MGMT_COLS.CLIENT  - 1] || '');
-      var orderNo      = String(row[MGMT_COLS.ORDER_NO - 1] || '');
+      var status       = String(row[MGMT_COLS.STATUS         - 1] || '');
+      var deliveryDate = row[MGMT_COLS.DELIVERY_DATE         - 1];
+      var client       = String(row[MGMT_COLS.CLIENT         - 1] || '');
+      var orderNo      = String(row[MGMT_COLS.ORDER_NO       - 1] || '');
+      var subject      = String(row[MGMT_COLS.SUBJECT        - 1] || '');
+      var pdfUrl       = String(row[MGMT_COLS.ORDER_PDF_URL  - 1] || '');
 
       if (!deliveryDate || !orderNo) return;
       if (status === CONFIG.STATUS.DELIVERED || status === CONFIG.STATUS.CANCELLED) return;
 
       var days = 9999;
+      var deliveryStr = '';
       try {
         var d = deliveryDate instanceof Date ? deliveryDate : new Date(String(deliveryDate).replace(/\//g,'-'));
-        if (!isNaN(d.getTime())) days = Math.floor((d - today) / (1000*60*60*24));
+        if (!isNaN(d.getTime())) {
+          days = Math.floor((d - today) / (1000*60*60*24));
+          deliveryStr = _toDateStr(d);
+        }
       } catch(e) {}
 
-      var label = client + '「' + orderNo + '」';
+      // 注文書の詳細情報を含むラベル
+      var label = client + '「' + orderNo + '」'
+        + (subject ? '\n    項目名: ' + subject : '')
+        + (deliveryStr ? '\n    納期: ' + deliveryStr : '')
+        + (pdfUrl ? '\n    注文書PDF: ' + pdfUrl : '');
+
       if (days < 0) {
-        overdue.push(label + ' (' + Math.abs(days) + '日超過)');
+        overdue.push(label + '\n    ⚠ ' + Math.abs(days) + '日超過');
       } else if (days <= MONITOR_CONFIG.DELIVERY_URGENT_DAYS) {
-        urgents.push(label + ' (明日納期)');
+        urgents.push(label + '\n    ⚠ 明日が納期');
       } else if (days <= MONITOR_CONFIG.DELIVERY_REMIND_DAYS) {
-        reminds.push(label + ' (あと' + days + '日)');
+        reminds.push(label + '\n    ⚠ あと' + days + '日');
       }
     });
 
@@ -297,13 +327,16 @@ function checkOrderDeadlines() {
     var urgents  = [], reminds = [], overdue = [];
 
     data.forEach(function(row, i) {
-      var id        = String(row[MGMT_COLS.ID             - 1] || '');
-      var orderNo   = String(row[MGMT_COLS.ORDER_NO       - 1] || '').trim();
-      var status    = String(row[MGMT_COLS.STATUS         - 1] || '');
-      var deadline  = row[MGMT_COLS.ORDER_DEADLINE        - 1]; // col 29
+      var id        = String(row[MGMT_COLS.ID               - 1] || '');
+      var orderNo   = String(row[MGMT_COLS.ORDER_NO         - 1] || '').trim();
+      var status    = String(row[MGMT_COLS.STATUS           - 1] || '');
+      var deadline  = row[MGMT_COLS.ORDER_DEADLINE          - 1]; // col 29
       var notified  = String(row[MGMT_COLS.DEADLINE_NOTIFIED - 1] || ''); // col 32
-      var client    = String(row[MGMT_COLS.CLIENT         - 1] || '');
-      var slipNo    = String(row[MGMT_COLS.ORDER_SLIP_NO  - 1] || '');
+      var client    = String(row[MGMT_COLS.CLIENT           - 1] || '');
+      var slipNo    = String(row[MGMT_COLS.ORDER_SLIP_NO    - 1] || '');
+      var subject   = String(row[MGMT_COLS.SUBJECT          - 1] || '');
+      var pdfUrl    = String(row[MGMT_COLS.ORDER_PDF_URL    - 1] || '');
+      var delivery  = row[MGMT_COLS.DELIVERY_DATE           - 1];
 
       if (!id || !deadline) return;
       if (status === CONFIG.STATUS.DELIVERED || status === CONFIG.STATUS.CANCELLED) return;
@@ -317,11 +350,21 @@ function checkOrderDeadlines() {
         deadlineDate.setHours(0, 0, 0, 0);
       } catch(e) { return; }
 
+      var deliveryStr = '';
+      try {
+        var dv = delivery instanceof Date ? delivery : new Date(String(delivery).replace(/\//g,'-'));
+        if (!isNaN(dv.getTime())) deliveryStr = _toDateStr(dv);
+      } catch(e) {}
+
       var diffDays = Math.round((deadlineDate - today) / (1000 * 60 * 60 * 24));
+      // 注文書の詳細情報を含むラベル
       var label    = client
         + (orderNo ? '「' + orderNo + '」' : '')
         + (slipNo  ? '（伝票:' + slipNo + '）' : '')
-        + ' 期限: ' + _toDateStr(deadlineDate);
+        + '\n    発注期限: ' + _toDateStr(deadlineDate)
+        + (deliveryStr ? '\n    納期: ' + deliveryStr : '')
+        + (subject ? '\n    項目名: ' + subject : '')
+        + (pdfUrl  ? '\n    注文書PDF: ' + pdfUrl : '');
 
       var todayStr = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyyMMdd');
       var rowRef   = { rowNum: i + 2 };
