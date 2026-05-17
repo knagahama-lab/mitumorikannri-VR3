@@ -28,18 +28,63 @@ var MONITOR_CONFIG = {
   TRIGGER_TIMEOUT_HOURS : 2,
 };
 
+// SYS_SETTINGS からユーザー設定を読み込んで MONITOR_CONFIG に反映
+// 各監視関数の先頭で呼ぶことで最新設定を使用する
+function _loadMonitorConfig() {
+  try {
+    var raw = PropertiesService.getScriptProperties().getProperty('SYS_SETTINGS');
+    if (!raw) return;
+    var s = JSON.parse(raw);
+    if (s.deliveryRemindDays) MONITOR_CONFIG.DELIVERY_REMIND_DAYS  = Number(s.deliveryRemindDays);
+    if (s.deliveryUrgentDays) MONITOR_CONFIG.DELIVERY_URGENT_DAYS  = Number(s.deliveryUrgentDays);
+    if (s.stagnantWarnDays)   MONITOR_CONFIG.STAGNANT_WARN_DAYS    = Number(s.stagnantWarnDays);
+    if (s.stagnantAlertDays)  MONITOR_CONFIG.STAGNANT_ALERT_DAYS   = Number(s.stagnantAlertDays);
+    if (s.unlinkedOrderDays)  MONITOR_CONFIG.UNLINKED_ORDER_DAYS   = Number(s.unlinkedOrderDays);
+    if (s.ocrFailThreshold)   MONITOR_CONFIG.OCR_FAIL_THRESHOLD    = Number(s.ocrFailThreshold);
+    // アラート有効フラグ
+    MONITOR_CONFIG.ALERT_DELIVERY = s.alertDelivery !== false;
+    MONITOR_CONFIG.ALERT_DEADLINE = s.alertDeadline !== false;
+    MONITOR_CONFIG.ALERT_OVERDUE  = s.alertOverdue  !== false;
+    MONITOR_CONFIG.ALERT_UNLINKED = s.alertUnlinked !== false;
+  } catch(e) {
+    Logger.log('[_loadMonitorConfig ERROR] ' + e.message);
+  }
+}
+
+// Gmailへの通知送信（Webhookに加えてメールでも通知）
+function _sendAlertEmail(message) {
+  try {
+    var notifyEmails = PropertiesService.getScriptProperties().getProperty('NOTIFY_EMAILS') || '';
+    if (!notifyEmails) return;
+    var emails = notifyEmails.split(',').map(function(e){ return e.trim(); }).filter(Boolean);
+    var subject = '【見積管理システム】アラート通知 ' +
+                  Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
+    emails.forEach(function(email) {
+      try {
+        GmailApp.sendEmail(email, subject, message);
+      } catch(e2) {
+        Logger.log('[_sendAlertEmail] 送信失敗: ' + email + ' / ' + e2.message);
+      }
+    });
+    Logger.log('[_sendAlertEmail] 送信完了: ' + emails.length + '件');
+  } catch(e) {
+    Logger.log('[_sendAlertEmail ERROR] ' + e.message);
+  }
+}
+
 // ============================================================
 // メインエントリーポイント（毎日9時に実行）
 // ============================================================
 function runAllMonitoring() {
   Logger.log('[MONITOR] 監視開始: ' + nowJST());
+  _loadMonitorConfig(); // SYS_SETTINGSからユーザー設定を反映
 
   var alerts = [];
   alerts = alerts.concat(_checkOcrFailures());
-  alerts = alerts.concat(_checkUnlinkedOrders());
+  if (MONITOR_CONFIG.ALERT_UNLINKED !== false) alerts = alerts.concat(_checkUnlinkedOrders());
   alerts = alerts.concat(_checkStagnantCases());
-  alerts = alerts.concat(_checkDeliveryDates());
-  alerts = alerts.concat(checkOrderDeadlines());       // ① 発注期限アラート
+  if (MONITOR_CONFIG.ALERT_DELIVERY !== false) alerts = alerts.concat(_checkDeliveryDates());
+  if (MONITOR_CONFIG.ALERT_DEADLINE !== false) alerts = alerts.concat(checkOrderDeadlines());
   alerts = alerts.concat(_checkUnprocessedDriveFiles());
   _updateTriggerHealth();
 
@@ -47,7 +92,8 @@ function runAllMonitoring() {
     var msg = '【📊 見積管理システム 自動監視レポート】\n' +
               Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm') + '\n\n' +
               alerts.join('\n\n');
-    _sendMonitorAlert(msg);
+    _sendMonitorAlert(msg);  // Chat Webhook
+    _sendAlertEmail(msg);    // メール通知
     Logger.log('[MONITOR] アラート送信: ' + alerts.length + '件');
   } else {
     Logger.log('[MONITOR] 異常なし');
@@ -459,15 +505,26 @@ function setupMonitoringTriggers() {
 // 発注期限アラートのスタンドアロン実行（トリガーから呼ぶ）
 function runDeadlineAlerts() {
   Logger.log('[DEADLINE] 発注期限チェック開始: ' + nowJST());
-  var alerts = checkOrderDeadlines();
+  _loadMonitorConfig(); // SYS_SETTINGSからユーザー設定を反映
+
+  if (MONITOR_CONFIG.ALERT_DEADLINE === false) {
+    Logger.log('[DEADLINE] アラート無効（設定で無効化されています）');
+    return;
+  }
+
+  var alerts = [];
+  if (MONITOR_CONFIG.ALERT_DELIVERY !== false) alerts = alerts.concat(_checkDeliveryDates());
+  if (MONITOR_CONFIG.ALERT_DEADLINE !== false) alerts = alerts.concat(checkOrderDeadlines());
+
   if (alerts.length > 0) {
-    var msg = '【📦 発注期限アラート】\n' +
+    var msg = '【📦 納期・発注期限アラート】\n' +
               Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm') + '\n\n' +
               alerts.join('\n\n');
-    _sendMonitorAlert(msg);
+    _sendMonitorAlert(msg);  // Chat Webhook
+    _sendAlertEmail(msg);    // メール通知
     Logger.log('[DEADLINE] アラート送信: ' + alerts.length + '件');
   } else {
-    Logger.log('[DEADLINE] 発注期限超過なし');
+    Logger.log('[DEADLINE] 発注期限・納期超過なし');
   }
 }
 

@@ -1165,7 +1165,7 @@ function _apiSaveSettings(p) {
     if (p.n8nQuoteWebhook !== undefined) props.setProperty('N8N_QUOTE_WEBHOOK',  String(p.n8nQuoteWebhook));
     if (p.customWebhook   !== undefined) props.setProperty('CUSTOM_WEBHOOK',     String(p.customWebhook));
 
-    // SYS_SETTINGS オブジェクトを更新（通知フラグ等）
+    // SYS_SETTINGS オブジェクトを更新（通知フラグ・アラート設定等）
     var raw = props.getProperty('SYS_SETTINGS');
     var s   = raw ? JSON.parse(raw) : {};
     if (p.notifyOrder  !== undefined) s.notifyOrder = p.notifyOrder;
@@ -1173,10 +1173,93 @@ function _apiSaveSettings(p) {
     if (p.notifyDl     !== undefined) s.notifyDl     = p.notifyDl;
     if (p.alertDays    !== undefined) s.alertDays    = p.alertDays;
     if (p.webhookUrl   !== undefined) s.webhookUrl   = p.webhookUrl || p.chatWebhook;
+
+    // ── 納期・発注期限アラート設定 ──
+    if (p.deliveryRemindDays !== undefined) s.deliveryRemindDays = Number(p.deliveryRemindDays) || 7;
+    if (p.deliveryUrgentDays !== undefined) s.deliveryUrgentDays = Number(p.deliveryUrgentDays) || 1;
+    if (p.deadlineRemindDays !== undefined) s.deadlineRemindDays = Number(p.deadlineRemindDays) || 7;
+    if (p.deadlineUrgentDays !== undefined) s.deadlineUrgentDays = Number(p.deadlineUrgentDays) || 1;
+    if (p.alertDelivery      !== undefined) s.alertDelivery      = !!p.alertDelivery;
+    if (p.alertDeadline      !== undefined) s.alertDeadline      = !!p.alertDeadline;
+    if (p.alertOverdue       !== undefined) s.alertOverdue       = !!p.alertOverdue;
+    if (p.alertUnlinked      !== undefined) s.alertUnlinked      = !!p.alertUnlinked;
+
+    // ── 監視設定 ──
+    if (p.stagnantWarnDays  !== undefined) s.stagnantWarnDays  = Number(p.stagnantWarnDays)  || 7;
+    if (p.stagnantAlertDays !== undefined) s.stagnantAlertDays = Number(p.stagnantAlertDays) || 14;
+    if (p.unlinkedOrderDays !== undefined) s.unlinkedOrderDays = Number(p.unlinkedOrderDays) || 2;
+    if (p.ocrFailThreshold  !== undefined) s.ocrFailThreshold  = Number(p.ocrFailThreshold)  || 3;
+
     props.setProperty('SYS_SETTINGS', JSON.stringify(s));
+
+    // MONITOR_CONFIG に即時反映（10_alert_monitor.gs の設定を上書き）
+    try { _applyMonitorConfig(s); } catch(e2) {}
 
     return { success: true };
   } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+// SYS_SETTINGSの内容を MONITOR_CONFIG に反映（即時適用）
+function _applyMonitorConfig(s) {
+  if (typeof MONITOR_CONFIG === 'undefined') return;
+  if (s.deliveryRemindDays) MONITOR_CONFIG.DELIVERY_REMIND_DAYS  = s.deliveryRemindDays;
+  if (s.deliveryUrgentDays) MONITOR_CONFIG.DELIVERY_URGENT_DAYS  = s.deliveryUrgentDays;
+  if (s.stagnantWarnDays)   MONITOR_CONFIG.STAGNANT_WARN_DAYS    = s.stagnantWarnDays;
+  if (s.stagnantAlertDays)  MONITOR_CONFIG.STAGNANT_ALERT_DAYS   = s.stagnantAlertDays;
+  if (s.unlinkedOrderDays)  MONITOR_CONFIG.UNLINKED_ORDER_DAYS   = s.unlinkedOrderDays;
+  if (s.ocrFailThreshold)   MONITOR_CONFIG.OCR_FAIL_THRESHOLD    = s.ocrFailThreshold;
+}
+
+// テストアラート送信
+function _apiSendTestAlert() {
+  try {
+    var props       = PropertiesService.getScriptProperties();
+    var notifyEmails = props.getProperty('NOTIFY_EMAILS') || '';
+    var webhookUrl   = props.getProperty('CHAT_WEBHOOK_URL') || props.getProperty('GOOGLE_CHAT_WEBHOOK_URL') || '';
+
+    var msg = '【✅ 見積管理システム テスト通知】\n' +
+              '送信日時: ' + nowJST() + '\n' +
+              '通知設定が正常に動作しています。\n' +
+              '━━━━━━━━━━━━━━━\n' +
+              '📅 納期アラート: 有効\n' +
+              '📦 発注期限アラート: 有効\n' +
+              '━━━━━━━━━━━━━━━\n' +
+              'このメールは手動テスト送信です。';
+
+    var sent = false;
+
+    // Gmailで送信
+    if (notifyEmails) {
+      var emails = notifyEmails.split(',').map(function(e){ return e.trim(); }).filter(Boolean);
+      emails.forEach(function(email) {
+        try {
+          GmailApp.sendEmail(email, '【見積管理システム】テスト通知', msg);
+          sent = true;
+        } catch(e2) {
+          Logger.log('[sendTestAlert] Gmail送信エラー: ' + e2.message);
+        }
+      });
+    }
+
+    // Google Chat Webhookでも送信
+    if (webhookUrl) {
+      try {
+        UrlFetchApp.fetch(webhookUrl, {
+          method: 'post', contentType: 'application/json',
+          payload: JSON.stringify({ text: msg }), muteHttpExceptions: true,
+        });
+        sent = true;
+      } catch(e3) {}
+    }
+
+    if (!sent) {
+      return { success: false, error: '通知先メールアドレスまたはWebhook URLが設定されていません。「通知先メールアドレス」を設定してから再実行してください。' };
+    }
+    return { success: true };
+  } catch(e) {
+    Logger.log('[_apiSendTestAlert ERROR] ' + e.message);
     return { success: false, error: e.message };
   }
 }

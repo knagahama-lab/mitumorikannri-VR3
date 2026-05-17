@@ -472,11 +472,141 @@ tr:hover td{background:#f8fafc;}
       </div>
 
       <div id="admin-tab-mailsend" class="admin-tab-content">
-        <div style="background:white;border-radius:12px;padding:24px;box-shadow:var(--shadow);border-left:4px solid var(--success);">
-          <h3 style="font-size:15px;font-weight:700;color:var(--success);margin-bottom:4px;">✉️ メール配信設定</h3>
-          <div class="form-field"><label>通知先メールアドレス（カンマ区切り）</label><textarea id="cfg-notify-emails" rows="3" style="width:100%;"></textarea></div>
-          <div style="text-align:right;margin-top:16px;"><button class="btn btn-primary" onclick="saveAdminMailSend()">💾 保存</button></div>
+
+        <!-- ① 通知先メールアドレス -->
+        <div style="background:white;border-radius:12px;padding:24px;box-shadow:var(--shadow);border-left:4px solid var(--success);margin-bottom:16px;">
+          <h3 style="font-size:15px;font-weight:700;color:var(--success);margin-bottom:6px;">✉️ 通知先メールアドレス</h3>
+          <p style="font-size:12px;color:var(--text-sub);margin-bottom:14px;">アラート・通知を受け取るメールアドレスを設定します（カンマ区切りで複数可）</p>
+          <div class="form-field">
+            <label>通知先メールアドレス（カンマ区切り）</label>
+            <textarea id="cfg-notify-emails" rows="3" style="width:100%;font-family:monospace;" placeholder="example@company.com, admin@company.com"></textarea>
+          </div>
+          <div style="text-align:right;margin-top:12px;">
+            <button class="btn btn-primary" onclick="saveAdminMailSend()">💾 保存</button>
+          </div>
         </div>
+
+        <!-- ② 納期・発注期限アラート設定 -->
+        <div style="background:white;border-radius:12px;padding:24px;box-shadow:var(--shadow);border-left:4px solid #f59e0b;margin-bottom:16px;">
+          <h3 style="font-size:15px;font-weight:700;color:#b45309;margin-bottom:6px;">📅 納期・発注期限アラート設定</h3>
+          <p style="font-size:12px;color:var(--text-sub);margin-bottom:18px;">注文書の納期・発注期限が近づいた際のアラートタイミングを設定します</p>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+            <div class="form-field">
+              <label>📅 納期リマインド（何日前から通知）</label>
+              <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+                <input type="number" id="cfg-delivery-remind-days" min="1" max="30" value="7" style="width:80px;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+                <span style="font-size:13px;color:var(--text-sub);">日前</span>
+              </div>
+            </div>
+            <div class="form-field">
+              <label>🔥 納期緊急通知（何日前から送信）</label>
+              <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+                <input type="number" id="cfg-delivery-urgent-days" min="0" max="7" value="1" style="width:80px;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+                <span style="font-size:13px;color:var(--text-sub);">日前（0=当日）</span>
+              </div>
+            </div>
+            <div class="form-field">
+              <label>📦 発注期限リマインド（何日前から通知）</label>
+              <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+                <input type="number" id="cfg-deadline-remind-days" min="1" max="30" value="7" style="width:80px;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+                <span style="font-size:13px;color:var(--text-sub);">日前</span>
+              </div>
+            </div>
+            <div class="form-field">
+              <label>🔥 発注期限緊急通知（何日前から送信）</label>
+              <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+                <input type="number" id="cfg-deadline-urgent-days" min="0" max="7" value="1" style="width:80px;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+                <span style="font-size:13px;color:var(--text-sub);">日前（0=当日）</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- アラート有効/無効トグル -->
+          <div style="background:#fffbeb;border-radius:8px;padding:14px 18px;border:1px solid #fde68a;margin-bottom:14px;">
+            <div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:10px;">アラート有効／無効</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+                <input type="checkbox" id="cfg-alert-delivery" checked style="width:15px;height:15px;cursor:pointer;">
+                <span>📅 納期アラートを送信する</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+                <input type="checkbox" id="cfg-alert-deadline" checked style="width:15px;height:15px;cursor:pointer;">
+                <span>📦 発注期限アラートを送信する</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+                <input type="checkbox" id="cfg-alert-overdue" checked style="width:15px;height:15px;cursor:pointer;">
+                <span>🧨 期限超過アラートを送信する</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+                <input type="checkbox" id="cfg-alert-unlinked" checked style="width:15px;height:15px;cursor:pointer;">
+                <span>🔗 未紐づけ注文書アラートを送信する</span>
+              </label>
+            </div>
+          </div>
+
+          <div style="text-align:right;">
+            <button class="btn btn-primary" onclick="saveAdminAlertSettings()">💾 アラート設定を保存</button>
+          </div>
+        </div>
+
+        <!-- ③ 停滞案件アラート設定 -->
+        <div style="background:white;border-radius:12px;padding:24px;box-shadow:var(--shadow);border-left:4px solid #ef4444;margin-bottom:16px;">
+          <h3 style="font-size:15px;font-weight:700;color:#b91c1c;margin-bottom:6px;">🚨 停滞案件アラート設定</h3>
+          <p style="font-size:12px;color:var(--text-sub);margin-bottom:18px;">更新のない案件を検知してアラートするタイミングを設定します</p>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:14px;">
+            <div class="form-field">
+              <label>⚠️ 停滞注意（何日更新なし）</label>
+              <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+                <input type="number" id="cfg-stagnant-warn-days" min="1" max="60" value="7" style="width:80px;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+                <span style="font-size:13px;color:var(--text-sub);">日以上</span>
+              </div>
+            </div>
+            <div class="form-field">
+              <label>🚨 停滞警告（何日更新なし）</label>
+              <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+                <input type="number" id="cfg-stagnant-alert-days" min="1" max="90" value="14" style="width:80px;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+                <span style="font-size:13px;color:var(--text-sub);">日以上</span>
+              </div>
+            </div>
+            <div class="form-field">
+              <label>🔗 未紐づけ注文書（何日以上経過）</label>
+              <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+                <input type="number" id="cfg-unlinked-days" min="1" max="30" value="2" style="width:80px;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+                <span style="font-size:13px;color:var(--text-sub);">日以上</span>
+              </div>
+            </div>
+            <div class="form-field">
+              <label>🤖 OCR失敗アラート（何件以上）</label>
+              <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+                <input type="number" id="cfg-ocr-fail-threshold" min="1" max="20" value="3" style="width:80px;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+                <span style="font-size:13px;color:var(--text-sub);">件以上（24h）</span>
+              </div>
+            </div>
+          </div>
+          <div style="text-align:right;">
+            <button class="btn btn-primary" onclick="saveAdminMonitorSettings()">💾 監視設定を保存</button>
+          </div>
+        </div>
+
+        <!-- ④ テスト送信 -->
+        <div style="background:white;border-radius:12px;padding:24px;box-shadow:var(--shadow);border-left:4px solid var(--info);">
+          <h3 style="font-size:15px;font-weight:700;color:var(--info);margin-bottom:6px;">🧪 テスト・手動実行</h3>
+          <p style="font-size:12px;color:var(--text-sub);margin-bottom:14px;">設定が正しく動作するか確認できます</p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button class="btn btn-sm" onclick="sendTestAlert()" style="border-color:#0891b2;color:#0891b2;">
+              📧 テストメールを送信
+            </button>
+            <button class="btn btn-sm" onclick="runDeadlineCheck()" style="border-color:#f59e0b;color:#b45309;">
+              📅 納期チェックを今すぐ実行
+            </button>
+            <button class="btn btn-sm" onclick="runFullMonitor()" style="border-color:#ef4444;color:#b91c1c;">
+              🔍 全監視を今すぐ実行
+            </button>
+          </div>
+          <div id="test-alert-result" style="margin-top:12px;font-size:12px;color:var(--text-sub);"></div>
+        </div>
+
       </div>
       
       <div id="admin-tab-rakuraku" class="admin-tab-content">

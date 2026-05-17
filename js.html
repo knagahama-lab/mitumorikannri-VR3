@@ -546,6 +546,19 @@ function loadAdminSettings() {
     _sv('cfg-spreadsheet-id', res.spreadsheetId || ''); _sv('cfg-admin-emails-access', res.adminEmails || '');
     _sc('cfg-notify-order', s.notifyOrder !== false); _sc('cfg-notify-quote', s.notifyQuote !== false); _sc('cfg-notify-deadline', s.notifyDl !== false);
     _sv('cfg-alert-days', s.alertDays || 3); _sv('cfg-notify-emails', res.notifyEmails || ''); _sv('cfg-rakuraku-company', res.rakurakuCompany || '');
+    // アラート詳細設定を反映
+    _sv('cfg-delivery-remind-days',  s.deliveryRemindDays  || 7);
+    _sv('cfg-delivery-urgent-days',  s.deliveryUrgentDays  || 1);
+    _sv('cfg-deadline-remind-days',  s.deadlineRemindDays  || 7);
+    _sv('cfg-deadline-urgent-days',  s.deadlineUrgentDays  || 1);
+    _sv('cfg-stagnant-warn-days',    s.stagnantWarnDays    || 7);
+    _sv('cfg-stagnant-alert-days',   s.stagnantAlertDays   || 14);
+    _sv('cfg-unlinked-days',         s.unlinkedOrderDays   || 2);
+    _sv('cfg-ocr-fail-threshold',    s.ocrFailThreshold    || 3);
+    _sc('cfg-alert-delivery',  s.alertDelivery  !== false);
+    _sc('cfg-alert-deadline',  s.alertDeadline  !== false);
+    _sc('cfg-alert-overdue',   s.alertOverdue   !== false);
+    _sc('cfg-alert-unlinked',  s.alertUnlinked  !== false);
     _sv('cfg-rakuraku-endpoint', res.rakurakuEndpoint || ''); _sv('cfg-n8n-order-webhook', res.n8nOrderWebhook || ''); _sv('cfg-n8n-quote-webhook', res.n8nQuoteWebhook || ''); _sv('cfg-custom-webhook', res.customWebhook || '');
     showToast('設定を読み込みました');
   }).handleApiRequest('loadSettings', {});
@@ -555,7 +568,88 @@ function _gv(id) { var el = document.getElementById(id); return el ? el.value.tr
 function saveAdminBasic() { var payload = { adminEmails: _gv('cfg-admin-emails'), chatWebhook: _gv('cfg-chat-webhook'), notifyOrder: _gc('cfg-notify-order'), notifyQuote: _gc('cfg-notify-quote'), notifyDl: _gc('cfg-notify-deadline'), alertDays: parseInt(_gv('cfg-alert-days')) || 3 }; var geminiKey = _gv('cfg-gemini-key'); if (geminiKey) payload.geminiKey = geminiKey; var ssId = _gv('cfg-spreadsheet-id'); if (ssId) payload.spreadsheetId = ssId; google.script.run.withSuccessHandler(function(r) { if (r && r.success) { showToast('基本設定を保存しました'); } else { showToast('保存失敗', true); } }).handleApiRequest('saveSettings', payload); }
 function saveAdminNotify() { google.script.run.withSuccessHandler(function(r) { if (r && r.success) showToast('通知設定を保存しました'); else showToast('保存失敗', true); }).handleApiRequest('saveSettings', { notifyOrder: _gc('cfg-notify-order'), notifyQuote: _gc('cfg-notify-quote'), notifyDl: _gc('cfg-notify-deadline'), alertDays: parseInt(_gv('cfg-alert-days')) || 3 }); }
 function saveAdminAccess() { google.script.run.withSuccessHandler(function(r) { if (r && r.success) showToast('閲覧権限を保存しました'); else showToast('保存失敗', true); }).handleApiRequest('saveSettings', { adminEmails: _gv('cfg-admin-emails-access') }); }
-function saveAdminMailSend() { google.script.run.withSuccessHandler(function(r) { if (r && r.success) showToast('メール配信設定を保存しました'); else showToast('保存失敗', true); }).handleApiRequest('saveSettings', { notifyEmails: _gv('cfg-notify-emails') }); }
+function saveAdminMailSend() { google.script.run.withSuccessHandler(function(r) { if (r && r.success) showToast('✅ 通知先メールを保存しました'); else showToast('保存失敗', true); }).handleApiRequest('saveSettings', { notifyEmails: _gv('cfg-notify-emails') }); }
+
+function saveAdminAlertSettings() {
+  var payload = {
+    deliveryRemindDays : parseInt(_gv('cfg-delivery-remind-days'))  || 7,
+    deliveryUrgentDays : parseInt(_gv('cfg-delivery-urgent-days'))  || 1,
+    deadlineRemindDays : parseInt(_gv('cfg-deadline-remind-days'))  || 7,
+    deadlineUrgentDays : parseInt(_gv('cfg-deadline-urgent-days'))  || 1,
+    alertDelivery      : _gc('cfg-alert-delivery'),
+    alertDeadline      : _gc('cfg-alert-deadline'),
+    alertOverdue       : _gc('cfg-alert-overdue'),
+    alertUnlinked      : _gc('cfg-alert-unlinked'),
+  };
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r && r.success) showToast('✅ アラート設定を保存しました');
+      else showToast('保存失敗: ' + (r ? r.error : '不明'), true);
+    })
+    .handleApiRequest('saveSettings', payload);
+}
+
+function saveAdminMonitorSettings() {
+  var warn  = parseInt(_gv('cfg-stagnant-warn-days'))  || 7;
+  var alert = parseInt(_gv('cfg-stagnant-alert-days')) || 14;
+  var unlinked = parseInt(_gv('cfg-unlinked-days')) || 2;
+  var ocrFail  = parseInt(_gv('cfg-ocr-fail-threshold')) || 3;
+  if (warn >= alert) { showToast('停滞注意の日数は停滞警告より少なく設定してください', true); return; }
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r && r.success) showToast('✅ 監視設定を保存しました');
+      else showToast('保存失敗: ' + (r ? r.error : '不明'), true);
+    })
+    .handleApiRequest('saveSettings', {
+      stagnantWarnDays  : warn,
+      stagnantAlertDays : alert,
+      unlinkedOrderDays : unlinked,
+      ocrFailThreshold  : ocrFail,
+    });
+}
+
+function sendTestAlert() {
+  const resultEl = document.getElementById('test-alert-result');
+  if (resultEl) resultEl.textContent = '⏳ 送信中...';
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (resultEl) resultEl.textContent = r && r.success ? '✅ テストメールを送信しました（受信ボックスをご確認ください）' : '❌ 送信失敗: ' + (r ? r.error : '不明');
+    })
+    .withFailureHandler(function(err) {
+      if (resultEl) resultEl.textContent = '❌ 通信エラー: ' + err.message;
+    })
+    .handleApiRequest('sendTestAlert', null);
+}
+
+function runDeadlineCheck() {
+  const resultEl = document.getElementById('test-alert-result');
+  if (resultEl) resultEl.textContent = '⏳ 発注期限チェック実行中...';
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (resultEl) resultEl.textContent = r && r.success
+        ? '✅ 発注期限チェック完了 — アラート ' + (r.alertCount || 0) + '件'
+        : '❌ 失敗: ' + (r ? r.error : '不明');
+    })
+    .withFailureHandler(function(err) {
+      if (resultEl) resultEl.textContent = '❌ 通信エラー: ' + err.message;
+    })
+    .handleApiRequest('checkDeadlines', null);
+}
+
+function runFullMonitor() {
+  const resultEl = document.getElementById('test-alert-result');
+  if (resultEl) resultEl.textContent = '⏳ 全監視実行中...（10〜30秒かかります）';
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (resultEl) resultEl.textContent = r && r.success
+        ? '✅ 全監視完了 — アラート ' + (r.alertCount || 0) + '件'
+        : '❌ 失敗: ' + (r ? r.error : '不明');
+    })
+    .withFailureHandler(function(err) {
+      if (resultEl) resultEl.textContent = '❌ 通信エラー: ' + err.message;
+    })
+    .handleApiRequest('runAllMonitoring', null);
+}
 function saveAdminRakuraku() { var payload = { rakurakuCompany: _gv('cfg-rakuraku-company'), rakurakuEndpoint: _gv('cfg-rakuraku-endpoint') }; var apiKey = _gv('cfg-rakuraku-apikey'); if (apiKey) payload.rakurakuApiKey = apiKey; google.script.run.withSuccessHandler(function(r) { if (r && r.success) showToast('楽楽販売設定を保存しました'); else showToast('保存失敗', true); }).handleApiRequest('saveSettings', payload); }
 function saveAdminExternal() { google.script.run.withSuccessHandler(function(r) { if (r && r.success) showToast('外部連携設定を保存しました'); else showToast('保存失敗', true); }).handleApiRequest('saveSettings', { n8nOrderWebhook: _gv('cfg-n8n-order-webhook'), n8nQuoteWebhook: _gv('cfg-n8n-quote-webhook'), customWebhook: _gv('cfg-custom-webhook') }); }
 function _onShowAdmin() {

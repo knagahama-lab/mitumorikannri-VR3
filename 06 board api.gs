@@ -146,6 +146,7 @@ function handleApiRequest(action, payload) {
         var monRes = runAllMonitoring();
         res = { success: true, alertCount: monRes.alertCount, alerts: monRes.alerts }; break;
       }
+      case 'sendTestAlert': res = _apiSendTestAlert(); break;
       default: return { success: false, error: '不明なアクション: ' + action };
     }
     
