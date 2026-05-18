@@ -573,6 +573,11 @@ function _checkDeliveryDates() {
 // ============================================================
 // ⑤ 注文書の発注期限アラート
 // ============================================================
+// ⑥ 注文書の発注期限アラート
+//   【バグ修正】DELIVERY_DATE(col23) → ORDER_DEADLINE(col29) に修正
+//   【追加】件名・伝票番号・納期をメール本文に追加
+//   【追加】DEADLINE_NOTIFIED(col32)で当日重複通知を防止
+// ============================================================
 
 function checkOrderDeadlines() {
   var groups = [];
@@ -582,16 +587,23 @@ function checkOrderDeadlines() {
     var last  = sheet.getLastRow();
     if (last <= 1) return groups;
 
+    // col32（DEADLINE_NOTIFIED）まで読む
     var readCols     = Math.max(sheet.getLastColumn(), 32);
     var data         = sheet.getRange(2, 1, last - 1, readCols).getValues();
     var today        = new Date(); today.setHours(0, 0, 0, 0);
+    var todayStr     = Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyyMMdd');
     var overdueItems = [], urgentItems = [], remindItems = [];
 
     data.forEach(function(row, i) {
-      var orderNo  = String(row[MGMT_COLS.ORDER_NO - 1] || '').trim();
-      var status   = String(row[MGMT_COLS.STATUS   - 1] || '');
-      var client   = String(row[MGMT_COLS.CLIENT   - 1] || '');
-      var deadline = row[MGMT_COLS.DELIVERY_DATE   - 1];
+      var orderNo  = String(row[MGMT_COLS.ORDER_NO          - 1] || '').trim();
+      var status   = String(row[MGMT_COLS.STATUS            - 1] || '');
+      var client   = String(row[MGMT_COLS.CLIENT            - 1] || '');
+      // ★ バグ修正: DELIVERY_DATE → ORDER_DEADLINE（発注期限 col29）
+      var deadline = row[MGMT_COLS.ORDER_DEADLINE           - 1];
+      var notified = String(row[MGMT_COLS.DEADLINE_NOTIFIED - 1] || '');
+      var subject  = String(row[MGMT_COLS.SUBJECT           - 1] || '');
+      var slipNo   = String(row[MGMT_COLS.ORDER_SLIP_NO     - 1] || '');
+      var delivery = row[MGMT_COLS.DELIVERY_DATE            - 1];
 
       if (!orderNo || !deadline) return;
       if (status === CONFIG.STATUS.DELIVERED || status === CONFIG.STATUS.CANCELLED) return;
@@ -601,32 +613,75 @@ function checkOrderDeadlines() {
       try {
         var d = deadline instanceof Date ? deadline : new Date(String(deadline).replace(/\//g,'-'));
         if (!isNaN(d.getTime())) {
-          days = Math.floor((d - today) / (1000*60*60*24));
+          d.setHours(0, 0, 0, 0);
+          days = Math.round((d - today) / (1000*60*60*24));
           deadlineStr = _toDateStr(d);
         }
       } catch(e) {}
 
+      var deliveryStr = '';
+      try {
+        if (delivery) {
+          var dv = delivery instanceof Date ? delivery : new Date(String(delivery).replace(/\//g,'-'));
+          if (!isNaN(dv.getTime())) deliveryStr = _toDateStr(dv);
+        }
+      } catch(e) {}
+
+      var lines = [];
+      if (subject)     lines.push('\u9805\u76ee\u540d: '   + subject);
+      if (slipNo)      lines.push('\u4f1d\u7968\u756a\u53f7: ' + slipNo);
+      if (deadlineStr) lines.push('\u767a\u6ce8\u671f\u9650: ' + deadlineStr);
+      if (deliveryStr) lines.push('\u7d0d\u671f: '         + deliveryStr);
+
       var item = {
         heading: client + '\u300c' + orderNo + '\u300d',
-        lines:   ['\u671f\u9650: ' + deadlineStr],
+        lines:   lines,
         links:   _buildLinkItems(row, i + 2),
       };
 
       if (days < 0) {
-        item.lines.push('\u26a0\ufe0f ' + Math.abs(days) + '\u65e5\u671f\u9650\u8d85\u904e');
+        // 超過: 毎回通知（重複防止なし）
+        item.lines.push('\u26a0\ufe0f ' + Math.abs(days) + '\u65e5 \u767a\u6ce8\u671f\u9650\u8d85\u904e');
         overdueItems.push(item);
       } else if (days <= 1) {
-        item.lines.push('\u26a0\ufe0f \u660e\u65e5\u671f\u9650');
-        urgentItems.push(item);
+        if (notified.indexOf('urgent:' + todayStr) < 0) {
+          item.lines.push('\u26a0\ufe0f \u660e\u65e5\u304c\u767a\u6ce8\u671f\u9650');
+          urgentItems.push({ item: item, rowNum: i + 2, level: 'urgent' });
+        }
+      } else if (days <= 3) {
+        if (notified.indexOf('3d:' + todayStr) < 0) {
+          item.lines.push('\u26a0\ufe0f \u3042\u3068' + days + '\u65e5');
+          remindItems.push({ item: item, rowNum: i + 2, level: '3d' });
+        }
       } else if (days <= 7) {
-        item.lines.push('\u26a0\ufe0f \u3042\u3068' + days + '\u65e5');
-        remindItems.push(item);
+        if (notified.indexOf('7d:' + todayStr) < 0) {
+          item.lines.push('\u26a0\ufe0f \u3042\u3068' + days + '\u65e5');
+          remindItems.push({ item: item, rowNum: i + 2, level: '7d' });
+        }
       }
     });
 
-    if (overdueItems.length > 0) groups.push({ level: 'critical', title: '\ud83d\udea8 \u767a\u6ce8\u671f\u9650\u8d85\u904e',       items: overdueItems.slice(0,5) });
-    if (urgentItems.length  > 0) groups.push({ level: 'critical', title: '\ud83d\udd25 \u767a\u6ce8\u671f\u9650\uff08\u660e\u65e5\uff09',   items: urgentItems.slice(0,5)  });
-    if (remindItems.length  > 0) groups.push({ level: 'warning',  title: '\ud83d\udcc5 \u767a\u6ce8\u671f\u9650\u30ea\u30de\u30a4\u30f3\u30c9', items: remindItems.slice(0,5)  });
+    // DEADLINE_NOTIFIED に通知済フラグを書き込む（重複防止）
+    function _writeNotified(entries) {
+      entries.forEach(function(e) {
+        try {
+          var cell = sheet.getRange(e.rowNum, MGMT_COLS.DEADLINE_NOTIFIED);
+          var cur  = String(cell.getValue() || '');
+          cell.setValue(cur ? cur + ',' + e.level + ':' + todayStr : e.level + ':' + todayStr);
+        } catch(ex) { Logger.log('[checkOrderDeadlines] write notified: ' + ex.message); }
+      });
+    }
+
+    var urgentAlertItems = urgentItems.map(function(e){ return e.item; });
+    var remindAlertItems = remindItems.map(function(e){ return e.item; });
+
+    if (overdueItems.length     > 0) groups.push({ level: 'critical', title: '\ud83d\udea8 \u767a\u6ce8\u671f\u9650\u8d85\u904e',              items: overdueItems.slice(0,5)     });
+    if (urgentAlertItems.length > 0) groups.push({ level: 'critical', title: '\ud83d\udd25 \u767a\u6ce8\u671f\u9650\uff08\u660e\u65e5\uff09', items: urgentAlertItems.slice(0,5) });
+    if (remindAlertItems.length > 0) groups.push({ level: 'warning',  title: '\ud83d\udcc5 \u767a\u6ce8\u671f\u9650\u30ea\u30de\u30a4\u30f3\u30c9', items: remindAlertItems.slice(0,5) });
+
+    if (urgentItems.length > 0) _writeNotified(urgentItems);
+    if (remindItems.length > 0) _writeNotified(remindItems);
+
   } catch(e) {
     Logger.log('[MONITOR] checkOrderDeadlines: ' + e.message);
   }
@@ -634,66 +689,40 @@ function checkOrderDeadlines() {
 }
 
 // ============================================================
-// ⑥ 未処理Driveファイルの検知
+// 発注期限＋納期アラート スタンドアロン実行（6時間ごとトリガー用）
 // ============================================================
+function runDeadlineAlerts() {
+  Logger.log('[DEADLINE] \u767a\u6ce8\u671f\u9650\u30c1\u30a7\u30c3\u30af\u958b\u59cb: ' + nowJST());
+  _loadMonitorConfig();
 
-function _checkUnprocessedDriveFiles() {
-  var groups = [];
-  try {
-    var folderIds = [
-      CONFIG.IMPORT_QUOTE_FOLDER_ID,
-      CONFIG.IMPORT_ORDER_TRIAL_FOLDER_ID,
-      CONFIG.IMPORT_ORDER_MASS_FOLDER_ID,
-    ].filter(Boolean);
+  var alertGroups = [];
+  if (MONITOR_CONFIG.ALERT_DELIVERY !== false) alertGroups = alertGroups.concat(_checkDeliveryDates());
+  if (MONITOR_CONFIG.ALERT_DEADLINE !== false) alertGroups = alertGroups.concat(checkOrderDeadlines());
 
-    var items = [];
-    var cutoff = new Date(new Date().getTime() - 60*60*1000); // 1時間前より古いファイル
-
-    folderIds.forEach(function(fid) {
-      try {
-        var folder = DriveApp.getFolderById(fid);
-        var files  = folder.getFiles();
-        while (files.hasNext()) {
-          var f = files.next();
-          if (f.getDateCreated() < cutoff) {
-            items.push({
-              heading: f.getName(),
-              lines:   ['\u30d5\u30a9\u30eb\u30c0: ' + folder.getName(),
-                        '\u4f5c\u6210\u65e5\u6642: ' + _toDateStr(f.getDateCreated())],
-              links:   [{ label: '\u30d5\u30a9\u30eb\u30c0\u3092\u958b\u304f', url: folder.getUrl() }],
-            });
-          }
-        }
-      } catch(e) {
-        Logger.log('[MONITOR] Drive folder check error: ' + fid + ' / ' + e.message);
-      }
-    });
-
-    if (items.length > 0) {
-      groups.push({
-        level: 'warning',
-        title: '\ud83d\udcc2 \u672a\u51e6\u7406\u30d5\u30a1\u30a4\u30eb\u304c\u3042\u308a\u307e\u3059 (' + items.length + '\u4ef6)',
-        items: items.slice(0, 5),
-      });
-    }
-  } catch(e) {
-    Logger.log('[MONITOR] _checkUnprocessedDriveFiles: ' + e.message);
+  if (alertGroups.length > 0) {
+    var reportTitle = '\ud83d\udce6 \u7d0d\u671f\u30fb\u767a\u6ce8\u671f\u9650\u30a2\u30e9\u30fc\u30c8';
+    _sendMonitorAlert(_alertGroupsToPlainText(alertGroups, reportTitle));
+    _sendAlertEmailHtml(alertGroups, reportTitle);
+    Logger.log('[DEADLINE] \u30a2\u30e9\u30fc\u30c8\u9001\u4fe1: ' + alertGroups.length + '\u30b0\u30eb\u30fc\u30d7');
+  } else {
+    Logger.log('[DEADLINE] \u767a\u6ce8\u671f\u9650\u30fb\u7d0d\u671f\u8d85\u904e\u306a\u3057');
   }
-  return groups;
 }
 
 // ============================================================
-// トリガー設定（毎日9時）
+// \u30c8\u30ea\u30ac\u30fc\u767b\u9332（\u5f8c\u65b9\u4e92\u6362\u30a8\u30a4\u30ea\u30a2\u30b9）
+// 00_config.gs / 06 board api.gs \u304b\u3089\u547c\u3070\u308c\u308b
 // ============================================================
-
-function setupMonitorTrigger() {
-  ScriptApp.getProjectTriggers().forEach(function(t) {
-    if (t.getHandlerFunction() === 'runAllMonitoring') ScriptApp.deleteTrigger(t);
-  });
-  ScriptApp.newTrigger('runAllMonitoring')
-    .timeBased()
-    .everyDays(1)
-    .atHour(9)
-    .create();
-  Logger.log('[MONITOR] \u30c8\u30ea\u30ac\u30fc\u767b\u9332\u5b8c\u4e86\uff08\u6bce\u65e59\u6642\uff09');
+function setupMonitoringTriggers() {
+  var existing = ScriptApp.getProjectTriggers().map(function(t){ return t.getHandlerFunction(); });
+  if (existing.indexOf('runAllMonitoring') < 0) {
+    ScriptApp.newTrigger('runAllMonitoring').timeBased().atHour(9).everyDays(1).create();
+    Logger.log('[MONITOR] runAllMonitoring \u30c8\u30ea\u30ac\u30fc\u767b\u9332\uff08\u6bce\u65e59\u6642\uff09');
+  }
+  if (existing.indexOf('runDeadlineAlerts') < 0) {
+    ScriptApp.newTrigger('runDeadlineAlerts').timeBased().everyHours(6).create();
+    Logger.log('[MONITOR] runDeadlineAlerts \u30c8\u30ea\u30ac\u30fc\u767b\u9332\uff086\u6642\u9593\u3054\u3068\uff09');
+  }
 }
+
+
