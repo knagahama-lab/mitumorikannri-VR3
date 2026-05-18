@@ -1,0 +1,676 @@
+import { useState, useRef, useCallback } from "react";
+
+// ============================================================
+// 見積セット チェックリスト — 最強版
+// ============================================================
+
+const STATUS_CONFIG = {
+  未提出: { color: "#94a3b8", bg: "#f1f5f9", label: "未提出", dot: "#94a3b8" },
+  作成中: { color: "#f59e0b", bg: "#fffbeb", label: "作成中", dot: "#f59e0b" },
+  提出済: { color: "#3b82f6", bg: "#eff6ff", label: "提出済", dot: "#3b82f6" },
+  承認待: { color: "#8b5cf6", bg: "#f5f3ff", label: "承認待", dot: "#8b5cf6" },
+  承認済: { color: "#10b981", bg: "#ecfdf5", label: "承認済", dot: "#10b981" },
+  却下:   { color: "#ef4444", bg: "#fef2f2", label: "却下",   dot: "#ef4444" },
+};
+
+const FORMATS = ["Excel", "PDF", "Word", "その他"];
+const STATUSES = Object.keys(STATUS_CONFIG);
+
+const SAMPLE_DATA = {
+  modelCode: "PAC-2024-ALPHA",
+  sections: [
+    {
+      id: "s1", name: "主基板",
+      items: [
+        { id: "i1", itemName: "PCB試作見積", format: "Excel", submitTo: "A基板メーカー", status: "承認済", quoteNo: "Q-240101", orderNo: "O-240115", submitDate: "2024-01-10", quoteAmount: 250000, costAmount: 180000, pdfUrl: "", memo: "Rev.3対応済み" },
+        { id: "i2", itemName: "イニシャル費見積", format: "PDF", submitTo: "A基板メーカー", status: "提出済", quoteNo: "Q-240102", orderNo: "", submitDate: "2024-01-12", quoteAmount: 80000, costAmount: 0, pdfUrl: "", memo: "" },
+        { id: "i3", itemName: "BOM部品原価見積", format: "Excel", submitTo: "調達部", status: "作成中", quoteNo: "", orderNo: "", submitDate: "", quoteAmount: 0, costAmount: 0, pdfUrl: "", memo: "部品表確認中" },
+      ],
+    },
+    {
+      id: "s2", name: "液晶演出",
+      items: [
+        { id: "i4", itemName: "液晶ユニット試作見積", format: "Excel", submitTo: "B液晶メーカー", status: "承認待", quoteNo: "Q-240105", orderNo: "", submitDate: "2024-01-15", quoteAmount: 420000, costAmount: 310000, pdfUrl: "", memo: "" },
+        { id: "i5", itemName: "組立費見積", format: "PDF", submitTo: "C組立工場", status: "未提出", quoteNo: "", orderNo: "", submitDate: "", quoteAmount: 0, costAmount: 0, pdfUrl: "", memo: "" },
+      ],
+    },
+    {
+      id: "s3", name: "筐体・外装",
+      items: [
+        { id: "i6", itemName: "樹脂成型型費", format: "PDF", submitTo: "D成型工場", status: "未提出", quoteNo: "", orderNo: "", submitDate: "", quoteAmount: 0, costAmount: 0, pdfUrl: "", memo: "" },
+        { id: "i7", itemName: "塗装・印刷費", format: "Excel", submitTo: "E印刷工場", status: "却下", quoteNo: "Q-240108", orderNo: "", submitDate: "2024-01-08", quoteAmount: 150000, costAmount: 100000, pdfUrl: "", memo: "仕様変更のため再提出必要" },
+      ],
+    },
+  ],
+};
+
+function genId() {
+  return "i" + Date.now() + Math.random().toString(36).slice(2, 6);
+}
+
+function calcMargin(q, c) {
+  const qn = Number(q) || 0;
+  const cn = Number(c) || 0;
+  if (qn <= 0) return null;
+  return Math.round(((qn - cn) / qn) * 1000) / 10;
+}
+
+function fmt(n) {
+  return (Number(n) || 0).toLocaleString("ja-JP");
+}
+
+// ============================================================
+// ProgressRing
+// ============================================================
+function ProgressRing({ done, total, size = 52 }) {
+  const r = (size - 6) / 2;
+  const circ = 2 * Math.PI * r;
+  const pct = total > 0 ? done / total : 0;
+  return (
+    <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#e2e8f0" strokeWidth={5} />
+      <circle
+        cx={size/2} cy={size/2} r={r} fill="none"
+        stroke={pct === 1 ? "#10b981" : "#3b82f6"}
+        strokeWidth={5}
+        strokeDasharray={circ}
+        strokeDashoffset={circ * (1 - pct)}
+        strokeLinecap="round"
+        style={{ transition: "stroke-dashoffset 0.6s cubic-bezier(.4,0,.2,1)" }}
+      />
+    </svg>
+  );
+}
+
+// ============================================================
+// StatusBadge
+// ============================================================
+function StatusBadge({ status, onChange }) {
+  const [open, setOpen] = useState(false);
+  const cfg = STATUS_CONFIG[status] || STATUS_CONFIG["未提出"];
+  return (
+    <div style={{ position: "relative", display: "inline-block" }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          display: "flex", alignItems: "center", gap: 5,
+          padding: "3px 10px", borderRadius: 20,
+          background: cfg.bg, border: `1.5px solid ${cfg.color}`,
+          color: cfg.color, fontWeight: 700, fontSize: 11,
+          cursor: "pointer", whiteSpace: "nowrap",
+        }}
+      >
+        <span style={{ width: 7, height: 7, borderRadius: "50%", background: cfg.dot, flexShrink: 0 }} />
+        {cfg.label}
+        <span style={{ fontSize: 9, opacity: 0.7 }}>▾</span>
+      </button>
+      {open && (
+        <div style={{
+          position: "absolute", top: "100%", left: 0, zIndex: 100,
+          background: "#fff", borderRadius: 10, border: "1px solid #e2e8f0",
+          boxShadow: "0 8px 24px rgba(0,0,0,0.12)", overflow: "hidden", minWidth: 110, marginTop: 4,
+        }}>
+          {STATUSES.map(s => {
+            const c = STATUS_CONFIG[s];
+            return (
+              <button
+                key={s}
+                onClick={() => { onChange(s); setOpen(false); }}
+                style={{
+                  display: "flex", alignItems: "center", gap: 8,
+                  width: "100%", padding: "8px 14px", border: "none",
+                  background: status === s ? c.bg : "#fff",
+                  color: c.color, fontWeight: status === s ? 700 : 500,
+                  fontSize: 12, cursor: "pointer", textAlign: "left",
+                }}
+              >
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: c.dot }} />
+                {c.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// ItemRow — 1行明細
+// ============================================================
+function ItemRow({ item, onUpdate, onDelete }) {
+  const [expanded, setExpanded] = useState(false);
+  const [editingAmount, setEditingAmount] = useState(false);
+  const fileRef = useRef();
+
+  const margin = calcMargin(item.quoteAmount, item.costAmount);
+  const cfg = STATUS_CONFIG[item.status] || STATUS_CONFIG["未提出"];
+
+  const update = (field, val) => onUpdate({ ...item, [field]: val });
+
+  const handleFile = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => update("pdfUrl", reader.result);
+    reader.readAsDataURL(file);
+  };
+
+  const isDone = item.status === "承認済" || item.status === "提出済";
+
+  return (
+    <div style={{
+      background: "#fff",
+      borderRadius: 10,
+      border: `1px solid ${expanded ? cfg.color + "55" : "#e8ecf0"}`,
+      marginBottom: 6,
+      overflow: "hidden",
+      transition: "border-color 0.2s",
+      boxShadow: expanded ? `0 2px 12px ${cfg.color}18` : "none",
+    }}>
+      {/* ── メイン行 ── */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "28px 1fr 110px 100px 90px 36px",
+          alignItems: "center",
+          padding: "10px 12px",
+          gap: 10,
+          cursor: "pointer",
+          background: isDone ? "#f8fffe" : "#fff",
+        }}
+        onClick={() => setExpanded(e => !e)}
+      >
+        {/* チェック */}
+        <div
+          onClick={e => { e.stopPropagation(); update("status", isDone ? "未提出" : "承認済"); }}
+          style={{
+            width: 22, height: 22, borderRadius: 6,
+            border: `2px solid ${isDone ? "#10b981" : "#cbd5e1"}`,
+            background: isDone ? "#10b981" : "#fff",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            cursor: "pointer", flexShrink: 0, transition: "all 0.15s",
+          }}
+        >
+          {isDone && <span style={{ color: "#fff", fontSize: 13, fontWeight: 900 }}>✓</span>}
+        </div>
+
+        {/* 品名 */}
+        <div>
+          <div style={{
+            fontWeight: 600, fontSize: 13, color: isDone ? "#94a3b8" : "#1e293b",
+            textDecoration: isDone ? "line-through" : "none",
+          }}>
+            {item.itemName || "（品名未入力）"}
+          </div>
+          <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 1 }}>
+            {item.submitTo && <span>{item.submitTo}</span>}
+            {item.format && <span style={{ marginLeft: 6, background: "#f1f5f9", borderRadius: 4, padding: "1px 6px" }}>{item.format}</span>}
+            {item.quoteNo && <span style={{ marginLeft: 6, color: "#64748b" }}>#{item.quoteNo}</span>}
+          </div>
+        </div>
+
+        {/* ステータス */}
+        <div onClick={e => e.stopPropagation()}>
+          <StatusBadge status={item.status} onChange={v => update("status", v)} />
+        </div>
+
+        {/* 見積金額 */}
+        <div style={{ textAlign: "right" }} onClick={e => e.stopPropagation()}>
+          {editingAmount ? (
+            <input
+              autoFocus
+              type="number"
+              defaultValue={item.quoteAmount}
+              onBlur={e => { update("quoteAmount", e.target.value); setEditingAmount(false); }}
+              onKeyDown={e => { if (e.key === "Enter") e.target.blur(); }}
+              style={{
+                width: "100%", border: "1.5px solid #3b82f6", borderRadius: 6,
+                padding: "2px 6px", fontSize: 12, textAlign: "right", outline: "none",
+              }}
+            />
+          ) : (
+            <div
+              onClick={() => setEditingAmount(true)}
+              style={{ fontSize: 12, color: item.quoteAmount ? "#1e293b" : "#cbd5e1", cursor: "text", fontWeight: 600 }}
+            >
+              {item.quoteAmount ? "¥" + fmt(item.quoteAmount) : "—"}
+            </div>
+          )}
+          {margin !== null && (
+            <div style={{ fontSize: 10, color: margin >= 20 ? "#10b981" : margin >= 0 ? "#f59e0b" : "#ef4444", fontWeight: 700 }}>
+              粗利 {margin}%
+            </div>
+          )}
+        </div>
+
+        {/* PDF */}
+        <div onClick={e => e.stopPropagation()} style={{ display: "flex", gap: 4, justifyContent: "center" }}>
+          {item.pdfUrl ? (
+            <a href={item.pdfUrl} target="_blank" rel="noreferrer"
+              style={{ fontSize: 18, textDecoration: "none", title: "PDF開く" }}>📄</a>
+          ) : (
+            <button
+              onClick={() => fileRef.current.click()}
+              style={{ background: "none", border: "1.5px dashed #cbd5e1", borderRadius: 6, padding: "2px 6px", cursor: "pointer", fontSize: 10, color: "#94a3b8" }}
+            >
+              + PDF
+            </button>
+          )}
+          <input ref={fileRef} type="file" accept="application/pdf,image/*" style={{ display: "none" }} onChange={handleFile} />
+        </div>
+
+        {/* 展開矢印 */}
+        <div style={{ color: "#94a3b8", fontSize: 12, transition: "transform 0.2s", transform: expanded ? "rotate(180deg)" : "none" }}>▾</div>
+      </div>
+
+      {/* ── 展開詳細パネル ── */}
+      {expanded && (
+        <div style={{
+          padding: "12px 14px 14px",
+          borderTop: `1px solid ${cfg.color}22`,
+          background: "#fafcff",
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr 1fr",
+          gap: 10,
+        }}>
+          {[
+            ["品名・仕様", "itemName", "text"],
+            ["提出先", "submitTo", "text"],
+            ["フォーマット", "format", "select"],
+            ["見積No", "quoteNo", "text"],
+            ["注文No", "orderNo", "text"],
+            ["提出日", "submitDate", "date"],
+            ["見積金額", "quoteAmount", "number"],
+            ["原価", "costAmount", "number"],
+          ].map(([label, field, type]) => (
+            <div key={field}>
+              <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 700, marginBottom: 3, textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</div>
+              {type === "select" ? (
+                <select
+                  value={item[field] || ""}
+                  onChange={e => update(field, e.target.value)}
+                  style={{ width: "100%", border: "1.5px solid #e2e8f0", borderRadius: 7, padding: "5px 8px", fontSize: 12, background: "#fff", outline: "none" }}
+                >
+                  <option value="">選択</option>
+                  {FORMATS.map(f => <option key={f}>{f}</option>)}
+                </select>
+              ) : (
+                <input
+                  type={type}
+                  value={item[field] || ""}
+                  onChange={e => update(field, e.target.value)}
+                  style={{ width: "100%", border: "1.5px solid #e2e8f0", borderRadius: 7, padding: "5px 8px", fontSize: 12, outline: "none", boxSizing: "border-box" }}
+                />
+              )}
+            </div>
+          ))}
+
+          {/* メモ */}
+          <div style={{ gridColumn: "1 / -1" }}>
+            <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 700, marginBottom: 3, textTransform: "uppercase", letterSpacing: "0.05em" }}>メモ</div>
+            <textarea
+              value={item.memo || ""}
+              onChange={e => update("memo", e.target.value)}
+              rows={2}
+              placeholder="備考・特記事項..."
+              style={{ width: "100%", border: "1.5px solid #e2e8f0", borderRadius: 7, padding: "6px 8px", fontSize: 12, resize: "vertical", outline: "none", boxSizing: "border-box", fontFamily: "inherit" }}
+            />
+          </div>
+
+          {/* PDF添付エリア */}
+          <div style={{ gridColumn: "1 / -1" }}>
+            <div style={{ fontSize: 10, color: "#94a3b8", fontWeight: 700, marginBottom: 3, textTransform: "uppercase", letterSpacing: "0.05em" }}>PDF添付</div>
+            <div
+              onClick={() => fileRef.current.click()}
+              style={{
+                border: "2px dashed #e2e8f0", borderRadius: 8, padding: "12px",
+                display: "flex", alignItems: "center", gap: 10, cursor: "pointer",
+                background: item.pdfUrl ? "#f0fdf4" : "#fafafa",
+                transition: "border-color 0.2s",
+              }}
+            >
+              <span style={{ fontSize: 22 }}>{item.pdfUrl ? "📄" : "📎"}</span>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: item.pdfUrl ? "#10b981" : "#64748b" }}>
+                  {item.pdfUrl ? "PDF添付済み — クリックで変更" : "クリックしてPDF・画像を添付"}
+                </div>
+                <div style={{ fontSize: 10, color: "#94a3b8" }}>PDF, PNG, JPG など</div>
+              </div>
+              {item.pdfUrl && (
+                <a href={item.pdfUrl} target="_blank" rel="noreferrer"
+                  onClick={e => e.stopPropagation()}
+                  style={{ marginLeft: "auto", fontSize: 11, color: "#3b82f6", fontWeight: 600, textDecoration: "none" }}>
+                  開く →
+                </a>
+              )}
+            </div>
+            <input ref={fileRef} type="file" accept="application/pdf,image/*" style={{ display: "none" }} onChange={handleFile} />
+          </div>
+
+          {/* 削除ボタン */}
+          <div style={{ gridColumn: "1 / -1", display: "flex", justifyContent: "flex-end" }}>
+            <button
+              onClick={() => onDelete(item.id)}
+              style={{ background: "#fef2f2", border: "1px solid #fecaca", color: "#ef4444", borderRadius: 7, padding: "5px 14px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}
+            >
+              🗑 この項目を削除
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// SectionBlock
+// ============================================================
+function SectionBlock({ section, onUpdateSection, onDeleteSection }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+
+  const done = section.items.filter(it => it.status === "承認済" || it.status === "提出済").length;
+  const total = section.items.length;
+  const subtotal = section.items.reduce((s, it) => s + (Number(it.quoteAmount) || 0), 0);
+  const costTotal = section.items.reduce((s, it) => s + (Number(it.costAmount) || 0), 0);
+  const margin = calcMargin(subtotal, costTotal);
+
+  const addItem = () => {
+    const newItem = {
+      id: genId(), itemName: "", format: "Excel", submitTo: "",
+      status: "未提出", quoteNo: "", orderNo: "", submitDate: "",
+      quoteAmount: 0, costAmount: 0, pdfUrl: "", memo: "",
+    };
+    onUpdateSection({ ...section, items: [...section.items, newItem] });
+  };
+
+  const updateItem = (updated) => {
+    onUpdateSection({ ...section, items: section.items.map(it => it.id === updated.id ? updated : it) });
+  };
+
+  const deleteItem = (id) => {
+    onUpdateSection({ ...section, items: section.items.filter(it => it.id !== id) });
+  };
+
+  return (
+    <div style={{
+      background: "#fff",
+      borderRadius: 14,
+      border: "1px solid #e8ecf0",
+      marginBottom: 16,
+      overflow: "hidden",
+      boxShadow: "0 1px 4px rgba(0,0,0,0.05)",
+    }}>
+      {/* セクションヘッダー */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: 12,
+        padding: "12px 16px",
+        background: "linear-gradient(135deg, #f8faff 0%, #f1f5fb 100%)",
+        borderBottom: collapsed ? "none" : "1px solid #e8ecf0",
+        cursor: "pointer",
+      }} onClick={() => setCollapsed(c => !c)}>
+        <ProgressRing done={done} total={total} size={48} />
+
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {editingName ? (
+            <input
+              autoFocus
+              defaultValue={section.name}
+              onBlur={e => { onUpdateSection({ ...section, name: e.target.value }); setEditingName(false); }}
+              onKeyDown={e => { if (e.key === "Enter") e.target.blur(); }}
+              onClick={e => e.stopPropagation()}
+              style={{ fontSize: 16, fontWeight: 800, border: "none", borderBottom: "2px solid #3b82f6", outline: "none", background: "transparent", width: "100%" }}
+            />
+          ) : (
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 16, fontWeight: 800, color: "#1e293b" }}>{section.name}</span>
+              <button
+                onClick={e => { e.stopPropagation(); setEditingName(true); }}
+                style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#94a3b8", padding: "0 4px" }}
+              >✎</button>
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 12, marginTop: 3, fontSize: 11, color: "#64748b" }}>
+            <span style={{ fontWeight: 700 }}>{done}/{total}件完了</span>
+            {subtotal > 0 && <span>小計 ¥{fmt(subtotal)}</span>}
+            {margin !== null && (
+              <span style={{ color: margin >= 20 ? "#10b981" : margin >= 0 ? "#f59e0b" : "#ef4444", fontWeight: 700 }}>
+                粗利 {margin}%
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* セクション削除 */}
+        <button
+          onClick={e => { e.stopPropagation(); if (confirm(`「${section.name}」を削除しますか？`)) onDeleteSection(section.id); }}
+          style={{ background: "none", border: "none", cursor: "pointer", color: "#cbd5e1", fontSize: 16, padding: 4 }}
+        >✕</button>
+
+        <span style={{ color: "#94a3b8", transition: "transform 0.2s", transform: collapsed ? "rotate(-90deg)" : "none", fontSize: 14 }}>▾</span>
+      </div>
+
+      {/* 項目リスト */}
+      {!collapsed && (
+        <div style={{ padding: "10px 12px 12px" }}>
+          {section.items.map(item => (
+            <ItemRow key={item.id} item={item} onUpdate={updateItem} onDelete={deleteItem} />
+          ))}
+
+          <button
+            onClick={addItem}
+            style={{
+              width: "100%", padding: "9px", borderRadius: 8,
+              border: "2px dashed #e2e8f0", background: "#fafcff",
+              color: "#64748b", fontSize: 12, fontWeight: 600, cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+              marginTop: 4, transition: "all 0.15s",
+            }}
+          >
+            <span style={{ fontSize: 16 }}>+</span> 項目を追加
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// メインアプリ
+// ============================================================
+export default function QuoteChecklist() {
+  const [modelCode, setModelCode] = useState(SAMPLE_DATA.modelCode);
+  const [sections, setSections] = useState(SAMPLE_DATA.sections);
+  const [newSectionName, setNewSectionName] = useState("");
+  const [filterStatus, setFilterStatus] = useState("すべて");
+  const [showSummary, setShowSummary] = useState(true);
+
+  const allItems = sections.flatMap(s => s.items);
+  const doneItems = allItems.filter(it => it.status === "承認済" || it.status === "提出済");
+  const grandTotal = allItems.reduce((s, it) => s + (Number(it.quoteAmount) || 0), 0);
+  const grandCost  = allItems.reduce((s, it) => s + (Number(it.costAmount)  || 0), 0);
+  const overallMargin = calcMargin(grandTotal, grandCost);
+  const overallPct = allItems.length > 0 ? Math.round((doneItems.length / allItems.length) * 100) : 0;
+
+  const addSection = () => {
+    const name = newSectionName.trim() || "新規セクション";
+    setSections(s => [...s, { id: genId(), name, items: [] }]);
+    setNewSectionName("");
+  };
+
+  const updateSection = (updated) => setSections(s => s.map(sec => sec.id === updated.id ? updated : sec));
+  const deleteSection = (id) => setSections(s => s.filter(sec => sec.id !== id));
+
+  // ステータスフィルタ適用
+  const filteredSections = filterStatus === "すべて"
+    ? sections
+    : sections.map(sec => ({
+        ...sec,
+        items: sec.items.filter(it => it.status === filterStatus),
+      })).filter(sec => sec.items.length > 0);
+
+  return (
+    <div style={{
+      minHeight: "100vh",
+      background: "linear-gradient(160deg, #f0f4ff 0%, #f8fafc 50%, #f0fdf4 100%)",
+      fontFamily: "'Noto Sans JP', 'Hiragino Sans', sans-serif",
+      padding: "20px 16px 40px",
+    }}>
+      <div style={{ maxWidth: 780, margin: "0 auto" }}>
+
+        {/* ── ヘッダー ── */}
+        <div style={{
+          background: "linear-gradient(135deg, #1e3a5f 0%, #1e40af 60%, #2563eb 100%)",
+          borderRadius: 18,
+          padding: "22px 24px",
+          marginBottom: 18,
+          color: "#fff",
+          boxShadow: "0 8px 32px rgba(30,64,175,0.25)",
+        }}>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 16 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.12em", color: "#93c5fd", textTransform: "uppercase", marginBottom: 4 }}>
+                見積セット チェックリスト
+              </div>
+              <input
+                value={modelCode}
+                onChange={e => setModelCode(e.target.value)}
+                style={{
+                  background: "transparent", border: "none", borderBottom: "1.5px solid rgba(255,255,255,0.3)",
+                  color: "#fff", fontSize: 22, fontWeight: 900, outline: "none", width: "100%", paddingBottom: 2,
+                }}
+                placeholder="機種コードを入力"
+              />
+            </div>
+
+            {/* 全体進捗リング */}
+            <div style={{ position: "relative", flexShrink: 0 }}>
+              <ProgressRing done={doneItems.length} total={allItems.length} size={64} />
+              <div style={{
+                position: "absolute", inset: 0, display: "flex", flexDirection: "column",
+                alignItems: "center", justifyContent: "center",
+              }}>
+                <span style={{ fontSize: 14, fontWeight: 900, color: "#fff", lineHeight: 1 }}>{overallPct}%</span>
+              </div>
+            </div>
+          </div>
+
+          {/* KPIバー */}
+          <div style={{
+            display: "grid", gridTemplateColumns: "repeat(4, 1fr)",
+            gap: 12, marginTop: 18,
+            background: "rgba(255,255,255,0.08)", borderRadius: 12, padding: "12px 14px",
+          }}>
+            {[
+              ["完了", `${doneItems.length}/${allItems.length}件`, ""],
+              ["合計見積", grandTotal ? "¥" + fmt(grandTotal) : "—", ""],
+              ["合計原価", grandCost ? "¥" + fmt(grandCost) : "—", ""],
+              ["粗利率", overallMargin !== null ? overallMargin + "%" : "—",
+                overallMargin !== null ? (overallMargin >= 20 ? "#6ee7b7" : overallMargin >= 0 ? "#fcd34d" : "#fca5a5") : ""],
+            ].map(([label, val, accent]) => (
+              <div key={label} style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 10, color: "#93c5fd", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>{label}</div>
+                <div style={{ fontSize: 15, fontWeight: 900, color: accent || "#fff", marginTop: 3 }}>{val}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ── フィルター & コントロール ── */}
+        <div style={{
+          display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center",
+        }}>
+          <div style={{ display: "flex", gap: 4, flex: 1, flexWrap: "wrap" }}>
+            {["すべて", ...STATUSES].map(s => {
+              const cfg = STATUS_CONFIG[s];
+              const active = filterStatus === s;
+              return (
+                <button
+                  key={s}
+                  onClick={() => setFilterStatus(s)}
+                  style={{
+                    padding: "5px 12px", borderRadius: 20, fontSize: 11, fontWeight: 700, cursor: "pointer",
+                    border: active ? `1.5px solid ${cfg?.color || "#1e40af"}` : "1.5px solid #e2e8f0",
+                    background: active ? (cfg?.bg || "#eff6ff") : "#fff",
+                    color: active ? (cfg?.color || "#1e40af") : "#64748b",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  {s === "すべて" ? "🗂 すべて" : cfg.label}
+                  {s !== "すべて" && (
+                    <span style={{ marginLeft: 4, opacity: 0.7 }}>
+                      {allItems.filter(it => it.status === s).length}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ── セクションリスト ── */}
+        {filteredSections.map(sec => (
+          <SectionBlock
+            key={sec.id}
+            section={sec}
+            onUpdateSection={updateSection}
+            onDeleteSection={deleteSection}
+          />
+        ))}
+
+        {filteredSections.length === 0 && (
+          <div style={{ textAlign: "center", padding: "40px 20px", color: "#94a3b8" }}>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>📋</div>
+            <div style={{ fontWeight: 600 }}>該当する項目がありません</div>
+          </div>
+        )}
+
+        {/* ── セクション追加 ── */}
+        <div style={{
+          display: "flex", gap: 8, marginTop: 8,
+          background: "#fff", borderRadius: 12, padding: "12px 14px",
+          border: "2px dashed #e2e8f0",
+        }}>
+          <input
+            value={newSectionName}
+            onChange={e => setNewSectionName(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") addSection(); }}
+            placeholder="新しいセクション名（例: ソフトウェア開発費）"
+            style={{
+              flex: 1, border: "none", outline: "none", fontSize: 13, background: "transparent", color: "#1e293b",
+            }}
+          />
+          <button
+            onClick={addSection}
+            style={{
+              background: "linear-gradient(135deg, #1e40af, #2563eb)", color: "#fff",
+              border: "none", borderRadius: 8, padding: "7px 18px",
+              fontSize: 12, fontWeight: 700, cursor: "pointer",
+            }}
+          >
+            + セクション追加
+          </button>
+        </div>
+
+        {/* ── ステータス凡例 ── */}
+        <div style={{
+          marginTop: 20, display: "flex", flexWrap: "wrap", gap: 8,
+          justifyContent: "center", padding: "10px 0",
+        }}>
+          {STATUSES.map(s => {
+            const cfg = STATUS_CONFIG[s];
+            const count = allItems.filter(it => it.status === s).length;
+            return (
+              <div key={s} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#64748b" }}>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: cfg.dot }} />
+                {cfg.label}: {count}件
+              </div>
+            );
+          })}
+        </div>
+
+      </div>
+    </div>
+  );
+}
