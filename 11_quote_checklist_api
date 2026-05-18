@@ -1,0 +1,488 @@
+// ============================================================
+// 見積書・注文書管理システム
+// ファイル 11: 機種別 見積セット チェックリスト API
+// ============================================================
+//
+// 【新規スプレッドシート】「見積チェックリスト」シート
+//   1行 = チェックリストの1項目（1行明細）
+//   機種コード + セクション + 品名・仕様で管理
+//
+// 【列構成】
+//   A: item_id         — 項目ID（CK-YYYYMMDD-XXXX）
+//   B: model_code      — 機種コード
+//   C: section         — セクション名（例: 主基板, 液晶演出）
+//   D: item_name       — 品名・仕様（例: 試作見積, イニシャル費）
+//   E: format          — 提出フォーマット（例: Excel, PDF）
+//   F: submit_to       — 提出先
+//   G: status          — ステータス（未提出/作成中/提出済/承認待/承認済/却下）
+//   H: quote_no        — 見積No
+//   I: order_no        — 注文No
+//   J: submit_date     — 提出日
+//   K: quote_amount    — 見積金額
+//   L: cost_amount     — 原価
+//   M: gross_margin    — 粗利率（%）※自動計算
+//   N: pdf_url         — 見積書PDFリンク
+//   O: order_pdf_url   — 注文書PDFリンク
+//   P: memo            — 備考
+//   Q: sort_order      — 表示順（数値）
+//   R: created_at      — 登録日時
+//   S: updated_at      — 更新日時
+//
+// 【API アクション】（handleApiRequest から呼び出し）
+//   checklistGetByModel   — 機種コードで一覧取得
+//   checklistSaveItem     — 1項目の保存（新規／更新）
+//   checklistDeleteItem   — 1項目の削除
+//   checklistReorder      — 表示順の一括更新
+//   checklistGetSections  — 機種コードのセクション一覧
+//   checklistAddSection   — 新規セクション追加
+//   checklistCopyTemplate — テンプレートから機種にコピー
+// ============================================================
+
+var CHECKLIST_SHEET = '見積チェックリスト';
+
+// 列インデックス（1始まり）
+var CL = {
+  ITEM_ID:      1,
+  MODEL_CODE:   2,
+  SECTION:      3,
+  ITEM_NAME:    4,
+  FORMAT:       5,
+  SUBMIT_TO:    6,
+  STATUS:       7,
+  QUOTE_NO:     8,
+  ORDER_NO:     9,
+  SUBMIT_DATE:  10,
+  QUOTE_AMOUNT: 11,
+  COST_AMOUNT:  12,
+  GROSS_MARGIN: 13,
+  PDF_URL:      14,
+  ORDER_PDF_URL:15,
+  MEMO:         16,
+  SORT_ORDER:   17,
+  CREATED_AT:   18,
+  UPDATED_AT:   19,
+  COL_COUNT:    19,
+};
+
+var CL_STATUS = {
+  PENDING:   '未提出',
+  DRAFT:     '作成中',
+  SUBMITTED: '提出済',
+  WAITING:   '承認待',
+  APPROVED:  '承認済',
+  REJECTED:  '却下',
+};
+
+// ============================================================
+// シートセットアップ（initialSetup から呼ぶ or 単独実行）
+// ============================================================
+function setupChecklistSheet() {
+  var ss    = getSpreadsheet();
+  var sheet = ss.getSheetByName(CHECKLIST_SHEET);
+  if (!sheet) sheet = ss.insertSheet(CHECKLIST_SHEET);
+
+  var headers = [
+    '項目ID', '機種コード', 'セクション', '品名・仕様',
+    '提出フォーマット', '提出先', 'ステータス',
+    '見積No', '注文No', '提出日',
+    '見積金額', '原価', '粗利率(%)',
+    '見積書PDF', '注文書PDF', '備考',
+    '表示順', '登録日時', '更新日時',
+  ];
+
+  var hRange = sheet.getRange(1, 1, 1, headers.length);
+  hRange.setValues([headers]);
+  hRange.setBackground('#E3F2FD');
+  hRange.setFontWeight('bold');
+  hRange.setFontSize(10);
+  sheet.setFrozenRows(1);
+
+  // ステータス列にプルダウン
+  var statusRule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(['未提出','作成中','提出済','承認待','承認済','却下'], true).build();
+  sheet.getRange(2, CL.STATUS, 1000, 1).setDataValidation(statusRule);
+
+  // 列幅調整
+  var widths = [140, 110, 120, 200, 130, 130, 80, 120, 120, 100, 100, 100, 80, 250, 250, 200, 60, 140, 140];
+  widths.forEach(function(w, i) { sheet.setColumnWidth(i + 1, w); });
+
+  // 粗利率列を保護（計算値）
+  sheet.getRange(1, CL.GROSS_MARGIN, 1000, 1)
+    .setBackground('#F5F5F5')
+    .setFontStyle('italic');
+
+  Logger.log('[CHECKLIST] シートセットアップ完了');
+  return sheet;
+}
+
+// ============================================================
+// ユーティリティ
+// ============================================================
+function _generateChecklistId() {
+  return 'CK-' + Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyyMMddHHmmss') +
+         '-' + (Math.floor(Math.random() * 900) + 100);
+}
+
+function _calcGrossMargin(quoteAmount, costAmount) {
+  var q = Number(quoteAmount) || 0;
+  var c = Number(costAmount)  || 0;
+  if (q <= 0) return null;
+  return Math.round((q - c) / q * 1000) / 10; // 小数第1位
+}
+
+function _clRowToObject(row) {
+  var q = Number(row[CL.QUOTE_AMOUNT - 1]) || 0;
+  var c = Number(row[CL.COST_AMOUNT  - 1]) || 0;
+  return {
+    itemId:       String(row[CL.ITEM_ID      - 1] || ''),
+    modelCode:    String(row[CL.MODEL_CODE   - 1] || ''),
+    section:      String(row[CL.SECTION      - 1] || ''),
+    itemName:     String(row[CL.ITEM_NAME    - 1] || ''),
+    format:       String(row[CL.FORMAT       - 1] || ''),
+    submitTo:     String(row[CL.SUBMIT_TO    - 1] || ''),
+    status:       String(row[CL.STATUS       - 1] || CL_STATUS.PENDING),
+    quoteNo:      String(row[CL.QUOTE_NO     - 1] || ''),
+    orderNo:      String(row[CL.ORDER_NO     - 1] || ''),
+    submitDate:   _toDateStr(row[CL.SUBMIT_DATE - 1]),
+    quoteAmount:  q,
+    costAmount:   c,
+    grossMargin:  _calcGrossMargin(q, c),
+    pdfUrl:       String(row[CL.PDF_URL      - 1] || ''),
+    orderPdfUrl:  String(row[CL.ORDER_PDF_URL - 1] || ''),
+    memo:         String(row[CL.MEMO         - 1] || ''),
+    sortOrder:    Number(row[CL.SORT_ORDER   - 1]) || 0,
+    createdAt:    String(row[CL.CREATED_AT   - 1] || ''),
+    updatedAt:    String(row[CL.UPDATED_AT   - 1] || ''),
+  };
+}
+
+function _getChecklistSheet() {
+  var ss    = getSpreadsheet();
+  var sheet = ss.getSheetByName(CHECKLIST_SHEET);
+  if (!sheet) sheet = setupChecklistSheet();
+  return sheet;
+}
+
+function _getAllChecklistRows() {
+  var sheet = _getChecklistSheet();
+  var last  = sheet.getLastRow();
+  if (last <= 1) return [];
+  return sheet.getRange(2, 1, last - 1, CL.COL_COUNT).getValues()
+    .filter(function(r) { return String(r[CL.ITEM_ID - 1]).trim() !== ''; });
+}
+
+// ============================================================
+// API ハンドラ
+// ============================================================
+
+/**
+ * 機種コードで項目一覧を取得
+ * レスポンス: { success, sections: [ { name, items: [...] } ], summary }
+ */
+function _apiChecklistGetByModel(p) {
+  try {
+    var modelCode = String(p.modelCode || '').trim();
+    if (!modelCode) return { success: false, error: '機種コードが必要です' };
+
+    var rows  = _getAllChecklistRows();
+    var items = rows
+      .filter(function(r) { return String(r[CL.MODEL_CODE - 1]).trim() === modelCode; })
+      .map(_clRowToObject)
+      .sort(function(a, b) { return a.sortOrder - b.sortOrder; });
+
+    // セクションごとにグループ化
+    var sectionMap = {};
+    var sectionOrder = [];
+    items.forEach(function(it) {
+      var sec = it.section || '（未分類）';
+      if (!sectionMap[sec]) {
+        sectionMap[sec] = [];
+        sectionOrder.push(sec);
+      }
+      sectionMap[sec].push(it);
+    });
+
+    var sections = sectionOrder.map(function(sec) {
+      var secItems = sectionMap[sec];
+      var subtotal = secItems.reduce(function(s, it) { return s + (it.quoteAmount || 0); }, 0);
+      var costTotal = secItems.reduce(function(s, it) { return s + (it.costAmount || 0); }, 0);
+      return {
+        name:      sec,
+        items:     secItems,
+        subtotal:  subtotal,
+        costTotal: costTotal,
+        grossMargin: _calcGrossMargin(subtotal, costTotal),
+        doneCount: secItems.filter(function(it) {
+          return it.status === CL_STATUS.SUBMITTED ||
+                 it.status === CL_STATUS.APPROVED;
+        }).length,
+        totalCount: secItems.length,
+      };
+    });
+
+    // 総合計サマリ
+    var grandTotal   = items.reduce(function(s, it) { return s + (it.quoteAmount || 0); }, 0);
+    var grandCost    = items.reduce(function(s, it) { return s + (it.costAmount  || 0); }, 0);
+    var tax          = Math.round(grandTotal * 0.1);
+    var doneAll      = items.filter(function(it) {
+      return it.status === CL_STATUS.SUBMITTED || it.status === CL_STATUS.APPROVED;
+    }).length;
+
+    return {
+      success:  true,
+      sections: sections,
+      summary:  {
+        grandTotal:   grandTotal,
+        grandCost:    grandCost,
+        tax:          tax,
+        totalWithTax: grandTotal + tax,
+        grossMargin:  _calcGrossMargin(grandTotal, grandCost),
+        doneCount:    doneAll,
+        totalCount:   items.length,
+      },
+    };
+  } catch(e) {
+    Logger.log('[CHECKLIST GET ERROR] ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * 1項目を保存（新規 or 更新）
+ */
+function _apiChecklistSaveItem(p) {
+  try {
+    var sheet = _getChecklistSheet();
+
+    // 粗利率は自動計算
+    var grossMargin = _calcGrossMargin(p.quoteAmount, p.costAmount);
+
+    if (!p.itemId) {
+      // ── 新規追加 ──
+      if (!p.modelCode) return { success: false, error: '機種コードが必要です' };
+      var newId = _generateChecklistId();
+      // 表示順：同機種・同セクション内の末尾に追加
+      var rows    = _getAllChecklistRows();
+      var maxSort = rows
+        .filter(function(r) {
+          return String(r[CL.MODEL_CODE - 1]).trim() === String(p.modelCode).trim() &&
+                 String(r[CL.SECTION    - 1]).trim() === String(p.section || '').trim();
+        })
+        .reduce(function(m, r) { return Math.max(m, Number(r[CL.SORT_ORDER - 1]) || 0); }, 0);
+
+      var newRow = [
+        newId,
+        p.modelCode    || '',
+        p.section      || '',
+        p.itemName     || '',
+        p.format       || '',
+        p.submitTo     || '',
+        p.status       || CL_STATUS.PENDING,
+        p.quoteNo      || '',
+        p.orderNo      || '',
+        p.submitDate   || '',
+        Number(p.quoteAmount) || 0,
+        Number(p.costAmount)  || 0,
+        grossMargin !== null ? grossMargin : '',
+        p.pdfUrl       || '',
+        p.orderPdfUrl  || '',
+        p.memo         || '',
+        maxSort + 10,
+        nowJST(),
+        nowJST(),
+      ];
+      sheet.appendRow(newRow);
+      return { success: true, itemId: newId };
+
+    } else {
+      // ── 既存更新 ──
+      var last = sheet.getLastRow();
+      if (last <= 1) return { success: false, error: '対象データなし' };
+      var ids = sheet.getRange(2, CL.ITEM_ID, last - 1, 1).getValues().flat();
+      var idx = ids.map(String).indexOf(String(p.itemId));
+      if (idx < 0) return { success: false, error: '項目ID未発見: ' + p.itemId };
+      var rowNum = idx + 2;
+
+      // 更新対象フィールド
+      var updates = {
+        [CL.SECTION]:       p.section,
+        [CL.ITEM_NAME]:     p.itemName,
+        [CL.FORMAT]:        p.format,
+        [CL.SUBMIT_TO]:     p.submitTo,
+        [CL.STATUS]:        p.status,
+        [CL.QUOTE_NO]:      p.quoteNo,
+        [CL.ORDER_NO]:      p.orderNo,
+        [CL.SUBMIT_DATE]:   p.submitDate,
+        [CL.QUOTE_AMOUNT]:  p.quoteAmount !== undefined ? Number(p.quoteAmount) : undefined,
+        [CL.COST_AMOUNT]:   p.costAmount  !== undefined ? Number(p.costAmount)  : undefined,
+        [CL.GROSS_MARGIN]:  grossMargin !== null ? grossMargin : '',
+        [CL.PDF_URL]:       p.pdfUrl,
+        [CL.ORDER_PDF_URL]: p.orderPdfUrl,
+        [CL.MEMO]:          p.memo,
+      };
+      Object.keys(updates).forEach(function(col) {
+        if (updates[col] !== undefined) {
+          sheet.getRange(rowNum, Number(col)).setValue(updates[col]);
+        }
+      });
+      sheet.getRange(rowNum, CL.UPDATED_AT).setValue(nowJST());
+      return { success: true, itemId: p.itemId };
+    }
+  } catch(e) {
+    Logger.log('[CHECKLIST SAVE ERROR] ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * 項目を削除
+ */
+function _apiChecklistDeleteItem(p) {
+  try {
+    if (!p.itemId) return { success: false, error: '項目IDが必要です' };
+    var sheet = _getChecklistSheet();
+    var last  = sheet.getLastRow();
+    if (last <= 1) return { success: false, error: 'データなし' };
+    var ids = sheet.getRange(2, CL.ITEM_ID, last - 1, 1).getValues().flat();
+    var idx = ids.map(String).indexOf(String(p.itemId));
+    if (idx < 0) return { success: false, error: '項目ID未発見' };
+    sheet.deleteRow(idx + 2);
+    return { success: true };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * 表示順を一括更新
+ * p.orders = [ { itemId, sortOrder }, ... ]
+ */
+function _apiChecklistReorder(p) {
+  try {
+    if (!p.orders || !p.orders.length) return { success: true };
+    var sheet = _getChecklistSheet();
+    var last  = sheet.getLastRow();
+    if (last <= 1) return { success: true };
+    var ids = sheet.getRange(2, CL.ITEM_ID, last - 1, 1).getValues().flat();
+    p.orders.forEach(function(o) {
+      var idx = ids.map(String).indexOf(String(o.itemId));
+      if (idx >= 0) {
+        sheet.getRange(idx + 2, CL.SORT_ORDER).setValue(Number(o.sortOrder));
+      }
+    });
+    return { success: true };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * 機種コードに存在するセクション名一覧を返す
+ */
+function _apiChecklistGetSections(p) {
+  try {
+    var modelCode = String(p.modelCode || '').trim();
+    var rows      = _getAllChecklistRows();
+    var sections  = {};
+    rows.forEach(function(r) {
+      if (!modelCode || String(r[CL.MODEL_CODE - 1]).trim() === modelCode) {
+        var sec = String(r[CL.SECTION - 1]).trim();
+        if (sec) sections[sec] = true;
+      }
+    });
+    return { success: true, sections: Object.keys(sections) };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+/**
+ * テンプレート機種から別の機種にチェックリストをコピー
+ * p.fromModelCode, p.toModelCode
+ */
+function _apiChecklistCopyTemplate(p) {
+  try {
+    if (!p.fromModelCode || !p.toModelCode) return { success: false, error: 'コピー元・コピー先の機種コードが必要です' };
+    var rows = _getAllChecklistRows().filter(function(r) {
+      return String(r[CL.MODEL_CODE - 1]).trim() === String(p.fromModelCode).trim();
+    });
+    if (rows.length === 0) return { success: false, error: 'コピー元にデータがありません' };
+
+    var sheet = _getChecklistSheet();
+    var copied = 0;
+    rows.forEach(function(r) {
+      var newRow = r.slice(); // コピー
+      newRow[CL.ITEM_ID    - 1] = _generateChecklistId();
+      newRow[CL.MODEL_CODE - 1] = p.toModelCode;
+      newRow[CL.STATUS     - 1] = CL_STATUS.PENDING; // ステータスをリセット
+      newRow[CL.QUOTE_NO   - 1] = '';
+      newRow[CL.ORDER_NO   - 1] = '';
+      newRow[CL.SUBMIT_DATE - 1] = '';
+      newRow[CL.QUOTE_AMOUNT - 1] = 0;
+      newRow[CL.COST_AMOUNT  - 1] = 0;
+      newRow[CL.GROSS_MARGIN - 1] = '';
+      newRow[CL.PDF_URL    - 1] = '';
+      newRow[CL.ORDER_PDF_URL - 1] = '';
+      newRow[CL.CREATED_AT - 1] = nowJST();
+      newRow[CL.UPDATED_AT - 1] = nowJST();
+      sheet.appendRow(newRow);
+      copied++;
+    });
+    return { success: true, copied: copied };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+// ============================================================
+// handleApiRequest へのルーティング追加
+// 03_webapp_ap.gs の switch に以下を追記してください:
+//
+//   case 'checklistGetByModel':   return _apiChecklistGetByModel(payload);
+//   case 'checklistSaveItem':     return _apiChecklistSaveItem(payload);
+//   case 'checklistDeleteItem':   return _apiChecklistDeleteItem(payload);
+//   case 'checklistReorder':      return _apiChecklistReorder(payload);
+//   case 'checklistGetSections':  return _apiChecklistGetSections(payload);
+//   case 'checklistCopyTemplate': return _apiChecklistCopyTemplate(payload);
+// ============================================================
+
+// ============================================================
+// テスト用
+// ============================================================
+function testChecklistApi() {
+  // セットアップ
+  setupChecklistSheet();
+
+  // サンプルデータ追加
+  var modelCode = 'TEST-MODEL-001';
+  var sections  = ['主基板', '液晶演出'];
+  var templates = [
+    { section: '主基板',   itemName: 'PCB試作見積',        format: 'Excel', submitTo: 'A基板メーカー' },
+    { section: '主基板',   itemName: 'イニシャル費見積',    format: 'PDF',   submitTo: 'A基板メーカー' },
+    { section: '主基板',   itemName: 'BOM部品原価見積',     format: 'Excel', submitTo: '調達部' },
+    { section: '液晶演出', itemName: '液晶ユニット試作見積', format: 'Excel', submitTo: 'B液晶メーカー' },
+    { section: '液晶演出', itemName: '組立費見積',          format: 'PDF',   submitTo: 'C組立工場' },
+  ];
+  templates.forEach(function(t, i) {
+    _apiChecklistSaveItem({
+      modelCode:   modelCode,
+      section:     t.section,
+      itemName:    t.itemName,
+      format:      t.format,
+      submitTo:    t.submitTo,
+      status:      i === 0 ? CL_STATUS.SUBMITTED : CL_STATUS.PENDING,
+      quoteAmount: i === 0 ? 250000 : 0,
+      costAmount:  i === 0 ? 180000 : 0,
+    });
+  });
+
+  // 取得テスト
+  var result = _apiChecklistGetByModel({ modelCode: modelCode });
+  Logger.log('=== checklistGetByModel ===');
+  Logger.log('セクション数: ' + result.sections.length);
+  result.sections.forEach(function(sec) {
+    Logger.log('  [' + sec.name + '] ' + sec.items.length + '件 小計:' + sec.subtotal);
+  });
+  Logger.log('総合計: ' + result.summary.grandTotal);
+  Logger.log('進捗: ' + result.summary.doneCount + '/' + result.summary.totalCount);
+}
