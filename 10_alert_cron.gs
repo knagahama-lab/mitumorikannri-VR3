@@ -40,6 +40,7 @@ var MONITOR_CONFIG = {
   DELIVERY_URGENT_DAYS  : 1,
   TRIGGER_HEALTH_KEY    : 'TRIGGER_LAST_RUN',
   TRIGGER_TIMEOUT_HOURS : 2,
+  CHECKLIST_STALE_DAYS  : 3,   // 見積セット: 未提出/作成中がこの日数を超えたらアラート
 };
 
 function _loadMonitorConfig() {
@@ -56,7 +57,9 @@ function _loadMonitorConfig() {
     MONITOR_CONFIG.ALERT_DELIVERY = s.alertDelivery !== false;
     MONITOR_CONFIG.ALERT_DEADLINE = s.alertDeadline !== false;
     MONITOR_CONFIG.ALERT_OVERDUE  = s.alertOverdue  !== false;
-    MONITOR_CONFIG.ALERT_UNLINKED = s.alertUnlinked !== false;
+    MONITOR_CONFIG.ALERT_UNLINKED   = s.alertUnlinked   !== false;
+    MONITOR_CONFIG.ALERT_CHECKLIST  = s.alertChecklist !== false;
+    if (s.checklistStaleDays) MONITOR_CONFIG.CHECKLIST_STALE_DAYS = Number(s.checklistStaleDays);
   } catch(e) {
     Logger.log('[_loadMonitorConfig ERROR] ' + e.message);
   }
@@ -330,6 +333,7 @@ function runAllMonitoring() {
   if (MONITOR_CONFIG.ALERT_DELIVERY !== false) alertGroups = alertGroups.concat(_checkDeliveryDates());
   if (MONITOR_CONFIG.ALERT_DEADLINE !== false) alertGroups = alertGroups.concat(checkOrderDeadlines());
   alertGroups = alertGroups.concat(_checkUnprocessedDriveFiles());
+  if (MONITOR_CONFIG.ALERT_CHECKLIST !== false) alertGroups = alertGroups.concat(_checkChecklistAlerts());
   _updateTriggerHealth();
 
   if (alertGroups.length > 0) {
@@ -726,3 +730,111 @@ function setupMonitoringTriggers() {
 }
 
 
+
+
+
+// ============================================================
+// ⑦ 見積セット チェックリスト 未提出・停滞アラート
+//   CHECKLIST_STALE_DAYS 日以上 未提出 or 作成中 の項目を通知
+//   機種コードごとにグルーピングして表示
+// ============================================================
+
+function _checkChecklistAlerts() {
+  var groups = [];
+  try {
+    var ss    = getSpreadsheet();
+    var sheet = ss.getSheetByName(CHECKLIST_SHEET);
+    if (!sheet || sheet.getLastRow() <= 1) return groups;
+
+    var data  = sheet.getRange(2, 1, sheet.getLastRow() - 1, CL.COL_COUNT).getValues()
+                     .filter(function(r){ return String(r[CL.ITEM_ID - 1]).trim() !== ''; });
+    var today     = new Date();
+    var staleDays = MONITOR_CONFIG.CHECKLIST_STALE_DAYS || 3;
+
+    // 未対応ステータス（提出済・承認済・却下はスキップ）
+    var pendingStatuses = [CL_STATUS.PENDING, CL_STATUS.DRAFT];  // 未提出・作成中
+
+    // 機種コード → stale アイテム一覧
+    var modelMap = {};
+
+    data.forEach(function(row) {
+      var status    = String(row[CL.STATUS     - 1] || '').trim();
+      var modelCode = String(row[CL.MODEL_CODE - 1] || '').trim();
+      var itemName  = String(row[CL.ITEM_NAME  - 1] || '');
+      var section   = String(row[CL.SECTION    - 1] || '');
+      var submitTo  = String(row[CL.SUBMIT_TO  - 1] || '');
+      var updatedAt = row[CL.UPDATED_AT        - 1];
+      var pdfUrl    = String(row[CL.PDF_URL    - 1] || '');
+
+      if (pendingStatuses.indexOf(status) < 0) return;
+      if (!modelCode || !itemName) return;
+
+      // 更新日からの経過日数
+      var days = 0;
+      try {
+        var d = updatedAt instanceof Date
+          ? updatedAt : new Date(String(updatedAt).replace(/\//g, '-'));
+        if (!isNaN(d.getTime())) days = Math.floor((today - d) / (1000*60*60*24));
+      } catch(e) {}
+
+      if (days < staleDays) return;
+
+      if (!modelMap[modelCode]) modelMap[modelCode] = [];
+      modelMap[modelCode].push({ itemName: itemName, section: section, status: status, submitTo: submitTo, pdfUrl: pdfUrl, days: days });
+    });
+
+    var critItems = [], warnItems = [];
+
+    Object.keys(modelMap).forEach(function(modelCode) {
+      var staleItems = modelMap[modelCode];
+      var maxDays    = staleItems.reduce(function(m, it){ return Math.max(m, it.days); }, 0);
+
+      var lines = staleItems.slice(0, 8).map(function(it) {
+        return '[' + it.section + '] ' + it.itemName
+          + ' (' + it.status + ' • ' + it.days + '日未更新'
+          + (it.submitTo ? ' • 提出先: ' + it.submitTo : '') + ')';
+      });
+
+      var links = staleItems
+        .filter(function(it){ return !!it.pdfUrl; })
+        .slice(0, 3)
+        .map(function(it){ return { label: it.itemName, url: it.pdfUrl }; });
+
+      var alertItem = {
+        heading: '機種: ' + modelCode
+          + '　(' + staleItems.length + '項目未対応 / 最大 ' + maxDays + '日経過)',
+        lines:   lines,
+        links:   links,
+        _maxDays: maxDays,
+      };
+
+      if (maxDays >= staleDays * 3) {
+        critItems.push(alertItem);
+      } else {
+        warnItems.push(alertItem);
+      }
+    });
+
+    // 放置日数が長い順にソート
+    critItems.sort(function(a, b){ return b._maxDays - a._maxDays; });
+    warnItems.sort(function(a, b){ return b._maxDays - a._maxDays; });
+
+    if (critItems.length > 0) {
+      groups.push({
+        level: 'critical',
+        title: '📋 見積セット 放置警告（' + (staleDays * 3) + '日以上未対応）',
+        items: critItems.slice(0, 5),
+      });
+    }
+    if (warnItems.length > 0) {
+      groups.push({
+        level: 'warning',
+        title: '📋 見積セット 未提出リマインド（' + staleDays + '日以上）',
+        items: warnItems.slice(0, 5),
+      });
+    }
+  } catch(e) {
+    Logger.log('[MONITOR] _checkChecklistAlerts: ' + e.message);
+  }
+  return groups;
+}
