@@ -57,59 +57,57 @@ function extractPdfData(driveFile, docType) {
 // ============================================================
 // processUploadedPdf（17版 — ハイブリッドOCR対応）
 // ============================================================
+// ============================================================
+// processUploadedPdf（指定フォルダへの保存専用に修正）
+// ============================================================
 function processUploadedPdf(base64Data, fileName, docType, orderType) {
   try {
     var blob      = Utilities.newBlob(Utilities.base64Decode(base64Data), 'application/pdf', fileName);
-    var folderId  = (docType === 'order') ? _getOrderFolderId(orderType || '') : CONFIG.WEB_UPLOAD_FOLDER_ID;
+    
+    // ★ 保存先をユーザー指定のフォルダIDに固定
+    var folderId  = '1Y66PDSi35ScuIyS0Jgm0l3p2l7MEM2Jk'; 
     var folder    = DriveApp.getFolderById(folderId);
+    
+    // ファイル名のプレフィックスを付けて保存
     var saved     = 'MANUAL_' + nowJST().replace(/[\\/: ]/g,'') + '_' + fileName;
     var file      = folder.createFile(blob.setName(saved));
     var pdfUrl    = file.getUrl();
-    var folderUrl = getFolderUrl(folderId);
+    var folderUrl = folder.getUrl(); 
 
-    Logger.log('[UPLOAD HYBRID] 保存: ' + saved);
+    Logger.log('[UPLOAD ONLY] 指定フォルダへの保存に成功しました: ' + saved);
 
-    var ocr      = extractPdfData(file, docType);
-    var quality  = _calcOcrQuality(ocr);
-    var warnings = [];
+    // 即時OCRはスキップするため、UI（画面側）がクラッシュしない用の空テンプレートを定義
+    var ocr = {
+      documentNo: '', issueDate: '', documentDate: '',
+      destCompany: '', destPerson: '', clientName: '',
+      subject: '', subtotal: 0, tax: 0, totalAmount: 0,
+      lineItems: [],
+      actionType: docType === 'order' ? 'new' : undefined,
+    };
 
-    if (!ocr) {
-      // OCR完全失敗: 空テンプレートを返してUIで手動入力させる
-      ocr = {
-        documentNo: '', issueDate: '', documentDate: '',
-        destCompany: '', destPerson: '', clientName: '',
-        subject: '', subtotal: 0, tax: 0, totalAmount: 0,
-        lineItems: [],
-        actionType: docType === 'order' ? 'new' : undefined,
-      };
-      quality  = 0;
-      warnings = [{ level: 'error', msg: 'OCRでテキストを取得できませんでした。すべてのAIモデルが制限に達した可能性があります。手動で入力してください。' }];
-    } else {
-      // _buildOcrWarnings は 15_ocr_review_ui.gs に定義（null非対応のためocr確認後に呼ぶ）
-      warnings = _buildOcrWarnings(ocr, quality);
-    }
-
+    // 画面側に返すレスポンス（保存成功のステータスのみを返却）
     return {
       success     : true,
       mgmtId      : null,
-      documentNo  : ocr.documentNo,
-      clientName  : ocr.destCompany || ocr.clientName,
-      totalAmount : ocr.totalAmount,
-      lineCount   : ocr.lineItems ? ocr.lineItems.length : 0,
+      documentNo  : '',
+      clientName  : '',
+      totalAmount : 0,
+      lineCount   : 0,
       savedFolder : folderUrl,
-      orderType   : orderType || (ocr && ocr.orderType) || '',
-      modelCode   : (ocr && ocr.modelCode)   || '',
-      orderSlipNo : (ocr && ocr.orderSlipNo) || '',
-      issueDate   : (ocr && ocr.issueDate)   || '',
-      destCompany : (ocr && ocr.destCompany) || '',
-      destPerson  : (ocr && ocr.destPerson)  || '',
+      orderType   : orderType || '',
+      modelCode   : '',
+      orderSlipNo : '',
+      issueDate   : '',
+      destCompany : '',
+      destPerson  : '',
       ocrResult   : ocr,
-      quality     : quality,
-      warnings    : warnings,
+      quality     : 0,
+      warnings    : [{ level: 'info', msg: 'ファイルは指定フォルダに保存されました。自動OCRの実行をお待ちください。' }],
       pdfUrl      : pdfUrl,
     };
+    
   } catch(e) {
-    Logger.log('[UPLOAD HYBRID ERROR] ' + e.message);
+    Logger.log('[UPLOAD ONLY ERROR] ' + e.message);
     _logOcrResult(fileName, 'error', null, e.message);
     return { success: false, error: e.message };
   }
