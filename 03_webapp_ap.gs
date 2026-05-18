@@ -137,6 +137,12 @@ function handleApiRequest(action, payload) {
       case 'syncLedgerModelCodes':   res = syncLedgerModelCodes(); break;
       case 'syncModelNameToMgmt':    res = syncModelNameToMgmt(payload.modelCode, payload.modelName); break;
       case 'initModelMasterSheet':   res = initModelMasterSheet(); break;
+case 'checklistGetByModel':   return _apiChecklistGetByModel(payload);
+case 'checklistSaveItem':     return _apiChecklistSaveItem(payload);
+case 'checklistDeleteItem':   return _apiChecklistDeleteItem(payload);
+case 'checklistReorder':      return _apiChecklistReorder(payload);
+case 'checklistGetSections':  return _apiChecklistGetSections(payload);
+case 'checklistCopyTemplate': return _apiChecklistCopyTemplate(payload);
       // ── 発注期限アラート（10_alert_monitor.gs）──
       case 'checkDeadlines': {
         var dlAlerts = checkOrderDeadlines();
