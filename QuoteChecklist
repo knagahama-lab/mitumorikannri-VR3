@@ -1,0 +1,1092 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>見積セットチェックリスト</title>
+<style>
+/* ============================================================
+   CSS変数・リセット
+============================================================ */
+:root {
+  --blue:      #1a73e8;
+  --blue-lt:   #e8f0fe;
+  --green:     #188038;
+  --green-lt:  #e6f4ea;
+  --orange:    #e37400;
+  --orange-lt: #fef7e0;
+  --red:       #d93025;
+  --red-lt:    #fce8e6;
+  --gray:      #5f6368;
+  --gray-lt:   #f1f3f4;
+  --border:    #dadce0;
+  --text:      #202124;
+  --text-sub:  #5f6368;
+  --radius:    8px;
+  --shadow:    0 1px 3px rgba(0,0,0,.12), 0 1px 2px rgba(0,0,0,.08);
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', sans-serif;
+  font-size: 13px;
+  color: var(--text);
+  background: #f8f9fa;
+  padding: 0;
+}
+
+/* ============================================================
+   ヘッダー
+============================================================ */
+.page-header {
+  background: #fff;
+  border-bottom: 1px solid var(--border);
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.page-header h1 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  flex: 1;
+}
+.model-badge {
+  background: var(--blue-lt);
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 20px;
+  border: 1px solid #c5d9f7;
+}
+
+/* ============================================================
+   ツールバー
+============================================================ */
+.toolbar {
+  background: #fff;
+  border-bottom: 1px solid var(--border);
+  padding: 8px 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+}
+.btn:hover   { background: var(--gray-lt); }
+.btn.primary { background: var(--blue); color: #fff; border-color: var(--blue); }
+.btn.primary:hover { background: #1557b0; }
+.btn.success { background: var(--green); color: #fff; border-color: var(--green); }
+.btn.danger  { background: var(--red-lt); color: var(--red); border-color: var(--red); }
+.btn.sm      { padding: 4px 10px; font-size: 11px; }
+.toolbar-right { margin-left: auto; display: flex; gap: 8px; }
+
+/* ============================================================
+   進捗バー
+============================================================ */
+.progress-wrap {
+  padding: 10px 20px;
+  background: #fff;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.progress-bar-outer {
+  flex: 1;
+  height: 8px;
+  background: var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.progress-bar-inner {
+  height: 100%;
+  background: var(--green);
+  border-radius: 4px;
+  transition: width .4s ease;
+}
+.progress-label { font-size: 12px; color: var(--text-sub); white-space: nowrap; }
+.progress-pct   { font-size: 13px; font-weight: 700; color: var(--green); min-width: 36px; }
+
+/* ============================================================
+   メインコンテンツ
+============================================================ */
+.main-content { padding: 16px 20px; }
+
+/* ============================================================
+   セクションカード
+============================================================ */
+.section-card {
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: var(--gray-lt);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+}
+.section-header:hover { background: #e8eaed; }
+.section-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  flex: 1;
+}
+.section-toggle { font-size: 12px; color: var(--text-sub); }
+.section-meta {
+  display: flex;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--text-sub);
+}
+.section-meta span { white-space: nowrap; }
+.section-meta .done { color: var(--green); font-weight: 600; }
+.section-meta .amount { color: var(--blue); font-weight: 600; }
+
+/* ============================================================
+   テーブル
+============================================================ */
+.cl-table-wrap { overflow-x: auto; }
+.cl-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.cl-table th {
+  background: #f8f9fa;
+  color: var(--text-sub);
+  font-weight: 600;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  text-align: left;
+  position: sticky;
+  top: 0;
+}
+.cl-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.cl-table tr:last-child td { border-bottom: none; }
+.cl-table tr:hover td { background: #f8f9fa; }
+.cl-table tr.editing td { background: #fffde7 !important; }
+
+/* ステータスバッジ */
+.status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.st-未提出  { background: #f1f3f4; color: var(--gray); }
+.st-作成中  { background: var(--orange-lt); color: var(--orange); }
+.st-提出済  { background: var(--blue-lt);   color: var(--blue);   }
+.st-承認待  { background: #fef0e0; color: #b06000; }
+.st-承認済  { background: var(--green-lt);  color: var(--green);  }
+.st-却下    { background: var(--red-lt);    color: var(--red);    }
+
+/* リンクセル */
+.link-cell a {
+  color: var(--blue);
+  text-decoration: none;
+  font-size: 11px;
+}
+.link-cell a:hover { text-decoration: underline; }
+
+/* 金額セル */
+.num-cell { text-align: right; white-space: nowrap; }
+.num-cell.positive { color: var(--green); }
+.num-cell.negative { color: var(--red); }
+
+/* アクションセル */
+.action-cell { white-space: nowrap; text-align: center; }
+.icon-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-sub);
+  transition: all .15s;
+}
+.icon-btn:hover { background: var(--gray-lt); color: var(--text); }
+.icon-btn.del:hover { background: var(--red-lt); color: var(--red); }
+
+/* 小計行 */
+.subtotal-row td {
+  background: var(--blue-lt) !important;
+  font-weight: 700;
+  color: var(--blue);
+  border-top: 2px solid var(--blue) !important;
+}
+
+/* ============================================================
+   インライン編集フォーム
+============================================================ */
+.inline-form td { padding: 6px 8px; background: #fffde7 !important; }
+.inline-form input,
+.inline-form select,
+.inline-form textarea {
+  width: 100%;
+  padding: 4px 7px;
+  border: 1px solid var(--blue);
+  border-radius: 4px;
+  font-size: 12px;
+  background: #fff;
+  outline: none;
+}
+.inline-form input:focus,
+.inline-form select:focus { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(26,115,232,.2); }
+.inline-form textarea { resize: vertical; min-height: 48px; }
+.form-actions { display: flex; gap: 6px; justify-content: flex-end; margin-top: 4px; }
+
+/* ============================================================
+   行追加ボタン行
+============================================================ */
+.add-item-row td {
+  padding: 6px 10px;
+  border-bottom: none;
+}
+.add-item-row td button {
+  background: none;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  padding: 5px 14px;
+  font-size: 12px;
+  color: var(--text-sub);
+  cursor: pointer;
+  transition: all .15s;
+  width: 100%;
+}
+.add-item-row td button:hover {
+  border-color: var(--blue);
+  color: var(--blue);
+  background: var(--blue-lt);
+}
+
+/* ============================================================
+   総合計エリア
+============================================================ */
+.grand-total-card {
+  background: #fff;
+  border: 1px solid var(--blue);
+  border-radius: var(--radius);
+  padding: 14px 20px;
+  margin-top: 8px;
+  box-shadow: var(--shadow);
+}
+.grand-total-card h3 {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-sub);
+  margin-bottom: 10px;
+}
+.total-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+.total-item { text-align: center; }
+.total-item .label { font-size: 11px; color: var(--text-sub); }
+.total-item .value { font-size: 20px; font-weight: 800; color: var(--text); margin-top: 2px; }
+.total-item .value.blue   { color: var(--blue); }
+.total-item .value.green  { color: var(--green); }
+.total-item .value.orange { color: var(--orange); }
+
+/* ============================================================
+   モーダル
+============================================================ */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.4);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.modal-overlay.hidden { display: none; }
+.modal-box {
+  background: #fff;
+  border-radius: var(--radius);
+  width: 100%;
+  max-width: 480px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 8px 32px rgba(0,0,0,.24);
+}
+.modal-header {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.modal-header h2 { font-size: 15px; font-weight: 700; }
+.modal-close { background: none; border: none; font-size: 18px; cursor: pointer; color: var(--text-sub); }
+.modal-body  { padding: 16px 20px; }
+.modal-footer {
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* フォームフィールド */
+.field { margin-bottom: 12px; }
+.field label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-sub);
+  margin-bottom: 4px;
+}
+.field input, .field select, .field textarea {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  background: #fff;
+  outline: none;
+}
+.field input:focus, .field select:focus, .field textarea:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 2px rgba(26,115,232,.2);
+}
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.field-row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+
+/* ============================================================
+   空状態・ローディング
+============================================================ */
+.empty-state {
+  text-align: center;
+  padding: 40px;
+  color: var(--text-sub);
+}
+.empty-state .icon { font-size: 40px; margin-bottom: 10px; }
+.empty-state p { font-size: 13px; }
+.loading {
+  text-align: center;
+  padding: 40px;
+  color: var(--text-sub);
+  font-size: 13px;
+}
+
+/* ============================================================
+   トースト通知
+============================================================ */
+#toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(80px);
+  background: #323232;
+  color: #fff;
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-size: 13px;
+  z-index: 999;
+  transition: transform .3s ease;
+  pointer-events: none;
+  white-space: nowrap;
+}
+#toast.show { transform: translateX(-50%) translateY(0); }
+
+/* セクション折りたたみ */
+.section-body.collapsed { display: none; }
+</style>
+</head>
+<body>
+
+<!-- ページヘッダー -->
+<div class="page-header">
+  <h1>📋 見積セット チェックリスト</h1>
+  <span class="model-badge" id="modelBadge">読み込み中...</span>
+</div>
+
+<!-- ツールバー -->
+<div class="toolbar">
+  <button class="btn primary" onclick="openAddSectionModal()">＋ セクション追加</button>
+  <button class="btn" onclick="openCopyTemplateModal()">📋 テンプレートからコピー</button>
+  <div class="toolbar-right">
+    <button class="btn" onclick="loadChecklist()">🔄 更新</button>
+    <button class="btn" id="expandAllBtn" onclick="toggleAllSections(true)">▼ すべて展開</button>
+    <button class="btn" onclick="toggleAllSections(false)">▲ すべて折りたたむ</button>
+  </div>
+</div>
+
+<!-- 進捗バー -->
+<div class="progress-wrap">
+  <span class="progress-label">全体進捗</span>
+  <div class="progress-bar-outer">
+    <div class="progress-bar-inner" id="progressBar" style="width:0%"></div>
+  </div>
+  <span class="progress-pct" id="progressPct">0%</span>
+  <span class="progress-label" id="progressCount">0 / 0 件</span>
+</div>
+
+<!-- メインコンテンツ -->
+<div class="main-content" id="mainContent">
+  <div class="loading">⏳ 読み込み中...</div>
+</div>
+
+<!-- 総合計カード（動的生成） -->
+<div class="main-content" id="grandTotalArea"></div>
+
+<!-- ============================================================
+     セクション追加モーダル
+============================================================ -->
+<div class="modal-overlay hidden" id="addSectionModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2>📁 セクションを追加</h2>
+      <button class="modal-close" onclick="closeModal('addSectionModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label>セクション名 *</label>
+        <input type="text" id="newSectionName" placeholder="例: 主基板, 液晶演出, 部品調達">
+      </div>
+      <div class="field">
+        <label>最初の項目名（任意）</label>
+        <input type="text" id="newSectionFirstItem" placeholder="例: PCB試作見積">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('addSectionModal')">キャンセル</button>
+      <button class="btn primary" onclick="addSection()">追加</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     テンプレートコピーモーダル
+============================================================ -->
+<div class="modal-overlay hidden" id="copyTemplateModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2>📋 テンプレートからコピー</h2>
+      <button class="modal-close" onclick="closeModal('copyTemplateModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label>コピー元の機種コード *</label>
+        <input type="text" id="copyFromModel" placeholder="例: MODEL-001">
+      </div>
+      <p style="font-size:12px;color:var(--text-sub);margin-top:6px;">
+        ※ ステータス・見積No・金額はリセットされ、品名・セクション構成のみコピーされます。
+      </p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('copyTemplateModal')">キャンセル</button>
+      <button class="btn primary" onclick="copyTemplate()">コピー実行</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     項目編集モーダル（詳細）
+============================================================ -->
+<div class="modal-overlay hidden" id="editItemModal">
+  <div class="modal-box" style="max-width:560px;">
+    <div class="modal-header">
+      <h2 id="editModalTitle">✏️ 項目を編集</h2>
+      <button class="modal-close" onclick="closeModal('editItemModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="editItemId">
+      <div class="field-row">
+        <div class="field">
+          <label>セクション *</label>
+          <input type="text" id="editSection" placeholder="主基板">
+        </div>
+        <div class="field">
+          <label>品名・仕様 *</label>
+          <input type="text" id="editItemName" placeholder="PCB試作見積">
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>提出フォーマット</label>
+          <select id="editFormat">
+            <option value="">—</option>
+            <option value="Excel">Excel</option>
+            <option value="PDF">PDF</option>
+            <option value="Word">Word</option>
+            <option value="口頭">口頭</option>
+            <option value="その他">その他</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>提出先</label>
+          <input type="text" id="editSubmitTo" placeholder="A基板メーカー">
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>ステータス</label>
+          <select id="editStatus">
+            <option value="未提出">未提出</option>
+            <option value="作成中">作成中</option>
+            <option value="提出済">提出済</option>
+            <option value="承認待">承認待</option>
+            <option value="承認済">承認済</option>
+            <option value="却下">却下</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>提出日</label>
+          <input type="date" id="editSubmitDate">
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>見積No</label>
+          <input type="text" id="editQuoteNo" placeholder="Q-2026-001">
+        </div>
+        <div class="field">
+          <label>注文No</label>
+          <input type="text" id="editOrderNo" placeholder="ORD-2026-001">
+        </div>
+      </div>
+      <div class="field-row3">
+        <div class="field">
+          <label>見積金額（円）</label>
+          <input type="number" id="editQuoteAmount" placeholder="0" min="0">
+        </div>
+        <div class="field">
+          <label>原価（円）</label>
+          <input type="number" id="editCostAmount" placeholder="0" min="0">
+        </div>
+        <div class="field">
+          <label>粗利率（自動計算）</label>
+          <input type="text" id="editGrossMargin" readonly style="background:#f5f5f5;color:var(--green);font-weight:700;">
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label>見積書PDF URL</label>
+          <input type="url" id="editPdfUrl" placeholder="https://drive.google.com/...">
+        </div>
+        <div class="field">
+          <label>注文書PDF URL</label>
+          <input type="url" id="editOrderPdfUrl" placeholder="https://drive.google.com/...">
+        </div>
+      </div>
+      <div class="field">
+        <label>備考</label>
+        <textarea id="editMemo" rows="2" placeholder="特記事項..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('editItemModal')">キャンセル</button>
+      <button class="btn primary" onclick="saveItemFromModal()">💾 保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- トースト -->
+<div id="toast"></div>
+
+<script>
+// ============================================================
+// 状態管理
+// ============================================================
+var MODEL_CODE   = '';       // 親ページから渡される機種コード
+var checklistData = null;    // 最後に取得したデータ
+var collapsedSections = {};  // 折りたたみ状態
+
+// ============================================================
+// 初期化：親ウィンドウまたは URL パラメータから機種コードを受け取る
+// ============================================================
+(function init() {
+  // GAS WebApp の場合: URL パラメータ ?modelCode=XXX
+  var params = new URLSearchParams(window.location.search);
+  MODEL_CODE  = params.get('modelCode') || (window._clModelCode || '');
+
+  // 親フレーム（機種マスタ）から postMessage で受け取る場合
+  window.addEventListener('message', function(e) {
+    if (e.data && e.data.type === 'setModelCode') {
+      MODEL_CODE = e.data.modelCode;
+      document.getElementById('modelBadge').textContent = MODEL_CODE;
+      loadChecklist();
+    }
+  });
+
+  if (MODEL_CODE) {
+    document.getElementById('modelBadge').textContent = MODEL_CODE;
+    loadChecklist();
+  } else {
+    document.getElementById('mainContent').innerHTML =
+      '<div class="empty-state"><div class="icon">📋</div><p>機種コードが指定されていません。<br>機種マスタ画面から開いてください。</p></div>';
+  }
+})();
+
+// ============================================================
+// API 呼び出しラッパー
+// ============================================================
+function callApi(action, payload) {
+  return new Promise(function(resolve, reject) {
+    // GAS の google.script.run を使う場合
+    if (typeof google !== 'undefined' && google.script && google.script.run) {
+      google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(reject)
+        .handleApiRequest(JSON.stringify({ action: action, payload: payload }));
+    } else {
+      // スタンドアロン WebApp の場合（fetch）
+      fetch(window.location.href, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: action, payload: payload }),
+      })
+      .then(function(r) { return r.json(); })
+      .then(resolve)
+      .catch(reject);
+    }
+  });
+}
+
+// ============================================================
+// データ読み込み
+// ============================================================
+function loadChecklist() {
+  document.getElementById('mainContent').innerHTML = '<div class="loading">⏳ 読み込み中...</div>';
+  document.getElementById('grandTotalArea').innerHTML = '';
+
+  callApi('checklistGetByModel', { modelCode: MODEL_CODE })
+    .then(function(res) {
+      if (!res.success) { showToast('❌ ' + (res.error || '取得失敗')); return; }
+      checklistData = res;
+      renderChecklist(res);
+    })
+    .catch(function(e) { showToast('❌ 通信エラー: ' + e); });
+}
+
+// ============================================================
+// チェックリスト レンダリング
+// ============================================================
+function renderChecklist(res) {
+  var sections = res.sections || [];
+  var summary  = res.summary  || {};
+
+  // 進捗バー更新
+  var pct = summary.totalCount > 0
+    ? Math.round(summary.doneCount / summary.totalCount * 100) : 0;
+  document.getElementById('progressBar').style.width  = pct + '%';
+  document.getElementById('progressPct').textContent  = pct + '%';
+  document.getElementById('progressCount').textContent =
+    summary.doneCount + ' / ' + summary.totalCount + ' 件提出済';
+
+  var html = '';
+
+  if (sections.length === 0) {
+    html = '<div class="empty-state"><div class="icon">📋</div>' +
+           '<p>まだ項目がありません。<br>「＋ セクション追加」から始めてください。</p></div>';
+  } else {
+    sections.forEach(function(sec) {
+      html += renderSection(sec);
+    });
+  }
+
+  document.getElementById('mainContent').innerHTML = html;
+  renderGrandTotal(summary);
+}
+
+function renderSection(sec) {
+  var collapsed = !!collapsedSections[sec.name];
+  var bodyClass = collapsed ? 'section-body collapsed' : 'section-body';
+  var doneRatio = sec.totalCount > 0
+    ? Math.round(sec.doneCount / sec.totalCount * 100) : 0;
+  var marginStr = sec.grossMargin !== null && sec.grossMargin !== undefined
+    ? sec.grossMargin + '%' : '—';
+
+  var html = '<div class="section-card" id="sec-' + encodeId(sec.name) + '">';
+
+  // セクションヘッダー
+  html += '<div class="section-header" onclick="toggleSection(\'' + escJs(sec.name) + '\')">';
+  html += '<span class="section-toggle">' + (collapsed ? '▶' : '▼') + '</span>';
+  html += '<span class="section-title">📁 ' + escHtml(sec.name) + '</span>';
+  html += '<div class="section-meta">';
+  html += '<span class="done">' + sec.doneCount + '/' + sec.totalCount + '件</span>';
+  if (sec.subtotal > 0) {
+    html += '<span class="amount">¥' + fmt(sec.subtotal) + '</span>';
+  }
+  if (sec.grossMargin !== null && sec.grossMargin !== undefined) {
+    html += '<span>粗利率: ' + marginStr + '</span>';
+  }
+  html += '</div>';
+  html += '<button class="btn sm" style="margin-left:8px;" onclick="event.stopPropagation();openAddItemModal(\'' + escJs(sec.name) + '\')">＋ 項目追加</button>';
+  html += '</div>'; // /section-header
+
+  // セクションボディ
+  html += '<div class="' + bodyClass + '">';
+  html += '<div class="cl-table-wrap"><table class="cl-table">';
+  html += '<thead><tr>' +
+    '<th style="width:30px;">#</th>' +
+    '<th>品名・仕様</th>' +
+    '<th>フォーマット</th>' +
+    '<th>提出先</th>' +
+    '<th>ステータス</th>' +
+    '<th>見積No</th>' +
+    '<th>提出日</th>' +
+    '<th class="num-cell">見積金額</th>' +
+    '<th class="num-cell">原価</th>' +
+    '<th class="num-cell">粗利率</th>' +
+    '<th>見積書</th>' +
+    '<th>注文書</th>' +
+    '<th>備考</th>' +
+    '<th style="width:80px;">操作</th>' +
+    '</tr></thead><tbody>';
+
+  sec.items.forEach(function(item, idx) {
+    html += renderItemRow(item, idx + 1);
+  });
+
+  // 行追加ボタン行
+  html += '<tr class="add-item-row"><td colspan="14">' +
+    '<button onclick="openAddItemModal(\'' + escJs(sec.name) + '\')">＋ この項目を追加</button>' +
+    '</td></tr>';
+
+  // セクション小計行
+  if (sec.subtotal > 0) {
+    html += '<tr class="subtotal-row">' +
+      '<td colspan="7" style="text-align:right;">📊 小計</td>' +
+      '<td class="num-cell">¥' + fmt(sec.subtotal) + '</td>' +
+      '<td class="num-cell">¥' + fmt(sec.costTotal) + '</td>' +
+      '<td class="num-cell">' + marginStr + '</td>' +
+      '<td colspan="4"></td>' +
+      '</tr>';
+  }
+
+  html += '</tbody></table></div>';
+  html += '</div>'; // /section-body
+  html += '</div>'; // /section-card
+
+  return html;
+}
+
+function renderItemRow(item, no) {
+  var marginStr = item.grossMargin !== null && item.grossMargin !== undefined
+    ? '<span class="' + (item.grossMargin >= 0 ? 'positive' : 'negative') + '">' + item.grossMargin + '%</span>'
+    : '—';
+  var statusClass = 'st-' + (item.status || '未提出');
+  var pdfLink  = item.pdfUrl
+    ? '<a href="' + escHtml(item.pdfUrl) + '" target="_blank">📄 PDF</a>' : '—';
+  var orderLink = item.orderPdfUrl
+    ? '<a href="' + escHtml(item.orderPdfUrl) + '" target="_blank">📋 PDF</a>' : '—';
+  var submitDate = item.submitDate
+    ? item.submitDate.replace(/^(\d{4})\/(\d{2})\/(\d{2}).*/, '$1/$2/$3') : '—';
+
+  return '<tr id="row-' + escHtml(item.itemId) + '">' +
+    '<td>' + no + '</td>' +
+    '<td><strong>' + escHtml(item.itemName) + '</strong></td>' +
+    '<td>' + escHtml(item.format || '—') + '</td>' +
+    '<td>' + escHtml(item.submitTo || '—') + '</td>' +
+    '<td><span class="status-badge ' + statusClass + '">' + escHtml(item.status) + '</span></td>' +
+    '<td>' + escHtml(item.quoteNo || '—') + '</td>' +
+    '<td>' + submitDate + '</td>' +
+    '<td class="num-cell">' + (item.quoteAmount > 0 ? '¥' + fmt(item.quoteAmount) : '—') + '</td>' +
+    '<td class="num-cell">' + (item.costAmount  > 0 ? '¥' + fmt(item.costAmount)  : '—') + '</td>' +
+    '<td class="num-cell">' + marginStr + '</td>' +
+    '<td class="link-cell">' + pdfLink + '</td>' +
+    '<td class="link-cell">' + orderLink + '</td>' +
+    '<td style="max-width:120px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;">' + escHtml(item.memo || '') + '</td>' +
+    '<td class="action-cell">' +
+    '<button class="icon-btn" title="編集" onclick="openEditItemModal(' + JSON.stringify(item).replace(/</g,'\\u003c') + ')">✏️</button>' +
+    '<button class="icon-btn del" title="削除" onclick="deleteItem(\'' + escJs(item.itemId) + '\',\'' + escJs(item.itemName) + '\')">🗑️</button>' +
+    '</td>' +
+    '</tr>';
+}
+
+function renderGrandTotal(summary) {
+  if (!summary || summary.totalCount === 0) return;
+  var tax = summary.tax || 0;
+  var marginStr = summary.grossMargin !== null && summary.grossMargin !== undefined
+    ? summary.grossMargin + '%' : '—';
+
+  var html = '<div class="grand-total-card">' +
+    '<h3>💰 総合計</h3>' +
+    '<div class="total-grid">' +
+    totalItem('見積合計', '¥' + fmt(summary.grandTotal), 'blue') +
+    totalItem('消費税（10%）', '¥' + fmt(tax), '') +
+    totalItem('税込合計', '¥' + fmt(summary.totalWithTax), 'blue') +
+    totalItem('原価合計', '¥' + fmt(summary.grandCost), '') +
+    totalItem('粗利率', marginStr, summary.grossMargin >= 20 ? 'green' : 'orange') +
+    totalItem('進捗', summary.doneCount + '/' + summary.totalCount + '件', 'green') +
+    '</div></div>';
+
+  document.getElementById('grandTotalArea').innerHTML = html;
+}
+
+function totalItem(label, value, cls) {
+  return '<div class="total-item">' +
+    '<div class="label">' + label + '</div>' +
+    '<div class="value ' + cls + '">' + value + '</div>' +
+    '</div>';
+}
+
+// ============================================================
+// セクション折りたたみ
+// ============================================================
+function toggleSection(secName) {
+  collapsedSections[secName] = !collapsedSections[secName];
+  loadChecklist(); // 再描画
+}
+
+function toggleAllSections(expand) {
+  if (checklistData && checklistData.sections) {
+    checklistData.sections.forEach(function(sec) {
+      collapsedSections[sec.name] = !expand;
+    });
+  }
+  loadChecklist();
+}
+
+// ============================================================
+// モーダル操作
+// ============================================================
+function openModal(id)  { document.getElementById(id).classList.remove('hidden'); }
+function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+
+// クリックで外側を閉じる
+document.addEventListener('click', function(e) {
+  if (e.target.classList.contains('modal-overlay')) {
+    e.target.classList.add('hidden');
+  }
+});
+
+// ESC で閉じる
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    document.querySelectorAll('.modal-overlay').forEach(function(el) {
+      el.classList.add('hidden');
+    });
+  }
+});
+
+// ============================================================
+// セクション追加
+// ============================================================
+function openAddSectionModal() {
+  document.getElementById('newSectionName').value    = '';
+  document.getElementById('newSectionFirstItem').value = '';
+  openModal('addSectionModal');
+  setTimeout(function() { document.getElementById('newSectionName').focus(); }, 100);
+}
+
+function addSection() {
+  var secName  = document.getElementById('newSectionName').value.trim();
+  var firstItem = document.getElementById('newSectionFirstItem').value.trim();
+  if (!secName) { showToast('⚠️ セクション名を入力してください'); return; }
+
+  var payload = {
+    modelCode: MODEL_CODE,
+    section:   secName,
+    itemName:  firstItem || '（新しい項目）',
+    status:    '未提出',
+  };
+  callApi('checklistSaveItem', payload)
+    .then(function(res) {
+      closeModal('addSectionModal');
+      if (res.success) { showToast('✅ セクション「' + secName + '」を追加しました'); loadChecklist(); }
+      else showToast('❌ ' + (res.error || '追加失敗'));
+    })
+    .catch(function(e) { showToast('❌ ' + e); });
+}
+
+// ============================================================
+// 項目追加モーダル（セクション指定）
+// ============================================================
+function openAddItemModal(sectionName) {
+  document.getElementById('editItemId').value       = '';
+  document.getElementById('editModalTitle').textContent = '➕ 項目を追加';
+  document.getElementById('editSection').value      = sectionName || '';
+  document.getElementById('editItemName').value     = '';
+  document.getElementById('editFormat').value       = '';
+  document.getElementById('editSubmitTo').value     = '';
+  document.getElementById('editStatus').value       = '未提出';
+  document.getElementById('editSubmitDate').value   = '';
+  document.getElementById('editQuoteNo').value      = '';
+  document.getElementById('editOrderNo').value      = '';
+  document.getElementById('editQuoteAmount').value  = '';
+  document.getElementById('editCostAmount').value   = '';
+  document.getElementById('editGrossMargin').value  = '';
+  document.getElementById('editPdfUrl').value       = '';
+  document.getElementById('editOrderPdfUrl').value  = '';
+  document.getElementById('editMemo').value         = '';
+  openModal('editItemModal');
+  setTimeout(function() { document.getElementById('editItemName').focus(); }, 100);
+}
+
+// ============================================================
+// 項目編集モーダル（既存項目）
+// ============================================================
+function openEditItemModal(item) {
+  document.getElementById('editItemId').value       = item.itemId  || '';
+  document.getElementById('editModalTitle').textContent = '✏️ 項目を編集';
+  document.getElementById('editSection').value      = item.section || '';
+  document.getElementById('editItemName').value     = item.itemName || '';
+  document.getElementById('editFormat').value       = item.format  || '';
+  document.getElementById('editSubmitTo').value     = item.submitTo || '';
+  document.getElementById('editStatus').value       = item.status  || '未提出';
+  document.getElementById('editSubmitDate').value   = item.submitDate
+    ? item.submitDate.replace(/\//g, '-').substring(0, 10) : '';
+  document.getElementById('editQuoteNo').value      = item.quoteNo || '';
+  document.getElementById('editOrderNo').value      = item.orderNo || '';
+  document.getElementById('editQuoteAmount').value  = item.quoteAmount || '';
+  document.getElementById('editCostAmount').value   = item.costAmount  || '';
+  document.getElementById('editGrossMargin').value  =
+    item.grossMargin !== null && item.grossMargin !== undefined ? item.grossMargin + '%' : '';
+  document.getElementById('editPdfUrl').value       = item.pdfUrl      || '';
+  document.getElementById('editOrderPdfUrl').value  = item.orderPdfUrl || '';
+  document.getElementById('editMemo').value         = item.memo || '';
+  openModal('editItemModal');
+}
+
+// 粗利率のリアルタイム計算
+document.getElementById('editQuoteAmount').addEventListener('input', calcMarginPreview);
+document.getElementById('editCostAmount').addEventListener('input',  calcMarginPreview);
+function calcMarginPreview() {
+  var q = Number(document.getElementById('editQuoteAmount').value) || 0;
+  var c = Number(document.getElementById('editCostAmount').value)  || 0;
+  var m = q > 0 ? Math.round((q - c) / q * 1000) / 10 : null;
+  document.getElementById('editGrossMargin').value = m !== null ? m + '%' : '';
+  document.getElementById('editGrossMargin').style.color = (m !== null && m < 0) ? 'var(--red)' : 'var(--green)';
+}
+
+// ============================================================
+// 項目保存（モーダルから）
+// ============================================================
+function saveItemFromModal() {
+  var itemId   = document.getElementById('editItemId').value.trim();
+  var section  = document.getElementById('editSection').value.trim();
+  var itemName = document.getElementById('editItemName').value.trim();
+  if (!itemName) { showToast('⚠️ 品名・仕様を入力してください'); return; }
+
+  var payload = {
+    itemId:       itemId || null,
+    modelCode:    MODEL_CODE,
+    section:      section,
+    itemName:     itemName,
+    format:       document.getElementById('editFormat').value,
+    submitTo:     document.getElementById('editSubmitTo').value,
+    status:       document.getElementById('editStatus').value,
+    submitDate:   document.getElementById('editSubmitDate').value.replace(/-/g, '/'),
+    quoteNo:      document.getElementById('editQuoteNo').value,
+    orderNo:      document.getElementById('editOrderNo').value,
+    quoteAmount:  document.getElementById('editQuoteAmount').value || 0,
+    costAmount:   document.getElementById('editCostAmount').value  || 0,
+    pdfUrl:       document.getElementById('editPdfUrl').value,
+    orderPdfUrl:  document.getElementById('editOrderPdfUrl').value,
+    memo:         document.getElementById('editMemo').value,
+  };
+
+  callApi('checklistSaveItem', payload)
+    .then(function(res) {
+      closeModal('editItemModal');
+      if (res.success) { showToast('✅ 保存しました'); loadChecklist(); }
+      else showToast('❌ ' + (res.error || '保存失敗'));
+    })
+    .catch(function(e) { showToast('❌ ' + e); });
+}
+
+// ============================================================
+// 項目削除
+// ============================================================
+function deleteItem(itemId, itemName) {
+  if (!confirm('「' + itemName + '」を削除しますか？\nこの操作は元に戻せません。')) return;
+  callApi('checklistDeleteItem', { itemId: itemId })
+    .then(function(res) {
+      if (res.success) { showToast('🗑️ 削除しました'); loadChecklist(); }
+      else showToast('❌ ' + (res.error || '削除失敗'));
+    })
+    .catch(function(e) { showToast('❌ ' + e); });
+}
+
+// ============================================================
+// テンプレートコピー
+// ============================================================
+function openCopyTemplateModal() {
+  document.getElementById('copyFromModel').value = '';
+  openModal('copyTemplateModal');
+  setTimeout(function() { document.getElementById('copyFromModel').focus(); }, 100);
+}
+
+function copyTemplate() {
+  var from = document.getElementById('copyFromModel').value.trim();
+  if (!from) { showToast('⚠️ コピー元機種コードを入力してください'); return; }
+  callApi('checklistCopyTemplate', { fromModelCode: from, toModelCode: MODEL_CODE })
+    .then(function(res) {
+      closeModal('copyTemplateModal');
+      if (res.success) {
+        showToast('✅ ' + res.copied + '件コピーしました');
+        loadChecklist();
+      } else showToast('❌ ' + (res.error || 'コピー失敗'));
+    })
+    .catch(function(e) { showToast('❌ ' + e); });
+}
+
+// ============================================================
+// ユーティリティ
+// ============================================================
+function fmt(n) {
+  return Number(n || 0).toLocaleString('ja-JP');
+}
+function escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function escJs(s) {
+  return String(s || '').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\n/g,'\\n');
+}
+function encodeId(s) {
+  return String(s || '').replace(/[^a-zA-Z0-9\u3040-\u9FFF]/g, '_');
+}
+
+var _toastTimer;
+function showToast(msg) {
+  var el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(function() { el.classList.remove('show'); }, 3000);
+}
+</script>
+</body>
+</html>
