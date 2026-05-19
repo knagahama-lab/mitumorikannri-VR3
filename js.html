@@ -1871,6 +1871,59 @@ function loadOcrUsage(){
     el.innerHTML = `<span style="display:inline-flex;align-items:center;gap:4px;background:${color}18;color:${color};border:1px solid ${color}40;border-radius:9999px;padding:2px 10px;font-size:11px;font-weight:600;cursor:default;" title="本日のOCR使用状況">🧠 残り: ${(info.remaining||0).toLocaleString()} / ${(info.limit||0).toLocaleString()}</span>`;
   }).handleApiRequest('getOcrUsage', null);
 }
+// ===== 見積チェックリスト =====
+function loadChecklist() {
+  var modelCode = document.getElementById('cl-model-input').value.trim();
+  if (!modelCode) { showToast('機種コードを入力してください'); return; }
+  var container = document.getElementById('checklist-container');
+  container.innerHTML = '<div class="loading"><div class="spinner"></div><br>読み込み中...</div>';
+  google.script.run
+    .withSuccessHandler(function(res) { renderChecklist(res); })
+    .withFailureHandler(function(e) { container.innerHTML = '<div style="color:red;padding:24px;">エラー: ' + e.message + '</div>'; })
+    .handleApiRequest('checklistGetByModel', { modelCode: modelCode });
+}
+
+function renderChecklist(res) {
+  var container = document.getElementById('checklist-container');
+  if (!res.success) { container.innerHTML = '<div style="color:red;padding:24px;">エラー: ' + res.error + '</div>'; return; }
+  var s = res.summary;
+  var html = '<div class="summary-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px;">'
+    + '<div class="summary-card"><div class="lbl">総合計（税抜）</div><div class="val c-blue">' + s.grandTotal.toLocaleString() + '</div><div class="sub">円</div></div>'
+    + '<div class="summary-card"><div class="lbl">粗利率</div><div class="val c-green">' + (s.grossMargin !== null ? s.grossMargin + '%' : '—') + '</div></div>'
+    + '<div class="summary-card"><div class="lbl">進捗</div><div class="val">' + s.doneCount + ' / ' + s.totalCount + '</div><div class="sub">提出済み</div></div>'
+    + '<div class="summary-card"><div class="lbl">消費税（10%）</div><div class="val">' + s.tax.toLocaleString() + '</div><div class="sub">円</div></div>'
+    + '</div>';
+  res.sections.forEach(function(sec) {
+    html += '<div class="table-wrap" style="margin-bottom:16px;">'
+      + '<div class="table-toolbar"><h2>📂 ' + sec.name + '</h2>'
+      + '<span class="pg-info">' + sec.doneCount + '/' + sec.totalCount + '件 完了 ／ 小計: ¥' + sec.subtotal.toLocaleString() + '</span></div>'
+      + '<table><thead><tr>'
+      + '<th>品名・仕様</th><th>フォーマット</th><th>提出先</th><th>ステータス</th>'
+      + '<th>見積No</th><th>見積金額</th><th>原価</th><th>粗利率</th><th>提出日</th><th>備考</th>'
+      + '</tr></thead><tbody>';
+    sec.items.forEach(function(it) {
+      var statusColor = it.status === '承認済' || it.status === '提出済' ? 'badge-done'
+        : it.status === '却下' ? 'badge-received' : 'badge-planned';
+      html += '<tr>'
+        + '<td>' + it.itemName + '</td>'
+        + '<td>' + it.format + '</td>'
+        + '<td>' + it.submitTo + '</td>'
+        + '<td><span class="badge ' + statusColor + '">' + it.status + '</span></td>'
+        + '<td>' + (it.quoteNo || '—') + '</td>'
+        + '<td class="r">' + (it.quoteAmount ? '¥' + it.quoteAmount.toLocaleString() : '—') + '</td>'
+        + '<td class="r">' + (it.costAmount ? '¥' + it.costAmount.toLocaleString() : '—') + '</td>'
+        + '<td>' + (it.grossMargin !== null ? it.grossMargin + '%' : '—') + '</td>'
+        + '<td>' + (it.submitDate || '—') + '</td>'
+        + '<td>' + (it.memo || '') + '</td>'
+        + '</tr>';
+    });
+    html += '</tbody></table></div>';
+  });
+  if (res.sections.length === 0) {
+    html += '<div style="text-align:center;padding:40px;color:var(--text-sub);">この機種のチェックリストデータがありません</div>';
+  }
+  container.innerHTML = html;
+}
 
 
 </script>

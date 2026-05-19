@@ -8,7 +8,7 @@ function doGet(e) {
   var adminEmailsStr = PropertiesService.getScriptProperties().getProperty('ADMIN_EMAILS') || '';
   var isAdmin = false;
   if (!adminEmailsStr || adminEmailsStr.trim() === '') {
-    isAdmin = true; // 未設定時は全員を管理者扱いとする
+    isAdmin = true;
   } else {
     var adminEmails = adminEmailsStr.split(',').map(function(s){return s.trim();});
     isAdmin = (adminEmails.indexOf(userEmail) >= 0);
@@ -56,7 +56,7 @@ function handleApiRequest(action, payload) {
   try {
     payload = payload || {};
     var res;
-    
+
     switch (action) {
       case 'getAll':              res = _apiGetAll(); break;
       case 'search':              res = _apiSearch(payload); break;
@@ -100,6 +100,15 @@ function handleApiRequest(action, payload) {
       case 'bomDeleteBomRow':     return apiBomDeleteBomRow(payload.id);
       case 'bomImportFinalList':  return apiBomImportFinalList(payload.rows);
       case 'bomImportK10Parts':   return apiBomImportK10Parts(payload.rows);
+
+      // ===== 見積チェックリストAPI =====
+      case 'checklistGetByModel':   return _apiChecklistGetByModel(payload);
+      case 'checklistSaveItem':     return _apiChecklistSaveItem(payload);
+      case 'checklistDeleteItem':   return _apiChecklistDeleteItem(payload);
+      case 'checklistReorder':      return _apiChecklistReorder(payload);
+      case 'checklistGetSections':  return _apiChecklistGetSections(payload);
+      case 'checklistCopyTemplate': return _apiChecklistCopyTemplate(payload);
+
       case 'reregisterTriggers':
         try { _registerTriggers(); return { success: true }; }
         catch(e) { return { success: false, error: e.message }; }
@@ -137,12 +146,6 @@ function handleApiRequest(action, payload) {
       case 'syncLedgerModelCodes':   res = syncLedgerModelCodes(); break;
       case 'syncModelNameToMgmt':    res = syncModelNameToMgmt(payload.modelCode, payload.modelName); break;
       case 'initModelMasterSheet':   res = initModelMasterSheet(); break;
-case 'checklistGetByModel':   return _apiChecklistGetByModel(payload);
-case 'checklistSaveItem':     return _apiChecklistSaveItem(payload);
-case 'checklistDeleteItem':   return _apiChecklistDeleteItem(payload);
-case 'checklistReorder':      return _apiChecklistReorder(payload);
-case 'checklistGetSections':  return _apiChecklistGetSections(payload);
-case 'checklistCopyTemplate': return _apiChecklistCopyTemplate(payload);
       // ── 発注期限アラート（10_alert_monitor.gs）──
       case 'checkDeadlines': {
         var dlAlerts = checkOrderDeadlines();
@@ -154,7 +157,7 @@ case 'checklistCopyTemplate': return _apiChecklistCopyTemplate(payload);
       }
       default: return { success: false, error: '不明なアクション: ' + action };
     }
-    
+
     return JSON.parse(JSON.stringify(res));
 
   } catch(e) {
@@ -192,12 +195,11 @@ function _apiGetAll() {
     var os = ss.getSheetByName(CONFIG.SHEET_ORDERS);
     if (os && os.getLastRow() > 1) {
       var orderData = os.getDataRange().getValues();
-      orderData.shift(); 
+      orderData.shift();
 
       items.forEach(function(item) {
         var lines = orderData.filter(function(r) { return String(r[0]) === item.id; });
         if (lines.length > 0) {
-          // 品名(8列目), 仕様(9列目) だけを抽出し、長すぎる場合は強制的にカット（通信エラー防止）
           var textParts = lines.map(function(r) {
             return String(r[8] || '') + ' ' + String(r[9] || '');
           });
@@ -212,7 +214,6 @@ function _apiGetAll() {
       return db.localeCompare(da);
     });
 
-    // 通信エラーを防ぐため、JSON文字列化して返す
     return JSON.parse(JSON.stringify({ success: true, total: items.length, items: items }));
   } catch(e) {
     return { success: false, error: e.message };
@@ -227,9 +228,9 @@ function _apiQuoteListGetAll() {
     var ss         = getSpreadsheet();
     var quoteSheet = ss.getSheetByName(CONFIG.SHEET_QUOTES);
     var mgmtData  = getAllMgmtData();
-    
+
     var allRows   = mgmtData.filter(function(r) { return String(r[MGMT_COLS.QUOTE_NO - 1]).trim() !== ''; });
-    
+
     var seenQNo  = {};
     var quoteRows = allRows.filter(function(r) {
       var qNo = String(r[MGMT_COLS.QUOTE_NO - 1]).trim();
@@ -241,7 +242,7 @@ function _apiQuoteListGetAll() {
     var quoteLineMap = {};
     if (quoteSheet && quoteSheet.getLastRow() > 1) {
       var qData = quoteSheet.getDataRange().getValues();
-      qData.shift(); 
+      qData.shift();
 
       qData.forEach(function(r) {
         var mgmtId = String(r[QUOTE_COLS.MGMT_ID - 1] || '');
@@ -251,10 +252,9 @@ function _apiQuoteListGetAll() {
             issueDate:   _toDateStr(r[QUOTE_COLS.ISSUE_DATE  - 1]),
             destCompany: String(r[QUOTE_COLS.DEST_COMPANY - 1] || ''),
             destPerson:  String(r[QUOTE_COLS.DEST_PERSON  - 1] || ''),
-            linesText:   '' 
+            linesText:   ''
           };
         }
-        // 品名(6列目), 仕様(7列目) のみ抽出して軽量化
         quoteLineMap[mgmtId].linesText += String(r[6] || '') + ' ' + String(r[7] || '') + ' ';
       });
     }
@@ -276,7 +276,6 @@ function _apiQuoteListGetAll() {
         orderType:   String(r[MGMT_COLS.ORDER_TYPE - 1]    || ''),
         modelCode:   String(r[MGMT_COLS.MODEL_CODE - 1]    || ''),
         subject:     String(r[MGMT_COLS.SUBJECT - 1]       || ''),
-        // 文字数を制限して通信パンクを防ぐ
         detailText:  String(lineInfo.linesText).substring(0, 300)
       };
     });
@@ -472,7 +471,7 @@ function _apiGetDetail(p) {
       }
     });
   }
-  
+
   var qs    = ss.getSheetByName(CONFIG.SHEET_QUOTES);
   var quoteLines = [];
   if (qs && qs.getLastRow() > 1) {
@@ -491,7 +490,7 @@ function _apiGetDetail(p) {
         });
       });
   }
-  
+
   var os    = ss.getSheetByName(CONFIG.SHEET_ORDERS);
   var orderLines = [];
   if (os && os.getLastRow() > 1) {
@@ -511,12 +510,12 @@ function _apiGetDetail(p) {
         });
       });
   }
-  
+
   var allQuoteLinesForMatch = [];
   try {
     if (qs && qs.getLastRow() > 1) {
       allQuoteLinesForMatch = qs.getRange(2, 1, qs.getLastRow()-1, 15).getValues()
-        .filter(function(r) { return r[6] && r[10]; }) // 品名・単価がある行のみ
+        .filter(function(r) { return r[6] && r[10]; })
         .map(function(r) {
           return {
             mgmtId:    String(r[0] || ''),
@@ -739,7 +738,7 @@ function _apiGetQuoteDetail(p) {
       return String(r[MGMT_COLS.ID - 1]) === String(p.mgmtId);
     });
     if (!targetRow) return { success: false, error: '管理IDが見つかりません' };
-    
+
     var quoteNo = String(targetRow[MGMT_COLS.QUOTE_NO - 1] || '').trim();
     var relatedIds = [String(p.mgmtId)];
     if (quoteNo) {
@@ -751,7 +750,7 @@ function _apiGetQuoteDetail(p) {
         }
       });
     }
-    
+
     var mgmt = _rowToObject(targetRow);
     var quoteSheet = ss.getSheetByName(CONFIG.SHEET_QUOTES);
     var quoteLines = [];
@@ -1053,8 +1052,6 @@ function _apiCreateRevision(p) {
   } catch(e){ return {success:false,error:e.message}; }
 }
 
-// _apiCheckDeadlines は handleApiRequest の 'checkDeadlines' ケースに統合済み
-
 function _apiUploadOrderWithLink(p) {
   const res = _apiUploadPdf(p);
   if (res.success && res.mgmtId) {
@@ -1117,21 +1114,14 @@ function _rowToObject(r) {
 // ============================================================
 // ★ 管理コンソール設定 API
 // ============================================================
-
-/**
- * システム全般設定を読み込む（管理コンソール > 基本設定タブ）
- */
 function _apiLoadSettings() {
   try {
     var props = PropertiesService.getScriptProperties();
     var raw   = props.getProperty('SYS_SETTINGS');
     var s     = raw ? JSON.parse(raw) : {};
-
-    // Geminiキーはマスク表示
     var geminiKey     = props.getProperty('GEMINI_API_KEY') || '';
     var geminiKeyIsSet = !!geminiKey;
     var geminiKeyHint  = geminiKey ? geminiKey.substring(0, 8) + '...' : '';
-
     return {
       success:         true,
       settings:        s,
@@ -1152,14 +1142,9 @@ function _apiLoadSettings() {
   }
 }
 
-/**
- * システム全般設定を保存する（管理コンソール > 各設定タブから呼ばれる）
- */
 function _apiSaveSettings(p) {
   try {
     var props = PropertiesService.getScriptProperties();
-
-    // 個別プロパティを更新（値がある場合のみ）
     if (p.adminEmails     !== undefined) props.setProperty('ADMIN_EMAILS',       String(p.adminEmails));
     if (p.notifyEmails    !== undefined) props.setProperty('NOTIFY_EMAILS',      String(p.notifyEmails));
     if (p.spreadsheetId   !== undefined && p.spreadsheetId) props.setProperty('SPREADSHEET_ID', String(p.spreadsheetId));
@@ -1170,8 +1155,6 @@ function _apiSaveSettings(p) {
     if (p.n8nOrderWebhook !== undefined) props.setProperty('N8N_ORDER_WEBHOOK',  String(p.n8nOrderWebhook));
     if (p.n8nQuoteWebhook !== undefined) props.setProperty('N8N_QUOTE_WEBHOOK',  String(p.n8nQuoteWebhook));
     if (p.customWebhook   !== undefined) props.setProperty('CUSTOM_WEBHOOK',     String(p.customWebhook));
-
-    // SYS_SETTINGS オブジェクトを更新（通知フラグ・アラート設定等）
     var raw = props.getProperty('SYS_SETTINGS');
     var s   = raw ? JSON.parse(raw) : {};
     if (p.notifyOrder  !== undefined) s.notifyOrder = p.notifyOrder;
@@ -1179,8 +1162,6 @@ function _apiSaveSettings(p) {
     if (p.notifyDl     !== undefined) s.notifyDl     = p.notifyDl;
     if (p.alertDays    !== undefined) s.alertDays    = p.alertDays;
     if (p.webhookUrl   !== undefined) s.webhookUrl   = p.webhookUrl || p.chatWebhook;
-
-    // ── 納期・発注期限アラート設定 ──
     if (p.deliveryRemindDays !== undefined) s.deliveryRemindDays = Number(p.deliveryRemindDays) || 7;
     if (p.deliveryUrgentDays !== undefined) s.deliveryUrgentDays = Number(p.deliveryUrgentDays) || 1;
     if (p.deadlineRemindDays !== undefined) s.deadlineRemindDays = Number(p.deadlineRemindDays) || 7;
@@ -1189,25 +1170,18 @@ function _apiSaveSettings(p) {
     if (p.alertDeadline      !== undefined) s.alertDeadline      = !!p.alertDeadline;
     if (p.alertOverdue       !== undefined) s.alertOverdue       = !!p.alertOverdue;
     if (p.alertUnlinked      !== undefined) s.alertUnlinked      = !!p.alertUnlinked;
-
-    // ── 監視設定 ──
     if (p.stagnantWarnDays  !== undefined) s.stagnantWarnDays  = Number(p.stagnantWarnDays)  || 7;
     if (p.stagnantAlertDays !== undefined) s.stagnantAlertDays = Number(p.stagnantAlertDays) || 14;
     if (p.unlinkedOrderDays !== undefined) s.unlinkedOrderDays = Number(p.unlinkedOrderDays) || 2;
     if (p.ocrFailThreshold  !== undefined) s.ocrFailThreshold  = Number(p.ocrFailThreshold)  || 3;
-
     props.setProperty('SYS_SETTINGS', JSON.stringify(s));
-
-    // MONITOR_CONFIG に即時反映（10_alert_monitor.gs の設定を上書き）
     try { _applyMonitorConfig(s); } catch(e2) {}
-
     return { success: true };
   } catch(e) {
     return { success: false, error: e.message };
   }
 }
 
-// SYS_SETTINGSの内容を MONITOR_CONFIG に反映（即時適用）
 function _applyMonitorConfig(s) {
   if (typeof MONITOR_CONFIG === 'undefined') return;
   if (s.deliveryRemindDays) MONITOR_CONFIG.DELIVERY_REMIND_DAYS  = s.deliveryRemindDays;
@@ -1218,71 +1192,35 @@ function _applyMonitorConfig(s) {
   if (s.ocrFailThreshold)   MONITOR_CONFIG.OCR_FAIL_THRESHOLD    = s.ocrFailThreshold;
 }
 
-// テストアラート送信
 function _apiSendTestAlert() {
   try {
     var props       = PropertiesService.getScriptProperties();
     var notifyEmails = props.getProperty('NOTIFY_EMAILS') || '';
     var webhookUrl   = props.getProperty('CHAT_WEBHOOK_URL') || props.getProperty('GOOGLE_CHAT_WEBHOOK_URL') || '';
-
-    var msg = '【✅ 見積管理システム テスト通知】\n' +
-              '送信日時: ' + nowJST() + '\n' +
-              '通知設定が正常に動作しています。\n' +
-              '━━━━━━━━━━━━━━━\n' +
-              '📅 納期アラート: 有効\n' +
-              '📦 発注期限アラート: 有効\n' +
-              '━━━━━━━━━━━━━━━\n' +
-              'このメールは手動テスト送信です。';
-
+    var msg = '【✅ 見積管理システム テスト通知】\n送信日時: ' + nowJST() + '\n通知設定が正常に動作しています。';
     var sent = false;
-
-    // Gmailで送信
     if (notifyEmails) {
       var emails = notifyEmails.split(',').map(function(e){ return e.trim(); }).filter(Boolean);
       emails.forEach(function(email) {
-        try {
-          GmailApp.sendEmail(email, '【見積管理システム】テスト通知', msg);
-          sent = true;
-        } catch(e2) {
-          Logger.log('[sendTestAlert] Gmail送信エラー: ' + e2.message);
-        }
+        try { GmailApp.sendEmail(email, '【見積管理システム】テスト通知', msg); sent = true; } catch(e2) {}
       });
     }
-
-    // Google Chat Webhookでも送信
     if (webhookUrl) {
       try {
-        UrlFetchApp.fetch(webhookUrl, {
-          method: 'post', contentType: 'application/json',
-          payload: JSON.stringify({ text: msg }), muteHttpExceptions: true,
-        });
+        UrlFetchApp.fetch(webhookUrl, { method: 'post', contentType: 'application/json', payload: JSON.stringify({ text: msg }), muteHttpExceptions: true });
         sent = true;
       } catch(e3) {}
     }
-
-    if (!sent) {
-      return { success: false, error: '通知先メールアドレスまたはWebhook URLが設定されていません。「通知先メールアドレス」を設定してから再実行してください。' };
-    }
+    if (!sent) return { success: false, error: '通知先が設定されていません' };
     return { success: true };
-  } catch(e) {
-    Logger.log('[_apiSendTestAlert ERROR] ' + e.message);
-    return { success: false, error: e.message };
-  }
+  } catch(e) { return { success: false, error: e.message }; }
 }
 
-/**
- * OCR使用量の取得
- */
 function _apiGetOcrUsage() {
   try {
-    if (typeof getOcrUsageInfo === 'function') {
-      return getOcrUsageInfo();
-    }
-    // フォールバック
+    if (typeof getOcrUsageInfo === 'function') return getOcrUsageInfo();
     var raw = PropertiesService.getScriptProperties().getProperty('OCR_USAGE_LOG');
     var log = raw ? JSON.parse(raw) : [];
     return { success: true, total: log.length, items: log.slice(0, 50) };
-  } catch(e) {
-    return { success: false, error: e.message };
-  }
+  } catch(e) { return { success: false, error: e.message }; }
 }
