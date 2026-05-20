@@ -157,6 +157,16 @@ function handleApiRequest(action, payload) {
         res = { success: true, alertCount: monRes.alertCount, alerts: monRes.alerts }; break;
       }
       case 'sendTestAlert': res = _apiSendTestAlert(); break;
+      // ── 明細ステータス・改訂版 ──
+      case 'updateLineStatus': res = _apiUpdateLineStatus(payload); break;
+      case 'createRevision':   res = _apiCreateRevision(payload); break;
+      // ── 見積セット チェックリスト（11_checklist_api.gs）──
+      case 'checklistGetByModel':   return _apiChecklistGetByModel(payload);
+      case 'checklistSaveItem':     return _apiChecklistSaveItem(payload);
+      case 'checklistDeleteItem':   return _apiChecklistDeleteItem(payload);
+      case 'checklistReorder':      return _apiChecklistReorder(payload);
+      case 'checklistGetSections':  return _apiChecklistGetSections(payload);
+      case 'checklistCopyTemplate': return _apiChecklistCopyTemplate(payload);
       default: return { success: false, error: '不明なアクション: ' + action };
     }
     
@@ -320,10 +330,14 @@ function _apiQuoteListGetAll() {
       };
     });
 
+    // 発行日の降順（新しい順）ソート — yyyy/MM/dd 形式で統一されているため直接比較可
     items.sort(function(a, b) {
-      var da = String(a.issueDate || a.quoteDate || '');
-      var db = String(b.issueDate || b.quoteDate || '');
-      return db.localeCompare(da);
+      var da = String(a.issueDate || '').replace(/\//g, '-');
+      var db = String(b.issueDate || '').replace(/\//g, '-');
+      if (db > da) return 1;
+      if (db < da) return -1;
+      // 発行日が同じ場合は見積Noの降順
+      return String(b.quoteNo || '').localeCompare(String(a.quoteNo || ''));
     });
 
     return { success: true, total: items.length, items: items };
@@ -376,6 +390,90 @@ function _apiUploadPdf(p) {
   return processUploadedPdf(p.base64Data, p.fileName, p.docType, p.orderType || '');
 }
 
+// ============================================================
+// ステータス同期: 案件管理 ↔ 見積台帳（双方向）
+// ============================================================
+
+/** 案件管理ステータス → 見積台帳ステータス への変換マップ */
+function _mgmtStatusToLedgerStatus(mgmtStatus) {
+  var map = {
+    '作成予定':  '作成予定',
+    '送信済み':  '送信済み',
+    '受領':      '受注済み',
+    '受注済み':  '受注済み',
+    '納品済み':  '受注済み',
+    'キャンセル':'キャンセル',
+    '失注':      'キャンセル',
+    '保留':      null,   // 台帳に相当するステータスなし → 変更しない
+  };
+  return map.hasOwnProperty(mgmtStatus) ? map[mgmtStatus] : null;
+}
+
+/** 見積台帳ステータス → 案件管理ステータス への変換マップ */
+function _ledgerStatusToMgmtStatus(ledgerStatus) {
+  var map = {
+    '作成予定':  '作成予定',
+    '作成中':    '作成予定',
+    '送信済み':  '送信済み',
+    '受注済み':  '受注済み',
+    'キャンセル':'キャンセル',
+  };
+  return map.hasOwnProperty(ledgerStatus) ? map[ledgerStatus] : null;
+}
+
+/**
+ * quoteNo で見積台帳を検索しステータスを更新する
+ * @param {Spreadsheet} ss
+ * @param {string} quoteNo
+ * @param {string} mgmtStatus  案件管理側の新ステータス
+ */
+function _syncLedgerStatus(ss, quoteNo, mgmtStatus) {
+  if (!quoteNo) return;
+  var ledgerStatus = _mgmtStatusToLedgerStatus(mgmtStatus);
+  if (!ledgerStatus) return;                        // マッピング対象外はスキップ
+  try {
+    var sheet = ss.getSheetByName(CONFIG.SHEET_LEDGER);
+    if (!sheet || sheet.getLastRow() <= 1) return;
+    var qNos = sheet.getRange(2, LEDGER_COLS.QUOTE_NO,
+                              sheet.getLastRow() - 1, 1).getValues().flat();
+    qNos.forEach(function(qno, i) {
+      if (String(qno).trim() === String(quoteNo).trim()) {
+        sheet.getRange(i + 2, LEDGER_COLS.STATUS).setValue(ledgerStatus);
+      }
+    });
+  } catch(e) {
+    Logger.log('[_syncLedgerStatus ERROR] ' + e.message);
+  }
+}
+
+/**
+ * ledgerId で案件管理シートを検索しステータスを更新する
+ * （台帳→管理の逆同期）
+ * @param {Spreadsheet} ss
+ * @param {string} quoteNo  台帳の見積番号
+ * @param {string} ledgerStatus  台帳側の新ステータス
+ */
+function _syncMgmtStatusFromLedger(ss, quoteNo, ledgerStatus) {
+  if (!quoteNo) return;
+  var mgmtStatus = _ledgerStatusToMgmtStatus(ledgerStatus);
+  if (!mgmtStatus) return;
+  try {
+    var sheet = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT);
+    if (!sheet || sheet.getLastRow() <= 1) return;
+    var data = sheet.getRange(2, 1, sheet.getLastRow() - 1,
+                              Math.max(MGMT_COLS.QUOTE_NO, MGMT_COLS.STATUS)).getValues();
+    data.forEach(function(row, i) {
+      if (String(row[MGMT_COLS.QUOTE_NO - 1]).trim() === String(quoteNo).trim()) {
+        sheet.getRange(i + 2, MGMT_COLS.STATUS).setValue(mgmtStatus);
+        sheet.getRange(i + 2, MGMT_COLS.UPDATED_AT).setValue(nowJST());
+      }
+    });
+  } catch(e) {
+    Logger.log('[_syncMgmtStatusFromLedger ERROR] ' + e.message);
+  }
+}
+
+// ============================================================
 function _apiUpdateStatus(p) {
   if (!p.mgmtId || !p.newStatus) return { success: false, error: '管理IDとステータスが必要' };
   var valid = CONFIG.STATUS_LIST || ['作成予定','送信済み','受領','受注済み','保留','キャンセル','失注','納品済み'];
@@ -389,6 +487,9 @@ function _apiUpdateStatus(p) {
   if (idx < 0) return { success: false, error: '未発見: ' + p.mgmtId };
   sheet.getRange(idx+2, MGMT_COLS.STATUS).setValue(p.newStatus);
   sheet.getRange(idx+2, MGMT_COLS.UPDATED_AT).setValue(nowJST());
+  // ★ 見積台帳へ同期
+  var quoteNo = String(sheet.getRange(idx+2, MGMT_COLS.QUOTE_NO).getValue() || '').trim();
+  _syncLedgerStatus(ss, quoteNo, p.newStatus);
   return { success: true };
 }
 
@@ -451,6 +552,11 @@ function _apiUpdateMgmt(p) {
       if (p.linkedOrderNo) sheet.getRange(row, MGMT_COLS.ORDER_NO).setValue(p.linkedOrderNo);
       sheet.getRange(row, MGMT_COLS.LINKED).setValue('TRUE');
       sheet.getRange(row, MGMT_COLS.STATUS).setValue(CONFIG.STATUS.RECEIVED);
+    }
+    // ★ ステータスが更新された場合は見積台帳へ同期
+    if (p.status !== undefined) {
+      var curQuoteNo = String(sheet.getRange(row, MGMT_COLS.QUOTE_NO).getValue() || '').trim();
+      _syncLedgerStatus(ss, curQuoteNo, p.status);
     }
     return { success: true };
   } catch(e) { return { success: false, error: e.message }; }
@@ -906,6 +1012,11 @@ function _apiLedgerSave(p) {
       Object.keys(fields).forEach(function(key) {
         if (p[key] !== undefined) sheet.getRange(row, fields[key]).setValue(p[key]);
       });
+      // ★ ステータスが更新された場合は案件管理シートへ逆同期
+      if (p.status !== undefined) {
+        var ledgerQuoteNo = String(sheet.getRange(row, LEDGER_COLS.QUOTE_NO).getValue() || '').trim();
+        _syncMgmtStatusFromLedger(getSpreadsheet(), ledgerQuoteNo, p.status);
+      }
     }
     return { success: true, ledgerId: ledgerId };
   } catch(e) { return { success: false, error: e.message }; }
@@ -1108,9 +1219,9 @@ function _apiCreateRevision(p) {
 // _apiCheckDeadlines は handleApiRequest の 'checkDeadlines' ケースに統合済み
 
 function _apiUploadOrderWithLink(p) {
-  const res = _apiUploadPdf(p);
+  var res = _apiUploadPdf(p);
   if (res.success && res.mgmtId) {
-    const aiRes = aiLinkOrderToQuote(res.mgmtId);
+    var aiRes = aiLinkOrderToQuote(res.mgmtId);
     res.linkResult = aiRes;
   }
   return res;

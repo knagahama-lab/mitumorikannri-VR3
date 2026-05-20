@@ -160,8 +160,11 @@ tr:hover td{background:#f8fafc;}
 #toast{ position:fixed;bottom:24px;left:50%;transform:translateX(-50%); background:#1e293b;color:#fff;padding:10px 20px; border-radius:8px;font-size:13px;font-weight:500; opacity:0;transition:opacity .3s;z-index:9999; pointer-events:none;white-space:nowrap; box-shadow:var(--shadow-lg); }
 #toast.show{opacity:1;}
 
-.upload-area{ border:2px dashed var(--border); border-radius:var(--radius); padding:28px; text-align:center; cursor:pointer; transition:all .2s; background:#fafbff; }
-.upload-area:hover{border-color:var(--primary);background:#f0f5ff;}
+.upload-area{ border:2px dashed var(--border); border-radius:var(--radius); padding:22px; text-align:center; cursor:pointer; transition:all .2s; background:#fafbff; }
+.upload-area:hover,.upload-area.dragover{border-color:var(--primary);background:#f0f5ff;}
+.ocr-queue-item{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid #f0f2f5;transition:background .2s;}
+.ocr-queue-item:last-child{border-bottom:none;}
+.ocr-mini-spinner{display:inline-block;width:10px;height:10px;border:2px solid #2563eb;border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite;margin-left:4px;vertical-align:middle;}
 
 /* ステータス手動切替ドロップダウン */
 .status-select-inline{ padding:3px 8px;border:1px solid var(--border);border-radius:6px; font-size:11px;font-weight:600;cursor:pointer;outline:none; background:white;transition:border-color .15s; }
@@ -330,6 +333,8 @@ tr:hover td{background:#f8fafc;}
           <select id="filter-month" onchange="applyFilters()"><option value="">すべての月</option></select>
           <button class="btn btn-outline btn-sm" onclick="clearFilters()">クリア</button>
           <button class="btn btn-outline btn-sm" onclick="loadData()">🔄</button>
+          <button class="btn btn-outline btn-sm" onclick="exportOrderCsv()" title="CSV出力" style="color:#16a34a;border-color:#16a34a;">📥 CSV</button>
+          <button class="btn btn-outline btn-sm" onclick="exportOrderPdf()" title="PDF出力" style="color:#dc2626;border-color:#dc2626;">🖨️ PDF</button>
         </div>
         <div class="table-wrap">
           <div class="table-toolbar">
@@ -353,6 +358,8 @@ tr:hover td{background:#f8fafc;}
           <select id="qs-filter-linked" onchange="applyQuoteFilter()"><option value="">紐づき状況</option><option value="linked">注文書あり</option><option value="unlinked">注文書なし</option></select>
           <button class="btn btn-outline btn-sm" onclick="clearQuoteFilter()">クリア</button>
           <button class="btn btn-outline btn-sm" onclick="loadQuoteList()">🔄</button>
+          <button class="btn btn-outline btn-sm" onclick="exportQuoteCsv()" title="CSV出力" style="color:#16a34a;border-color:#16a34a;">📥 CSV</button>
+          <button class="btn btn-outline btn-sm" onclick="exportQuotePdf()" title="PDF出力" style="color:#dc2626;border-color:#dc2626;">🖨️ PDF</button>
         </div>
         <div class="table-wrap">
           <div class="table-toolbar"><h2>見積書一覧</h2><span class="pg-info" id="qs-count"></span></div>
@@ -391,6 +398,8 @@ tr:hover td{background:#f8fafc;}
           <option value="キャンセル">キャンセル</option>
         </select>
         <button class="btn btn-outline btn-sm" onclick="clearLedgerFilter()">クリア</button>
+        <button class="btn btn-outline btn-sm" onclick="exportLedgerCsv()" title="CSV出力" style="color:#16a34a;border-color:#16a34a;">📥 CSV</button>
+        <button class="btn btn-outline btn-sm" onclick="exportLedgerPdf()" title="PDF出力" style="color:#dc2626;border-color:#dc2626;">🖨️ PDF</button>
       </div>
 
       <div class="summary-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px;">
@@ -751,6 +760,37 @@ tr:hover td{background:#f8fafc;}
       </div>
     </div>
 
+    <div id="page-checklist" class="page">
+      <div id="checklist-wrap"></div>
+    </div>
+
+    <div id="page-quotecheck" class="page">
+      <div id="quotecheck-wrap"></div>
+    </div>
+
+    <div id="page-aichat" class="page">
+      <div id="aichat-container"><div class="loading" style="text-align:center;padding:40px;">AIアシスタントを読み込み中...</div></div>
+    </div>
+    <div id="page-workflow" class="page">
+      <div class="page-heading"><div><h2>🔄 業務フロー</h2></div></div>
+      <div id="workflow-container"><div class="loading" style="text-align:center;padding:40px;color:var(--text-muted);">準備中</div></div>
+    </div>
+    <div id="page-assignees" class="page">
+      <div class="page-heading"><div><h2>👥 担当者管理</h2></div></div>
+      <div id="assignee-container"><div class="loading" style="text-align:center;padding:40px;color:var(--text-muted);">準備中</div></div>
+    </div>
+    <div id="page-approval" class="page">
+      <div class="page-heading"><div><h2>✅ 製造承認</h2></div></div>
+      <div id="approval-container"><div class="loading" style="text-align:center;padding:40px;color:var(--text-muted);">準備中</div></div>
+    </div>
+    <div id="page-board" class="page">
+      <div class="page-heading"><div><h2>🏷️ 基板管理</h2></div></div>
+      <div id="board-container"><div class="loading" style="text-align:center;padding:40px;color:var(--text-muted);">準備中</div></div>
+    </div>
+    <div id="page-analysis" class="page">
+      <div class="page-heading"><div><h2>📊 分析・レポート</h2></div></div>
+      <div id="analysis-container"><div class="loading" style="text-align:center;padding:40px;color:var(--text-muted);">準備中</div></div>
+    </div>
     <div id="page-todo" class="page"><div class="loading">準備中</div></div>
     <div id="page-calendar" class="page">
       <div class="page-heading"><div><h2>📅 スケジュール</h2></div></div>
@@ -768,21 +808,35 @@ tr:hover td{background:#f8fafc;}
 </div>
 
 <div class="modal-overlay" id="upload-modal">
-  <div class="modal">
-    <div class="modal-head"><h3>📎 PDF アップロード</h3><button class="modal-close" onclick="closeUploadModal()">✕</button></div>
-    <div class="modal-body">
-      <div class="type-toggle" style="display:flex;gap:10px;margin-bottom:16px;">
+  <div class="modal" style="max-width:640px;">
+    <div class="modal-head"><h3>📎 PDF 一括登録</h3><button class="modal-close" onclick="closeUploadModal()">✕</button></div>
+    <div class="modal-body" style="max-height:82vh;overflow-y:auto;">
+      <div class="type-toggle" style="display:flex;gap:10px;margin-bottom:12px;">
         <button class="btn btn-outline" id="type-quote" onclick="setDocType('quote')">📄 見積書</button>
         <button class="btn btn-outline" id="type-order" onclick="setDocType('order')">📦 注文書・発注書</button>
       </div>
-      <div id="order-type-section" style="display:none;margin-bottom:16px;">
+      <div id="order-type-section" style="display:none;margin-bottom:12px;">
         <button class="btn btn-outline btn-sm" id="ot-trial" onclick="setOrderType('試作')">試作</button>
         <button class="btn btn-outline btn-sm" id="ot-mass" onclick="setOrderType('量産')">量産</button>
       </div>
-      <div class="upload-area" id="drop-zone" onclick="document.getElementById('file-input').click()">📂 クリックまたはドラッグでPDFを選択</div>
-      <input type="file" id="file-input" accept=".pdf" style="display:none" onchange="handleFileSelect(event)">
-      <div id="upload-status" style="margin-top:12px;"></div>
-      <div style="text-align:right;margin-top:16px;"><button class="btn btn-outline" onclick="closeUploadModal()">キャンセル</button><button class="btn btn-primary" id="upload-btn" onclick="uploadFile()" disabled>解析・登録</button></div>
+      <div class="upload-area" id="drop-zone"
+           onclick="document.getElementById('file-input').click()"
+           ondragover="event.preventDefault();this.classList.add('dragover')"
+           ondragleave="this.classList.remove('dragover')"
+           ondrop="event.preventDefault();this.classList.remove('dragover');handleDropFiles(event)">
+        <div style="font-size:28px;margin-bottom:6px;">📂</div>
+        <div style="font-size:13px;color:#475569;font-weight:500;">クリックまたはドラッグ＆ドロップでPDFを選択</div>
+        <div style="font-size:11px;color:#94a3b8;margin-top:4px;">複数ファイル同時対応 — 選択するとすぐにOCR解析開始</div>
+      </div>
+      <input type="file" id="file-input" accept=".pdf" multiple style="display:none" onchange="handleFileSelect(event)">
+      <!-- OCRキュー -->
+      <div id="ocr-queue-container"></div>
+      <!-- インライン確認パネル -->
+      <div id="upload-status" style="margin-top:8px;"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;">
+        <button class="btn btn-sm btn-outline" id="queue-clear-btn" onclick="clearDoneQueue()" style="display:none;font-size:11px;">完了済みを削除</button>
+        <button class="btn btn-outline" onclick="closeUploadModal()" style="margin-left:auto;">閉じる</button>
+      </div>
     </div>
   </div>
 </div>
