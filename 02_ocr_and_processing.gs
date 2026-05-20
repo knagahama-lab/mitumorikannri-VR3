@@ -636,17 +636,6 @@ function _processQuotePdfFromFile(pdfUrl, folderUrl, ocr, msgId) {
 // OCRログ記録ユーティリティ
 // ============================================================
 
-/**
- * OCR処理ログシートに結果を記録する
- * （ログシートがない場合はスキップ）
- */
-function _logOcrResult(fileName, status, pdfUrl) {
-  try {
-    var ss    = getSpreadsheet();
-    var sheet = ss.getSheetByName('OCR処理ログ');
-    if (!sheet) return;
-    sheet.appendRow([nowJST(), fileName, status, pdfUrl || '', '']);
-  } catch(e) {
-    Logger.log('[LOG OCR ERROR] ' + e.message);
-  }
-}
+// _logOcrResult は 13_ocr_extended.gs で定義（4引数版: fileName, status, mgmtId, detail）。
+// ここでの重複定義を削除し、13_ocr_extended.gs の実装に統一する。
+// 旧呼び出し側 (pdfUrl を第3引数で渡すケース) は mgmtId 列に入るが動作上問題なし。

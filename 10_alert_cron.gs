@@ -8,7 +8,7 @@
 //   ・各アラートはテキスト文字列ではなく構造化オブジェクト { level, title, items[] } を返す
 //   ・_buildAlertHtml() で見やすいHTMLメールを生成
 //   ・Chat Webhook 用のプレーンテキストは引き続き生成
-//   ・【文字化け修正】GmailApp.sendEmail → MailApp.sendEmail + charset:'UTF-8'
+//   ・【文字化け修正】絵文字を &#xXXXXX; HTML数値文字参照に変換 + GmailApp.sendEmail 使用
 //
 // 【アラートオブジェクト構造】
 //   {
@@ -106,6 +106,39 @@ function _escHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+// ============================================================
+// 絵文字 HTML エンコード（文字化け防止）
+// ============================================================
+
+// サロゲートペア → HTML数値文字参照 &#xXXXXX; に変換
+function _emojiToHtml(str) {
+  return String(str || '').replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, function(pair) {
+    var hi = pair.charCodeAt(0);
+    var lo = pair.charCodeAt(1);
+    var cp = ((hi - 0xD800) * 0x400) + (lo - 0xDC00) + 0x10000;
+    return '&#x' + cp.toString(16).toUpperCase() + ';';
+  });
+}
+
+// HTML特殊文字エスケープ ＋ 絵文字を数値文字参照に変換（HTML本文用）
+function _escHtmlEmoji(str) {
+  return _emojiToHtml(
+    String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+  );
+}
+
+// 絵文字を除去（件名・プレーンテキスト用）
+function _stripEmoji(str) {
+  return String(str || '')
+    .replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '')
+    .replace(/[☀-➿][️]?/g, '')
+    .replace(/[︀-️]/g, '');
+}
+
 function _buildAlertHtml(alertGroups, reportTitle) {
   var LEVEL_STYLE = {
     critical: { border: '#d93025', bg: '#fce8e6', headerBg: '#d93025', headerText: '#fff' },
@@ -131,7 +164,7 @@ function _buildAlertHtml(alertGroups, reportTitle) {
 
     '<div style="background:#1a73e8;border-radius:8px 8px 0 0;padding:18px 24px 16px;">',
     '<div style="color:#fff;font-size:18px;font-weight:bold;line-height:1.3;">',
-    '\ud83d\udcca ' + _escHtml(reportTitle),
+    _emojiToHtml('\ud83d\udcca ') + _escHtml(reportTitle),
     '</div>',
     '<div style="color:#b8d4ff;font-size:12px;margin-top:4px;">' + _escHtml(now) + '\u3000\u81ea\u52d5\u751f\u6210</div>',
     '</div>',
@@ -150,7 +183,7 @@ function _buildAlertHtml(alertGroups, reportTitle) {
       'border:1px solid ' + st.border + '33;">',
       '<div style="background:' + st.headerBg + ';padding:10px 18px;">',
       '<span style="color:' + st.headerText + ';font-size:14px;font-weight:bold;">' +
-      _escHtml(group.title) + '</span>',
+      _escHtmlEmoji(group.title) + '</span>',
       '</div>'
     );
 
@@ -161,7 +194,7 @@ function _buildAlertHtml(alertGroups, reportTitle) {
       html.push(
         '<div style="background:' + st.bg + ';padding:12px 18px;' + dividerStyle + '">',
         '<div style="font-size:14px;font-weight:bold;color:#202124;margin-bottom:5px;">',
-        _escHtml(item.heading),
+        _escHtmlEmoji(item.heading),
         '</div>'
       );
 
@@ -170,9 +203,9 @@ function _buildAlertHtml(alertGroups, reportTitle) {
         item.lines.forEach(function(line) {
           if (String(line).indexOf('\u26a0\ufe0f') === 0) {
             html.push('<span style="color:' + st.border + ';font-weight:bold;">' +
-                      _escHtml(line) + '</span><br>');
+                      _escHtmlEmoji(line) + '</span><br>');
           } else {
-            html.push(_escHtml(line) + '<br>');
+            html.push(_escHtmlEmoji(line) + '<br>');
           }
         });
         html.push('</div>');
@@ -189,7 +222,7 @@ function _buildAlertHtml(alertGroups, reportTitle) {
             'border:1.5px solid ' + st.border + ';border-radius:4px;' +
             'color:' + st.border + ';font-size:12px;font-weight:bold;' +
             'text-decoration:none;white-space:nowrap;">' +
-            icon + '&nbsp;' + _escHtml(lnk.label) +
+            _emojiToHtml(icon) + '&nbsp;' + _escHtml(lnk.label) +
             '</a>'
           );
         });
@@ -214,8 +247,10 @@ function _buildAlertHtml(alertGroups, reportTitle) {
 
 // ============================================================
 // ★★★ メール送信（文字化け修正版）★★★
-// GmailApp.sendEmail → MailApp.sendEmail + charset:'UTF-8'
-// これにより絵文字・日本語の文字化けが解消される
+// 【対策1】GmailApp.sendEmail 使用（MailApp より UTF-8 信頼性高）
+// 【対策2】HTML本文の絵文字は _escHtmlEmoji/_emojiToHtml で
+//          &#xXXXXX; 数値文字参照に変換済み → メールクライアントで確実表示
+// 【対策3】件名・プレーンテキストは _stripEmoji() で絵文字除去
 // ============================================================
 
 function _sendAlertEmailHtml(alertGroups, reportTitle) {
@@ -224,22 +259,24 @@ function _sendAlertEmailHtml(alertGroups, reportTitle) {
     if (!notifyEmails) return;
     var emails = notifyEmails.split(',').map(function(e){ return e.trim(); }).filter(Boolean);
 
-    var subject  = '\u3010\u898b\u7a4d\u7ba1\u7406\u30b7\u30b9\u30c6\u30e0\u3011' + reportTitle + ' ' +
+    var subject  = '\u3010\u898b\u7a4d\u7ba1\u7406\u30b7\u30b9\u30c6\u30e0\u3011' + _stripEmoji(reportTitle).trim() + ' ' +
                    Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
     var htmlBody  = _buildAlertHtml(alertGroups, reportTitle);
     var plainText = _alertGroupsToPlainText(alertGroups, reportTitle);
 
     emails.forEach(function(email) {
       try {
-        // ★ MailApp を使い charset:'UTF-8' を明示指定することで
-        //    GASのISO-2022-JP自動変換を防ぎ、絵文字・日本語の文字化けを解消
-        MailApp.sendEmail({
-          to      : email,
-          subject : subject,
-          body    : plainText,
-          htmlBody: htmlBody,
-          charset : 'UTF-8',
-        });
+        // ★ GmailApp.sendEmail を使用（MailApp より UTF-8/絵文字の扱いが信頼性高）
+        //    HTMLBody の絵文字は _escHtmlEmoji/_emojiToHtml で &#xXXXXX; 変換済み
+        GmailApp.sendEmail(
+          email,
+          subject,
+          plainText,
+          {
+            htmlBody: htmlBody,
+            name    : '\u898b\u7a4d\u7ba1\u7406\u30b7\u30b9\u30c6\u30e0',
+          }
+        );
       } catch(e2) {
         Logger.log('[_sendAlertEmailHtml] \u9001\u4fe1\u5931\u6557: ' + email + ' / ' + e2.message);
       }
@@ -256,7 +293,7 @@ function _sendAlertEmailHtml(alertGroups, reportTitle) {
 
 function _alertGroupsToText(alertGroups) {
   return alertGroups.map(function(g) {
-    return g.title + '\n' + g.items.slice(0, 5).map(function(it) {
+    return _stripEmoji(g.title) + '\n' + g.items.slice(0, 5).map(function(it) {
       var lines = [it.heading].concat(it.lines || []);
       var linkLines = (it.links || []).map(function(l) {
         return '  [' + l.label + '] ' + l.url;
