@@ -356,6 +356,15 @@ tr:hover td{background:#f8fafc;}
           <div class="search-box"><input type="text" id="qs-search" placeholder="見積番号・宛先・担当者で検索..." oninput="applyQuoteFilter()"></div>
           <select id="qs-filter-status" onchange="applyQuoteFilter()"><option value="">すべてのステータス</option><option value="送信済み">送信済み</option><option value="受領">受領</option><option value="作成予定">作成予定</option><option value="作成中">作成中</option><option value="納品済み">納品済み</option></select>
           <select id="qs-filter-linked" onchange="applyQuoteFilter()"><option value="">紐づき状況</option><option value="linked">注文書あり</option><option value="unlinked">注文書なし</option></select>
+          <select id="qs-sort-key" onchange="setQuoteSort(this.value)" title="並び順の基準" style="font-size:12px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:#fff;cursor:pointer;">
+            <option value="issueDate">📅 発行日</option>
+            <option value="quoteNo">🔢 見積No.</option>
+            <option value="destCompany">🏢 宛先</option>
+            <option value="quoteAmount">💴 金額</option>
+            <option value="status">🏷️ ステータス</option>
+            <option value="modelCode">⚙️ 機種</option>
+          </select>
+          <button id="qs-sort-dir" onclick="setQuoteSort(document.getElementById('qs-sort-key').value)" title="昇順/降順を切り替え" style="font-size:12px;padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:#fff;cursor:pointer;white-space:nowrap;">↓ 降順</button>
           <button class="btn btn-outline btn-sm" onclick="clearQuoteFilter()">クリア</button>
           <button class="btn btn-outline btn-sm" onclick="loadQuoteList()">🔄</button>
           <button class="btn btn-outline btn-sm" onclick="exportQuoteCsv()" title="CSV出力" style="color:#16a34a;border-color:#16a34a;">📥 CSV</button>
@@ -397,6 +406,16 @@ tr:hover td{background:#f8fafc;}
           <option value="送信済み">送信済み</option>
           <option value="キャンセル">キャンセル</option>
         </select>
+        <select id="ledger-sort-key" onchange="setLedgerSort(this.value)" title="並び順の基準" style="font-size:12px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:#fff;cursor:pointer;">
+          <option value="issueDate">📅 発行日</option>
+          <option value="quoteNo">🔢 見積No.</option>
+          <option value="dest">🏢 宛先</option>
+          <option value="amount">💴 金額</option>
+          <option value="status">🏷️ ステータス</option>
+          <option value="machineCode">⚙️ 機種</option>
+          <option value="boardName">🔬 基板名</option>
+        </select>
+        <button id="ledger-sort-dir" onclick="setLedgerSort(document.getElementById('ledger-sort-key').value)" title="昇順/降順を切り替え" style="font-size:12px;padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:#fff;cursor:pointer;white-space:nowrap;">↓ 降順</button>
         <button class="btn btn-outline btn-sm" onclick="clearLedgerFilter()">クリア</button>
         <button class="btn btn-outline btn-sm" onclick="exportLedgerCsv()" title="CSV出力" style="color:#16a34a;border-color:#16a34a;">📥 CSV</button>
         <button class="btn btn-outline btn-sm" onclick="exportLedgerPdf()" title="PDF出力" style="color:#dc2626;border-color:#dc2626;">🖨️ PDF</button>
