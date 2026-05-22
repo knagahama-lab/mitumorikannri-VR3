@@ -167,6 +167,15 @@ function handleApiRequest(action, payload) {
       case 'checklistReorder':      return _apiChecklistReorder(payload);
       case 'checklistGetSections':  return _apiChecklistGetSections(payload);
       case 'checklistCopyTemplate': return _apiChecklistCopyTemplate(payload);
+      // ── カスタム書類テンプレート（22_custom_doc.gs）──
+      case 'customDocTypeList':   return apiCustomDocTypeList();
+      case 'customDocTypeSave':   return apiCustomDocTypeSave(payload);
+      case 'customDocTypeDelete': return apiCustomDocTypeDelete(payload);
+      case 'customDocGetAll':     return apiCustomDocGetAll(payload);
+      case 'customDocSave':       return apiCustomDocSave(payload);
+      case 'customDocDelete':     return apiCustomDocDelete(payload);
+      case 'customDocOcr':        return apiCustomDocOcr(payload);
+      case 'customDocPresets':    return apiCustomDocPresets();
       default: return { success: false, error: '不明なアクション: ' + action };
     }
     

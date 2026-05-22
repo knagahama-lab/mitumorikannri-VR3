@@ -48,6 +48,7 @@ window.addEventListener('load', () => {
   }).handleApiRequest('ledgerGetAll', null);
   if (typeof loadMatchingCandidates === 'function') loadMatchingCandidates();
   if (typeof loadOcrUsage === 'function') loadOcrUsage();
+  initCustomDocTypes();
   // OCRキュー: 解析中アイテムの経過時間を1秒ごとに更新
   setInterval(function(){
     const jobs = Object.values(_ocrQueue||{}).filter(j=>j.status==='ocring');
@@ -1304,6 +1305,7 @@ function switchAdminTab(tab) {
     _loadMenuConfigFromServer();
   }
   if (tab === 'apiconn') loadApiConnList();
+  if (tab === 'doctype') _onShowDocTypeTab();
 }
 
 // ============================================================
@@ -2936,5 +2938,762 @@ function renderChecklist(res) {
   container.innerHTML = html;
 }
 
+
+// ============================================================
+// カスタム書類テンプレート機能
+// ============================================================
+
+// ── 状態変数 ──
+let _customDocTypes = [];
+let _currentCustomDocTypeId = null;
+let _customDocItems = [];
+let _filteredCustomDocItems = [];
+let _customDocPage = 1;
+const _customDocLimit = 30;
+let _customDocSortKey = '_createdAt';
+let _customDocSortDir = 'desc';
+// テンプレート編集用
+let _dtFields = [];   // 現在編集中のフィールド配列
+
+// ── 初期化 ─ ロード時にカスタム書類タイプを取得してサイドバーに反映 ──
+function initCustomDocTypes() {
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success) return;
+      _customDocTypes = res.types || [];
+      _rebuildCustomDocSidebar();
+    })
+    .handleApiRequest('customDocTypeList', null);
+}
+
+function _rebuildCustomDocSidebar() {
+  // 既存のカスタム書類サイドバー項目を削除
+  document.querySelectorAll('.nav-item[data-customdoc]').forEach(el => el.remove());
+  document.querySelectorAll('.sidebar-section-label[data-customdoc-section]').forEach(el => el.remove());
+
+  if (_customDocTypes.length === 0) return;
+
+  const nav = document.querySelector('.sidebar-nav');
+  if (!nav) return;
+
+  // セクションラベル
+  const sectionEl = document.createElement('div');
+  sectionEl.className = 'sidebar-section-label';
+  sectionEl.setAttribute('data-customdoc-section', '1');
+  sectionEl.textContent = 'カスタム書類';
+  nav.appendChild(sectionEl);
+
+  _customDocTypes.forEach(function(type) {
+    const item = document.createElement('div');
+    item.className = 'nav-item';
+    item.setAttribute('data-customdoc', type.id);
+    item.onclick = function() { showCustomDocPage(type.id); };
+    item.innerHTML =
+      '<span class="nav-item-icon">' + (type.icon || '📄') + '</span>' +
+      '<span class="nav-item-label">' + _esc(type.name) + '</span>';
+    nav.appendChild(item);
+  });
+}
+
+// ── ページ表示 ──
+function showCustomDocPage(typeId) {
+  _currentCustomDocTypeId = typeId;
+  const type = _customDocTypes.find(t => t.id === typeId);
+  if (!type) return;
+
+  // タイトル更新
+  const titleEl = document.getElementById('customdoc-title');
+  if (titleEl) titleEl.textContent = (type.icon || '📄') + ' ' + type.name;
+  const subEl = document.getElementById('customdoc-subtitle');
+  if (subEl) subEl.textContent = type.spreadsheetId ? 'スプレッドシート接続済み' : '⚠️ スプレッドシートIDが未設定（管理コンソール→書類テンプレートで設定）';
+
+  // OCRボタン: OCR対象フィールドがあれば表示
+  const ocrBtn = document.getElementById('customdoc-ocr-btn');
+  const hasOcr = (type.fields || []).some(f => f.ocr);
+  if (ocrBtn) ocrBtn.style.display = hasOcr ? '' : 'none';
+
+  // テーマカラーを heading に反映
+  const heading = document.getElementById('customdoc-heading');
+  if (heading && type.color) heading.style.borderLeft = '4px solid ' + type.color;
+
+  // サイドバーのアクティブ状態を更新
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  const navItem = document.querySelector('.nav-item[data-customdoc="' + typeId + '"]');
+  if (navItem) navItem.classList.add('active');
+
+  // ページ切り替え
+  document.querySelectorAll('.page').forEach(p => p.style.display = 'none');
+  const page = document.getElementById('page-customdoc');
+  if (page) page.style.display = '';
+
+  // ヘッダータイトル更新
+  const mainTitle = document.querySelector('#page-customdoc h2');
+  // データ読み込み
+  loadCustomDocData();
+}
+
+// ── データ読み込み ──
+function loadCustomDocData() {
+  if (!_currentCustomDocTypeId) return;
+  const type = _customDocTypes.find(t => t.id === _currentCustomDocTypeId);
+  if (!type) return;
+
+  const tbody = document.getElementById('customdoc-tbody');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="20" style="text-align:center;padding:20px;color:var(--text-muted);">⏳ 読み込み中...</td></tr>';
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success) { showToast('データの読み込みに失敗しました: ' + (res ? res.error : '不明'), true); return; }
+      _customDocItems = res.items || [];
+      _buildCustomDocTableHeader(type, res.fields || []);
+      _buildStatusFilter(res.statusOptions || []);
+      _buildCustomDocSortSelector(res.fields || []);
+      applyCustomDocFilter();
+    })
+    .withFailureHandler(function(err) { showToast('通信エラー: ' + err.message, true); })
+    .handleApiRequest('customDocGetAll', { typeId: _currentCustomDocTypeId });
+}
+
+function _buildCustomDocTableHeader(type, fields) {
+  const tableFields = fields.filter(f => f.showInTable);
+  const thead = document.getElementById('customdoc-thead');
+  if (!thead) return;
+  let html = '<tr>';
+  html += '<th style="width:90px;">ステータス</th>';
+  tableFields.forEach(f => { html += '<th>' + _esc(f.label) + '</th>'; });
+  html += '<th style="width:80px;">登録日</th>';
+  html += '<th style="width:70px;">操作</th>';
+  html += '</tr>';
+  thead.innerHTML = html;
+}
+
+function _buildStatusFilter(statusOptions) {
+  const sel = document.getElementById('customdoc-filter-status');
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">すべてのステータス</option>';
+  statusOptions.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s; opt.textContent = s;
+    if (s === cur) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
+function _buildCustomDocSortSelector(fields) {
+  const sel = document.getElementById('customdoc-sort-key');
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = '<option value="_createdAt">📅 登録日</option><option value="_status">🏷️ ステータス</option>';
+  fields.forEach(f => {
+    const opt = document.createElement('option');
+    opt.value = f.key; opt.textContent = f.label;
+    sel.appendChild(opt);
+  });
+  if (cur) sel.value = cur;
+}
+
+// ── フィルター＆ソート ──
+function applyCustomDocFilter() {
+  const q      = (document.getElementById('customdoc-search')?.value || '').toLowerCase();
+  const status = document.getElementById('customdoc-filter-status')?.value || '';
+
+  _filteredCustomDocItems = _customDocItems.filter(item => {
+    if (status && item._status !== status) return false;
+    if (q) {
+      const text = Object.values(item).join(' ').toLowerCase();
+      if (!text.includes(q)) return false;
+    }
+    return true;
+  });
+
+  _filteredCustomDocItems.sort((a, b) => _cmpByKey(a, b, _customDocSortKey, _customDocSortDir));
+  _customDocPage = 1;
+  _renderCustomDocTable();
+}
+
+function clearCustomDocFilter() {
+  const s = document.getElementById('customdoc-search'); if (s) s.value = '';
+  const f = document.getElementById('customdoc-filter-status'); if (f) f.value = '';
+  applyCustomDocFilter();
+}
+
+function setCustomDocSort(key) {
+  if (_customDocSortKey === key) { _customDocSortDir = _customDocSortDir === 'desc' ? 'asc' : 'desc'; }
+  else { _customDocSortKey = key; _customDocSortDir = 'desc'; }
+  const btn = document.getElementById('customdoc-sort-dir');
+  if (btn) btn.textContent = _customDocSortDir === 'desc' ? '↓ 降順' : '↑ 昇順';
+  applyCustomDocFilter();
+}
+
+// ── テーブル描画 ──
+function _renderCustomDocTable() {
+  const tbody = document.getElementById('customdoc-tbody');
+  if (!tbody) return;
+
+  const type = _customDocTypes.find(t => t.id === _currentCustomDocTypeId);
+  const fields = type ? (type.fields || []).filter(f => f.showInTable) : [];
+
+  const total = _filteredCustomDocItems.length;
+  const start = (_customDocPage - 1) * _customDocLimit;
+  const page  = _filteredCustomDocItems.slice(start, start + _customDocLimit);
+
+  if (page.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="20" style="text-align:center;padding:40px;color:var(--text-muted);">データがありません</td></tr>';
+    _renderCustomDocPagination(total);
+    const cnt = document.getElementById('customdoc-count');
+    if (cnt) cnt.textContent = '0件';
+    return;
+  }
+
+  let html = '';
+  page.forEach(item => {
+    const statusColor = _customDocStatusColor(item._status);
+    html += '<tr style="cursor:pointer;" onclick="openCustomDocAddModal(\'' + _esc(item._id) + '\')">';
+    html += '<td><span class="badge ' + statusColor + '" style="white-space:nowrap;">' + _esc(item._status || '—') + '</span></td>';
+    fields.forEach(f => {
+      let val = item[f.key] || '';
+      if (f.type === 'number' && val !== '') val = Number(val).toLocaleString();
+      html += '<td>' + _esc(val) + '</td>';
+    });
+    html += '<td style="color:var(--text-muted);font-size:11px;">' + _esc((item._createdAt || '').substring(0, 10)) + '</td>';
+    html += '<td><button class="btn btn-sm btn-danger" style="padding:2px 8px;font-size:11px;" onclick="event.stopPropagation();deleteCustomDocEntry(\'' + _esc(item._id) + '\')" title="削除">🗑</button></td>';
+    html += '</tr>';
+  });
+  tbody.innerHTML = html;
+
+  _renderCustomDocPagination(total);
+  const cnt = document.getElementById('customdoc-count');
+  if (cnt) cnt.textContent = total + '件';
+}
+
+function _customDocStatusColor(status) {
+  if (!status) return 'badge-default';
+  const s = status.toLowerCase();
+  if (s.includes('完了') || s.includes('確認済') || s.includes('支払済') || s.includes('在庫あり')) return 'badge-success';
+  if (s.includes('中') || s.includes('対応中') || s.includes('発注中')) return 'badge-info';
+  if (s.includes('保留') || s.includes('切れ') || s.includes('未払') || s.includes('未確認') || s.includes('未対応')) return 'badge-warning';
+  if (s.includes('キャンセル')) return 'badge-danger';
+  return 'badge-default';
+}
+
+function _renderCustomDocPagination(total) {
+  const container = document.getElementById('customdoc-pagination');
+  if (!container) return;
+  const pages = Math.ceil(total / _customDocLimit);
+  if (pages <= 1) { container.innerHTML = ''; return; }
+  let html = '';
+  for (let i = 1; i <= pages; i++) {
+    const active = i === _customDocPage ? 'style="background:var(--primary);color:#fff;border-color:var(--primary);"' : '';
+    html += '<button class="btn btn-sm" ' + active + ' onclick="_customDocPage=' + i + ';_renderCustomDocTable();">' + i + '</button>';
+  }
+  container.innerHTML = html;
+}
+
+// ── 追加/編集モーダル ──
+function openCustomDocAddModal(entryId) {
+  const type = _customDocTypes.find(t => t.id === _currentCustomDocTypeId);
+  if (!type) { showToast('書類タイプが選択されていません', true); return; }
+
+  const modal = document.getElementById('customdoc-add-modal');
+  if (!modal) return;
+
+  const title = document.getElementById('customdoc-modal-title');
+  const editId = document.getElementById('customdoc-edit-id');
+  if (editId) editId.value = '';
+
+  // ステータス選択肢を構築
+  const statusSel = document.getElementById('customdoc-status');
+  if (statusSel) {
+    const opts = (type.statusOptions || '').split(',').filter(Boolean);
+    statusSel.innerHTML = opts.map(s => '<option value="' + _esc(s) + '">' + _esc(s) + '</option>').join('');
+  }
+
+  // フィールドフォームを動的生成
+  const formArea = document.getElementById('customdoc-form-fields');
+  if (formArea) {
+    let html = '';
+    (type.fields || []).forEach(f => {
+      const req = f.required ? '<span style="color:#dc2626;">★</span>' : '';
+      html += '<div class="form-field" style="margin-bottom:12px;">';
+      html += '<label>' + _esc(f.label) + req + '</label>';
+      const inputId = 'cdfield-' + f.key;
+      if (f.type === 'select') {
+        const opts = (f.options || '').split(',').filter(Boolean);
+        html += '<select id="' + inputId + '" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:13px;">';
+        if (!f.required) html += '<option value=""></option>';
+        opts.forEach(o => { html += '<option value="' + _esc(o) + '">' + _esc(o) + '</option>'; });
+        html += '</select>';
+      } else if (f.type === 'textarea') {
+        html += '<textarea id="' + inputId + '" rows="3" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:13px;resize:vertical;font-family:inherit;"></textarea>';
+      } else if (f.type === 'date') {
+        html += '<input type="date" id="' + inputId + '" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:13px;">';
+      } else if (f.type === 'number') {
+        html += '<input type="number" id="' + inputId + '" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:13px;" placeholder="0">';
+      } else {
+        html += '<input type="text" id="' + inputId + '" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:13px;">';
+      }
+      html += '</div>';
+    });
+    formArea.innerHTML = html;
+  }
+
+  if (entryId) {
+    // 編集
+    const item = _customDocItems.find(i => i._id === entryId);
+    if (item) {
+      if (title) title.textContent = '✏️ 編集';
+      if (editId) editId.value = entryId;
+      if (statusSel) statusSel.value = item._status || '';
+      (type.fields || []).forEach(f => {
+        const el = document.getElementById('cdfield-' + f.key);
+        if (el) el.value = item[f.key] || '';
+      });
+    }
+  } else {
+    if (title) title.textContent = '📝 新規追加';
+    // 日付フィールドに今日の日付をデフォルト設定
+    const today = new Date();
+    const todayStr = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0') + '-' + String(today.getDate()).padStart(2,'0');
+    (type.fields || []).forEach(f => {
+      if (f.type === 'date') {
+        const el = document.getElementById('cdfield-' + f.key);
+        if (el) el.value = todayStr;
+      }
+    });
+  }
+
+  modal.style.display = 'flex';
+}
+
+function closeCustomDocAddModal() {
+  const modal = document.getElementById('customdoc-add-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+function saveCustomDocEntry() {
+  const type = _customDocTypes.find(t => t.id === _currentCustomDocTypeId);
+  if (!type) return;
+
+  // バリデーション
+  const requiredFields = (type.fields || []).filter(f => f.required);
+  for (const f of requiredFields) {
+    const el = document.getElementById('cdfield-' + f.key);
+    if (el && !el.value.trim()) {
+      showToast(f.label + ' は必須です', true);
+      el.focus();
+      return;
+    }
+  }
+
+  const entry = {};
+  const editId = document.getElementById('customdoc-edit-id')?.value;
+  if (editId) entry._id = editId;
+  entry._status = document.getElementById('customdoc-status')?.value || '';
+  (type.fields || []).forEach(f => {
+    const el = document.getElementById('cdfield-' + f.key);
+    entry[f.key] = el ? el.value.trim() : '';
+  });
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success) { showToast('保存に失敗しました: ' + (res ? res.error : '不明'), true); return; }
+      showToast(editId ? '更新しました' : '追加しました');
+      closeCustomDocAddModal();
+      loadCustomDocData();
+    })
+    .withFailureHandler(function(err) { showToast('通信エラー: ' + err.message, true); })
+    .handleApiRequest('customDocSave', { typeId: _currentCustomDocTypeId, entry: entry });
+}
+
+function deleteCustomDocEntry(entryId) {
+  if (!confirm('このデータを削除しますか？この操作は元に戻せません。')) return;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success) { showToast('削除に失敗しました: ' + (res ? res.error : '不明'), true); return; }
+      showToast('削除しました');
+      loadCustomDocData();
+    })
+    .withFailureHandler(function(err) { showToast('通信エラー: ' + err.message, true); })
+    .handleApiRequest('customDocDelete', { typeId: _currentCustomDocTypeId, entryId: entryId });
+}
+
+// ── OCR読み取り ──
+function openCustomDocOcr() {
+  const type = _customDocTypes.find(t => t.id === _currentCustomDocTypeId);
+  if (!type) return;
+  const hasOcr = (type.fields || []).some(f => f.ocr);
+  if (!hasOcr) { showToast('OCR対象フィールドが設定されていません', true); return; }
+
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*,application/pdf';
+  input.onchange = function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    showToast('🔍 OCR解析中...');
+    const reader = new FileReader();
+    reader.onload = function(ev) {
+      const base64 = ev.target.result.split(',')[1];
+      const mimeType = file.type || 'image/jpeg';
+      google.script.run
+        .withSuccessHandler(function(res) {
+          if (!res || !res.success) { showToast('OCR失敗: ' + (res ? res.error : '不明'), true); return; }
+          showToast('✅ OCR完了！フォームに反映しました');
+          openCustomDocAddModal(null);
+          // OCR結果をフォームに反映
+          const extracted = res.extracted || {};
+          Object.keys(extracted).forEach(key => {
+            const el = document.getElementById('cdfield-' + key);
+            if (el && extracted[key]) {
+              // 日付フォーマット変換
+              const field = (type.fields || []).find(f => f.key === key);
+              if (field && field.type === 'date') {
+                const d = new Date(extracted[key]);
+                if (!isNaN(d.getTime())) {
+                  el.value = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+                } else { el.value = extracted[key]; }
+              } else {
+                el.value = extracted[key];
+              }
+            }
+          });
+        })
+        .withFailureHandler(function(err) { showToast('通信エラー: ' + err.message, true); })
+        .handleApiRequest('customDocOcr', { typeId: _currentCustomDocTypeId, base64: base64, mimeType: mimeType });
+    };
+    reader.readAsDataURL(file);
+  };
+  input.click();
+}
+
+// ── CSV出力 ──
+function exportCustomDocCsv() {
+  const type = _customDocTypes.find(t => t.id === _currentCustomDocTypeId);
+  if (!type || _filteredCustomDocItems.length === 0) { showToast('出力するデータがありません', true); return; }
+
+  const fieldKeys = (type.fields || []).map(f => f.key);
+  const fieldLabels = (type.fields || []).map(f => f.label);
+  const headers = ['ID', 'ステータス', '登録日時', '更新日時'].concat(fieldLabels);
+
+  const rows = [headers.join(',')];
+  _filteredCustomDocItems.forEach(item => {
+    const cols = [item._id, item._status, item._createdAt, item._updatedAt]
+      .concat(fieldKeys.map(k => item[k] || ''))
+      .map(v => '"' + String(v).replace(/"/g, '""') + '"');
+    rows.push(cols.join(','));
+  });
+
+  const blob = new Blob(['﻿' + rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = (type.name || 'data') + '_' + new Date().toISOString().substring(0,10) + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('CSVを出力しました');
+}
+
+// ============================================================
+// 書類テンプレート 管理コンソール
+// ============================================================
+
+let _dtLoadedTypes = [];  // 管理コンソールで表示中のタイプ一覧
+
+function _onShowDocTypeTab() {
+  loadDocTypeList();
+}
+
+function loadDocTypeList() {
+  const area = document.getElementById('doc-type-list-area');
+  if (!area) return;
+  area.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted);">⏳ 読み込み中...</div>';
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success) { area.innerHTML = '<div style="padding:20px;color:var(--danger);">❌ 読み込み失敗</div>'; return; }
+      _dtLoadedTypes = res.types || [];
+      _renderDocTypeList();
+    })
+    .handleApiRequest('customDocTypeList', null);
+}
+
+function _renderDocTypeList() {
+  const area = document.getElementById('doc-type-list-area');
+  if (!area) return;
+
+  if (_dtLoadedTypes.length === 0) {
+    area.innerHTML = '<div style="text-align:center;padding:40px 20px;background:white;border-radius:12px;box-shadow:var(--shadow);">'
+      + '<div style="font-size:40px;margin-bottom:12px;">📋</div>'
+      + '<div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:8px;">書類テンプレートがまだありません</div>'
+      + '<div style="font-size:12px;color:var(--text-sub);margin-bottom:20px;">プリセットから追加するか、新規作成してください</div>'
+      + '<div style="display:flex;gap:8px;justify-content:center;">'
+      + '<button class="btn btn-outline" onclick="openDocTypePresetsModal()">⚡ プリセットから追加</button>'
+      + '<button class="btn btn-primary" onclick="openDocTypeModal(null)">＋ 新規作成</button>'
+      + '</div></div>';
+    return;
+  }
+
+  let html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;">';
+  _dtLoadedTypes.forEach(type => {
+    const color = type.color || '#2563eb';
+    const fields = type.fields || [];
+    const ocrCount = fields.filter(f => f.ocr).length;
+    html += '<div style="background:white;border-radius:12px;box-shadow:var(--shadow);border-top:4px solid ' + color + ';padding:18px;">';
+    html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">';
+    html +=   '<div style="font-size:28px;line-height:1;">' + (type.icon || '📄') + '</div>';
+    html +=   '<div><div style="font-size:14px;font-weight:700;">' + _esc(type.name) + '</div>';
+    html +=   '<div style="font-size:11px;color:var(--text-muted);">' + fields.length + ' フィールド / OCR対象 ' + ocrCount + ' 件</div></div>';
+    html += '</div>';
+    if (type.spreadsheetId) {
+      html += '<div style="font-size:11px;color:var(--success);margin-bottom:4px;">✅ スプレッドシート接続済み</div>';
+    } else {
+      html += '<div style="font-size:11px;color:var(--warning);margin-bottom:4px;">⚠️ スプレッドシートID未設定</div>';
+    }
+    if (type.statusOptions) {
+      const opts = type.statusOptions.split(',').filter(Boolean);
+      html += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px;">';
+      opts.forEach(s => { html += '<span class="badge badge-default" style="font-size:10px;">' + _esc(s) + '</span>'; });
+      html += '</div>';
+    }
+    html += '<div style="display:flex;gap:8px;margin-top:4px;">';
+    html +=   '<button class="btn btn-outline btn-sm" style="flex:1;" onclick="openDocTypeModal(\'' + _esc(type.id) + '\')">✏️ 編集</button>';
+    html +=   '<button class="btn btn-primary btn-sm" style="flex:1;" onclick="showCustomDocPage(\'' + _esc(type.id) + '\')">📂 開く</button>';
+    html += '</div></div>';
+  });
+  html += '</div>';
+  area.innerHTML = html;
+}
+
+// ── テンプレート 編集モーダル ──
+function openDocTypeModal(typeId) {
+  const modal = document.getElementById('doctype-modal');
+  if (!modal) return;
+
+  const title    = document.getElementById('doctype-modal-title');
+  const deleteBtn = document.getElementById('dt-delete-btn');
+  document.getElementById('dt-id').value = '';
+  document.getElementById('dt-name').value = '';
+  document.getElementById('dt-icon').value = '📄';
+  document.getElementById('dt-color').value = '#2563eb';
+  document.getElementById('dt-status-options').value = '';
+  document.getElementById('dt-spreadsheet-id').value = '';
+  document.getElementById('dt-sheet-name').value = '';
+  document.getElementById('dt-ocr-prompt').value = '';
+  _dtFields = [];
+
+  if (typeId) {
+    const type = _dtLoadedTypes.find(t => t.id === typeId);
+    if (type) {
+      if (title) title.textContent = '✏️ テンプレートを編集';
+      if (deleteBtn) deleteBtn.style.display = '';
+      document.getElementById('dt-id').value = type.id;
+      document.getElementById('dt-name').value = type.name || '';
+      document.getElementById('dt-icon').value = type.icon || '📄';
+      document.getElementById('dt-color').value = type.color || '#2563eb';
+      document.getElementById('dt-status-options').value = type.statusOptions || '';
+      document.getElementById('dt-spreadsheet-id').value = type.spreadsheetId || '';
+      document.getElementById('dt-sheet-name').value = type.sheetName || '';
+      document.getElementById('dt-ocr-prompt').value = type.ocrPrompt || '';
+      _dtFields = JSON.parse(JSON.stringify(type.fields || []));
+    }
+  } else {
+    if (title) title.textContent = '📋 新規テンプレート作成';
+    if (deleteBtn) deleteBtn.style.display = 'none';
+    _dtFields = [];
+  }
+
+  _renderDtFieldsList();
+  modal.style.display = 'flex';
+}
+
+function closeDocTypeModal() {
+  const modal = document.getElementById('doctype-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+// ── フィールドリスト描画 ──
+function _renderDtFieldsList() {
+  const list = document.getElementById('dt-fields-list');
+  if (!list) return;
+  if (_dtFields.length === 0) {
+    list.innerHTML = '<div style="text-align:center;padding:16px;color:var(--text-muted);font-size:12px;">フィールドがありません。「＋ フィールドを追加」を押してください。</div>';
+    return;
+  }
+  list.innerHTML = _dtFields.map((f, i) => _dtFieldRow(f, i)).join('');
+}
+
+function _dtFieldRow(f, i) {
+  const typeOpts = ['text','date','number','select','textarea'].map(t =>
+    '<option value="' + t + '"' + (f.type === t ? ' selected' : '') + '>' + t + '</option>'
+  ).join('');
+  const last = i === _dtFields.length - 1;
+  let html = '<div id="dtf-row-' + i + '" style="background:white;border:1px solid var(--border);border-radius:8px;padding:8px 10px;">';
+  html += '<div style="display:grid;grid-template-columns:28px 1fr 1fr 90px 46px 60px 58px 32px;gap:4px;align-items:center;">';
+  // 移動ボタン
+  html += '<div style="display:flex;flex-direction:column;gap:1px;">'
+    + '<button onclick="moveDtField(' + i + ',-1)" style="font-size:10px;padding:0 4px;background:none;border:1px solid var(--border);border-radius:3px;cursor:pointer;' + (i===0?'opacity:.3;pointer-events:none;':'') + '">▲</button>'
+    + '<button onclick="moveDtField(' + i + ',1)" style="font-size:10px;padding:0 4px;background:none;border:1px solid var(--border);border-radius:3px;cursor:pointer;' + (last?'opacity:.3;pointer-events:none;':'') + '">▼</button>'
+    + '</div>';
+  // ラベル
+  html += '<input type="text" value="' + _esc(f.label||'') + '" oninput="_dtFields[' + i + '].label=this.value" style="padding:5px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;">';
+  // キー名
+  html += '<input type="text" value="' + _esc(f.key||'') + '" oninput="_dtFields[' + i + '].key=this.value.replace(/[^a-zA-Z0-9_]/g,\'\')" style="padding:5px 6px;border:1px solid var(--border);border-radius:5px;font-size:12px;font-family:monospace;">';
+  // タイプ
+  html += '<select onchange="_dtFields[' + i + '].type=this.value;_renderDtFieldsList();" style="padding:5px 4px;border:1px solid var(--border);border-radius:5px;font-size:12px;">' + typeOpts + '</select>';
+  // 必須
+  html += '<label style="display:flex;justify-content:center;cursor:pointer;"><input type="checkbox"' + (f.required?' checked':'') + ' onchange="_dtFields[' + i + '].required=this.checked"></label>';
+  // 表に表示
+  html += '<label style="display:flex;justify-content:center;cursor:pointer;"><input type="checkbox"' + (f.showInTable?' checked':'') + ' onchange="_dtFields[' + i + '].showInTable=this.checked"></label>';
+  // OCR対象
+  html += '<label style="display:flex;justify-content:center;cursor:pointer;"><input type="checkbox"' + (f.ocr?' checked':'') + ' onchange="_dtFields[' + i + '].ocr=this.checked"></label>';
+  // 削除
+  html += '<button onclick="removeDtField(' + i + ')" style="padding:3px 6px;background:none;border:1px solid #fca5a5;border-radius:5px;color:#dc2626;cursor:pointer;font-size:13px;">✕</button>';
+  html += '</div>';
+  // selectの場合: 選択肢入力欄
+  if (f.type === 'select') {
+    html += '<div style="margin-top:6px;padding-top:6px;border-top:1px dashed var(--border);">';
+    html += '<label style="font-size:11px;color:var(--text-sub);">選択肢（カンマ区切り）：</label>';
+    html += '<input type="text" value="' + _esc(f.options||'') + '" oninput="_dtFields[' + i + '].options=this.value" style="width:100%;margin-top:3px;padding:5px 8px;border:1px solid var(--border);border-radius:5px;font-size:12px;" placeholder="例：選択肢1,選択肢2,選択肢3">';
+    html += '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function addDocTypeField() {
+  _dtFields.push({ key: 'field' + (_dtFields.length + 1), label: 'フィールド' + (_dtFields.length + 1), type: 'text', required: false, showInTable: true, ocr: false });
+  _renderDtFieldsList();
+  // 追加したフィールドまでスクロール
+  const list = document.getElementById('dt-fields-list');
+  if (list) list.scrollTop = list.scrollHeight;
+}
+
+function removeDtField(idx) {
+  _dtFields.splice(idx, 1);
+  _renderDtFieldsList();
+}
+
+function moveDtField(idx, dir) {
+  const newIdx = idx + dir;
+  if (newIdx < 0 || newIdx >= _dtFields.length) return;
+  const tmp = _dtFields[idx];
+  _dtFields[idx] = _dtFields[newIdx];
+  _dtFields[newIdx] = tmp;
+  _renderDtFieldsList();
+}
+
+function saveDocTypeConfig() {
+  const name = document.getElementById('dt-name')?.value.trim();
+  if (!name) { showToast('テンプレート名は必須です', true); document.getElementById('dt-name')?.focus(); return; }
+
+  // フィールドバリデーション
+  const keys = new Set();
+  for (let i = 0; i < _dtFields.length; i++) {
+    const f = _dtFields[i];
+    if (!f.key || !f.key.trim()) { showToast((i+1) + '番目のフィールドのキー名が空です', true); return; }
+    if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(f.key)) { showToast('"' + f.key + '" は英字始まりの半角英数字・アンダースコアのみ使えます', true); return; }
+    if (keys.has(f.key)) { showToast('キー名 "' + f.key + '" が重複しています', true); return; }
+    keys.add(f.key);
+    if (!f.label || !f.label.trim()) { showToast((i+1) + '番目のフィールドのラベルが空です', true); return; }
+  }
+
+  const type = {
+    id:             document.getElementById('dt-id')?.value || undefined,
+    name:           name,
+    icon:           document.getElementById('dt-icon')?.value.trim() || '📄',
+    color:          document.getElementById('dt-color')?.value || '#2563eb',
+    statusOptions:  document.getElementById('dt-status-options')?.value.trim() || '',
+    spreadsheetId:  document.getElementById('dt-spreadsheet-id')?.value.trim() || '',
+    sheetName:      document.getElementById('dt-sheet-name')?.value.trim() || '',
+    ocrPrompt:      document.getElementById('dt-ocr-prompt')?.value.trim() || '',
+    fields:         _dtFields,
+  };
+  if (!type.id) delete type.id;
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success) { showToast('保存に失敗: ' + (res ? res.error : '不明'), true); return; }
+      showToast('✅ テンプレートを保存しました');
+      closeDocTypeModal();
+      loadDocTypeList();
+      // サイドバーを再構築
+      google.script.run
+        .withSuccessHandler(function(r2) {
+          if (r2 && r2.success) { _customDocTypes = r2.types || []; _rebuildCustomDocSidebar(); }
+        })
+        .handleApiRequest('customDocTypeList', null);
+    })
+    .withFailureHandler(function(err) { showToast('通信エラー: ' + err.message, true); })
+    .handleApiRequest('customDocTypeSave', { type: type });
+}
+
+function deleteDocTypeConfig() {
+  const id = document.getElementById('dt-id')?.value;
+  if (!id) return;
+  const name = document.getElementById('dt-name')?.value || 'このテンプレート';
+  if (!confirm('"' + name + '" を削除しますか？\n\n※ スプレッドシートのデータは削除されません。テンプレート設定のみ削除されます。')) return;
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success) { showToast('削除失敗: ' + (res ? res.error : '不明'), true); return; }
+      showToast('テンプレートを削除しました');
+      closeDocTypeModal();
+      loadDocTypeList();
+      google.script.run
+        .withSuccessHandler(function(r2) {
+          if (r2 && r2.success) { _customDocTypes = r2.types || []; _rebuildCustomDocSidebar(); }
+        })
+        .handleApiRequest('customDocTypeList', null);
+    })
+    .handleApiRequest('customDocTypeDelete', { id: id });
+}
+
+// ── プリセット選択モーダル ──
+function openDocTypePresetsModal() {
+  const modal = document.getElementById('doctype-presets-modal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+
+  const list = document.getElementById('presets-list');
+  if (list) list.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted);">⏳ 読み込み中...</div>';
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success || !list) return;
+      const presets = res.presets || [];
+      list.innerHTML = presets.map(p => {
+        return '<div style="background:#f8fafc;border-radius:10px;border:2px solid var(--border);padding:16px;cursor:pointer;transition:all .15s;" '
+          + 'onmouseover="this.style.borderColor=\'' + (p.color||'#2563eb') + '\';this.style.background=\'#eff6ff\';" '
+          + 'onmouseout="this.style.borderColor=\'var(--border)\';this.style.background=\'#f8fafc\';" '
+          + 'onclick="applyDocTypePreset(' + JSON.stringify(JSON.stringify(p)) + ')">'
+          + '<div style="font-size:24px;margin-bottom:8px;">' + (p.icon||'📄') + '</div>'
+          + '<div style="font-size:13px;font-weight:700;margin-bottom:4px;">' + _esc(p.name) + '</div>'
+          + '<div style="font-size:11px;color:var(--text-muted);">' + (p.fields||[]).length + ' フィールド</div>'
+          + '</div>';
+      }).join('');
+    })
+    .handleApiRequest('customDocPresets', null);
+}
+
+function closeDocTypePresetsModal() {
+  const modal = document.getElementById('doctype-presets-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+function applyDocTypePreset(presetJson) {
+  closeDocTypePresetsModal();
+  const preset = JSON.parse(presetJson);
+  // テンプレートモーダルをプリセットで開く
+  openDocTypeModal(null);
+  document.getElementById('dt-name').value  = preset.name  || '';
+  document.getElementById('dt-icon').value  = preset.icon  || '📄';
+  document.getElementById('dt-color').value = preset.color || '#2563eb';
+  document.getElementById('dt-status-options').value = preset.statusOptions || '';
+  document.getElementById('dt-sheet-name').value     = preset.sheetName   || '';
+  document.getElementById('dt-ocr-prompt').value     = preset.ocrPrompt   || '';
+  _dtFields = JSON.parse(JSON.stringify(preset.fields || []));
+  _renderDtFieldsList();
+  showToast('プリセット「' + preset.name + '」を読み込みました。スプレッドシートIDを設定して保存してください。');
+}
 
 </script>

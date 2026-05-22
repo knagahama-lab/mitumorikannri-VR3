@@ -464,6 +464,7 @@ tr:hover td{background:#f8fafc;}
         <button class="admin-tab" onclick="switchAdminTab('external')" id="atab-external">⚡ 外部連携</button>
         <button class="admin-tab" onclick="switchAdminTab('apiconn')" id="atab-apiconn">🔌 外部API連携管理</button>
         <button class="admin-tab" onclick="switchAdminTab('menu')" id="atab-menu">🗂️ メニュー設定</button>
+        <button class="admin-tab" onclick="switchAdminTab('doctype')" id="atab-doctype">📋 書類テンプレート</button>
       </div>
 
       <div id="admin-tab-basic" class="admin-tab-content" style="display:block;">
@@ -672,6 +673,30 @@ tr:hover td{background:#f8fafc;}
             <div style="padding:20px;text-align:center;color:var(--text-sub);font-size:13px;">⏳ 読み込み中...</div>
           </div>
         </div>
+      </div>
+
+      <!-- ======= 書類テンプレート タブ ======= -->
+      <div id="admin-tab-doctype" class="admin-tab-content">
+
+        <!-- プリセット選択バナー -->
+        <div style="background:linear-gradient(135deg,#eff6ff,#f0fdf4);border:1px solid #bfdbfe;border-radius:12px;padding:18px 22px;margin-bottom:18px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+            <div>
+              <h3 style="font-size:15px;font-weight:700;color:#1d4ed8;margin-bottom:4px;">📋 書類テンプレート設定</h3>
+              <p style="font-size:12px;color:#475569;">見積書・注文書以外の書類を独自の項目・OCR設定で管理できます。別スプレッドシートに保存されます。</p>
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn btn-outline btn-sm" onclick="openDocTypePresetsModal()" style="color:#2563eb;border-color:#2563eb;">⚡ プリセットから追加</button>
+              <button class="btn btn-primary btn-sm" onclick="openDocTypeModal(null)">＋ 新規テンプレート作成</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- テンプレート一覧 -->
+        <div id="doc-type-list-area">
+          <div style="padding:30px;text-align:center;color:var(--text-sub);">⏳ 読み込み中...</div>
+        </div>
+
       </div>
 
       <div id="admin-tab-menu" class="admin-tab-content">
@@ -1039,6 +1064,116 @@ tr:hover td{background:#f8fafc;}
 </script>
 
 <?!= include("js") ?>
+
+<!-- ============ カスタム書類 ページ ============ -->
+<div id="page-customdoc" class="page" style="display:none;">
+  <div class="page-heading" id="customdoc-heading">
+    <div>
+      <h2 id="customdoc-title" style="font-size:16px;font-weight:700;">📄 カスタム書類</h2>
+      <div id="customdoc-subtitle" style="font-size:11.5px;color:var(--text-muted);margin-top:2px;"></div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-outline btn-sm" id="customdoc-ocr-btn" onclick="openCustomDocOcr()" title="ファイルをOCRして自動入力">🔍 OCR読み取り</button>
+      <button class="btn btn-primary btn-sm" onclick="openCustomDocAddModal(null)">＋ 追加</button>
+      <button class="btn btn-outline btn-sm" onclick="loadCustomDocData()">🔄</button>
+    </div>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px;">
+    <div class="search-box" style="flex:1;min-width:180px;"><input type="text" id="customdoc-search" placeholder="検索..." oninput="applyCustomDocFilter()"></div>
+    <select id="customdoc-filter-status" onchange="applyCustomDocFilter()" style="font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:#fff;"><option value="">すべてのステータス</option></select>
+    <select id="customdoc-sort-key" onchange="setCustomDocSort(this.value)" style="font-size:12px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:#fff;cursor:pointer;"><option value="_createdAt">📅 登録日</option></select>
+    <button id="customdoc-sort-dir" onclick="setCustomDocSort(document.getElementById('customdoc-sort-key').value)" style="font-size:12px;padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:#fff;cursor:pointer;white-space:nowrap;">↓ 降順</button>
+    <button class="btn btn-outline btn-sm" onclick="clearCustomDocFilter()">クリア</button>
+    <button class="btn btn-outline btn-sm" onclick="exportCustomDocCsv()" style="color:#16a34a;border-color:#16a34a;">📥 CSV</button>
+  </div>
+  <div class="table-wrap">
+    <table class="data-table" id="customdoc-table">
+      <thead id="customdoc-thead"><tr><th>読み込み中...</th></tr></thead>
+      <tbody id="customdoc-tbody"><tr><td>...</td></tr></tbody>
+    </table>
+  </div>
+  <div id="customdoc-pagination" style="margin-top:12px;display:flex;gap:6px;justify-content:center;flex-wrap:wrap;"></div>
+  <div id="customdoc-count" style="text-align:center;font-size:11px;color:var(--text-muted);margin-top:6px;"></div>
+</div>
+
+<!-- ============ カスタム書類 追加/編集モーダル ============ -->
+<div id="customdoc-add-modal" class="modal-overlay" onclick="if(event.target===this)closeCustomDocAddModal()" style="display:none;">
+  <div class="modal" style="max-width:560px;width:95%;max-height:90vh;overflow-y:auto;">
+    <div class="modal-header"><h3 id="customdoc-modal-title" class="modal-title">📝 新規追加</h3><button class="modal-close" onclick="closeCustomDocAddModal()">✕</button></div>
+    <div class="modal-body" style="padding:20px;">
+      <input type="hidden" id="customdoc-edit-id">
+      <div id="customdoc-form-fields"></div>
+      <div class="form-field" style="margin-top:14px;"><label>ステータス</label><select id="customdoc-status" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:13px;"></select></div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:20px;">
+        <button class="btn btn-outline" onclick="closeCustomDocAddModal()">キャンセル</button>
+        <button class="btn btn-primary" onclick="saveCustomDocEntry()">💾 保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 書類テンプレート 編集モーダル ============ -->
+<div id="doctype-modal" class="modal-overlay" onclick="if(event.target===this)closeDocTypeModal()" style="display:none;">
+  <div class="modal" style="max-width:720px;width:97%;max-height:94vh;overflow-y:auto;">
+    <div class="modal-header"><h3 id="doctype-modal-title" class="modal-title">📋 テンプレート設定</h3><button class="modal-close" onclick="closeDocTypeModal()">✕</button></div>
+    <div class="modal-body" style="padding:20px;">
+      <input type="hidden" id="dt-id">
+      <div style="background:#f8fafc;border-radius:10px;padding:16px;margin-bottom:16px;border:1px solid var(--border);">
+        <div style="font-size:12px;font-weight:700;color:var(--text-sub);margin-bottom:12px;text-transform:uppercase;letter-spacing:.05em;">基本情報</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="form-field"><label>テンプレート名 ★</label><input type="text" id="dt-name" placeholder="例：家計簿、指示書"></div>
+          <div class="form-field"><label>アイコン（絵文字）</label><input type="text" id="dt-icon" placeholder="💰" style="font-size:18px;" maxlength="4"></div>
+          <div class="form-field"><label>テーマカラー</label><input type="color" id="dt-color" value="#2563eb" style="height:38px;width:100%;cursor:pointer;border-radius:6px;border:1px solid var(--border);padding:2px 4px;"></div>
+          <div class="form-field"><label>ステータス選択肢（カンマ区切り）</label><input type="text" id="dt-status-options" placeholder="例：未確認,確認済み,完了"></div>
+        </div>
+      </div>
+      <div style="background:#f8fafc;border-radius:10px;padding:16px;margin-bottom:16px;border:1px solid var(--border);">
+        <div style="font-size:12px;font-weight:700;color:var(--text-sub);margin-bottom:12px;text-transform:uppercase;letter-spacing:.05em;">スプレッドシート設定</div>
+        <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;">
+          <div class="form-field"><label>スプレッドシートID ★</label><input type="text" id="dt-spreadsheet-id" placeholder="GoogleスプレッドシートのURLにある長いID"><div style="font-size:11px;color:var(--text-muted);margin-top:4px;">URLの /d/ と /edit の間にある文字列</div></div>
+          <div class="form-field"><label>シート名</label><input type="text" id="dt-sheet-name" placeholder="データ（空白でデフォルト）"></div>
+        </div>
+      </div>
+      <div style="background:#f8fafc;border-radius:10px;padding:16px;margin-bottom:16px;border:1px solid var(--border);">
+        <div style="font-size:12px;font-weight:700;color:var(--text-sub);margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em;">OCR 設定</div>
+        <div class="form-field"><label>OCRプロンプト（空白でデフォルト自動生成）</label><textarea id="dt-ocr-prompt" rows="3" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:12px;resize:vertical;font-family:inherit;" placeholder="例：レシートから日付・カテゴリ・金額・支払先を抽出してください。"></textarea></div>
+      </div>
+      <div style="background:#f8fafc;border-radius:10px;padding:16px;margin-bottom:16px;border:1px solid var(--border);">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+          <div style="font-size:12px;font-weight:700;color:var(--text-sub);text-transform:uppercase;letter-spacing:.05em;">フィールド設定</div>
+          <button class="btn btn-outline btn-sm" onclick="addDocTypeField()" style="color:#2563eb;border-color:#2563eb;">＋ フィールドを追加</button>
+        </div>
+        <div style="display:grid;grid-template-columns:28px 1fr 1fr 90px 46px 60px 58px 32px;gap:4px;padding:0 4px 6px;font-size:10px;font-weight:700;color:var(--text-sub);border-bottom:1px solid var(--border);margin-bottom:8px;">
+          <span></span><span>ラベル</span><span>キー名（英数字）</span><span>タイプ</span><span>必須</span><span>表に表示</span><span>OCR対象</span><span></span>
+        </div>
+        <div id="dt-fields-list" style="display:flex;flex-direction:column;gap:6px;min-height:40px;max-height:340px;overflow-y:auto;padding:2px 0;"></div>
+        <div style="margin-top:10px;font-size:11px;color:var(--text-muted);background:#fff;border-radius:6px;padding:8px 12px;border:1px solid var(--border);">
+          <strong>タイプ：</strong> text=テキスト / date=日付 / number=数値 / select=選択肢 / textarea=複数行<br>
+          selectを選ぶと<em>選択肢（カンマ区切り）</em>入力欄が現れます。
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding-top:4px;">
+        <button class="btn btn-danger btn-sm" id="dt-delete-btn" onclick="deleteDocTypeConfig()" style="display:none;">🗑️ このテンプレートを削除</button>
+        <div style="display:flex;gap:8px;margin-left:auto;">
+          <button class="btn btn-outline" onclick="closeDocTypeModal()">キャンセル</button>
+          <button class="btn btn-primary" onclick="saveDocTypeConfig()">💾 保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ プリセット選択モーダル ============ -->
+<div id="doctype-presets-modal" class="modal-overlay" onclick="if(event.target===this)closeDocTypePresetsModal()" style="display:none;">
+  <div class="modal" style="max-width:620px;width:95%;">
+    <div class="modal-header"><h3 class="modal-title">⚡ プリセットから書類テンプレートを追加</h3><button class="modal-close" onclick="closeDocTypePresetsModal()">✕</button></div>
+    <div class="modal-body" style="padding:20px;">
+      <p style="font-size:12px;color:var(--text-sub);margin-bottom:16px;">よく使われる書類タイプのテンプレートを選択してください。後から項目を自由に編集できます。</p>
+      <div id="presets-list" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;"><div style="text-align:center;padding:20px;color:var(--text-muted);">⏳ 読み込み中...</div></div>
+      <div style="text-align:right;margin-top:16px;"><button class="btn btn-outline" onclick="closeDocTypePresetsModal()">閉じる</button></div>
+    </div>
+  </div>
+</div>
 
 <div class="modal-overlay" id="api-conn-modal" onclick="if(event.target===this)closeApiConnModal()">
   <div class="modal" style="max-width:600px;">
