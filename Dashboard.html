@@ -125,6 +125,11 @@ tr:hover td{background:#f8fafc;}
 .badge-trial{background:var(--trial-bg);color:var(--trial-fg);}
 .badge-mass{background:var(--mass-bg);color:var(--mass-fg);}
 .badge-linked{background:var(--s-done-bg);color:var(--s-done-fg);}
+.badge-default{background:#f1f5f9;color:#475569;}
+.badge-success{background:#f0fdf4;color:#16a34a;}
+.badge-info{background:#eff6ff;color:#2563eb;}
+.badge-warning{background:#fffbeb;color:#d97706;}
+.badge-danger{background:#fef2f2;color:#dc2626;}
 
 .btn{ padding:7px 14px; border-radius:var(--radius-sm); border:1px solid var(--border); cursor:pointer; font-size:12px; font-weight:600; display:inline-flex; align-items:center; gap:5px; transition:all .15s; background:var(--card); color:var(--text); }
 .btn:hover{background:var(--bg);}
@@ -1066,7 +1071,7 @@ tr:hover td{background:#f8fafc;}
 <?!= include("js") ?>
 
 <!-- ============ カスタム書類 ページ ============ -->
-<div id="page-customdoc" class="page" style="display:none;">
+<div id="page-customdoc" class="page">
   <div class="page-heading" id="customdoc-heading">
     <div>
       <h2 id="customdoc-title" style="font-size:16px;font-weight:700;">📄 カスタム書類</h2>
@@ -1097,7 +1102,7 @@ tr:hover td{background:#f8fafc;}
 </div>
 
 <!-- ============ カスタム書類 追加/編集モーダル ============ -->
-<div id="customdoc-add-modal" class="modal-overlay" onclick="if(event.target===this)closeCustomDocAddModal()" style="display:none;">
+<div id="customdoc-add-modal" class="modal-overlay" onclick="if(event.target===this)closeCustomDocAddModal()">
   <div class="modal" style="max-width:560px;width:95%;max-height:90vh;overflow-y:auto;">
     <div class="modal-header"><h3 id="customdoc-modal-title" class="modal-title">📝 新規追加</h3><button class="modal-close" onclick="closeCustomDocAddModal()">✕</button></div>
     <div class="modal-body" style="padding:20px;">
@@ -1113,7 +1118,7 @@ tr:hover td{background:#f8fafc;}
 </div>
 
 <!-- ============ 書類テンプレート 編集モーダル ============ -->
-<div id="doctype-modal" class="modal-overlay" onclick="if(event.target===this)closeDocTypeModal()" style="display:none;">
+<div id="doctype-modal" class="modal-overlay" onclick="if(event.target===this)closeDocTypeModal()">
   <div class="modal" style="max-width:720px;width:97%;max-height:94vh;overflow-y:auto;">
     <div class="modal-header"><h3 id="doctype-modal-title" class="modal-title">📋 テンプレート設定</h3><button class="modal-close" onclick="closeDocTypeModal()">✕</button></div>
     <div class="modal-body" style="padding:20px;">
@@ -1164,7 +1169,7 @@ tr:hover td{background:#f8fafc;}
 </div>
 
 <!-- ============ プリセット選択モーダル ============ -->
-<div id="doctype-presets-modal" class="modal-overlay" onclick="if(event.target===this)closeDocTypePresetsModal()" style="display:none;">
+<div id="doctype-presets-modal" class="modal-overlay" onclick="if(event.target===this)closeDocTypePresetsModal()">
   <div class="modal" style="max-width:620px;width:95%;">
     <div class="modal-header"><h3 class="modal-title">⚡ プリセットから書類テンプレートを追加</h3><button class="modal-close" onclick="closeDocTypePresetsModal()">✕</button></div>
     <div class="modal-body" style="padding:20px;">

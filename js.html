@@ -288,6 +288,7 @@ function showPage(name){
   if(name==='model') loadModelMaster();
   if(name==='checklist' && typeof initChecklistPage==='function') initChecklistPage();
   if(name==='quotecheck' && typeof initQuoteCheckPage==='function') initQuoteCheckPage();
+  // カスタム書類ページへの直接遷移は showCustomDocPage() を使う（このルートは通常通らない）
 }
 function toggleSidebar(){ document.getElementById('sidebar').classList.toggle('collapsed'); }
 
@@ -3016,18 +3017,20 @@ function showCustomDocPage(typeId) {
   const heading = document.getElementById('customdoc-heading');
   if (heading && type.color) heading.style.borderLeft = '4px solid ' + type.color;
 
-  // サイドバーのアクティブ状態を更新
+  // トップバータイトル更新
+  const titleBar = document.getElementById('topbar-page-title');
+  if (titleBar) titleBar.textContent = (type.icon || '📄') + ' ' + type.name;
+
+  // サイドバーのアクティブ状態を更新（通常nav + customdoc nav）
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
   const navItem = document.querySelector('.nav-item[data-customdoc="' + typeId + '"]');
   if (navItem) navItem.classList.add('active');
 
-  // ページ切り替え
-  document.querySelectorAll('.page').forEach(p => p.style.display = 'none');
+  // ページ切り替え（showPage と同じ class ベース — インラインstyle は使わない）
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   const page = document.getElementById('page-customdoc');
-  if (page) page.style.display = '';
+  if (page) { page.classList.add('active'); const ct = document.getElementById('content'); if(ct) ct.scrollTop = 0; }
 
-  // ヘッダータイトル更新
-  const mainTitle = document.querySelector('#page-customdoc h2');
   // データ読み込み
   loadCustomDocData();
 }
@@ -3263,12 +3266,12 @@ function openCustomDocAddModal(entryId) {
     });
   }
 
-  modal.style.display = 'flex';
+  modal.classList.add('open');
 }
 
 function closeCustomDocAddModal() {
   const modal = document.getElementById('customdoc-add-modal');
-  if (modal) modal.style.display = 'none';
+  if (modal) modal.classList.remove('open');
 }
 
 function saveCustomDocEntry() {
@@ -3503,12 +3506,12 @@ function openDocTypeModal(typeId) {
   }
 
   _renderDtFieldsList();
-  modal.style.display = 'flex';
+  modal.classList.add('open');
 }
 
 function closeDocTypeModal() {
   const modal = document.getElementById('doctype-modal');
-  if (modal) modal.style.display = 'none';
+  if (modal) modal.classList.remove('open');
 }
 
 // ── フィールドリスト描画 ──
@@ -3652,7 +3655,7 @@ function deleteDocTypeConfig() {
 function openDocTypePresetsModal() {
   const modal = document.getElementById('doctype-presets-modal');
   if (!modal) return;
-  modal.style.display = 'flex';
+  modal.classList.add('open');
 
   const list = document.getElementById('presets-list');
   if (list) list.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted);">⏳ 読み込み中...</div>';
@@ -3677,7 +3680,7 @@ function openDocTypePresetsModal() {
 
 function closeDocTypePresetsModal() {
   const modal = document.getElementById('doctype-presets-modal');
-  if (modal) modal.style.display = 'none';
+  if (modal) modal.classList.remove('open');
 }
 
 function applyDocTypePreset(presetJson) {
