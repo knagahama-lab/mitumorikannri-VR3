@@ -833,8 +833,12 @@ tr:hover td{background:#f8fafc;}
       <div id="approval-container"><div class="loading" style="text-align:center;padding:40px;color:var(--text-muted);">準備中</div></div>
     </div>
     <div id="page-board" class="page">
-      <div class="page-heading"><div><h2>🏷️ 基板管理</h2></div></div>
-      <div id="board-container"><div class="loading" style="text-align:center;padding:40px;color:var(--text-muted);">準備中</div></div>
+      <div class="page-heading"><div><h2>🏷️ 基板マスタ</h2></div></div>
+      <div id="board-container"><div class="loading" style="text-align:center;padding:40px;color:var(--text-muted);"><div class="spinner"></div><br>読み込み中...</div></div>
+    </div>
+    <div id="page-simulation" class="page">
+      <div class="page-heading"><div><h2>💰 利益シミュレーション</h2><p style="font-size:12px;color:var(--text-sub);margin-top:2px;">エバーライト通常版 — 数量・単価から利益率を即時計算</p></div></div>
+      <div id="simulation-container"></div>
     </div>
     <div id="page-analysis" class="page">
       <div class="page-heading"><div><h2>📊 分析・レポート</h2></div></div>
@@ -901,6 +905,30 @@ tr:hover td{background:#f8fafc;}
   <div class="modal">
     <div class="modal-head"><h3 id="quote-detail-title">見積書詳細</h3><button class="modal-close" onclick="closeQuoteDetail()">✕</button></div>
     <div class="modal-body" id="quote-detail-body"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="board-modal" onclick="if(event.target===this)closeBoardModal()">
+  <div class="modal" style="max-width:500px;">
+    <div class="modal-head"><h3>🏷️ 基板マスタ 編集</h3><button class="modal-close" onclick="closeBoardModal()">✕</button></div>
+    <div class="modal-body">
+      <input type="hidden" id="board-edit-id">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div class="form-field"><label>基板名 <span style="color:var(--danger);">*</span></label><input type="text" id="board-edit-name" placeholder="例: EVL-001 基板A"></div>
+        <div class="form-field"><label>コード</label><input type="text" id="board-edit-code" placeholder="例: EVL-001"></div>
+        <div class="form-field"><label>機種</label>
+          <select id="board-edit-productId" style="width:100%;border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:13px;background:#fff;">
+            <option value="">（機種未選択）</option>
+          </select>
+        </div>
+        <div class="form-field"><label>バージョン</label><input type="text" id="board-edit-version" placeholder="例: v1.0"></div>
+      </div>
+      <div class="form-field" style="margin-bottom:16px;"><label>説明</label><input type="text" id="board-edit-desc" placeholder="説明・メモ"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button class="btn btn-outline" onclick="closeBoardModal()">キャンセル</button>
+        <button class="btn btn-primary" onclick="saveBoardEntry()">💾 保存</button>
+      </div>
+    </div>
   </div>
 </div>
 

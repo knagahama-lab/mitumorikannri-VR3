@@ -105,8 +105,8 @@ function apiOcrApprove(p) {
       return { success: false, error: 'セッションの有効期限が切れました。再度PDFをアップロードしてください。' };
     }
 
-    // フロントで修正されたOCR結果でオーバーライド
-    var ocr = p.correctedOcr || pending.ocrResult;
+    // フロントで修正されたOCR結果を元データにマージ（修正フィールドのみ上書き）
+    var ocr = Object.assign({}, pending.ocrResult, p.correctedOcr || {});
 
     // 修正されたlineItemsの数値を再正規化
     if (ocr.lineItems) {

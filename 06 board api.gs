@@ -330,6 +330,7 @@ function _apiQuoteListGetAll() {
         quoteAmount: _toNum(r[MGMT_COLS.QUOTE_AMOUNT - 1]),
         status:      String(r[MGMT_COLS.STATUS - 1]        || ''),
         quotePdfUrl: String(r[MGMT_COLS.QUOTE_PDF_URL - 1] || ''),
+        orderPdfUrl: String(r[MGMT_COLS.ORDER_PDF_URL - 1] || ''),
         orderNo:     String(r[MGMT_COLS.ORDER_NO - 1]      || ''),
         linked:      _isLinkedVal(r[MGMT_COLS.LINKED - 1]),
         orderType:   String(r[MGMT_COLS.ORDER_TYPE - 1]    || ''),

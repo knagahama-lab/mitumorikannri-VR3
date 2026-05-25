@@ -445,6 +445,7 @@ function _buildOcrPrompt(docType) {
       ' "documentNo": "見積番号",\n' +
       ' "issueDate": "発行日(YYYY/MM/DD)",\n' +
       ' "documentDate": "見積日(YYYY/MM/DD)",\n' +
+      ' "deliveryDate": "納期(YYYY/MM/DD または 記載通り。なければ空文字)",\n' +
       ' "destCompany": "送り先・宛先の会社名",\n' +
       ' "destPerson": "送り先担当者名（なければ空文字）",\n' +
       ' "clientName": "顧客企業名",\n' +
@@ -590,7 +591,7 @@ function _processQuotePdfFromFile(pdfUrl, folderUrl, ocr, msgId) {
   var mgmtSheet = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT);
   var newRow    = mgmtSheet.getLastRow() + 1;
 
-  var row = new Array(27).fill('');
+  var row = new Array(32).fill('');
   row[MGMT_COLS.ID               - 1] = mgmtId;
   row[MGMT_COLS.QUOTE_NO         - 1] = ocr.documentNo     || '';
   row[MGMT_COLS.SUBJECT          - 1] = ocr.subject        || '';
@@ -603,10 +604,11 @@ function _processQuotePdfFromFile(pdfUrl, folderUrl, ocr, msgId) {
   row[MGMT_COLS.QUOTE_PDF_URL    - 1] = pdfUrl;
   row[MGMT_COLS.DRIVE_FOLDER_URL - 1] = folderUrl;
   row[MGMT_COLS.LINKED           - 1] = 'FALSE';
+  row[MGMT_COLS.DELIVERY_DATE    - 1] = ocr.deliveryDate   || '';
   row[MGMT_COLS.CREATED_AT       - 1] = nowJST();
   row[MGMT_COLS.UPDATED_AT       - 1] = nowJST();
   row[MGMT_COLS.GMAIL_MSG_ID     - 1] = msgId;
-  mgmtSheet.getRange(newRow, 1, 1, 27).setValues([row]);
+  mgmtSheet.getRange(newRow, 1, 1, 32).setValues([row]);
 
   _writeQuoteLines(ss, mgmtSheet, newRow, mgmtId, ocr, pdfUrl, folderUrl);
 
