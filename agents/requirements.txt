@@ -1,0 +1,6 @@
+# agents/ 依存パッケージ
+# pip install -r agents/requirements.txt
+
+anthropic>=0.34.0        # Claude API（tool_use 対応版）
+requests>=2.31.0         # GAS / ERP HTTP クライアント
+python-dotenv>=1.0.0     # .env ファイル読み込み（任意）
