@@ -366,26 +366,48 @@ function _writeCompareResultToSheets(ss, mgmtId, orderNo, lineResults, overallSt
 // 通知
 // ============================================================
 function _sendOrderConfirmNotification(result) {
-  var subject = '✅ 【自動受注登録完了】' + result.subject + '（' + result.client + '）';
-  var body = [
+  var subject = '[自動受注登録完了] ' + result.subject + '(' + result.client + ')';
+  var plainBody = [
     '以下の案件が自動的に受注登録されました。',
     '',
     '管理ID: ' + result.mgmtId,
     '顧客名: ' + result.client,
-    '件名:   ' + result.subject,
-    '見積No: ' + result.quoteNo,
-    '注文No: ' + result.orderNo,
-    '注文種別:' + result.orderType,
+    '件名: '   + result.subject,
+    '見積No: '  + result.quoteNo,
+    '注文No: '  + result.orderNo,
+    '注文種別: '+ result.orderType,
     '',
-    '■ 単価比較結果',
+    '単価比較結果:',
     result.summary,
     '',
     '次のステップ: 製品発注の準備を開始してください。',
     '確認日時: ' + result.comparedAt,
   ].join('\n');
+  var htmlBody = [
+    '<!DOCTYPE html><html><head><meta charset="UTF-8"></head>',
+    '<body style="font-family:\'Helvetica Neue\',Arial,\'Hiragino Kaku Gothic ProN\',sans-serif;font-size:14px;color:#333;margin:0;padding:0;">',
+    '<div style="max-width:600px;margin:20px auto;border:1px solid #dde3ea;border-radius:8px;overflow:hidden;">',
+    '<div style="background:#16a34a;color:#fff;padding:14px 20px;font-size:16px;font-weight:bold;">自動受注登録完了</div>',
+    '<div style="padding:20px;">',
+    '<p>以下の案件が自動的に受注登録されました。</p>',
+    '<table style="border-collapse:collapse;width:100%;">',
+    '<tr><th style="text-align:left;padding:6px 12px;background:#f0f4f8;border:1px solid #dde3ea;white-space:nowrap;">管理ID</th><td style="padding:6px 12px;border:1px solid #dde3ea;">'     + result.mgmtId    + '</td></tr>',
+    '<tr><th style="text-align:left;padding:6px 12px;background:#f0f4f8;border:1px solid #dde3ea;white-space:nowrap;">顧客名</th><td style="padding:6px 12px;border:1px solid #dde3ea;">'     + result.client    + '</td></tr>',
+    '<tr><th style="text-align:left;padding:6px 12px;background:#f0f4f8;border:1px solid #dde3ea;white-space:nowrap;">件名</th><td style="padding:6px 12px;border:1px solid #dde3ea;">'       + result.subject   + '</td></tr>',
+    '<tr><th style="text-align:left;padding:6px 12px;background:#f0f4f8;border:1px solid #dde3ea;white-space:nowrap;">見積No</th><td style="padding:6px 12px;border:1px solid #dde3ea;">'    + result.quoteNo   + '</td></tr>',
+    '<tr><th style="text-align:left;padding:6px 12px;background:#f0f4f8;border:1px solid #dde3ea;white-space:nowrap;">注文No</th><td style="padding:6px 12px;border:1px solid #dde3ea;">'    + result.orderNo   + '</td></tr>',
+    '<tr><th style="text-align:left;padding:6px 12px;background:#f0f4f8;border:1px solid #dde3ea;white-space:nowrap;">注文種別</th><td style="padding:6px 12px;border:1px solid #dde3ea;">' + result.orderType + '</td></tr>',
+    '<tr><th style="text-align:left;padding:6px 12px;background:#f0f4f8;border:1px solid #dde3ea;white-space:nowrap;">単価比較結果</th><td style="padding:6px 12px;border:1px solid #dde3ea;white-space:pre-wrap;">' + result.summary + '</td></tr>',
+    '<tr><th style="text-align:left;padding:6px 12px;background:#f0f4f8;border:1px solid #dde3ea;white-space:nowrap;">確認日時</th><td style="padding:6px 12px;border:1px solid #dde3ea;">'  + result.comparedAt + '</td></tr>',
+    '</table>',
+    '<p style="margin-top:16px;">次のステップ: 製品発注の準備を開始してください。</p>',
+    '</div>',
+    '<div style="background:#f8fafc;padding:10px 20px;font-size:11px;color:#94a3b8;border-top:1px solid #dde3ea;">このメールは自動送信です。</div>',
+    '</div></body></html>',
+  ].join('');
 
   try {
-    GmailApp.sendEmail(Session.getActiveUser().getEmail(), subject, body);
+    GmailApp.sendEmail(Session.getActiveUser().getEmail(), subject, plainBody, { htmlBody: htmlBody });
   } catch(e) {
     Logger.log('[NOTIFY] メール送信失敗: ' + e.message);
   }
@@ -416,26 +438,57 @@ function _sendDiffAlert(result) {
   });
   if (!diffLines.length) return;
 
-  var subject = '⚠️ 【単価差異あり・要確認】' + result.subject + '（' + result.client + '）';
-  var body = [
+  var subject = '[単価差異あり・要確認] ' + result.subject + '(' + result.client + ')';
+  var diffRowsPlain = diffLines.map(function(r) {
+    return '  [行' + r.lineNo + '] ' + r.itemName + '\n    ' + r.message;
+  }).join('\n');
+  var diffRowsHtml = diffLines.map(function(r) {
+    return '<tr style="background:#fff8f0;"><td style="padding:6px 12px;border:1px solid #dde3ea;">' + r.lineNo + '</td>'
+      + '<td style="padding:6px 12px;border:1px solid #dde3ea;">' + r.itemName + '</td>'
+      + '<td style="padding:6px 12px;border:1px solid #dde3ea;color:#dc2626;">' + r.message + '</td></tr>';
+  }).join('');
+
+  var plainBody = [
     '単価差異または未対応品目が見つかりました。確認をお願いします。',
     '',
     '管理ID: ' + result.mgmtId,
     '顧客名: ' + result.client,
-    '件名:   ' + result.subject,
-    '見積No: ' + result.quoteNo,
-    '注文No: ' + result.orderNo,
+    '件名: '   + result.subject,
+    '見積No: '  + result.quoteNo,
+    '注文No: '  + result.orderNo,
     '',
-    '■ 差異・未対応の明細行 (' + diffLines.length + '行)',
-    diffLines.map(function(r) {
-      return '  [行' + r.lineNo + '] ' + r.itemName + '\n    ' + r.message;
-    }).join('\n'),
+    '差異・未対応の明細行 (' + diffLines.length + '行):',
+    diffRowsPlain,
     '',
     '確認日時: ' + result.comparedAt,
   ].join('\n');
 
+  var htmlBody = [
+    '<!DOCTYPE html><html><head><meta charset="UTF-8"></head>',
+    '<body style="font-family:\'Helvetica Neue\',Arial,\'Hiragino Kaku Gothic ProN\',sans-serif;font-size:14px;color:#333;margin:0;padding:0;">',
+    '<div style="max-width:640px;margin:20px auto;border:1px solid #dde3ea;border-radius:8px;overflow:hidden;">',
+    '<div style="background:#dc2626;color:#fff;padding:14px 20px;font-size:16px;font-weight:bold;">単価差異あり・要確認</div>',
+    '<div style="padding:20px;">',
+    '<p>単価差異または未対応品目が見つかりました。確認をお願いします。</p>',
+    '<table style="border-collapse:collapse;width:100%;margin-bottom:16px;">',
+    '<tr><th style="text-align:left;padding:6px 12px;background:#f0f4f8;border:1px solid #dde3ea;white-space:nowrap;">管理ID</th><td style="padding:6px 12px;border:1px solid #dde3ea;">'  + result.mgmtId + '</td></tr>',
+    '<tr><th style="text-align:left;padding:6px 12px;background:#f0f4f8;border:1px solid #dde3ea;white-space:nowrap;">顧客名</th><td style="padding:6px 12px;border:1px solid #dde3ea;">'  + result.client + '</td></tr>',
+    '<tr><th style="text-align:left;padding:6px 12px;background:#f0f4f8;border:1px solid #dde3ea;white-space:nowrap;">件名</th><td style="padding:6px 12px;border:1px solid #dde3ea;">'    + result.subject + '</td></tr>',
+    '<tr><th style="text-align:left;padding:6px 12px;background:#f0f4f8;border:1px solid #dde3ea;white-space:nowrap;">見積No</th><td style="padding:6px 12px;border:1px solid #dde3ea;">' + result.quoteNo + '</td></tr>',
+    '<tr><th style="text-align:left;padding:6px 12px;background:#f0f4f8;border:1px solid #dde3ea;white-space:nowrap;">注文No</th><td style="padding:6px 12px;border:1px solid #dde3ea;">' + result.orderNo + '</td></tr>',
+    '</table>',
+    '<p style="font-weight:bold;color:#dc2626;">差異・未対応の明細行 (' + diffLines.length + '行)</p>',
+    '<table style="border-collapse:collapse;width:100%;">',
+    '<thead><tr style="background:#f0f4f8;"><th style="padding:6px 12px;border:1px solid #dde3ea;">行</th><th style="padding:6px 12px;border:1px solid #dde3ea;">品目名</th><th style="padding:6px 12px;border:1px solid #dde3ea;">内容</th></tr></thead>',
+    '<tbody>' + diffRowsHtml + '</tbody></table>',
+    '<p style="color:#6b7280;font-size:12px;margin-top:16px;">確認日時: ' + result.comparedAt + '</p>',
+    '</div>',
+    '<div style="background:#f8fafc;padding:10px 20px;font-size:11px;color:#94a3b8;border-top:1px solid #dde3ea;">このメールは自動送信です。</div>',
+    '</div></body></html>',
+  ].join('');
+
   try {
-    GmailApp.sendEmail(Session.getActiveUser().getEmail(), subject, body);
+    GmailApp.sendEmail(Session.getActiveUser().getEmail(), subject, plainBody, { htmlBody: htmlBody });
   } catch(e) {
     Logger.log('[NOTIFY] 差異アラートメール送信失敗: ' + e.message);
   }

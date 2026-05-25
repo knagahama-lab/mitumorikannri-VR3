@@ -190,8 +190,8 @@ function exportOrderPdf() {
 // ── 見積書一覧 ──
 function exportQuoteCsv() {
   const data = _filteredQuotes.length ? _filteredQuotes : _allQuotes;
-  const headers = ['見積No.','件名','発行日','機種','宛先','見積金額','ステータス','注文書番号'];
-  const rows = data.map(r => [r.quoteNo||'',r.subject||'',r.issueDate||r.quoteDate||'',r.modelCode||r.machineCode||'',r.destCompany||r.client||'',r.quoteAmount||'',r.status||'',r.orderNo||'']);
+  const headers = ['見積No.','件名','発行日','機種','基板名','宛先','見積金額','ステータス','注文書番号'];
+  const rows = data.map(r => [r.quoteNo||'',r.subject||'',r.issueDate||r.quoteDate||'',r.modelCode||r.machineCode||'',r.boardName||'',r.destCompany||r.client||'',r.quoteAmount||'',r.status||'',r.orderNo||'']);
   _downloadCsv('見積書一覧_' + _today() + '.csv', headers, rows);
 }
 function exportQuotePdf() {
@@ -571,7 +571,9 @@ function _mergeLedgerIntoQuotes() {
       quoteAmount: led.amount || 0,
       status: led.status || '作成予定',
       quotePdfUrl: led.saveUrl || '',
+      orderPdfUrl: '',
       modelCode: led.machineCode || led.modelCode || '',
+      boardName: led.boardName || '',
       linked: false,
       orderNo: '',
       _fromLedger: true,
@@ -608,6 +610,7 @@ function _renderQuoteTable() {
       <td class="editable-cell" onclick="startInlineEdit(event, '${realId}', 'subject', '${_esc(r.subject||'')}', '${editType}')" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.subject || ''}">${r.subject || '—'}</td>
       <td class="editable-cell" onclick="startInlineEditDate(event, '${realId}', 'issueDate', '${_esc(r.issueDate||r.quoteDate||"")}', '${editType}')" style="font-size:12px;color:var(--text-sub);white-space:nowrap;">${r.issueDate || r.quoteDate || '<span style=\"color:var(--text-muted);">—</span>'}</td>
       <td class="editable-cell" onclick="startInlineEditAutocomplete(event, '${realId}', '${fromLedger?'machineCode':'modelCode'}', '${_esc(r.modelCode||r.machineCode||'')}', '${editType}')" style="min-width:80px;">${r.modelCode||r.machineCode||'<span style="color:var(--text-muted);">—</span>'}</td>
+      <td class="editable-cell" onclick="startInlineEdit(event, '${realId}', 'boardName', '${_esc(r.boardName||'')}', '${fromLedger?'ledger':'mgmt'}')" style="max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.boardName||''}">${r.boardName||'<span style="color:var(--text-muted);">—</span>'}</td>
       <td class="editable-cell" onclick="startInlineEdit(event, '${realId}', '${fromLedger?'dest':'client'}', '${_esc(r.destCompany||r.client||'')}', '${editType}')" style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.destCompany||r.client||''}">${r.destCompany || r.client || '—'}</td>
       <td class="editable-cell" onclick="startInlineEdit(event, '${realId}', '${fromLedger?'amount':'quoteAmount'}', '${r.quoteAmount||''}', '${editType}')" style="text-align:right;white-space:nowrap;">${r.quoteAmount ? Number(r.quoteAmount).toLocaleString() + ' 円' : '—'}</td>
       <td onclick="event.stopPropagation();">${_statusSelectHtml(selectId, r.status, fromLedger ? 'ledger' : 'mgmt')}</td>
@@ -625,7 +628,7 @@ function _renderQuoteTable() {
       </td>
     </tr>`;
   }).join('');
-  document.getElementById('quotelist-container').innerHTML = `<div style="overflow-x:auto;"><table><thead><tr><th>見積No.</th><th>件名（ファイル名）</th><th>発行日</th><th>機種</th><th>宛先</th><th>金額</th><th>ステータス</th><th>紐づけ状況</th><th>注文書番号</th><th>見積PDF</th><th>注文書PDF</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  document.getElementById('quotelist-container').innerHTML = `<div style="overflow-x:auto;"><table><thead><tr><th>見積No.</th><th>件名（ファイル名）</th><th>発行日</th><th>機種</th><th>基板名</th><th>宛先</th><th>金額</th><th>ステータス</th><th>紐づけ状況</th><th>注文書番号</th><th>見積PDF</th><th>注文書PDF</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   const pages = Math.ceil(total / _quoteLimit); if (pages <= 1) { document.getElementById('qs-pagination').innerHTML = ''; return; }
   let pHtml = ''; for (let i = 1; i <= Math.min(pages, 10); i++) pHtml += `<button class="page-btn ${i === _quotePage ? 'active' : ''}" onclick="goQuotePage(${i})">${i}</button>`; document.getElementById('qs-pagination').innerHTML = pHtml;
 }
@@ -3018,10 +3021,6 @@ function showQcDetail(idx) {
 function closeQcDetail() { document.getElementById('qc-detail-modal').style.display = 'none'; }
 
 // ── プレースホルダー / OCRメーター ──
-function loadBoardAnalysis() { document.getElementById('analysis-container') && (document.getElementById('analysis-container').innerHTML = '<div class="loading">分析は準備中です</div>'); }
-function refreshWorkflowStatus() { document.getElementById('workflow-container') && (document.getElementById('workflow-container').innerHTML = '<div class="loading">ワークフローは準備中です</div>'); }
-function loadAssignees() { document.getElementById('assignee-container') && (document.getElementById('assignee-container').innerHTML = '<div class="loading">担当者管理は準備中です</div>'); }
-function loadApprovals() { document.getElementById('approval-container') && (document.getElementById('approval-container').innerHTML = '<div class="loading">製造承認は準備中です</div>'); }
 
 // ============================================================
 // ★ 利益シミュレーション（エバーライト通常版）
@@ -3141,59 +3140,7 @@ function loadOcrUsage(){
     el.innerHTML = `<span style="display:inline-flex;align-items:center;gap:4px;background:${color}18;color:${color};border:1px solid ${color}40;border-radius:9999px;padding:2px 10px;font-size:11px;font-weight:600;cursor:default;" title="本日のOCR使用状況">🧠 残り: ${(info.remaining||0).toLocaleString()} / ${(info.limit||0).toLocaleString()}</span>`;
   }).handleApiRequest('getOcrUsage', null);
 }
-// ===== 見積チェックリスト =====
-function loadChecklist() {
-  var modelCode = document.getElementById('cl-model-input').value.trim();
-  if (!modelCode) { showToast('機種コードを入力してください'); return; }
-  var container = document.getElementById('checklist-container');
-  container.innerHTML = '<div class="loading"><div class="spinner"></div><br>読み込み中...</div>';
-  google.script.run
-    .withSuccessHandler(function(res) { renderChecklist(res); })
-    .withFailureHandler(function(e) { container.innerHTML = '<div style="color:red;padding:24px;">エラー: ' + e.message + '</div>'; })
-    .handleApiRequest('checklistGetByModel', { modelCode: modelCode });
-}
-
-function renderChecklist(res) {
-  var container = document.getElementById('checklist-container');
-  if (!res.success) { container.innerHTML = '<div style="color:red;padding:24px;">エラー: ' + res.error + '</div>'; return; }
-  var s = res.summary;
-  var html = '<div class="summary-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px;">'
-    + '<div class="summary-card"><div class="lbl">総合計（税抜）</div><div class="val c-blue">' + s.grandTotal.toLocaleString() + '</div><div class="sub">円</div></div>'
-    + '<div class="summary-card"><div class="lbl">粗利率</div><div class="val c-green">' + (s.grossMargin !== null ? s.grossMargin + '%' : '—') + '</div></div>'
-    + '<div class="summary-card"><div class="lbl">進捗</div><div class="val">' + s.doneCount + ' / ' + s.totalCount + '</div><div class="sub">提出済み</div></div>'
-    + '<div class="summary-card"><div class="lbl">消費税（10%）</div><div class="val">' + s.tax.toLocaleString() + '</div><div class="sub">円</div></div>'
-    + '</div>';
-  res.sections.forEach(function(sec) {
-    html += '<div class="table-wrap" style="margin-bottom:16px;">'
-      + '<div class="table-toolbar"><h2>📂 ' + sec.name + '</h2>'
-      + '<span class="pg-info">' + sec.doneCount + '/' + sec.totalCount + '件 完了 ／ 小計: ¥' + sec.subtotal.toLocaleString() + '</span></div>'
-      + '<table><thead><tr>'
-      + '<th>品名・仕様</th><th>フォーマット</th><th>提出先</th><th>ステータス</th>'
-      + '<th>見積No</th><th>見積金額</th><th>原価</th><th>粗利率</th><th>提出日</th><th>備考</th>'
-      + '</tr></thead><tbody>';
-    sec.items.forEach(function(it) {
-      var statusColor = it.status === '承認済' || it.status === '提出済' ? 'badge-done'
-        : it.status === '却下' ? 'badge-received' : 'badge-planned';
-      html += '<tr>'
-        + '<td>' + it.itemName + '</td>'
-        + '<td>' + it.format + '</td>'
-        + '<td>' + it.submitTo + '</td>'
-        + '<td><span class="badge ' + statusColor + '">' + it.status + '</span></td>'
-        + '<td>' + (it.quoteNo || '—') + '</td>'
-        + '<td class="r">' + (it.quoteAmount ? '¥' + it.quoteAmount.toLocaleString() : '—') + '</td>'
-        + '<td class="r">' + (it.costAmount ? '¥' + it.costAmount.toLocaleString() : '—') + '</td>'
-        + '<td>' + (it.grossMargin !== null ? it.grossMargin + '%' : '—') + '</td>'
-        + '<td>' + (it.submitDate || '—') + '</td>'
-        + '<td>' + (it.memo || '') + '</td>'
-        + '</tr>';
-    });
-    html += '</tbody></table></div>';
-  });
-  if (res.sections.length === 0) {
-    html += '<div style="text-align:center;padding:40px;color:var(--text-sub);">この機種のチェックリストデータがありません</div>';
-  }
-  container.innerHTML = html;
-}
+// ===== 見積チェックリスト（実装は loadChecklist / _renderChecklist を参照）=====
 
 
 // ============================================================

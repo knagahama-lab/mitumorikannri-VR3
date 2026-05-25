@@ -161,13 +161,17 @@ function sendEventMail(eventKey, data) {
       .replace('{assignee}', data.assignee || '')
       .replace('{date}',     nowJST().substring(0, 10));
     
-    // 本文
-    var body = buildMailBody(eventKey, data);
-    
+    // 本文（HTML + プレーンテキスト両方を用意して文字化け防止）
+    var htmlBody = buildMailBody(eventKey, data);
+    var plainBody = buildMailBodyPlain(eventKey, data);
+
     // 送信
     toEmails.forEach(function(email) {
       try {
-        GmailApp.sendEmail(email, subject, body, { name: '見積・注文管理システム' });
+        GmailApp.sendEmail(email, subject, plainBody, {
+          name: '見積・注文管理システム',
+          htmlBody: htmlBody,
+        });
         Logger.log('[MAIL] 送信: ' + email + ' | ' + subject);
       } catch(e2) {
         Logger.log('[MAIL] 送信失敗: ' + email + ' | ' + e2.message);
@@ -180,28 +184,52 @@ function sendEventMail(eventKey, data) {
 }
 
 function buildMailBody(eventKey, data) {
-  var lines = [
-    '自動送信メッセージ（見積・注文管理システム）',
-    '━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-    '',
-  ];
-  
+  var rows = [];
+  if (data.orderNo)  rows.push(['注文書番号', data.orderNo]);
+  if (data.quoteNo)  rows.push(['見積書番号', data.quoteNo]);
+  if (data.client)   rows.push(['顧客名',     data.client]);
+  if (data.amount)   rows.push(['金額',        '&yen;' + Number(data.amount).toLocaleString()]);
+  if (data.assignee) rows.push(['担当者',     data.assignee]);
+  if (data.status)   rows.push(['ステータス', data.status]);
+  if (data.reason)   rows.push(['理由',       data.reason]);
+  if (data.pdfUrl)   rows.push(['PDFリンク',  '<a href="' + data.pdfUrl + '">' + data.pdfUrl + '</a>']);
+
+  var webUrl = ScriptApp.getService().getUrl();
+  if (webUrl) rows.push(['システムURL', '<a href="' + webUrl + '">' + webUrl + '</a>']);
+
+  var tableRows = rows.map(function(r) {
+    return '<tr><th style="text-align:left;padding:6px 12px;background:#f0f4f8;white-space:nowrap;border:1px solid #dde3ea;">'
+      + r[0] + '</th><td style="padding:6px 12px;border:1px solid #dde3ea;">' + r[1] + '</td></tr>';
+  }).join('');
+
+  return [
+    '<!DOCTYPE html><html><head><meta charset="UTF-8"></head><body style="font-family:\'Helvetica Neue\',Arial,\'Hiragino Kaku Gothic ProN\',sans-serif;font-size:14px;color:#333;margin:0;padding:0;">',
+    '<div style="max-width:600px;margin:20px auto;border:1px solid #dde3ea;border-radius:8px;overflow:hidden;">',
+    '<div style="background:#2563eb;color:#fff;padding:14px 20px;font-size:16px;font-weight:bold;">&#128179; 見積・注文管理システム 自動通知</div>',
+    '<div style="padding:20px;">',
+    '<table style="border-collapse:collapse;width:100%;">' + tableRows + '</table>',
+    '</div>',
+    '<div style="background:#f8fafc;padding:10px 20px;font-size:11px;color:#94a3b8;border-top:1px solid #dde3ea;">このメールは自動送信です。返信はできません。</div>',
+    '</div>',
+    '</body></html>'
+  ].join('');
+}
+
+// プレーンテキスト版（htmlBody のフォールバック用）
+function buildMailBodyPlain(eventKey, data) {
+  var lines = ['自動送信メッセージ（見積・注文管理システム）', '---', ''];
   if (data.orderNo)  lines.push('注文書番号: ' + data.orderNo);
   if (data.quoteNo)  lines.push('見積書番号: ' + data.quoteNo);
-  if (data.client)   lines.push('顧客名:     ' + data.client);
-  if (data.amount)   lines.push('金額:       ¥' + Number(data.amount).toLocaleString());
-  if (data.assignee) lines.push('担当者:     ' + data.assignee);
+  if (data.client)   lines.push('顧客名: '     + data.client);
+  if (data.amount)   lines.push('金額: Y'      + Number(data.amount).toLocaleString());
+  if (data.assignee) lines.push('担当者: '     + data.assignee);
   if (data.status)   lines.push('ステータス: ' + data.status);
-  if (data.reason)   lines.push('理由:       ' + data.reason);
-  if (data.pdfUrl)   lines.push('PDFリンク:  ' + data.pdfUrl);
-  
+  if (data.reason)   lines.push('理由: '       + data.reason);
+  if (data.pdfUrl)   lines.push('PDFリンク: '  + data.pdfUrl);
   lines.push('');
-  lines.push('━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  
-  // システムURL
+  lines.push('---');
   var webUrl = ScriptApp.getService().getUrl();
   if (webUrl) lines.push('システムURL: ' + webUrl);
-  
   return lines.join('\n');
 }
 
