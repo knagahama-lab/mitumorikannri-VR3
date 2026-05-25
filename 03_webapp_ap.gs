@@ -56,6 +56,8 @@ function _apiLoadSettings() {
       settings:        s,
       adminEmails:     props.getProperty('ADMIN_EMAILS')      || '',
       notifyEmails:    props.getProperty('NOTIFY_EMAILS')     || '',
+      salesEmails:     props.getProperty('SALES_EMAILS')      || '',
+      procurementEmail:props.getProperty('PROCUREMENT_EMAIL') || '',
       spreadsheetId:   props.getProperty('SPREADSHEET_ID')    || '',
       chatWebhook:     props.getProperty('CHAT_WEBHOOK_URL')  || s.webhookUrl || '',
       rakurakuCompany: props.getProperty('RAKURAKU_COMPANY')  || '',
@@ -74,8 +76,10 @@ function _apiLoadSettings() {
 function _apiSaveSettings(p) {
   try {
     var props = PropertiesService.getScriptProperties();
-    if (p.adminEmails     !== undefined) props.setProperty('ADMIN_EMAILS',       String(p.adminEmails));
-    if (p.notifyEmails    !== undefined) props.setProperty('NOTIFY_EMAILS',      String(p.notifyEmails));
+    if (p.adminEmails        !== undefined) props.setProperty('ADMIN_EMAILS',        String(p.adminEmails));
+    if (p.notifyEmails       !== undefined) props.setProperty('NOTIFY_EMAILS',       String(p.notifyEmails));
+    if (p.salesEmails        !== undefined) props.setProperty('SALES_EMAILS',        String(p.salesEmails));
+    if (p.procurementEmail   !== undefined) props.setProperty('PROCUREMENT_EMAIL',   String(p.procurementEmail));
     if (p.spreadsheetId   !== undefined && p.spreadsheetId) props.setProperty('SPREADSHEET_ID', String(p.spreadsheetId));
     if (p.chatWebhook     !== undefined) props.setProperty('CHAT_WEBHOOK_URL',   String(p.chatWebhook));
     if (p.geminiKey       !== undefined && p.geminiKey) props.setProperty('GEMINI_API_KEY',   String(p.geminiKey));

@@ -502,6 +502,7 @@ function _renderTable() {
       </td>
       <td style="text-align:center; white-space:nowrap;">
         <button class="btn btn-outline btn-sm" onclick="event.stopPropagation(); openDetail('${r.id}')">📄 詳細</button>
+        ${window.APP_IS_SALES !== false ? `<button class="btn btn-sm" onclick="event.stopPropagation(); openApprovalModal('${r.id}')" style="background:#16a34a;color:#fff;border:none;margin-left:4px;" title="単価OK — 資材購買へ承認メール送信">✅ 承認</button>` : ''}
         <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteMgmt('${r.id}', '${(r.orderNo||r.quoteNo||'').replace(/'/g,'')}')">🗑️ 削除</button>
       </td>
     </tr>`).join('');
@@ -1071,6 +1072,8 @@ function loadAdminSettings() {
     _sc('cfg-alert-overdue',   s.alertOverdue   !== false);
     _sc('cfg-alert-unlinked',  s.alertUnlinked  !== false);
     _sv('cfg-rakuraku-endpoint', res.rakurakuEndpoint || ''); _sv('cfg-n8n-order-webhook', res.n8nOrderWebhook || ''); _sv('cfg-n8n-quote-webhook', res.n8nQuoteWebhook || ''); _sv('cfg-custom-webhook', res.customWebhook || '');
+    _sv('cfg-sales-emails',      res.salesEmails      || '');
+    _sv('cfg-procurement-email', res.procurementEmail || '');
     showToast('設定を読み込みました');
   }).handleApiRequest('loadSettings', {});
 }
@@ -3900,6 +3903,141 @@ function applyDocTypePreset(presetJson) {
   _dtFields = JSON.parse(JSON.stringify(preset.fields || []));
   _renderDtFieldsList();
   showToast('プリセット「' + preset.name + '」を読み込みました。スプレッドシートIDを設定して保存してください。');
+}
+
+// ============================================================
+// ★ 営業承認ワークフロー
+// ============================================================
+
+// 承認モーダルを開く
+function openApprovalModal(mgmtId) {
+  // 対象注文書データを S.all から取得
+  const order = (S && S.all ? S.all : []).find(r => String(r.id) === String(mgmtId));
+  if (!order) { showToast('注文書データが見つかりません', true); return; }
+
+  // 紐づき見積書を _allQuotes から取得
+  const quote = order.quoteNo
+    ? (_allQuotes || []).find(q => q.quoteNo === order.quoteNo) || null
+    : null;
+
+  // ── 注文書情報を表示 ──
+  document.getElementById('ap-order-no').textContent       = order.orderNo || order.quoteNo || '—';
+  document.getElementById('ap-client').textContent         = order.client || '—';
+  document.getElementById('ap-subject').textContent        = order.subject || '—';
+  document.getElementById('ap-model').textContent          = order.modelCode || '—';
+  document.getElementById('ap-order-date').textContent     = order.orderDate || '—';
+  document.getElementById('ap-delivery-date').textContent  = order.deliveryDate || '—';
+  document.getElementById('ap-amount').textContent         = order.orderAmount ? '¥' + Number(order.orderAmount).toLocaleString() : '—';
+  document.getElementById('ap-order-type').textContent     = order.orderType || '—';
+
+  const orderPdfRow = document.getElementById('ap-order-pdf-row');
+  const orderPdfLink = document.getElementById('ap-order-pdf-link');
+  if (order.orderPdfUrl) {
+    orderPdfLink.href = order.orderPdfUrl;
+    orderPdfRow.style.display = 'block';
+  } else {
+    orderPdfRow.style.display = 'none';
+  }
+
+  // ── 見積書情報を表示 ──
+  const quoteCard = document.getElementById('ap-quote-card');
+  if (quote || order.quoteNo) {
+    quoteCard.style.display = 'block';
+    document.getElementById('ap-quote-no').textContent   = (quote && quote.quoteNo)   || order.quoteNo || '—';
+    document.getElementById('ap-quote-date').textContent = (quote && (quote.issueDate || quote.quoteDate)) || '—';
+    const pdfUrl = (quote && quote.quotePdfUrl) || order.quotePdfUrl || '';
+    const quotePdfRow  = document.getElementById('ap-quote-pdf-row');
+    const quotePdfLink = document.getElementById('ap-quote-pdf-link');
+    if (pdfUrl) { quotePdfLink.href = pdfUrl; quotePdfRow.style.display = 'block'; }
+    else { quotePdfRow.style.display = 'none'; }
+  } else {
+    quoteCard.style.display = 'none';
+  }
+
+  // ── 件名を自動生成 ──
+  const autoSubject = '【承認・資材手配依頼】'
+    + (order.orderNo || order.quoteNo || '')
+    + (order.client ? ' / ' + order.client : '');
+  document.getElementById('ap-subject-input').value = autoSubject;
+  document.getElementById('ap-memo').value = '';
+
+  // ── 資材購買メールアドレスをプリセット ──
+  const toInput = document.getElementById('ap-to');
+  toInput.value = '';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success && res.procurementEmail) {
+        toInput.value = res.procurementEmail;
+      }
+    })
+    .handleApiRequest('getApprovalSettings', {});
+
+  // モーダルに mgmtId を紐づけ
+  document.getElementById('order-approval-modal').dataset.mgmtId = mgmtId;
+  document.getElementById('order-approval-modal').classList.add('open');
+}
+
+function closeApprovalModal() {
+  document.getElementById('order-approval-modal').classList.remove('open');
+}
+
+// 承認送信
+function submitApproval() {
+  const modal    = document.getElementById('order-approval-modal');
+  const mgmtId   = modal.dataset.mgmtId || '';
+  const to       = (document.getElementById('ap-to').value || '').trim();
+  const cc       = (document.getElementById('ap-cc').value || '').trim();
+  const subject  = (document.getElementById('ap-subject-input').value || '').trim();
+  const memo     = (document.getElementById('ap-memo').value || '').trim();
+  const updateSt = document.getElementById('ap-update-status').checked;
+
+  if (!to)      { showToast('送信先メールアドレスを入力してください', true); return; }
+  if (!subject) { showToast('件名を入力してください', true); return; }
+
+  const btn = document.getElementById('ap-send-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span>送信中...</span>';
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      btn.disabled = false;
+      btn.innerHTML = '<span>✅ 承認・メール送信</span>';
+      if (!res || !res.success) {
+        showToast('送信失敗: ' + (res ? res.error : '不明なエラー'), true);
+        return;
+      }
+      showToast('✅ 承認メールを送信しました → ' + res.sentTo);
+      closeApprovalModal();
+      // テーブルを再読み込みしてステータスを反映
+      if (updateSt && typeof loadData === 'function') loadData();
+    })
+    .withFailureHandler(function(err) {
+      btn.disabled = false;
+      btn.innerHTML = '<span>✅ 承認・メール送信</span>';
+      showToast('通信エラー: ' + (err.message || err), true);
+    })
+    .handleApiRequest('approveOrderAndNotify', {
+      mgmtId,
+      to,
+      cc,
+      subject,
+      memo,
+      updateStatus: updateSt,
+    });
+}
+
+// ── 管理コンソール: 承認設定の保存 ──
+function saveAdminApproval() {
+  const payload = {
+    salesEmails:      _gv('cfg-sales-emails'),
+    procurementEmail: _gv('cfg-procurement-email'),
+  };
+  google.script.run
+    .withSuccessHandler(function(r) {
+      if (r && r.success) showToast('✅ 承認ワークフロー設定を保存しました');
+      else showToast('保存失敗: ' + (r ? r.error : '不明'), true);
+    })
+    .handleApiRequest('saveSettings', payload);
 }
 
 </script>

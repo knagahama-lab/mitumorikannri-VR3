@@ -489,6 +489,25 @@ tr:hover td{background:#f8fafc;}
           </div>
           <div style="text-align:right;"><button class="btn btn-primary" onclick="saveAdminBasic()">💾 保存</button></div>
         </div>
+
+        <!-- 営業承認ワークフロー設定 -->
+        <div style="background:white;border-radius:12px;padding:24px;box-shadow:var(--shadow);margin-bottom:20px;border-left:4px solid #16a34a;">
+          <h3 style="font-size:15px;font-weight:700;color:#16a34a;margin-bottom:4px;">✅ 営業承認ワークフロー設定</h3>
+          <p style="font-size:12px;color:var(--text-sub);margin-bottom:16px;">承認ボタンを押せる営業課メンバーと、通知先の資材購買課メールアドレスを設定します。</p>
+          <div class="form-row">
+            <div class="form-field">
+              <label>営業課メールアドレス（承認ボタン使用者）</label>
+              <input type="text" id="cfg-sales-emails" placeholder="sales1@company.com, sales2@company.com（カンマ区切り）">
+              <div style="font-size:11px;color:#94a3b8;margin-top:3px;">未設定の場合は全ユーザーが承認ボタンを使用できます</div>
+            </div>
+            <div class="form-field">
+              <label>資材購買課メールアドレス（承認メール送信先）</label>
+              <input type="text" id="cfg-procurement-email" placeholder="procurement@company.com">
+              <div style="font-size:11px;color:#94a3b8;margin-top:3px;">承認モーダルにデフォルトで入力されます</div>
+            </div>
+          </div>
+          <div style="text-align:right;"><button class="btn btn-primary" onclick="saveAdminApproval()" style="background:#16a34a;border-color:#16a34a;">💾 承認設定を保存</button></div>
+        </div>
       </div>
 
       <div id="admin-tab-access" class="admin-tab-content">
@@ -1094,6 +1113,7 @@ tr:hover td{background:#f8fafc;}
 
 <script>
   window.APP_IS_ADMIN = <?!= (typeof isAdmin !== 'undefined' && isAdmin) ? 'true' : 'false' ?>;
+  window.APP_IS_SALES = <?!= (typeof isSales !== 'undefined' && isSales) ? 'true' : 'false' ?>;
 </script>
 
 <?!= include("js") ?>
@@ -1273,6 +1293,96 @@ tr:hover td{background:#f8fafc;}
           <button class="btn btn-primary" onclick="saveApiConn()">💾 保存</button>
         </div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- 営業承認モーダル                                           -->
+<!-- ============================================================ -->
+<div id="order-approval-modal" class="modal-overlay" style="z-index:600;">
+  <div style="background:#fff;border-radius:14px;width:min(720px,96vw);max-height:92vh;overflow-y:auto;box-shadow:0 8px 48px rgba(0,0,0,.22);display:flex;flex-direction:column;">
+
+    <!-- ヘッダー -->
+    <div style="background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;padding:18px 24px;border-radius:14px 14px 0 0;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
+      <div>
+        <div style="font-size:17px;font-weight:800;">✅ 注文書 承認・資材購買へ送信</div>
+        <div style="font-size:11px;margin-top:3px;opacity:.85;">単価確認済み — 資材購買課へメールで通知します</div>
+      </div>
+      <button onclick="closeApprovalModal()" style="background:rgba(255,255,255,.2);border:none;color:#fff;width:32px;height:32px;border-radius:50%;font-size:18px;cursor:pointer;line-height:1;">✕</button>
+    </div>
+
+    <div style="padding:22px 24px;flex:1;overflow-y:auto;">
+
+      <!-- 注文書情報カード -->
+      <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:16px;margin-bottom:16px;">
+        <div style="font-size:12px;font-weight:700;color:#16a34a;margin-bottom:10px;letter-spacing:.04em;">📋 注文書情報</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px;">
+          <div><span style="color:#64748b;font-size:11px;">発注書番号</span><div id="ap-order-no" style="font-weight:700;color:#0f172a;"></div></div>
+          <div><span style="color:#64748b;font-size:11px;">顧客名</span><div id="ap-client" style="font-weight:600;"></div></div>
+          <div><span style="color:#64748b;font-size:11px;">件名</span><div id="ap-subject" style=""></div></div>
+          <div><span style="color:#64748b;font-size:11px;">機種</span><div id="ap-model" style=""></div></div>
+          <div><span style="color:#64748b;font-size:11px;">発注日</span><div id="ap-order-date" style=""></div></div>
+          <div><span style="color:#64748b;font-size:11px;">納期</span><div id="ap-delivery-date" style="font-weight:600;color:#dc2626;"></div></div>
+          <div><span style="color:#64748b;font-size:11px;">注文金額</span><div id="ap-amount" style="font-weight:700;font-size:15px;color:#0f766e;"></div></div>
+          <div><span style="color:#64748b;font-size:11px;">種別</span><div id="ap-order-type" style=""></div></div>
+        </div>
+        <div id="ap-order-pdf-row" style="margin-top:10px;display:none;">
+          <a id="ap-order-pdf-link" href="#" target="_blank" style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#0f766e;font-weight:600;text-decoration:none;background:#dcfce7;border:1px solid #86efac;padding:4px 10px;border-radius:5px;">📄 注文書PDF</a>
+        </div>
+      </div>
+
+      <!-- 見積書情報カード -->
+      <div id="ap-quote-card" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:16px;margin-bottom:16px;display:none;">
+        <div style="font-size:12px;font-weight:700;color:#2563eb;margin-bottom:10px;letter-spacing:.04em;">📃 紐づき見積書</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px;">
+          <div><span style="color:#64748b;font-size:11px;">見積書番号</span><div id="ap-quote-no" style="font-weight:700;color:#2563eb;"></div></div>
+          <div><span style="color:#64748b;font-size:11px;">発行日</span><div id="ap-quote-date" style=""></div></div>
+        </div>
+        <div id="ap-quote-pdf-row" style="margin-top:10px;display:none;">
+          <a id="ap-quote-pdf-link" href="#" target="_blank" style="display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#2563eb;font-weight:600;text-decoration:none;background:#dbeafe;border:1px solid #93c5fd;padding:4px 10px;border-radius:5px;">📄 見積書PDF</a>
+        </div>
+      </div>
+
+      <!-- 送信フォーム -->
+      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:10px;padding:18px;">
+        <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:14px;letter-spacing:.04em;">✉️ 送信設定</div>
+
+        <div style="margin-bottom:12px;">
+          <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">送信先（資材購買課）<span style="color:#dc2626;">*</span></label>
+          <input type="email" id="ap-to" placeholder="procurement@company.com" style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;box-sizing:border-box;">
+        </div>
+
+        <div style="margin-bottom:12px;">
+          <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">CC（任意）</label>
+          <input type="text" id="ap-cc" placeholder="cc@company.com（複数はカンマ区切り）" style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;box-sizing:border-box;">
+        </div>
+
+        <div style="margin-bottom:12px;">
+          <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">件名<span style="color:#dc2626;">*</span></label>
+          <input type="text" id="ap-subject-input" style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;box-sizing:border-box;">
+        </div>
+
+        <div style="margin-bottom:4px;">
+          <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">備考・連絡事項（任意）</label>
+          <textarea id="ap-memo" rows="3" placeholder="特記事項があればご入力ください" style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;box-sizing:border-box;resize:vertical;"></textarea>
+        </div>
+
+        <div style="margin-top:10px;">
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#475569;cursor:pointer;">
+            <input type="checkbox" id="ap-update-status" checked style="width:14px;height:14px;">
+            承認後にステータスを「受注済み」に更新する
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- フッターボタン -->
+    <div style="padding:16px 24px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;background:#f8fafc;border-radius:0 0 14px 14px;">
+      <button onclick="closeApprovalModal()" style="background:none;border:1px solid #d1d5db;color:#6b7280;padding:9px 20px;border-radius:7px;font-size:13px;cursor:pointer;">キャンセル</button>
+      <button id="ap-send-btn" onclick="submitApproval()" style="background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;border:none;padding:10px 28px;border-radius:7px;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;">
+        <span>✅ 承認・メール送信</span>
+      </button>
     </div>
   </div>
 </div>

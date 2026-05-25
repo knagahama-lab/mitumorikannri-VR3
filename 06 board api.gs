@@ -5,13 +5,26 @@
 
 function doGet(e) {
   var userEmail = Session.getActiveUser().getEmail() || '';
-  var adminEmailsStr = PropertiesService.getScriptProperties().getProperty('ADMIN_EMAILS') || '';
+  var props = PropertiesService.getScriptProperties();
+
+  // 管理者判定
+  var adminEmailsStr = props.getProperty('ADMIN_EMAILS') || '';
   var isAdmin = false;
   if (!adminEmailsStr || adminEmailsStr.trim() === '') {
     isAdmin = true; // 未設定時は全員を管理者扱いとする
   } else {
     var adminEmails = adminEmailsStr.split(',').map(function(s){return s.trim();});
     isAdmin = (adminEmails.indexOf(userEmail) >= 0);
+  }
+
+  // 営業課判定（SALES_EMAILS 未設定時は全員が使用可能）
+  var salesEmailsStr = props.getProperty('SALES_EMAILS') || '';
+  var isSales = false;
+  if (!salesEmailsStr || salesEmailsStr.trim() === '') {
+    isSales = true; // 未設定時は全員が承認ボタンを使用可能
+  } else {
+    var salesEmails = salesEmailsStr.split(',').map(function(s){return s.trim();});
+    isSales = (salesEmails.indexOf(userEmail) >= 0) || isAdmin;
   }
 
   if (e && e.parameter && e.parameter.page === 'bom') {
@@ -36,7 +49,8 @@ function doGet(e) {
   }
 
   var dashboardTmpl = HtmlService.createTemplateFromFile('Dashboard');
-  dashboardTmpl.isAdmin = isAdmin;
+  dashboardTmpl.isAdmin  = isAdmin;
+  dashboardTmpl.isSales  = isSales;
   dashboardTmpl.userEmail = userEmail;
 
   return dashboardTmpl.evaluate()
@@ -80,8 +94,10 @@ function handleApiRequest(action, payload) {
       case 'ledgerGetMachines':   res = _apiLedgerGetMachines(); break;
       case 'ledgerCreateMachine': res = _apiLedgerCreateMachine(payload); break;
       case 'appendBoardRow':      res = _apiAppendBoardRow(payload); break;
-      case 'updateMgmt':          res = _apiUpdateMgmt(payload); break;
-      case 'deleteMgmt':          res = _apiDeleteMgmt(payload); break;
+      case 'updateMgmt':              res = _apiUpdateMgmt(payload); break;
+      case 'deleteMgmt':              res = _apiDeleteMgmt(payload); break;
+      case 'approveOrderAndNotify':   res = _apiApproveOrderAndNotify(payload); break;
+      case 'getApprovalSettings':     res = _apiGetApprovalSettings(); break;
       case 'chatbotQuery':        res = apiChatbotQuery(payload); break;
       case 'modelInfoGet':        res = _apiModelInfoGet(payload); break;
       case 'modelInfoSave':       res = _apiModelInfoSave(payload); break;
