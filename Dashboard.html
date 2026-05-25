@@ -860,8 +860,17 @@ tr:hover td{background:#f8fafc;}
       <div id="simulation-container"></div>
     </div>
     <div id="page-analysis" class="page">
-      <div class="page-heading"><div><h2>📊 分析・レポート</h2></div></div>
-      <div id="analysis-container"><div class="loading" style="text-align:center;padding:40px;color:var(--text-muted);">準備中</div></div>
+      <div class="page-heading">
+        <div><h2>📊 分析・レポート</h2></div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <select id="analysis-year-sel" onchange="loadAnalysis()" style="padding:6px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;"></select>
+          <button class="btn btn-sm" onclick="loadAnalysis()" style="background:#6366f1;color:#fff;border:none;">🔄 更新</button>
+          <button class="btn btn-sm" onclick="exportAnalysisCsv()" style="background:#0f766e;color:#fff;border:none;">📥 CSV出力</button>
+        </div>
+      </div>
+      <div id="analysis-container">
+        <div class="loading" style="text-align:center;padding:40px;color:var(--text-muted);">読み込み中...</div>
+      </div>
     </div>
     <div id="page-todo" class="page"><div class="loading">準備中</div></div>
     <div id="page-calendar" class="page">

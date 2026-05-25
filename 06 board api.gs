@@ -98,6 +98,7 @@ function handleApiRequest(action, payload) {
       case 'deleteMgmt':              res = _apiDeleteMgmt(payload); break;
       case 'approveOrderAndNotify':   res = _apiApproveOrderAndNotify(payload); break;
       case 'getApprovalSettings':     res = _apiGetApprovalSettings(); break;
+      case 'getAnalysisReport':       res = apiGetAnalysisReport(payload); break;
       case 'chatbotQuery':        res = apiChatbotQuery(payload); break;
       case 'modelInfoGet':        res = _apiModelInfoGet(payload); break;
       case 'modelInfoSave':       res = _apiModelInfoSave(payload); break;

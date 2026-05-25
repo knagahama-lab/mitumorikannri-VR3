@@ -113,16 +113,8 @@ function apiModelMasterList() {
       }
     });
 
-    // 管理シートにある機種コードで機種マスタに未登録のものを自動追加
-    var existingRows = _getAllModelMasterRows();
-    var masterCodes  = existingRows.map(function(r) {
-      return String(r[MODEL_MASTER_COLS.MODEL_CODE - 1]).trim();
-    });
-    Object.keys(statsMap).forEach(function(mc) {
-      if (mc && masterCodes.indexOf(mc) < 0) {
-        _ensureModelCode(mc, '');
-      }
-    });
+    // ※ 自動追加は廃止 — 削除した機種コードが復活するバグを防ぐため
+    // （新規登録時は onDocRegistered() が _ensureModelCode() を呼ぶ）
 
     // 最新状態で再取得してレスポンス構築
     var rows  = _getAllModelMasterRows();
@@ -292,9 +284,13 @@ function apiModelMasterSave(payload) {
       sheet.getRange(rowNum, MODEL_MASTER_COLS.MODEL_NAME  ).setValue(modelName);
       sheet.getRange(rowNum, MODEL_MASTER_COLS.DESCRIPTION ).setValue(description);
       sheet.getRange(rowNum, MODEL_MASTER_COLS.UPDATED_AT  ).setValue(now);
+      // 機種名変更を見積台帳（BOARD_NAME列）へカスケード反映
+      try { if (modelName) syncModelNameToMgmt(modelCode, modelName); } catch(e2) {}
     } else {
       // 新規
       sheet.appendRow([_generateModelId(), modelCode, modelName, description, '', now, now]);
+      // 削除済みリストから除外（再登録を許可）
+      _removeFromDeletedModelCodes(modelCode);
     }
 
     // BOM SS と同期（失敗しても本体は成功扱い）
@@ -322,11 +318,43 @@ function apiModelMasterDelete(payload) {
     var rowNum = _findModelRowNum(modelCode);
     if (rowNum < 0) return { success: false, error: '機種コードが見つかりません: ' + modelCode };
     _getModelMasterSheet().deleteRow(rowNum);
+    // 削除済みコードをブロックリストに追加して自動再登録を防ぐ
+    _addToDeletedModelCodes(modelCode);
     return { success: true };
   } catch(e) {
     Logger.log('[apiModelMasterDelete ERROR] ' + e.message);
     return { success: false, error: e.message };
   }
+}
+
+// ============================================================
+// 削除済み機種コード ブロックリスト管理
+// ============================================================
+
+function _addToDeletedModelCodes(modelCode) {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var raw   = props.getProperty('DELETED_MODEL_CODES') || '[]';
+    var list  = JSON.parse(raw);
+    if (list.indexOf(modelCode) < 0) list.push(modelCode);
+    props.setProperty('DELETED_MODEL_CODES', JSON.stringify(list));
+  } catch(e) { Logger.log('[_addToDeletedModelCodes ERROR] ' + e.message); }
+}
+
+function _removeFromDeletedModelCodes(modelCode) {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    var raw   = props.getProperty('DELETED_MODEL_CODES') || '[]';
+    var list  = JSON.parse(raw).filter(function(c) { return c !== modelCode; });
+    props.setProperty('DELETED_MODEL_CODES', JSON.stringify(list));
+  } catch(e) { Logger.log('[_removeFromDeletedModelCodes ERROR] ' + e.message); }
+}
+
+function _isDeletedModelCode(modelCode) {
+  try {
+    var raw = PropertiesService.getScriptProperties().getProperty('DELETED_MODEL_CODES') || '[]';
+    return JSON.parse(raw).indexOf(modelCode) >= 0;
+  } catch(e) { return false; }
 }
 
 // ============================================================
@@ -397,6 +425,7 @@ function _ensureModelCode(modelCode, modelName) {
   try {
     modelCode = String(modelCode || '').trim();
     if (!modelCode) return;
+    if (_isDeletedModelCode(modelCode)) return; // 削除済みはスキップ（復活させない）
     if (_findModelRowNum(modelCode) >= 0) return; // 既存はスキップ
 
     var sheet = _getModelMasterSheet();
