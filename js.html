@@ -41,8 +41,6 @@ let _adminLoaded = false; // ★ 管理コンソール初期化フラグ
 
 window.addEventListener('load', () => {
   renderSidebar(); showPage('list'); try { _populateMonthFilter(); } catch(e){}
-  // 分析年セレクト: デフォルトで当年を表示
-  try { const sy = document.getElementById('analysis-year-sel'); if(sy){ const cy=new Date().getFullYear(); sy.innerHTML=`<option value="${cy}">${cy}年</option>`; } } catch(e){}
   loadData(); // 注文書は独立して並行ロード
   // ★ 台帳を先にロードしてから見積一覧をマージ（競合状態を防ぐ）
   google.script.run.withSuccessHandler(function(res) {
@@ -294,7 +292,6 @@ function showPage(name){
   if(name==='board') loadBoardMaster();
   if(name==='simulation') loadProfitSimulation();
   if(name==='workflow') loadWorkflowBoard();
-  if(name==='analysis') loadAnalysis();
   // カスタム書類ページへの直接遷移は showCustomDocPage() を使う（このルートは通常通らない）
 }
 function toggleSidebar(){ document.getElementById('sidebar').classList.toggle('collapsed'); }
@@ -907,158 +904,7 @@ function deleteMgmt(mgmtId, label) {
 // プレースホルダー
 function loadTodos() { document.getElementById('todo-container') && (document.getElementById('todo-container').innerHTML = '<div class="loading">Todoリストは準備中です</div>'); }
 function loadBoardList() { loadBoardMaster(); }
-// ============================================================
-// 分析・レポート
-// ============================================================
-var _analysisData = null;
-
-function loadAnalysis() {
-  const el = document.getElementById('analysis-container');
-  if (!el) return;
-  el.innerHTML = '<div class="loading" style="text-align:center;padding:60px;color:var(--text-muted);">📊 データを集計中...</div>';
-
-  const sel  = document.getElementById('analysis-year-sel');
-  const year = sel ? parseInt(sel.value || new Date().getFullYear(), 10) : new Date().getFullYear();
-
-  google.script.run
-    .withSuccessHandler(function(res) {
-      if (!res || !res.success) { el.innerHTML = `<div class="error-msg">取得エラー: ${res ? res.error : '不明'}</div>`; return; }
-      _analysisData = res;
-      // 年セレクト更新
-      if (sel && res.availableYears && res.availableYears.length) {
-        const cur = sel.value || String(year);
-        sel.innerHTML = res.availableYears.map(y => `<option value="${y}" ${String(y)===cur?'selected':''}>${y}年</option>`).join('');
-      }
-      _renderAnalysis(res, el);
-    })
-    .withFailureHandler(function(err) {
-      el.innerHTML = `<div class="error-msg">通信エラー: ${err.message||err}</div>`;
-    })
-    .handleApiRequest('getAnalysisReport', { year: year });
-}
-
-function _renderAnalysis(d, el) {
-  const fmt = n => n ? '¥' + Number(n).toLocaleString() : '¥0';
-  const maxQ = Math.max(...d.months.map(m => m.quotes), 1);
-  const maxO = Math.max(...d.months.map(m => m.orders), 1);
-  const maxA = Math.max(...d.months.map(m => m.quoteAmt + m.orderAmt), 1);
-
-  // ── KPI cards ──
-  const kpi = `
-  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px;margin-bottom:24px;">
-    ${_akpi('📋 見積発行件数', d.totalQuotes + '件', '#2563eb')}
-    ${_akpi('💰 見積金額合計', fmt(d.totalQuoteAmt), '#7c3aed')}
-    ${_akpi('📦 受注件数', d.totalOrders + '件', '#0f766e')}
-    ${_akpi('💵 受注金額合計', fmt(d.totalOrderAmt), '#16a34a')}
-  </div>`;
-
-  // ── 月別棒グラフ（CSS only）──
-  const barRows = d.months.map(m => {
-    const qPct  = Math.round(m.quotes / maxQ * 100);
-    const oPct  = Math.round(m.orders / maxO * 100);
-    const aPct  = Math.round((m.quoteAmt + m.orderAmt) / maxA * 100);
-    return `
-    <tr>
-      <td style="padding:4px 8px;font-weight:600;font-size:12px;white-space:nowrap;color:#475569;">${m.label}</td>
-      <td style="padding:4px 8px;width:100%;">
-        <div style="display:flex;flex-direction:column;gap:3px;">
-          <div style="display:flex;align-items:center;gap:6px;">
-            <div style="width:${qPct}%;min-width:${m.quotes?4:0}px;height:12px;background:#2563eb;border-radius:2px;transition:width .3s;"></div>
-            <span style="font-size:11px;color:#64748b;">${m.quotes}件</span>
-          </div>
-          <div style="display:flex;align-items:center;gap:6px;">
-            <div style="width:${oPct}%;min-width:${m.orders?4:0}px;height:12px;background:#16a34a;border-radius:2px;transition:width .3s;"></div>
-            <span style="font-size:11px;color:#64748b;">${m.orders}件</span>
-          </div>
-        </div>
-      </td>
-      <td style="padding:4px 8px;font-size:11px;color:#94a3b8;white-space:nowrap;text-align:right;">${fmt(m.quoteAmt + m.orderAmt)}</td>
-    </tr>`;
-  }).join('');
-
-  const monthlyChart = `
-  <div style="background:#fff;border-radius:12px;padding:20px;box-shadow:var(--shadow);margin-bottom:20px;">
-    <h3 style="font-size:14px;font-weight:700;color:#1e293b;margin:0 0 6px;">📅 月別 見積・受注件数（${d.year}年）</h3>
-    <div style="display:flex;gap:16px;margin-bottom:12px;font-size:12px;">
-      <span><span style="display:inline-block;width:12px;height:12px;background:#2563eb;border-radius:2px;margin-right:4px;vertical-align:middle;"></span>見積</span>
-      <span><span style="display:inline-block;width:12px;height:12px;background:#16a34a;border-radius:2px;margin-right:4px;vertical-align:middle;"></span>受注</span>
-    </div>
-    <table style="width:100%;border-collapse:collapse;">${barRows}</table>
-  </div>`;
-
-  // ── ステータス別 ──
-  const totalSt = d.statusRank.reduce((s, x) => s + x.count, 0) || 1;
-  const statusHtml = d.statusRank.map(x => {
-    const pct = Math.round(x.count / totalSt * 100);
-    return `<div style="margin-bottom:8px;">
-      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px;"><span>${x.status}</span><span>${x.count}件 (${pct}%)</span></div>
-      <div style="height:8px;background:#e2e8f0;border-radius:4px;overflow:hidden;">
-        <div style="height:100%;width:${pct}%;background:#6366f1;border-radius:4px;"></div>
-      </div></div>`;
-  }).join('');
-
-  // ── 顧客ランキング ──
-  const clientHtml = d.clientRank.length === 0
-    ? '<div style="color:#94a3b8;font-size:13px;">データなし</div>'
-    : d.clientRank.map((c, i) => `
-    <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #f1f5f9;">
-      <div style="width:22px;height:22px;background:${i<3?'#f59e0b':'#e2e8f0'};color:${i<3?'#fff':'#64748b'};border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;">${i+1}</div>
-      <div style="flex:1;font-size:13px;font-weight:${i<3?'600':'400'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${c.name}</div>
-      <div style="font-size:13px;font-weight:700;color:#2563eb;">${c.count}件</div>
-    </div>`).join('');
-
-  // ── 機種ランキング ──
-  const modelHtml = d.modelRank.length === 0
-    ? '<div style="color:#94a3b8;font-size:13px;">データなし</div>'
-    : `<table style="width:100%;border-collapse:collapse;font-size:12px;">
-    <tr style="background:#f8fafc;"><th style="padding:6px 8px;text-align:left;color:#64748b;">機種コード</th><th style="padding:6px 8px;text-align:center;color:#64748b;">見積</th><th style="padding:6px 8px;text-align:center;color:#64748b;">受注</th><th style="padding:6px 8px;text-align:right;color:#64748b;">受注金額</th></tr>
-    ${d.modelRank.map((m, i) => `<tr style="background:${i%2?'#f8fafc':'#fff'};"><td style="padding:6px 8px;font-weight:600;">${m.code}</td><td style="padding:6px 8px;text-align:center;">${m.quotes}件</td><td style="padding:6px 8px;text-align:center;">${m.orders}件</td><td style="padding:6px 8px;text-align:right;">${fmt(m.amount)}</td></tr>`).join('')}
-    </table>`;
-
-  el.innerHTML = kpi + monthlyChart + `
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
-    <div style="background:#fff;border-radius:12px;padding:20px;box-shadow:var(--shadow);">
-      <h3 style="font-size:14px;font-weight:700;color:#1e293b;margin:0 0 16px;">🏷️ ステータス別 件数（全期間）</h3>
-      ${statusHtml || '<div style="color:#94a3b8;font-size:13px;">データなし</div>'}
-    </div>
-    <div style="background:#fff;border-radius:12px;padding:20px;box-shadow:var(--shadow);">
-      <h3 style="font-size:14px;font-weight:700;color:#1e293b;margin:0 0 16px;">🏆 顧客ランキング TOP10（${d.year}年）</h3>
-      ${clientHtml}
-    </div>
-  </div>
-  <div style="background:#fff;border-radius:12px;padding:20px;box-shadow:var(--shadow);margin-bottom:20px;">
-    <h3 style="font-size:14px;font-weight:700;color:#1e293b;margin:0 0 16px;">🔩 機種別 ランキング（${d.year}年）</h3>
-    ${modelHtml}
-  </div>`;
-}
-
-function _akpi(label, val, color) {
-  return `<div style="background:#fff;border-radius:12px;padding:18px 20px;box-shadow:var(--shadow);border-top:4px solid ${color};">
-    <div style="font-size:12px;color:#64748b;margin-bottom:6px;">${label}</div>
-    <div style="font-size:22px;font-weight:800;color:${color};">${val}</div>
-  </div>`;
-}
-
-function exportAnalysisCsv() {
-  if (!_analysisData) { showToast('⚠️ 先に分析を読み込んでください'); return; }
-  const d = _analysisData;
-  const rows = [
-    ['月', '見積件数', '見積金額合計', '受注件数', '受注金額合計'],
-    ...d.months.map(m => [m.label, m.quotes, m.quoteAmt, m.orders, m.orderAmt]),
-    [],
-    ['顧客名', '件数'],
-    ...d.clientRank.map(c => [c.name, c.count]),
-    [],
-    ['機種コード', '見積件数', '受注件数', '受注金額'],
-    ...d.modelRank.map(m => [m.code, m.quotes, m.orders, m.amount]),
-  ];
-  const csv = rows.map(r => r.map(v => `"${String(v||'').replace(/"/g,'""')}"`).join(',')).join('\n');
-  const bom = '﻿';
-  const blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8' });
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-  a.download = `分析レポート_${d.year}年.csv`; a.click();
-  showToast('📥 CSV出力しました');
-}
+function loadBoardAnalysis() { document.getElementById('analysis-container') && (document.getElementById('analysis-container').innerHTML = '<div class="loading">分析は準備中です</div>'); }
 function refreshWorkflowStatus() { document.getElementById('workflow-container') && (document.getElementById('workflow-container').innerHTML = '<div class="loading">ワークフローは準備中です</div>'); }
 function loadAssignees() { document.getElementById('assignee-container') && (document.getElementById('assignee-container').innerHTML = '<div class="loading">担当者管理は準備中です</div>'); }
 function loadApprovals() { document.getElementById('approval-container') && (document.getElementById('approval-container').innerHTML = '<div class="loading">製造承認は準備中です</div>'); }
