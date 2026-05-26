@@ -165,6 +165,9 @@ tr:hover td{background:#f8fafc;}
 #toast{ position:fixed;bottom:24px;left:50%;transform:translateX(-50%); background:#1e293b;color:#fff;padding:10px 20px; border-radius:8px;font-size:13px;font-weight:500; opacity:0;transition:opacity .3s;z-index:9999; pointer-events:none;white-space:nowrap; box-shadow:var(--shadow-lg); }
 #toast.show{opacity:1;}
 
+.page-heading{ display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; gap:12px; flex-wrap:wrap; }
+.page-heading h2{ font-size:18px; font-weight:700; }
+.page-heading p{ font-size:12px; color:var(--text-sub); margin-top:3px; }
 .upload-area{ border:2px dashed var(--border); border-radius:var(--radius); padding:22px; text-align:center; cursor:pointer; transition:all .2s; background:#fafbff; }
 .upload-area:hover,.upload-area.dragover{border-color:var(--primary);background:#f0f5ff;}
 .ocr-queue-item{display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid #f0f2f5;transition:background .2s;}
@@ -860,8 +863,18 @@ tr:hover td{background:#f8fafc;}
       <div id="simulation-container"></div>
     </div>
     <div id="page-analysis" class="page">
-      <div class="page-heading"><div><h2>📊 分析・レポート</h2></div></div>
-      <div id="analysis-container"><div class="loading" style="text-align:center;padding:40px;color:var(--text-muted);">準備中</div></div>
+      <div class="page-heading">
+        <div><h2>📊 分析・レポート</h2></div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <select id="analysis-year-sel" onchange="loadAnalysis()"
+            style="padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:#fff;outline:none;">
+            <option value="">年を選択...</option>
+          </select>
+          <button class="btn btn-outline btn-sm" onclick="loadAnalysis()">🔄 更新</button>
+          <button class="btn btn-outline btn-sm" onclick="exportAnalysisCsv()" style="color:#16a34a;border-color:#16a34a;">📥 CSV</button>
+        </div>
+      </div>
+      <div id="analysis-container"><div class="loading" style="text-align:center;padding:40px;color:var(--text-muted);"><div class="spinner"></div><br>準備中</div></div>
     </div>
     <div id="page-todo" class="page"><div class="loading">準備中</div></div>
     <div id="page-calendar" class="page">

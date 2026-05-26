@@ -292,6 +292,7 @@ function showPage(name){
   if(name==='board') loadBoardMaster();
   if(name==='simulation') loadProfitSimulation();
   if(name==='workflow') loadWorkflowBoard();
+  if(name==='analysis') loadAnalysis();
   // カスタム書類ページへの直接遷移は showCustomDocPage() を使う（このルートは通常通らない）
 }
 function toggleSidebar(){ document.getElementById('sidebar').classList.toggle('collapsed'); }
@@ -904,7 +905,193 @@ function deleteMgmt(mgmtId, label) {
 // プレースホルダー
 function loadTodos() { document.getElementById('todo-container') && (document.getElementById('todo-container').innerHTML = '<div class="loading">Todoリストは準備中です</div>'); }
 function loadBoardList() { loadBoardMaster(); }
-function loadBoardAnalysis() { document.getElementById('analysis-container') && (document.getElementById('analysis-container').innerHTML = '<div class="loading">分析は準備中です</div>'); }
+function loadBoardAnalysis() { loadAnalysis(); } // alias（互換性維持）
+
+// ============================================================
+// ★ 分析・レポート
+// ============================================================
+let _analysisData = null;
+
+function loadAnalysis() {
+  const container = document.getElementById('analysis-container');
+  if (!container) return;
+
+  const now = new Date().getFullYear();
+  const yearSel = document.getElementById('analysis-year-sel');
+
+  // セレクターが空（初回）なら現在年±3年を埋める
+  if (yearSel && (!yearSel.value || yearSel.options.length <= 1)) {
+    yearSel.innerHTML = [now+1,now,now-1,now-2,now-3]
+      .map(y=>`<option value="${y}" ${y===now?'selected':''}>${y}年</option>`).join('');
+  }
+
+  const year = yearSel && yearSel.value ? parseInt(yearSel.value, 10) : now;
+  container.innerHTML = '<div class="loading"><div class="spinner"></div><br>集計中...</div>';
+
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success) {
+        container.innerHTML = '<div class="loading" style="color:var(--danger);">読み込み失敗: ' + ((res && res.error) || '不明') + '</div>';
+        return;
+      }
+      _analysisData = res;
+
+      // 利用可能な年でセレクターを更新
+      if (yearSel && res.availableYears && res.availableYears.length > 0) {
+        const curVal = yearSel.value;
+        const opts = Array.from(new Set([now+1, now, now-1, ...res.availableYears])).sort((a,b)=>b-a);
+        yearSel.innerHTML = opts.map(y => `<option value="${y}" ${String(y)===String(curVal)?'selected':''}>${y}年</option>`).join('');
+      }
+      _renderAnalysis(res, container);
+    })
+    .withFailureHandler(function(err) {
+      container.innerHTML = '<div class="loading" style="color:var(--danger);">通信エラー: ' + (err.message||err) + '</div>';
+    })
+    .handleApiRequest('getAnalysisReport', { year: year });
+}
+
+function _renderAnalysis(d, el) {
+  const fmt = n => n ? '¥' + Number(n).toLocaleString() : '¥0';
+  const maxAmt = Math.max(...d.months.map(m => m.quoteAmt || 0), ...d.months.map(m => m.orderAmt || 0), 1);
+  const maxCnt = Math.max(...d.months.map(m => m.quotes || 0), ...d.months.map(m => m.orders || 0), 1);
+
+  // ── KPI カード ──
+  const kpis = `
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:20px;">
+    ${_akpi('見積件数', d.totalQuotes + '件', '#2563eb')}
+    ${_akpi('見積合計金額', fmt(d.totalQuoteAmt), '#2563eb')}
+    ${_akpi('注文件数', d.totalOrders + '件', '#16a34a')}
+    ${_akpi('注文合計金額', fmt(d.totalOrderAmt), '#16a34a')}
+    ${_akpi('受注率', d.totalQuotes > 0 ? Math.round(d.totalOrders/d.totalQuotes*100)+'%' : '—', '#d97706')}
+  </div>`;
+
+  // ── 月別棒グラフ（CSS only） ──
+  const barCols = d.months.map(m => {
+    const qh = Math.round((m.quotes / maxCnt) * 80);
+    const oh = Math.round((m.orders / maxCnt) * 80);
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;flex:1;min-width:0;">
+      <div style="display:flex;align-items:flex-end;gap:2px;height:80px;">
+        <div title="見積${m.quotes}件" style="width:12px;background:#2563eb;border-radius:3px 3px 0 0;height:${qh}px;min-height:${m.quotes>0?2:0}px;opacity:.85;transition:height .3s;"></div>
+        <div title="注文${m.orders}件" style="width:12px;background:#16a34a;border-radius:3px 3px 0 0;height:${oh}px;min-height:${m.orders>0?2:0}px;opacity:.85;transition:height .3s;"></div>
+      </div>
+      <div style="font-size:9px;color:#64748b;white-space:nowrap;">${m.month}月</div>
+      <div style="font-size:9px;font-weight:700;color:#2563eb;">${m.quotes}</div>
+      <div style="font-size:9px;font-weight:700;color:#16a34a;">${m.orders}</div>
+    </div>`;
+  }).join('');
+
+  const charts = `
+  <div style="background:#fff;border-radius:12px;padding:18px 20px;box-shadow:var(--shadow-sm);border:1px solid var(--border-light);margin-bottom:16px;">
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:14px;flex-wrap:wrap;">
+      <h3 style="font-size:14px;font-weight:700;margin:0;">${d.year}年 月別集計</h3>
+      <div style="display:flex;gap:12px;font-size:11px;color:#64748b;">
+        <span><span style="display:inline-block;width:10px;height:10px;background:#2563eb;border-radius:2px;margin-right:4px;"></span>見積件数</span>
+        <span><span style="display:inline-block;width:10px;height:10px;background:#16a34a;border-radius:2px;margin-right:4px;"></span>注文件数</span>
+      </div>
+    </div>
+    <div style="display:flex;gap:4px;align-items:flex-end;overflow-x:auto;padding-bottom:4px;">${barCols}</div>
+  </div>`;
+
+  // ── 金額グラフ ──
+  const amtCols = d.months.map(m => {
+    const qh = Math.round((m.quoteAmt / maxAmt) * 80);
+    const oh = Math.round((m.orderAmt / maxAmt) * 80);
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;flex:1;min-width:0;">
+      <div style="display:flex;align-items:flex-end;gap:2px;height:80px;">
+        <div title="見積${fmt(m.quoteAmt)}" style="width:12px;background:#93c5fd;border-radius:3px 3px 0 0;height:${qh}px;min-height:${m.quoteAmt>0?2:0}px;transition:height .3s;"></div>
+        <div title="注文${fmt(m.orderAmt)}" style="width:12px;background:#86efac;border-radius:3px 3px 0 0;height:${oh}px;min-height:${m.orderAmt>0?2:0}px;transition:height .3s;"></div>
+      </div>
+      <div style="font-size:9px;color:#64748b;white-space:nowrap;">${m.month}月</div>
+    </div>`;
+  }).join('');
+
+  const amtChart = `
+  <div style="background:#fff;border-radius:12px;padding:18px 20px;box-shadow:var(--shadow-sm);border:1px solid var(--border-light);margin-bottom:16px;">
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:14px;flex-wrap:wrap;">
+      <h3 style="font-size:14px;font-weight:700;margin:0;">${d.year}年 月別金額</h3>
+      <div style="display:flex;gap:12px;font-size:11px;color:#64748b;">
+        <span><span style="display:inline-block;width:10px;height:10px;background:#93c5fd;border-radius:2px;margin-right:4px;"></span>見積金額</span>
+        <span><span style="display:inline-block;width:10px;height:10px;background:#86efac;border-radius:2px;margin-right:4px;"></span>注文金額</span>
+      </div>
+    </div>
+    <div style="display:flex;gap:4px;align-items:flex-end;overflow-x:auto;padding-bottom:4px;">${amtCols}</div>
+  </div>`;
+
+  // ── ランキング ──
+  const clientRank = d.clientRank.length > 0 ? `
+  <div style="background:#fff;border-radius:12px;padding:16px 18px;box-shadow:var(--shadow-sm);border:1px solid var(--border-light);">
+    <h3 style="font-size:13px;font-weight:700;margin-bottom:10px;">👑 顧客ランキング（${d.year}年）</h3>
+    ${d.clientRank.map((c,i) => {
+      const w = Math.round(c.count / d.clientRank[0].count * 100);
+      return `<div style="margin-bottom:7px;">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px;">
+          <span><span style="font-weight:700;color:#94a3b8;margin-right:5px;">${i+1}</span>${_esc(c.name)}</span>
+          <span style="font-weight:700;color:#2563eb;">${c.count}件</span>
+        </div>
+        <div style="height:5px;background:#f1f5f9;border-radius:3px;"><div style="height:100%;width:${w}%;background:${i===0?'#2563eb':i<=2?'#60a5fa':'#bfdbfe'};border-radius:3px;"></div></div>
+      </div>`;
+    }).join('')}
+  </div>` : '';
+
+  const modelRank = d.modelRank.length > 0 ? `
+  <div style="background:#fff;border-radius:12px;padding:16px 18px;box-shadow:var(--shadow-sm);border:1px solid var(--border-light);">
+    <h3 style="font-size:13px;font-weight:700;margin-bottom:10px;">⚙️ 機種ランキング（${d.year}年）</h3>
+    ${d.modelRank.map((m,i) => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #f1f5f9;font-size:12px;">
+        <span><span style="font-weight:700;color:#94a3b8;margin-right:5px;">${i+1}</span><strong style="font-family:monospace;">${_esc(m.code)}</strong></span>
+        <span style="display:flex;gap:10px;color:#64748b;">
+          <span style="color:#2563eb;">見積${m.quotes}件</span>
+          <span style="color:#16a34a;">注文${m.orders}件</span>
+          ${m.amount > 0 ? `<span style="color:#0f172a;font-weight:600;">${fmt(m.amount)}</span>` : ''}
+        </span>
+      </div>`).join('')}
+  </div>` : '';
+
+  const statusRank = d.statusRank.length > 0 ? `
+  <div style="background:#fff;border-radius:12px;padding:16px 18px;box-shadow:var(--shadow-sm);border:1px solid var(--border-light);">
+    <h3 style="font-size:13px;font-weight:700;margin-bottom:10px;">🏷️ ステータス別件数（全期間）</h3>
+    ${d.statusRank.map(s => {
+      const w = Math.round(s.count / d.statusRank[0].count * 100);
+      return `<div style="margin-bottom:7px;">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px;">
+          <span>${_esc(s.status)}</span>
+          <span style="font-weight:700;">${s.count}件</span>
+        </div>
+        <div style="height:4px;background:#f1f5f9;border-radius:3px;"><div style="height:100%;width:${w}%;background:#6366f1;border-radius:3px;"></div></div>
+      </div>`;
+    }).join('')}
+  </div>` : '';
+
+  el.innerHTML = kpis + charts + amtChart +
+    `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;">${clientRank}${modelRank}${statusRank}</div>`;
+}
+
+function _akpi(label, val, color) {
+  return `<div style="background:#fff;border-radius:10px;padding:14px 16px;box-shadow:var(--shadow-sm);border:1px solid var(--border-light);">
+    <div style="font-size:11px;color:#64748b;margin-bottom:4px;">${label}</div>
+    <div style="font-size:20px;font-weight:800;color:${color};">${val}</div>
+  </div>`;
+}
+
+function exportAnalysisCsv() {
+  if (!_analysisData) { showToast('先にデータを読み込んでください', true); return; }
+  const d = _analysisData;
+  const rows = [
+    ['月', '見積件数', '見積金額', '注文件数', '注文金額'],
+    ...d.months.map(m => [m.label, m.quotes, m.quoteAmt, m.orders, m.orderAmt]),
+    [],
+    ['顧客名', '件数'],
+    ...d.clientRank.map(c => [c.name, c.count]),
+    [],
+    ['機種コード', '見積件数', '注文件数', '注文金額'],
+    ...d.modelRank.map(m => [m.code, m.quotes, m.orders, m.amount]),
+  ];
+  const csv = '﻿' + rows.map(r => r.map(v => '"' + String(v).replace(/"/g,'""') + '"').join(',')).join('\r\n');
+  const a = document.createElement('a');
+  a.href = 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv);
+  a.download = d.year + '_分析レポート.csv';
+  a.click();
+}
 function refreshWorkflowStatus() { document.getElementById('workflow-container') && (document.getElementById('workflow-container').innerHTML = '<div class="loading">ワークフローは準備中です</div>'); }
 function loadAssignees() { document.getElementById('assignee-container') && (document.getElementById('assignee-container').innerHTML = '<div class="loading">担当者管理は準備中です</div>'); }
 function loadApprovals() { document.getElementById('approval-container') && (document.getElementById('approval-container').innerHTML = '<div class="loading">製造承認は準備中です</div>'); }
@@ -4160,7 +4347,7 @@ function _quickSetStatus(mgmtId, newStatus) {
       if (r && r.success) { showToast('ステータスを更新しました'); loadWorkflowBoard(); if(typeof loadData==='function') loadData(); }
       else showToast('更新失敗: ' + (r ? r.error : '不明'), true);
     })
-    .handleApiRequest('updateStatus', { id: mgmtId, status: newStatus });
+    .handleApiRequest('updateStatus', { mgmtId: mgmtId, newStatus: newStatus });
 }
 
 // ============================================================
