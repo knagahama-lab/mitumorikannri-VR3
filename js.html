@@ -3972,6 +3972,9 @@ function _renderWorkflowBoard() {
   const container = document.getElementById('workflow-container');
   if (!container) return;
 
+  // 選択ステージ状態を保持（null = 全表示）
+  if (window._wfSelectedStage === undefined) window._wfSelectedStage = null;
+
   const all = (S && S.all) ? S.all : [];
   const active = all.filter(r => r.status !== 'キャンセル');
 
@@ -3985,30 +3988,72 @@ function _renderWorkflowBoard() {
   const now = new Date();
   const isOverdue = r => r.deliveryDate && (() => { try { return new Date(r.deliveryDate.replace(/\//g,'-')) < now; } catch(e){ return false; } })() && r.status !== '納品済み';
   const totalOverdue = active.filter(isOverdue).length;
+  const selIdx = window._wfSelectedStage;
 
-  // ── フロー図ヘッダー ──
-  const flowBar = WORKFLOW_STAGES.map((s, i) => {
+  // ── ビジュアルフロー図 ──
+  const flowNodes = WORKFLOW_STAGES.map((s, i) => {
     const cnt = staged[i].items.length;
-    return `<div style="flex:1;text-align:center;position:relative;">
-      <div style="background:${s.bg};border:1.5px solid ${s.border};border-radius:8px;padding:8px 4px;position:relative;z-index:1;">
-        <div style="font-size:18px;">${s.icon}</div>
-        <div style="font-size:11px;font-weight:700;color:${s.color};margin-top:2px;line-height:1.3;">${s.label.replace('\n','<br>')}</div>
-        <div style="margin-top:5px;background:${s.color};color:#fff;font-size:13px;font-weight:800;border-radius:12px;padding:1px 10px;display:inline-block;">${cnt}</div>
+    const isSel = selIdx === i;
+    const hasItems = cnt > 0;
+    const nodeColor = isSel ? '#fff' : (hasItems ? s.color : '#94a3b8');
+    const nodeBg = isSel ? s.color : (hasItems ? s.bg : '#f8fafc');
+    const nodeBorder = isSel ? s.color : (hasItems ? s.color : '#d1d5db');
+    const glow = isSel
+      ? `0 0 0 4px ${s.color}30, 0 0 18px ${s.color}60, 0 4px 14px rgba(0,0,0,.15)`
+      : (hasItems ? `0 2px 8px ${s.color}30` : '0 1px 4px rgba(0,0,0,.08)');
+    const connector = i < WORKFLOW_STAGES.length - 1
+      ? `<div style="flex:1;min-width:16px;max-width:48px;display:flex;align-items:center;gap:0;margin-bottom:26px;padding:0 2px;">
+           <div style="flex:1;height:2px;background:linear-gradient(90deg,${staged[i].items.length>0?s.color:'#d1d5db'},${staged[i+1].items.length>0?WORKFLOW_STAGES[i+1].color:'#d1d5db'});"></div>
+           <div style="font-size:10px;color:${staged[i].items.length>0?s.color:'#cbd5e1'};margin-left:-1px;line-height:1;">▶</div>
+         </div>`
+      : '';
+    return `
+      <div style="display:flex;flex-direction:column;align-items:center;min-width:72px;">
+        <button onclick="_selectWorkflowStage(${i})"
+          title="${s.short}（${cnt}件）${isSel?' — クリックで解除':' — クリックで絞込'}"
+          style="width:72px;height:72px;border-radius:50%;background:${nodeBg};border:2.5px solid ${nodeBorder};
+                 display:flex;flex-direction:column;align-items:center;justify-content:center;
+                 box-shadow:${glow};cursor:pointer;
+                 transition:all .18s;padding:0;outline:none;
+                 ${isSel?'transform:scale(1.08);':''}">
+          <div style="font-size:16px;line-height:1;">${s.icon}</div>
+          <div style="font-size:${cnt>=10?'17':'20'}px;font-weight:900;color:${nodeColor};line-height:1.1;margin-top:1px;">${cnt}</div>
+        </button>
+        <div style="font-size:10px;font-weight:700;color:${isSel?s.color:'#475569'};text-align:center;margin-top:6px;line-height:1.3;max-width:74px;">${s.label.replace('\n','<br>')}</div>
+        <div style="height:16px;margin-top:2px;display:flex;align-items:center;justify-content:center;">
+          ${isSel ? `<span style="font-size:9px;font-weight:700;color:#fff;background:${s.color};padding:1px 8px;border-radius:10px;white-space:nowrap;">▼ 絞込中</span>` : ''}
+        </div>
       </div>
-      ${i < WORKFLOW_STAGES.length-1 ? `<div style="position:absolute;top:50%;right:-14px;transform:translateY(-50%);font-size:16px;color:#94a3b8;z-index:2;">›</div>` : ''}
-    </div>`;
+      ${connector}`;
   }).join('');
+
+  // 合計件数バー（ステージ割合の帯）
+  const pctBar = active.length > 0
+    ? WORKFLOW_STAGES.map((s, i) => {
+        const w = Math.round(staged[i].items.length / active.length * 100);
+        return w > 0 ? `<div title="${s.short}: ${staged[i].items.length}件" style="flex:${w};background:${s.color};height:6px;border-radius:3px;opacity:.75;transition:flex .3s;"></div>` : '';
+      }).join('')
+    : '';
 
   // ── 統計バー ──
   let html = `
   <div style="margin-bottom:16px;">
-    <div style="display:flex;align-items:stretch;gap:8px;margin-bottom:14px;">
-      ${flowBar}
+    <!-- ビジュアルフロー図パネル -->
+    <div style="background:linear-gradient(135deg,#f8fafc 0%,#f1f5f9 100%);border:1px solid #e2e8f0;border-radius:16px;padding:20px 20px 8px;margin-bottom:12px;">
+      <div style="display:flex;align-items:center;overflow-x:auto;padding-bottom:4px;">
+        ${flowNodes}
+      </div>
+      ${active.length > 0 ? `<div style="display:flex;gap:4px;border-radius:4px;overflow:hidden;height:6px;margin-top:4px;">${pctBar}</div>` : ''}
+      ${selIdx !== null ? `
+      <div style="text-align:center;margin-top:10px;">
+        <button onclick="_selectWorkflowStage(null)" style="background:#fff;border:1px solid #e2e8f0;border-radius:20px;padding:4px 18px;font-size:11px;color:#64748b;cursor:pointer;font-weight:600;">✕ 全ステージ表示</button>
+      </div>` : ''}
     </div>
+    <!-- 統計・ツールバー -->
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
       <div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:8px 16px;display:flex;align-items:center;gap:10px;">
-        <span style="font-size:20px;font-weight:800;color:#0f172a;">${active.length}</span>
-        <span style="font-size:11px;color:#64748b;">件 進行中</span>
+        <span style="font-size:20px;font-weight:800;color:#0f172a;">${selIdx !== null ? staged[selIdx].items.length : active.length}</span>
+        <span style="font-size:11px;color:#64748b;">${selIdx !== null ? `件 ／ ${WORKFLOW_STAGES[selIdx].short}` : '件 進行中'}</span>
       </div>
       ${totalOverdue > 0 ? `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:8px 16px;display:flex;align-items:center;gap:8px;">
         <span style="font-size:15px;">🚨</span>
@@ -4024,12 +4069,14 @@ function _renderWorkflowBoard() {
 
   <div id="wf-kanban" style="display:flex;gap:12px;overflow-x:auto;padding-bottom:20px;align-items:flex-start;">`;
 
-  // ── カラム ──
-  staged.forEach(stage => {
+  // ── カラム（選択ステージ以外は薄く表示） ──
+  staged.forEach((stage, i) => {
     const cards = stage.items.map(r => _buildWorkflowCard(r, stage, isOverdue(r))).join('');
+    const isDimmed = selIdx !== null && selIdx !== i;
+    const isHighlighted = selIdx === i;
     html += `
-    <div class="wf-col" data-stage="${stage.id}" style="flex:0 0 220px;min-width:0;">
-      <div style="background:${stage.bg};border:1.5px solid ${stage.border};border-radius:12px;overflow:hidden;">
+    <div class="wf-col" data-stage="${stage.id}" style="flex:0 0 220px;min-width:0;transition:opacity .2s;${isDimmed?'opacity:.35;pointer-events:none;':''}">
+      <div style="background:${stage.bg};border:${isHighlighted?'2.5px':'1.5px'} solid ${isHighlighted?stage.color:stage.border};border-radius:12px;overflow:hidden;${isHighlighted?`box-shadow:0 0 0 3px ${stage.color}20;`:''}">
         <div style="padding:10px 12px;border-bottom:1px solid ${stage.border};display:flex;align-items:center;gap:8px;background:${stage.bg};">
           <span style="font-size:16px;">${stage.icon}</span>
           <div style="flex:1;">
@@ -4038,7 +4085,7 @@ function _renderWorkflowBoard() {
           </div>
           <span style="background:${stage.color};color:#fff;font-size:11px;font-weight:700;min-width:22px;height:22px;border-radius:11px;display:flex;align-items:center;justify-content:center;padding:0 5px;">${stage.items.length}</span>
         </div>
-        <div class="wf-cards" style="padding:8px;display:flex;flex-direction:column;gap:8px;max-height:calc(100vh - 340px);overflow-y:auto;min-height:60px;">
+        <div class="wf-cards" style="padding:8px;display:flex;flex-direction:column;gap:8px;max-height:calc(100vh - 380px);overflow-y:auto;min-height:60px;">
           ${cards || `<div style="text-align:center;padding:20px 0;color:#cbd5e1;font-size:12px;">案件なし</div>`}
         </div>
       </div>
@@ -4047,6 +4094,21 @@ function _renderWorkflowBoard() {
 
   html += `</div>`;
   container.innerHTML = html;
+
+  // 選択中ステージのカラムへスクロール
+  if (selIdx !== null) {
+    requestAnimationFrame(() => {
+      const col = container.querySelector(`.wf-col[data-stage="${selIdx}"]`);
+      if (col) col.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    });
+  }
+}
+
+// ステージ選択（ボールをクリック）
+function _selectWorkflowStage(idx) {
+  // 同じステージを再クリックで解除、nullで全表示
+  window._wfSelectedStage = (window._wfSelectedStage === idx) ? null : idx;
+  _renderWorkflowBoard();
 }
 
 function _buildWorkflowCard(r, stage, overdue) {
@@ -4078,6 +4140,7 @@ function _buildWorkflowCard(r, stage, overdue) {
     ${r.orderAmount ? `<div style="font-size:13px;font-weight:800;color:#0f172a;margin-bottom:4px;">¥${Number(r.orderAmount).toLocaleString()}</div>` : ''}
     ${r.deliveryDate ? `<div style="font-size:10px;color:${overdue?'#dc2626':'#94a3b8'};margin-bottom:5px;font-weight:${overdue?'700':'400'};">🗓 納期 ${_esc(r.deliveryDate)}</div>` : ''}
     ${pdfBtns ? `<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:4px;">${pdfBtns}</div>` : ''}
+    ${_workflowMiniBar(r)}
     ${approveBtn}${replaceBtn}
   </div>`;
 }
