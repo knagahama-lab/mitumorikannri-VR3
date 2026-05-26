@@ -65,12 +65,65 @@ function initBomSheets() {
 function apiBomGetAll() {
   try {
     var ss = _getBomSS();
+
+    // 基板マスタ — 日本語ヘッダー → 英語キーへ正規化
+    var rawBoards = _sheetToObjects(ss, BOM_SHEET.BOARDS);
+    var boards = rawBoards.map(function(r) {
+      return {
+        id       : String(r['基板ID']      || r['id']        || ''),
+        productId: String(r['機種ID']      || r['紐づく機種ID'] || r['productId'] || ''),
+        name     : String(r['基板名']      || r['name']      || ''),
+        code     : String(r['コード']      || r['基板コード'] || r['code']       || ''),
+        desc     : String(r['説明']        || r['desc']      || ''),
+        version  : String(r['バージョン']  || r['version']   || ''),
+      };
+    });
+
+    // 機種マスタ（BOM SS）— 正規化
+    var rawProducts = _sheetToObjects(ss, BOM_SHEET.PRODUCTS);
+    var products = rawProducts.map(function(r) {
+      return {
+        id  : String(r['機種ID']    || r['id']   || ''),
+        name: String(r['機種名']    || r['name'] || ''),
+        code: String(r['機種コード']|| r['code'] || ''),
+        desc: String(r['説明']      || r['desc'] || ''),
+      };
+    });
+
+    // 部品マスタ — 正規化
+    var rawParts = _sheetToObjects(ss, BOM_SHEET.PARTS);
+    var parts = rawParts.map(function(r) {
+      return {
+        id      : String(r['部品ID']   || r['id']       || ''),
+        name    : String(r['部品名']   || r['name']     || ''),
+        category: String(r['カテゴリ'] || r['category'] || ''),
+        maker   : String(r['メーカー'] || r['maker']    || ''),
+        unit    : String(r['単位']     || r['unit']     || ''),
+        spec    : String(r['仕様']     || r['spec']     || ''),
+        cost    : Number(r['原価']     || r['cost']     || 0),
+        price   : Number(r['売値']     || r['price']    || 0),
+        stock   : Number(r['在庫']     || r['stock']    || 0),
+      };
+    });
+
+    // BOM — 正規化
+    var rawBom = _sheetToObjects(ss, BOM_SHEET.BOM);
+    var bom = rawBom.map(function(r) {
+      return {
+        id     : String(r['BOM_ID'] || r['BOMID'] || r['id']      || ''),
+        boardId: String(r['基板ID'] || r['boardId']               || ''),
+        partId : String(r['部品ID'] || r['partId']                || ''),
+        qty    : Number(r['数量']   || r['qty']                   || 0),
+        note   : String(r['備考']   || r['note']                  || ''),
+      };
+    });
+
     return {
       success : true,
-      parts   : _sheetToObjects(ss, BOM_SHEET.PARTS),
-      products: _sheetToObjects(ss, BOM_SHEET.PRODUCTS),
-      boards  : _sheetToObjects(ss, BOM_SHEET.BOARDS),
-      bom     : _sheetToObjects(ss, BOM_SHEET.BOM),
+      parts   : parts,
+      products: products,
+      boards  : boards,
+      bom     : bom,
     };
   } catch(e) {
     Logger.log('[apiBomGetAll ERROR] ' + e.message);
