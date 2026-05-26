@@ -4,33 +4,46 @@
 //  - 注文書単価確認後、資材購買課へ承認メールを送信
 //  - 承認後にステータスを「受注済み」に更新
 // ============================================================
+//
+// 【修正履歴】
+//   - CONFIG.SHEETS.MGMT  → CONFIG.SHEET_MANAGEMENT  (01 config and setup.gs に合わせる)
+//   - CONFIG.SHEETS.QUOTE → CONFIG.SHEET_QUOTES       (01 config and setup.gs に合わせる)
+//   - ステータス更新ロジックの二重ループを削除・整理
+// ============================================================
 
 // ── メイン: 承認メール送信 ──────────────────────────────────
 function _apiApproveOrderAndNotify(payload) {
   try {
-    var mgmtId     = String(payload.mgmtId || '');
-    var toEmail    = String(payload.to || '').trim();
-    var ccEmail    = String(payload.cc || '').trim();
-    var subject    = String(payload.subject || '').trim();
-    var memo       = String(payload.memo || '').trim();
-    var updateSt   = payload.updateStatus !== false; // デフォルトtrue
+    var mgmtId   = String(payload.mgmtId  || '');
+    var toEmail  = String(payload.to      || '').trim();
+    var ccEmail  = String(payload.cc      || '').trim();
+    var subject  = String(payload.subject || '').trim();
+    var memo     = String(payload.memo    || '').trim();
+    var updateSt = payload.updateStatus !== false; // デフォルトtrue
 
-    if (!mgmtId)   return { success: false, error: '管理IDが必要です' };
-    if (!toEmail)  return { success: false, error: '送信先メールアドレスを入力してください' };
-    if (!subject)  return { success: false, error: '件名を入力してください' };
+    if (!mgmtId)  return { success: false, error: '管理IDが必要です' };
+    if (!toEmail) return { success: false, error: '送信先メールアドレスを入力してください' };
+    if (!subject) return { success: false, error: '件名を入力してください' };
 
-    var approver = Session.getActiveUser().getEmail() || '';
-    var systemUrl = ScriptApp.getService().getUrl() || '';
+    var approver  = Session.getActiveUser().getEmail() || '';
+    var systemUrl = ScriptApp.getService().getUrl()    || '';
 
     // ── 注文書データをシートから取得 ──
     var ss    = getSpreadsheet();
-    var sheet = ss.getSheetByName(CONFIG.SHEETS.MGMT);
+
+    // ★ 修正: CONFIG.SHEETS.MGMT → CONFIG.SHEET_MANAGEMENT
+    var sheet = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT);
     if (!sheet) return { success: false, error: '管理シートが見つかりません' };
 
-    var allData = sheet.getDataRange().getValues();
+    var allData  = sheet.getDataRange().getValues();
     var orderRow = null;
+    var orderRowIndex = -1; // ★ 追加: ステータス更新用に行番号を記憶
     for (var i = 1; i < allData.length; i++) {
-      if (String(allData[i][MGMT_COLS.ID - 1]) === mgmtId) { orderRow = allData[i]; break; }
+      if (String(allData[i][MGMT_COLS.ID - 1]) === mgmtId) {
+        orderRow      = allData[i];
+        orderRowIndex = i + 1; // スプレッドシートは1始まり、ヘッダー分+1
+        break;
+      }
     }
     if (!orderRow) return { success: false, error: '注文書が見つかりません: ' + mgmtId };
 
@@ -41,8 +54,8 @@ function _apiApproveOrderAndNotify(payload) {
       subject:      String(orderRow[MGMT_COLS.SUBJECT       - 1] || ''),
       client:       String(orderRow[MGMT_COLS.CLIENT        - 1] || ''),
       modelCode:    String(orderRow[MGMT_COLS.MODEL_CODE    - 1] || ''),
-      orderDate:    _toDateStr(orderRow[MGMT_COLS.ORDER_DATE     - 1]),
-      deliveryDate: _toDateStr(orderRow[MGMT_COLS.DELIVERY_DATE  - 1]),
+      orderDate:    _toDateStr(orderRow[MGMT_COLS.ORDER_DATE    - 1]),
+      deliveryDate: _toDateStr(orderRow[MGMT_COLS.DELIVERY_DATE - 1]),
       orderAmount:  _toNum(orderRow[MGMT_COLS.ORDER_AMOUNT  - 1]),
       orderType:    String(orderRow[MGMT_COLS.ORDER_TYPE    - 1] || ''),
       orderPdfUrl:  String(orderRow[MGMT_COLS.ORDER_PDF_URL - 1] || ''),
@@ -53,7 +66,8 @@ function _apiApproveOrderAndNotify(payload) {
     // ── 紐づき見積書データ取得 ──
     var quote = null;
     if (order.quoteNo) {
-      var qSheet = ss.getSheetByName(CONFIG.SHEETS.QUOTE);
+      // ★ 修正: CONFIG.SHEETS.QUOTE → CONFIG.SHEET_QUOTES
+      var qSheet = ss.getSheetByName(CONFIG.SHEET_QUOTES);
       if (qSheet) {
         var qData = qSheet.getDataRange().getValues();
         for (var j = 1; j < qData.length; j++) {
@@ -82,18 +96,14 @@ function _apiApproveOrderAndNotify(payload) {
     Logger.log('[APPROVAL] 承認メール送信: ' + toEmail + ' | ' + mgmtId);
 
     // ── ステータス更新（受注済み）──
-    if (updateSt) {
-      sheet.getRange(orderRow.indexOf(orderRow[0]) + 2, MGMT_COLS.STATUS).setValue('受注済み');
-      // 正確な行番号を再取得して更新
-      for (var k = 1; k < allData.length; k++) {
-        if (String(allData[k][MGMT_COLS.ID - 1]) === mgmtId) {
-          sheet.getRange(k + 1, MGMT_COLS.STATUS).setValue('受注済み');
-          break;
-        }
-      }
+    // ★ 修正: 二重ループを削除し、取得済みの orderRowIndex を使用
+    if (updateSt && orderRowIndex > 0) {
+      sheet.getRange(orderRowIndex, MGMT_COLS.STATUS).setValue('受注済み');
+      Logger.log('[APPROVAL] ステータス更新: 行' + orderRowIndex + ' → 受注済み');
     }
 
     return { success: true, sentTo: toEmail, mgmtId: mgmtId };
+
   } catch(e) {
     Logger.log('[APPROVAL] エラー: ' + e.message + '\n' + e.stack);
     return { success: false, error: e.message };
@@ -105,7 +115,7 @@ function _apiGetApprovalSettings() {
   try {
     var props = PropertiesService.getScriptProperties();
     return {
-      success: true,
+      success:          true,
       procurementEmail: props.getProperty('PROCUREMENT_EMAIL') || '',
       salesEmails:      props.getProperty('SALES_EMAILS')      || '',
     };
@@ -220,7 +230,7 @@ function _buildApprovalPlainEmail(order, quote, memo, approver, systemUrl) {
     '種別       : ' + (order.orderType     || '—'),
     '発注日     : ' + (order.orderDate     || '—'),
     '納期       : ' + (order.deliveryDate  || '—'),
-    '注文金額   : ' + (order.orderAmount   ? 'Y' + Number(order.orderAmount).toLocaleString() : '—'),
+    '注文金額   : ' + (order.orderAmount   ? '¥' + Number(order.orderAmount).toLocaleString() : '—'),
   ];
   if (order.orderPdfUrl) lines.push('注文書PDF  : ' + order.orderPdfUrl);
 
