@@ -860,6 +860,41 @@ tr:hover td{background:#f8fafc;}
       <div id="quotecheck-wrap"></div>
     </div>
 
+    <!-- ===== 見積セット管理ページ ===== -->
+    <div id="page-quoteset" class="page">
+      <div class="page-heading" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
+        <div>
+          <h2>📦 見積セット管理</h2>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">4種の見積書をセットで作成・進捗管理</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button class="btn btn-sm" onclick="loadQuoteSetPage()" title="更新">↻ 更新</button>
+          <button class="btn btn-primary btn-sm" onclick="openNewQsModal()">＋ 新規セット</button>
+        </div>
+      </div>
+      <div class="model-master-layout">
+        <!-- 左：案件リスト -->
+        <div class="model-list-panel">
+          <div style="padding:10px 12px 6px;border-bottom:1px solid var(--border-light);">
+            <input id="qs-search" type="text" placeholder="🔍 案件名・顧客名で検索…"
+              style="width:100%;padding:6px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;box-sizing:border-box;"
+              oninput="filterQsList()">
+          </div>
+          <div id="qs-list-container" style="flex:1;overflow-y:auto;"></div>
+        </div>
+        <!-- 右：詳細 -->
+        <div class="model-detail-panel-wrap">
+          <div id="qs-detail-panel">
+            <div style="text-align:center;padding:60px 20px;color:var(--text-muted);">
+              <div style="font-size:48px;margin-bottom:12px;">📦</div>
+              <div style="font-size:15px;font-weight:600;margin-bottom:6px;">案件を選択してください</div>
+              <div style="font-size:13px;">左のリストから案件を選ぶと、<br>見積セットの進捗が表示されます</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div id="page-aichat" class="page">
       <div id="aichat-container"><div class="loading" style="text-align:center;padding:40px;">AIアシスタントを読み込み中...</div></div>
     </div>

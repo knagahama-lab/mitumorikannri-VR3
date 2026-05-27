@@ -118,6 +118,10 @@ function handleApiRequest(action, payload) {
       case 'bomImportFinalList':  return apiBomImportFinalList(payload.rows);
       case 'bomImportK10Parts':   return apiBomImportK10Parts(payload.rows);
       case 'boardMasterGet':      return apiBoardMasterGet(payload);
+      // ── 見積セット管理（25_quoteset.gs）──
+      case 'quoteSetList':   return apiQuoteSetList();
+      case 'quoteSetSave':   return apiQuoteSetSave(payload);
+      case 'quoteSetDelete': return apiQuoteSetDelete(payload);
       case 'reregisterTriggers':
         try {
           _registerTriggers();

@@ -36,6 +36,7 @@ var CONFIG = {
   SHEET_LEDGER:     '見積台帳',
   SHEET_MODEL_INFO:   '基板情報管理',
   SHEET_MODEL_MASTER: '機種マスタ',     // 追加: 機種マスタシート（21_model_master.gs）
+  SHEET_QUOTE_SET:   '見積セット管理',  // 追加: 見積セット管理（25_quoteset.gs）
 
   RATE_LIMIT_WAIT_MS: 20000,
   RATE_LIMIT_RETRIES: 2,
