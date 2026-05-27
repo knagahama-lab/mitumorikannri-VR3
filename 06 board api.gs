@@ -117,6 +117,7 @@ function handleApiRequest(action, payload) {
       case 'bomDeleteBomRow':     return apiBomDeleteBomRow(payload.id);
       case 'bomImportFinalList':  return apiBomImportFinalList(payload.rows);
       case 'bomImportK10Parts':   return apiBomImportK10Parts(payload.rows);
+      case 'boardMasterGet':      return apiBoardMasterGet(payload);
       case 'reregisterTriggers':
         try {
           _registerTriggers();

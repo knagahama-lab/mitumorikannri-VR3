@@ -236,6 +236,118 @@ function apiBomDeleteBoard(id) {
 }
 
 // ============================================================
+// 基板詳細取得（関連見積・注文・機種情報付き）
+// ============================================================
+
+function apiBoardMasterGet(payload) {
+  try {
+    var boardId = String((payload || {}).boardId || '').trim();
+    if (!boardId) return { success: false, error: '基板IDが必要です' };
+
+    var ss = _getBomSS();
+
+    // ── 基板情報 ──
+    var rawBoards = _sheetToObjects(ss, BOM_SHEET.BOARDS);
+    var rawBoard  = rawBoards.filter(function(r) {
+      return String(r['基板ID'] || r['id'] || '').trim() === boardId;
+    })[0];
+    if (!rawBoard) return { success: false, error: '基板が見つかりません: ' + boardId };
+
+    var boardInfo = {
+      id       : boardId,
+      productId: String(rawBoard['機種ID']     || rawBoard['productId'] || ''),
+      name     : String(rawBoard['基板名']     || rawBoard['name']      || ''),
+      code     : String(rawBoard['コード']     || rawBoard['code']      || ''),
+      desc     : String(rawBoard['説明']       || rawBoard['desc']      || ''),
+      version  : String(rawBoard['バージョン'] || rawBoard['version']  || ''),
+    };
+
+    // ── 親機種（機種マスタ）情報 ──
+    var parentProduct = null;
+    var modelCode     = '';
+    if (boardInfo.productId) {
+      var rawProducts = _sheetToObjects(ss, BOM_SHEET.PRODUCTS);
+      var rawProduct  = rawProducts.filter(function(p) {
+        return String(p['機種ID'] || p['id'] || '').trim() === boardInfo.productId;
+      })[0];
+      if (rawProduct) {
+        modelCode    = String(rawProduct['機種コード'] || rawProduct['code'] || '');
+        parentProduct = {
+          id  : boardInfo.productId,
+          name: String(rawProduct['機種名'] || rawProduct['name'] || ''),
+          code: modelCode,
+          desc: String(rawProduct['説明']   || rawProduct['desc'] || ''),
+        };
+      }
+    }
+
+    // ── 関連見積書・注文書（機種コードで管理シートを検索）──
+    var relatedQuotes = [];
+    var relatedOrders = [];
+
+    if (modelCode) {
+      var mgmtData  = getAllMgmtData();
+      var seenQuotes = {};
+      var seenOrders = {};
+
+      mgmtData.forEach(function(r) {
+        var mc = String(r[MGMT_COLS.MODEL_CODE - 1] || '').trim();
+        if (mc !== modelCode) return;
+
+        var qNo = String(r[MGMT_COLS.QUOTE_NO - 1] || '').trim();
+        var oNo = String(r[MGMT_COLS.ORDER_NO  - 1] || '').trim();
+
+        if (qNo && !seenQuotes[qNo]) {
+          seenQuotes[qNo] = true;
+          relatedQuotes.push({
+            mgmtId   : String(r[MGMT_COLS.ID           - 1] || ''),
+            quoteNo  : qNo,
+            client   : String(r[MGMT_COLS.CLIENT        - 1] || ''),
+            quoteDate: _toDateStr(r[MGMT_COLS.QUOTE_DATE - 1]),
+            amount   : _toNum(r[MGMT_COLS.QUOTE_AMOUNT  - 1]),
+            status   : String(r[MGMT_COLS.STATUS        - 1] || ''),
+            pdfUrl   : String(r[MGMT_COLS.QUOTE_PDF_URL - 1] || ''),
+            subject  : String(r[MGMT_COLS.SUBJECT       - 1] || ''),
+            linked   : _isLinkedVal(r[MGMT_COLS.LINKED  - 1]),
+          });
+        }
+        if (oNo && !seenOrders[oNo]) {
+          seenOrders[oNo] = true;
+          relatedOrders.push({
+            mgmtId      : String(r[MGMT_COLS.ID              - 1] || ''),
+            orderNo     : oNo,
+            client      : String(r[MGMT_COLS.CLIENT           - 1] || ''),
+            orderDate   : _toDateStr(r[MGMT_COLS.ORDER_DATE   - 1]),
+            amount      : _toNum(r[MGMT_COLS.ORDER_AMOUNT     - 1]),
+            status      : String(r[MGMT_COLS.STATUS           - 1] || ''),
+            pdfUrl      : String(r[MGMT_COLS.ORDER_PDF_URL    - 1] || ''),
+            deliveryDate: _toDateStr(r[MGMT_COLS.DELIVERY_DATE - 1]),
+            orderType   : String(r[MGMT_COLS.ORDER_TYPE       - 1] || ''),
+            orderSlipNo : String(r[MGMT_COLS.ORDER_SLIP_NO    - 1] || ''),
+            linked      : _isLinkedVal(r[MGMT_COLS.LINKED     - 1]),
+          });
+        }
+      });
+
+      relatedQuotes.sort(function(a,b){ return (b.quoteDate||'').localeCompare(a.quoteDate||''); });
+      relatedOrders.sort(function(a,b){ return (b.orderDate||'').localeCompare(a.orderDate||''); });
+    }
+
+    return JSON.parse(JSON.stringify({
+      success      : true,
+      boardInfo    : boardInfo,
+      parentProduct: parentProduct,
+      modelCode    : modelCode,
+      relatedQuotes: relatedQuotes,
+      relatedOrders: relatedOrders,
+    }));
+  } catch(e) {
+    Logger.log('[apiBoardMasterGet ERROR] ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// ============================================================
 // 個別 CRUD — BOM行
 // ============================================================
 function apiBomSaveBomRow(x) {
