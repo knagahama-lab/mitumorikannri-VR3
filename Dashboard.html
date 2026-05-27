@@ -769,37 +769,56 @@ tr:hover td{background:#f8fafc;}
       </div>
     </div>
 
-    <!-- ============ 機種マスタ ============ -->
+    <!-- ============ 機種・基板マスタ（統合） ============ -->
     <div id="page-model" class="page">
+      <!-- 動的ページヘッダー -->
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
         <div>
-          <h2 style="font-size:16px;font-weight:700;">🏭 機種マスタ</h2>
-          <div style="font-size:11.5px;color:var(--text-muted);margin-top:2px;">機種別に見積書・注文書・基板・台帳を一元管理</div>
+          <h2 style="font-size:16px;font-weight:700;" id="master-page-title">🏭 機種マスタ</h2>
+          <div style="font-size:11.5px;color:var(--text-muted);margin-top:2px;" id="master-page-sub">機種別に見積書・注文書・基板・台帳を一元管理</div>
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <!-- 機種タブ用ボタン -->
+        <div style="display:flex;gap:8px;flex-wrap:wrap;" id="master-actions-model">
           <button class="btn btn-primary btn-sm" onclick="openNewModelModal()">＋ 機種を追加</button>
           <button class="btn btn-sm" onclick="rebuildModelMaster()" title="管理シートから機種コードを収集して再構築">🔄 再構築</button>
           <button class="btn btn-sm" onclick="loadModelMaster()">↻ 更新</button>
         </div>
+        <!-- 基板タブ用ボタン -->
+        <div style="display:none;gap:8px;flex-wrap:wrap;" id="master-actions-board">
+          <button class="btn btn-primary btn-sm" onclick="openBoardAddModal()">＋ 基板を追加</button>
+          <button class="btn btn-sm" onclick="loadBoardMaster()">↻ 更新</button>
+        </div>
       </div>
 
       <div class="model-master-layout">
-        <!-- 左: 機種リスト -->
+        <!-- 左: 機種/基板 切替リストパネル -->
         <div class="model-list-panel">
-          <div class="model-list-header">
-            <h3>機種一覧</h3>
+          <!-- タブ切り替え -->
+          <div style="display:flex;flex-shrink:0;border-bottom:2px solid var(--border-light);">
+            <button class="admin-tab active" id="master-tab-model" onclick="switchMasterTab('model')"
+              style="flex:1;padding:9px 4px;font-size:12px;margin-bottom:-2px;">🏭 機種</button>
+            <button class="admin-tab" id="master-tab-board" onclick="switchMasterTab('board')"
+              style="flex:1;padding:9px 4px;font-size:12px;margin-bottom:-2px;">🏷️ 基板</button>
           </div>
+          <!-- 検索（タブ別） -->
           <div style="padding:8px 10px;border-bottom:1px solid var(--border-light);flex-shrink:0;">
             <input type="text" id="model-search" placeholder="機種コード・機種名で絞り込み..." oninput="filterModelList()"
               style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;outline:none;">
+            <input type="text" id="board-search" placeholder="基板名・コードで絞り込み..." oninput="filterBoardList()"
+              style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;outline:none;display:none;">
           </div>
-          <div id="model-list-container"><div class="loading"><div class="spinner"></div></div></div>
+          <!-- リスト（タブ別）-->
+          <div id="model-list-container" style="flex:1;overflow-y:auto;"><div class="loading"><div class="spinner"></div></div></div>
+          <div id="board-list-container" style="flex:1;overflow-y:auto;display:none;"><div class="loading"><div class="spinner"></div></div></div>
         </div>
 
-        <!-- 右: 機種詳細 -->
+        <!-- 右: 詳細パネル（タブ別）-->
         <div class="model-detail-panel-wrap">
           <div id="model-detail-panel">
             <div style="display:flex;align-items:center;justify-content:center;height:200px;color:var(--text-muted);font-size:13px;">← 左の機種を選択してください</div>
+          </div>
+          <div id="board-detail-panel" style="display:none;">
+            <div style="display:flex;align-items:center;justify-content:center;height:200px;color:var(--text-muted);font-size:13px;">← 左の基板を選択してください</div>
           </div>
         </div>
       </div>
@@ -856,39 +875,8 @@ tr:hover td{background:#f8fafc;}
       <div class="page-heading"><div><h2>✅ 製造承認</h2></div></div>
       <div id="approval-container"><div class="loading" style="text-align:center;padding:40px;color:var(--text-muted);">準備中</div></div>
     </div>
-    <div id="page-board" class="page">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
-        <div>
-          <h2 style="font-size:16px;font-weight:700;">🏷️ 基板マスタ</h2>
-          <div style="font-size:11.5px;color:var(--text-muted);margin-top:2px;">基板ごとの見積書・注文書・機種情報を一元管理</div>
-        </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn btn-primary btn-sm" onclick="openBoardAddModal()">＋ 基板を追加</button>
-          <button class="btn btn-sm" onclick="loadBoardMaster()">↻ 更新</button>
-        </div>
-      </div>
-
-      <div class="board-master-layout">
-        <!-- 左: 基板リスト -->
-        <div class="board-list-panel">
-          <div class="board-list-header">
-            <h3>基板一覧</h3>
-          </div>
-          <div style="padding:8px 10px;border-bottom:1px solid var(--border-light);flex-shrink:0;">
-            <input type="text" id="board-search" placeholder="基板名・コードで絞り込み..." oninput="filterBoardList()"
-              style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;outline:none;">
-          </div>
-          <div id="board-list-container"><div class="loading"><div class="spinner"></div></div></div>
-        </div>
-
-        <!-- 右: 基板詳細 -->
-        <div class="board-detail-panel-wrap">
-          <div id="board-detail-panel">
-            <div style="display:flex;align-items:center;justify-content:center;height:200px;color:var(--text-muted);font-size:13px;">← 左の基板を選択してください</div>
-          </div>
-        </div>
-      </div>
-    </div>
+    <!-- page-board は機種・基板統合ページ(page-model)にリダイレクト。showPage('board')で自動切替 -->
+    <div id="page-board" class="page" style="display:none!important;"></div>
     <div id="page-simulation" class="page">
       <div class="page-heading"><div><h2>💰 利益シミュレーション</h2><p style="font-size:12px;color:var(--text-sub);margin-top:2px;">エバーライト通常版 — 数量・単価から利益率を即時計算</p></div></div>
       <div id="simulation-container"></div>

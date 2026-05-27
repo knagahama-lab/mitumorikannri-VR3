@@ -286,10 +286,10 @@ function showPage(name){
   if(name==='matching' && typeof loadMatchingCandidates==='function') loadMatchingCandidates();
   if(name==='drivesearch'){ if(typeof initDriveSearchPage==='function') initDriveSearchPage(); if(typeof clearDriveSearch==='function') clearDriveSearch(); }
   if(name==='admin') _onShowAdmin();
-  if(name==='model') loadModelMaster();
+  if(name==='model') { switchMasterTab('model'); loadModelMaster(); }
+  if(name==='board')  { showPage('model'); switchMasterTab('board'); return; }
   if(name==='checklist' && typeof initChecklistPage==='function') initChecklistPage();
   if(name==='quotecheck' && typeof initQuoteCheckPage==='function') initQuoteCheckPage();
-  if(name==='board') loadBoardMaster();
   if(name==='simulation') loadProfitSimulation();
   if(name==='workflow') loadWorkflowBoard();
   if(name==='analysis') loadAnalysis();
@@ -1240,9 +1240,9 @@ function _renderBoardDetail(res) {
           </div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;">
             <button class="btn btn-sm" style="color:var(--success);border-color:var(--success);"
-              onclick="showPage('model');setTimeout(()=>selectModel('${_esc(pp.code||'')}'),600)">🔍 機種マスタを表示</button>
+              onclick="switchMasterTab('model');setTimeout(()=>selectModel('${_esc(pp.code||'')}'),200)">🔍 機種マスタを表示</button>
             <button class="btn btn-sm"
-              onclick="showPage('model');setTimeout(()=>{selectModel('${_esc(pp.code||'')}');setTimeout(()=>openEditModelModal('${_esc(pp.code||'')}','${_esc(pp.name||'')}','${_esc(pp.desc||'')}'),400)},600)">✏️ 機種マスタを編集</button>
+              onclick="switchMasterTab('model');setTimeout(()=>{selectModel('${_esc(pp.code||'')}');setTimeout(()=>openEditModelModal('${_esc(pp.code||'')}','${_esc(pp.name||'')}','${_esc(pp.desc||'')}'),300)},200)">✏️ 機種マスタを編集</button>
           </div>
         </div>
       </div>`
@@ -1250,7 +1250,7 @@ function _renderBoardDetail(res) {
         <div style="font-size:12px;color:var(--warning);">⚠️ 機種（親機種）が未設定です。基板編集で機種を設定するか、機種マスタに新しい機種を登録してください。</div>
         <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
           <button class="btn btn-sm btn-primary" onclick="openBoardEditModal(${biJson})">✏️ 基板を編集</button>
-          <button class="btn btn-sm" onclick="showPage('model');setTimeout(openNewModelModal,400)">＋ 機種を新規登録</button>
+          <button class="btn btn-sm" onclick="switchMasterTab('model');setTimeout(openNewModelModal,200)">＋ 機種を新規登録</button>
         </div>
       </div>`;
 
@@ -1805,8 +1805,56 @@ function switchAdminTab(tab) {
 // ============================================================
 // 機種マスタ
 // ============================================================
-let _allModels = [];
+let _allModels       = [];
 let _selectedModelCode = null;
+let _masterActiveTab   = 'model'; // 'model' | 'board'
+
+// ── 機種/基板 タブ切り替え ──
+function switchMasterTab(tab) {
+  _masterActiveTab = tab;
+  const isModel = tab === 'model';
+
+  // タブボタン
+  const tabM = document.getElementById('master-tab-model');
+  const tabB = document.getElementById('master-tab-board');
+  if (tabM) tabM.classList.toggle('active', isModel);
+  if (tabB) tabB.classList.toggle('active', !isModel);
+
+  // 検索ボックス
+  const srchM = document.getElementById('model-search');
+  const srchB = document.getElementById('board-search');
+  if (srchM) srchM.style.display = isModel ? '' : 'none';
+  if (srchB) srchB.style.display = isModel ? 'none' : '';
+
+  // リストコンテナ
+  const listM = document.getElementById('model-list-container');
+  const listB = document.getElementById('board-list-container');
+  if (listM) listM.style.display = isModel ? '' : 'none';
+  if (listB) listB.style.display = isModel ? 'none' : '';
+
+  // 詳細パネル
+  const detM = document.getElementById('model-detail-panel');
+  const detB = document.getElementById('board-detail-panel');
+  if (detM) detM.style.display = isModel ? '' : 'none';
+  if (detB) detB.style.display = isModel ? 'none' : '';
+
+  // アクションボタン
+  const actM = document.getElementById('master-actions-model');
+  const actB = document.getElementById('master-actions-board');
+  if (actM) actM.style.display = isModel ? 'flex' : 'none';
+  if (actB) actB.style.display = isModel ? 'none' : 'flex';
+
+  // ページタイトル
+  const titleEl = document.getElementById('master-page-title');
+  const subEl   = document.getElementById('master-page-sub');
+  if (titleEl) titleEl.textContent = isModel ? '🏭 機種マスタ' : '🏷️ 基板マスタ';
+  if (subEl)   subEl.textContent   = isModel
+    ? '機種別に見積書・注文書・基板・台帳を一元管理'
+    : '基板ごとの見積書・注文書・機種情報を一元管理';
+
+  // 未ロードなら自動ロード
+  if (!isModel && _allBoards.length === 0) loadBoardMaster();
+}
 
 function loadModelMaster() {
   const listEl = document.getElementById('model-list-container');
@@ -1917,12 +1965,13 @@ function _renderModelDetail(res) {
       </tr>`).join('');
 
   const boardRows = boards.length === 0
-    ? '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);font-size:12px;padding:12px;">基板データなし（BOM SSに登録してください）</td></tr>'
-    : boards.map(b => `<tr>
-        <td><strong>${_esc(b.boardName)}</strong></td>
+    ? '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);font-size:12px;padding:12px;">基板データなし（BOM SSに登録してください）</td></tr>'
+    : boards.map(b => `<tr style="cursor:pointer;" onclick="switchMasterTab('board');setTimeout(()=>selectBoard('${_esc(b.boardId)}'),200)" title="クリックで基板詳細を表示">
+        <td><strong style="color:var(--primary);">${_esc(b.boardName)}</strong></td>
         <td>${_esc(b.code)}</td>
         <td>${_esc(b.version)}</td>
         <td>${_esc(b.desc)}</td>
+        <td style="text-align:center;"><span style="font-size:11px;color:var(--text-muted);">→ 詳細</span></td>
       </tr>`).join('');
 
   const ledgerRows = ledger.length === 0
@@ -1980,7 +2029,7 @@ function _renderModelDetail(res) {
     </div>
     <div id="mdtab-content-board" class="admin-tab-content">
       <div class="table-wrap"><table>
-        <thead><tr><th>基板名</th><th>コード</th><th>バージョン</th><th>説明</th></tr></thead>
+        <thead><tr><th>基板名</th><th>コード</th><th>バージョン</th><th>説明</th><th></th></tr></thead>
         <tbody>${boardRows}</tbody>
       </table></div>
     </div>
