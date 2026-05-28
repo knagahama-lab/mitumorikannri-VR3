@@ -4,21 +4,26 @@
 // ・インライン編集 / 超強力な検索 / 詳細ボタン / OCR解析 / AIチャット
 // ============================================================
 
-const DEFAULT_MENU = [
+onst DEFAULT_MENU = [
   { id:'list',        icon:'📋', label:'案件一覧',      section:'営業・進行管理', visible:true },
   { id:'ledger',      icon:'📝', label:'見積台帳',      section:'営業・進行管理', visible:true },
   { id:'matching',    icon:'🔗', label:'AI紐づけ',      section:'営業・進行管理', visible:true },
-  { id:'aichat',      icon:'🤖', label:'AIアシスタント',section:'自動化・連携',   visible:true },
   { id:'calendar',    icon:'📅', label:'スケジュール',  section:'営業・進行管理', visible:true },
   { id:'ocr',         icon:'🔍', label:'簡易OCR',       section:'営業・進行管理', visible:true },
+  { id:'aichat',      icon:'🤖', label:'AIアシスタント',section:'自動化・連携',   visible:true },
   { id:'workflow',    icon:'🔄', label:'業務フロー',    section:'自動化・連携',   visible:true },
   { id:'assignees',   icon:'👥', label:'担当者管理',    section:'自動化・連携',   visible:true },
   { id:'approval',    icon:'✅', label:'製造承認',      section:'自動化・連携',   visible:true },
-  { id:'board',       icon:'🏷️', label:'基板管理',      section:'マスタ管理',     visible:true },
+  { id:'model',       icon:'🏭', label:'機種マスタ',    section:'マスタ管理',     visible:true },
+  { id:'board',       icon:'🏷️', label:'基板マスタ',     section:'マスタ管理',     visible:true },
+  { id:'simulation',  icon:'💰', label:'利益シミュレーション', section:'マスタ管理', visible:true },
   { id:'analysis',    icon:'📊', label:'分析・レポート',section:'マスタ管理',     visible:true },
   { id:'todo',        icon:'✅', label:'ToDo',          section:'ツール',         visible:true },
   { id:'drivesearch', icon:'💾', label:'全文検索',      section:'ツール',         visible:true },
   { id:'admin',       icon:'⚙️', label:'管理コンソール',section:'設定',           visible:true },
+  { id:'quoteset',    icon:'📦', label:'見積セット管理', section:'営業・進行管理', visible:true },
+  { id:'checklist',   icon:'📋', label:'見積セット',    section:'営業・進行管理', visible:true },
+  { id:'quotecheck',  icon:'🔍', label:'見積書チェック', section:'営業・進行管理', visible:true },
   { id:'bom_ext',     icon:'🏭', label:'BOM・原価管理', section:'設定',           visible:true, external:'' }
 ];
 
