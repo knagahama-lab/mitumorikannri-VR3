@@ -18,6 +18,7 @@ const DEFAULT_MENU = [
   { id:'approval',    icon:'✅', label:'製造承認',      section:'自動化・連携',   visible:true },
   { id:'model',       icon:'🏭', label:'機種マスタ',    section:'マスタ管理',     visible:true },
   { id:'board',       icon:'🏷️', label:'基板マスタ',     section:'マスタ管理',     visible:true },
+  { id:'maker',       icon:'🏢', label:'メーカー管理',  section:'マスタ管理',     visible:true },
   { id:'simulation',  icon:'💰', label:'利益シミュレーション', section:'マスタ管理', visible:true },
   { id:'analysis',    icon:'📊', label:'分析・レポート',section:'マスタ管理',     visible:true },
   { id:'todo',        icon:'✅', label:'ToDo',          section:'ツール',         visible:true },
@@ -31,7 +32,7 @@ const DEFAULT_MENU = [
 
 let IS_ADMIN = true;
 let userMenuConfig = [];
-const PAGE_TITLES = { list:'案件一覧', ledger:'見積台帳', matching:'AI紐づけ', calendar:'スケジュール', ocr:'簡易OCR', todo:'ToDo', drivesearch:'全文検索', admin:'システム管理コンソール', workflow:'業務フロー', assignees:'担当者管理', approval:'製造承認', board:'基板マスタ', simulation:'利益シミュレーション', analysis:'分析・レポート', aichat:'AIアシスタント', model:'機種マスタ', checklist:'見積セット チェックリスト', quotecheck:'見積書チェック（単価照合）', quoteset:'見積セット管理' };
+const PAGE_TITLES = { list:'案件一覧', ledger:'見積台帳', matching:'AI紐づけ', calendar:'スケジュール', ocr:'簡易OCR', todo:'ToDo', drivesearch:'全文検索', admin:'システム管理コンソール', workflow:'業務フロー', assignees:'担当者管理', approval:'製造承認', board:'基板マスタ', simulation:'利益シミュレーション', analysis:'分析・レポート', aichat:'AIアシスタント', model:'機種マスタ', checklist:'見積セット チェックリスト', quotecheck:'見積書チェック（単価照合）', quoteset:'見積セット管理', maker:'メーカー管理' };
 
 const S = { all:[], filtered:[], page:1, limit:30, docType:'quote', orderType:'', selectedFile:null };
 let searchTimer=null; let _allQuotes = []; let _filteredQuotes = []; let _quotePage = 1; const _quoteLimit = 20; let _allMatchingItems = [];
@@ -253,10 +254,20 @@ function showToast(msg, isError=false){
 }
 
 // ── サイドバー ──
+// DEFAULT_MENU に存在するが stored に無いアイテムを末尾に追加してマージ
+function _mergeMenuWithDefaults(stored) {
+  if (!stored || stored.length === 0) return JSON.parse(JSON.stringify(DEFAULT_MENU));
+  const ids = new Set(stored.map(i => i.id));
+  const merged = JSON.parse(JSON.stringify(stored));
+  DEFAULT_MENU.forEach(d => { if (!ids.has(d.id)) merged.push(JSON.parse(JSON.stringify(d))); });
+  return merged;
+}
+
 function renderSidebar() {
   const container = document.getElementById('sidebar-nav-container'); if(!container) return;
   google.script.run.withSuccessHandler(res => {
-    if (res && res.success && res.menuConfig) userMenuConfig = res.menuConfig; else userMenuConfig = JSON.parse(JSON.stringify(DEFAULT_MENU));
+    if (res && res.success && res.menuConfig) userMenuConfig = _mergeMenuWithDefaults(res.menuConfig);
+    else userMenuConfig = JSON.parse(JSON.stringify(DEFAULT_MENU));
     const sections = {};
     userMenuConfig.forEach(item=>{ if(!item.visible) return; if(item.adminOnly && !IS_ADMIN) return; if(!sections[item.section]) sections[item.section]=[]; sections[item.section].push(item); });
     let html='';
@@ -292,6 +303,7 @@ function showPage(name){
   if(name==='checklist' && typeof initChecklistPage==='function') initChecklistPage();
   if(name==='quotecheck' && typeof initQuoteCheckPage==='function') initQuoteCheckPage();
   if(name==='quoteset') loadQuoteSetPage();
+  if(name==='maker')    loadMakerPage();
   if(name==='simulation') loadProfitSimulation();
   if(name==='workflow') loadWorkflowBoard();
   if(name==='analysis') loadAnalysis();
@@ -2010,11 +2022,14 @@ function _renderModelDetail(res) {
     </div>
 
     <!-- タブ -->
-    <div id="model-detail-tabs" style="display:flex;gap:0;border-bottom:2px solid var(--border-light);margin-bottom:14px;">
-      <button class="admin-tab active" id="mdtab-quote" onclick="switchModelTab('quote')">📄 見積書 (${quotes.length})</button>
-      <button class="admin-tab" id="mdtab-order" onclick="switchModelTab('order')">📦 注文書 (${orders.length})</button>
-      <button class="admin-tab" id="mdtab-board" onclick="switchModelTab('board')">🔧 基板 (${boards.length})</button>
-      <button class="admin-tab" id="mdtab-ledger" onclick="switchModelTab('ledger')">📝 台帳 (${ledger.length})</button>
+    <div id="model-detail-tabs" style="display:flex;gap:0;border-bottom:2px solid var(--border-light);margin-bottom:14px;flex-wrap:wrap;">
+      <button class="admin-tab active" id="mdtab-quote"      onclick="switchModelTab('quote')">📄 見積書 (${quotes.length})</button>
+      <button class="admin-tab" id="mdtab-order"      onclick="switchModelTab('order')">📦 注文書 (${orders.length})</button>
+      <button class="admin-tab" id="mdtab-board"      onclick="switchModelTab('board')">🔧 基板 (${boards.length})</button>
+      <button class="admin-tab" id="mdtab-ledger"     onclick="switchModelTab('ledger')">📝 台帳 (${ledger.length})</button>
+      <button class="admin-tab" id="mdtab-docs"       onclick="switchModelTab('docs');_loadModelDocs('${_esc(mi.modelCode)}')">📂 書類・仕様書</button>
+      <button class="admin-tab" id="mdtab-compliance" onclick="switchModelTab('compliance');_loadModelCompliance('${_esc(mi.modelCode)}')">✅ 適合状況</button>
+      <button class="admin-tab" id="mdtab-sales"      onclick="switchModelTab('sales');_loadModelSales('${_esc(mi.modelCode)}')">📊 売上数</button>
     </div>
 
     <div id="mdtab-content-quote" class="admin-tab-content" style="display:block;">
@@ -2041,11 +2056,29 @@ function _renderModelDetail(res) {
         <tbody>${ledgerRows}</tbody>
       </table></div>
     </div>
+    <div id="mdtab-content-docs" class="admin-tab-content">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
+        <button class="btn btn-primary btn-sm" onclick="openModelFileModal('${_esc(mi.modelCode)}',null)">＋ ファイル追加</button>
+      </div>
+      <div id="model-docs-list"><div style="color:var(--text-muted);text-align:center;padding:20px;">読み込み中…</div></div>
+    </div>
+    <div id="mdtab-content-compliance" class="admin-tab-content">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
+        <button class="btn btn-primary btn-sm" onclick="openComplianceModal('${_esc(mi.modelCode)}',null)">＋ 12Dコード追加</button>
+      </div>
+      <div id="model-compliance-list"><div style="color:var(--text-muted);text-align:center;padding:20px;">読み込み中…</div></div>
+    </div>
+    <div id="mdtab-content-sales" class="admin-tab-content">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
+        <button class="btn btn-primary btn-sm" onclick="openModelSalesModal('${_esc(mi.modelCode)}',null)">＋ 売上追加</button>
+      </div>
+      <div id="model-sales-list"><div style="color:var(--text-muted);text-align:center;padding:20px;">読み込み中…</div></div>
+    </div>
   `;
 }
 
 function switchModelTab(name) {
-  ['quote','order','board','ledger'].forEach(t => {
+  ['quote','order','board','ledger','docs','compliance','sales'].forEach(t => {
     const btn = document.getElementById('mdtab-' + t);
     const con = document.getElementById('mdtab-content-' + t);
     if (btn) btn.classList.toggle('active', t === name);
@@ -2153,8 +2186,8 @@ function _loadMenuConfigFromServer() {
   google.script.run
     .withSuccessHandler(res => {
       if (res && res.success && res.menuConfig && res.menuConfig.length > 0) {
-        _editMenuConfig = res.menuConfig;
-        userMenuConfig = JSON.parse(JSON.stringify(res.menuConfig));
+        _editMenuConfig = _mergeMenuWithDefaults(res.menuConfig);
+        userMenuConfig  = JSON.parse(JSON.stringify(_editMenuConfig));
       } else {
         _editMenuConfig = JSON.parse(JSON.stringify(DEFAULT_MENU));
       }
@@ -4689,6 +4722,650 @@ function saveAdminApproval() {
       else showToast('保存失敗: ' + (r ? r.error : '不明'), true);
     })
     .handleApiRequest('saveSettings', payload);
+}
+
+// ============================================================
+// 機種詳細 拡張タブ — 書類・適合状況・売上
+// ============================================================
+
+const MODEL_FILE_TYPES = ['仕様書PDF', '指示書', '納入指示書', '構成表', 'その他'];
+const FILE_TYPE_ICONS  = { '仕様書PDF':'📋', '指示書':'📄', '納入指示書':'📑', '構成表':'🗂️', 'その他':'📎' };
+
+// ── 書類タブ ──
+function _loadModelDocs(modelCode) {
+  const el = document.getElementById('model-docs-list');
+  if (!el) return;
+  el.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px;">読み込み中…</div>';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success) { el.innerHTML = '<div style="color:var(--danger);padding:10px;">エラー: ' + _esc((res||{}).error||'不明') + '</div>'; return; }
+      const files = res.files || [];
+      if (files.length === 0) {
+        el.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-muted);">書類がありません。「＋ ファイル追加」で登録してください。</div>';
+        return;
+      }
+      // 種別ごとにグループ化
+      const grouped = {};
+      MODEL_FILE_TYPES.forEach(t => { grouped[t] = []; });
+      files.forEach(f => { const t = f.fileType || 'その他'; if (!grouped[t]) grouped[t] = []; grouped[t].push(f); });
+      let html = '';
+      MODEL_FILE_TYPES.forEach(t => {
+        if (grouped[t].length === 0) return;
+        html += `<div style="margin-bottom:14px;">
+          <div style="font-weight:700;font-size:13px;margin-bottom:6px;color:var(--text-sub);">${FILE_TYPE_ICONS[t]||'📎'} ${_esc(t)} (${grouped[t].length})</div>
+          <div style="display:flex;flex-direction:column;gap:6px;">`;
+        grouped[t].forEach(f => {
+          html += `<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:#f8fafc;border:1px solid var(--border-light);border-radius:6px;">
+            <div style="flex:1;overflow:hidden;">
+              ${f.url ? `<a href="${_esc(f.url)}" target="_blank" style="font-weight:600;color:var(--primary);text-decoration:none;">${_esc(f.fileName||f.url)}</a>` : `<span style="font-weight:600;">${_esc(f.fileName||'—')}</span>`}
+              ${f.memo ? `<div style="font-size:11px;color:var(--text-muted);">${_esc(f.memo)}</div>` : ''}
+            </div>
+            <button class="btn btn-sm" style="font-size:11px;" onclick="openModelFileModal('${_esc(modelCode)}','${_esc(f.id)}','${_esc(f.fileType)}','${_esc(f.fileName)}','${_esc(f.url)}','${_esc(f.memo)}')">✏️</button>
+            <button class="btn btn-sm" style="font-size:11px;color:var(--danger);" onclick="deleteModelFile('${_esc(f.id)}','${_esc(modelCode)}')">🗑️</button>
+          </div>`;
+        });
+        html += '</div></div>';
+      });
+      el.innerHTML = html;
+    })
+    .handleApiRequest('modelFilesList', { modelCode: modelCode });
+}
+
+function openModelFileModal(modelCode, id, fileType, fileName, url, memo) {
+  const isNew = !id;
+  const typeOpts = MODEL_FILE_TYPES.map(t =>
+    `<option value="${_esc(t)}" ${(fileType===t)?'selected':''}>${_esc(t)}</option>`
+  ).join('');
+  const old = document.getElementById('model-file-modal-overlay');
+  if (old) old.remove();
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="model-file-modal-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9000;display:flex;align-items:center;justify-content:center;">
+      <div style="background:#fff;border-radius:12px;width:min(520px,95vw);padding:24px 28px;box-shadow:0 8px 32px rgba(0,0,0,0.18);">
+        <h3 style="margin:0 0 16px;font-size:16px;">${isNew ? '📂 書類・ファイル追加' : '✏️ ファイル編集'}</h3>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);">ファイル種別</label>
+            <select id="mf-type" style="width:100%;padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;margin-top:3px;">${typeOpts}</select>
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);">ファイル名・タイトル</label>
+            <input id="mf-name" type="text" value="${_esc(fileName||'')}" placeholder="例: C46G_仕様書_v2.1.pdf"
+              style="width:100%;padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;box-sizing:border-box;margin-top:3px;">
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);">Drive URL（Google Drive 共有リンクを貼り付け）</label>
+            <input id="mf-url" type="url" value="${_esc(url||'')}" placeholder="https://drive.google.com/..."
+              style="width:100%;padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;box-sizing:border-box;margin-top:3px;">
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);">備考</label>
+            <input id="mf-memo" type="text" value="${_esc(memo||'')}"
+              style="width:100%;padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;box-sizing:border-box;margin-top:3px;">
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px;">
+          <button class="btn btn-sm" onclick="document.getElementById('model-file-modal-overlay').remove()">キャンセル</button>
+          <button class="btn btn-primary btn-sm" onclick="saveModelFile('${_esc(modelCode)}','${isNew ? '' : _esc(id)}')">💾 保存</button>
+        </div>
+      </div>
+    </div>`);
+}
+
+function saveModelFile(modelCode, id) {
+  const payload = {
+    id:        id || '',
+    modelCode: modelCode,
+    fileType:  document.getElementById('mf-type')?.value || 'その他',
+    fileName:  document.getElementById('mf-name')?.value?.trim() || '',
+    url:       document.getElementById('mf-url')?.value?.trim() || '',
+    memo:      document.getElementById('mf-memo')?.value?.trim() || '',
+  };
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        showToast('✅ 保存しました');
+        document.getElementById('model-file-modal-overlay')?.remove();
+        _loadModelDocs(modelCode);
+      } else showToast('エラー: ' + ((res||{}).error||'不明'), true);
+    })
+    .handleApiRequest('modelFileSave', payload);
+}
+
+function deleteModelFile(id, modelCode) {
+  if (!confirm('このファイル情報を削除しますか？')) return;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) { showToast('🗑️ 削除しました'); _loadModelDocs(modelCode); }
+      else showToast('エラー: ' + ((res||{}).error||'不明'), true);
+    })
+    .handleApiRequest('modelFileDelete', { id });
+}
+
+// ── 適合状況・12Dコードタブ ──
+function _loadModelCompliance(modelCode) {
+  const el = document.getElementById('model-compliance-list');
+  if (!el) return;
+  el.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px;">読み込み中…</div>';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success) { el.innerHTML = '<div style="color:var(--danger);padding:10px;">エラー</div>'; return; }
+      const rows = res.rows || [];
+      if (rows.length === 0) {
+        el.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-muted);">適合状況データがありません。「＋ 12Dコード追加」で登録してください。</div>';
+        return;
+      }
+      let html = `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;min-width:900px;">
+        <thead style="background:#f1f5f9;">
+          <tr>
+            <th rowspan="2" style="padding:6px 10px;border:1px solid var(--border-light);">コード番号</th>
+            <th rowspan="2" style="padding:6px 10px;border:1px solid var(--border-light);">基板</th>
+            <th rowspan="2" style="padding:6px 10px;border:1px solid var(--border-light);">基板種類</th>
+            <th colspan="6" style="padding:6px 10px;border:1px solid var(--border-light);background:#e0f2fe;text-align:center;">見本機</th>
+            <th colspan="6" style="padding:6px 10px;border:1px solid var(--border-light);background:#dcfce7;text-align:center;">量産</th>
+            <th rowspan="2" style="padding:6px 10px;border:1px solid var(--border-light);">操作</th>
+          </tr>
+          <tr>
+            <th style="padding:5px 8px;border:1px solid var(--border-light);background:#e0f2fe;white-space:nowrap;">台数</th>
+            <th style="padding:5px 8px;border:1px solid var(--border-light);background:#e0f2fe;white-space:nowrap;">初回実装</th>
+            <th style="padding:5px 8px;border:1px solid var(--border-light);background:#e0f2fe;white-space:nowrap;">初回組立</th>
+            <th style="padding:5px 8px;border:1px solid var(--border-light);background:#e0f2fe;white-space:nowrap;">出荷日</th>
+            <th style="padding:5px 8px;border:1px solid var(--border-light);background:#e0f2fe;white-space:nowrap;">備考</th>
+            <th style="padding:5px 8px;border:1px solid var(--border-light);background:#e0f2fe;white-space:nowrap;">ロム種類</th>
+            <th style="padding:5px 8px;border:1px solid var(--border-light);background:#dcfce7;white-space:nowrap;">台数</th>
+            <th style="padding:5px 8px;border:1px solid var(--border-light);background:#dcfce7;white-space:nowrap;">初回実装</th>
+            <th style="padding:5px 8px;border:1px solid var(--border-light);background:#dcfce7;white-space:nowrap;">初回組立</th>
+            <th style="padding:5px 8px;border:1px solid var(--border-light);background:#dcfce7;white-space:nowrap;">出荷日</th>
+            <th style="padding:5px 8px;border:1px solid var(--border-light);background:#dcfce7;white-space:nowrap;">備考</th>
+            <th style="padding:5px 8px;border:1px solid var(--border-light);background:#dcfce7;white-space:nowrap;">ロム種類</th>
+          </tr>
+        </thead><tbody>`;
+      rows.forEach(r => {
+        const s = r.sample || {}; const m = r.mass || {};
+        html += `<tr style="border-bottom:1px solid var(--border-light);">
+          <td style="padding:6px 10px;border:1px solid var(--border-light);font-weight:700;font-family:monospace;">${_esc(r.codeNo||'—')}</td>
+          <td style="padding:6px 10px;border:1px solid var(--border-light);">${_esc(r.board||'—')}</td>
+          <td style="padding:6px 10px;border:1px solid var(--border-light);">${_esc(r.boardType||'—')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border-light);background:#f0f9ff;">${_esc(s.count||'—')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border-light);background:#f0f9ff;white-space:nowrap;">${_esc(s.firstMount||'—')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border-light);background:#f0f9ff;white-space:nowrap;">${_esc(s.firstAssem||'—')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border-light);background:#f0f9ff;white-space:nowrap;">${_esc(s.shipDate||'—')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border-light);background:#f0f9ff;">${_esc(s.memo||'—')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border-light);background:#f0f9ff;">${_esc(s.romType||'—')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border-light);background:#f0fdf4;">${_esc(m.count||'—')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border-light);background:#f0fdf4;white-space:nowrap;">${_esc(m.firstMount||'—')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border-light);background:#f0fdf4;white-space:nowrap;">${_esc(m.firstAssem||'—')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border-light);background:#f0fdf4;white-space:nowrap;">${_esc(m.shipDate||'—')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border-light);background:#f0fdf4;">${_esc(m.memo||'—')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border-light);background:#f0fdf4;">${_esc(m.romType||'—')}</td>
+          <td style="padding:6px 8px;border:1px solid var(--border-light);white-space:nowrap;">
+            <button class="btn btn-sm" style="font-size:11px;" onclick="openComplianceModal('${_esc(modelCode)}','${_esc(r.id)}',${JSON.stringify(r).replace(/</g,'\\u003c')})">✏️</button>
+            <button class="btn btn-sm" style="font-size:11px;color:var(--danger);" onclick="deleteCompliance('${_esc(r.id)}','${_esc(modelCode)}')">🗑️</button>
+          </td>
+        </tr>`;
+      });
+      html += '</tbody></table></div>';
+      el.innerHTML = html;
+    })
+    .handleApiRequest('complianceList', { modelCode: modelCode });
+}
+
+function openComplianceModal(modelCode, id, data) {
+  const d = data || {};
+  const s = d.sample || {};
+  const m = d.mass   || {};
+  const f = (label, key, val, type) => `
+    <div>
+      <label style="font-size:11px;color:var(--text-muted);">${label}</label>
+      <input type="${type||'text'}" id="cp-${key}" value="${_esc(String(val||''))}"
+        style="width:100%;padding:5px 8px;border:1px solid var(--border-light);border-radius:4px;font-size:12px;box-sizing:border-box;margin-top:2px;">
+    </div>`;
+  const old = document.getElementById('comp-modal-overlay');
+  if (old) old.remove();
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="comp-modal-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9000;display:flex;align-items:center;justify-content:center;overflow-y:auto;padding:20px;">
+      <div style="background:#fff;border-radius:12px;width:min(720px,98vw);padding:24px 28px;box-shadow:0 8px 32px rgba(0,0,0,0.18);">
+        <h3 style="margin:0 0 14px;font-size:16px;">${!id ? '✅ 適合状況・12Dコード 追加' : '✏️ 適合状況 編集'}</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px;">
+          ${f('コード番号','codeNo',d.codeNo)}
+          ${f('基板','board',d.board)}
+          ${f('基板種類','boardType',d.boardType)}
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+          <div style="background:#e0f2fe;border-radius:8px;padding:12px;">
+            <div style="font-weight:700;font-size:12px;margin-bottom:8px;color:#0369a1;">🔵 見本機</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              ${f('台数','s_count',s.count)}
+              ${f('ロム種類','s_romType',s.romType)}
+              ${f('初回実装','s_firstMount',s.firstMount,'date')}
+              ${f('初回組立','s_firstAssem',s.firstAssem,'date')}
+              ${f('出荷日','s_shipDate',s.shipDate,'date')}
+              ${f('備考','s_memo',s.memo)}
+            </div>
+          </div>
+          <div style="background:#dcfce7;border-radius:8px;padding:12px;">
+            <div style="font-weight:700;font-size:12px;margin-bottom:8px;color:#15803d;">🟢 量産</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              ${f('台数','m_count',m.count)}
+              ${f('ロム種類','m_romType',m.romType)}
+              ${f('初回実装','m_firstMount',m.firstMount,'date')}
+              ${f('初回組立','m_firstAssem',m.firstAssem,'date')}
+              ${f('出荷日','m_shipDate',m.shipDate,'date')}
+              ${f('備考','m_memo',m.memo)}
+            </div>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px;">
+          <button class="btn btn-sm" onclick="document.getElementById('comp-modal-overlay').remove()">キャンセル</button>
+          <button class="btn btn-primary btn-sm" onclick="saveCompliance('${_esc(modelCode)}','${_esc(id||'')}')">💾 保存</button>
+        </div>
+      </div>
+    </div>`);
+}
+
+function saveCompliance(modelCode, id) {
+  const g = k => document.getElementById('cp-' + k)?.value?.trim() || '';
+  const payload = {
+    id: id||'', modelCode: modelCode,
+    codeNo: g('codeNo'), board: g('board'), boardType: g('boardType'),
+    sample: { count:g('s_count'), firstMount:g('s_firstMount'), firstAssem:g('s_firstAssem'), shipDate:g('s_shipDate'), memo:g('s_memo'), romType:g('s_romType') },
+    mass:   { count:g('m_count'), firstMount:g('m_firstMount'), firstAssem:g('m_firstAssem'), shipDate:g('m_shipDate'), memo:g('m_memo'), romType:g('m_romType') },
+  };
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) { showToast('✅ 保存しました'); document.getElementById('comp-modal-overlay')?.remove(); _loadModelCompliance(modelCode); }
+      else showToast('エラー: ' + ((res||{}).error||'不明'), true);
+    })
+    .handleApiRequest('complianceSave', payload);
+}
+
+function deleteCompliance(id, modelCode) {
+  if (!confirm('このレコードを削除しますか？')) return;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) { showToast('🗑️ 削除しました'); _loadModelCompliance(modelCode); }
+      else showToast('エラー: ' + ((res||{}).error||'不明'), true);
+    })
+    .handleApiRequest('complianceDelete', { id });
+}
+
+// ── 売上タブ ──
+function _loadModelSales(modelCode) {
+  const el = document.getElementById('model-sales-list');
+  if (!el) return;
+  el.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px;">読み込み中…</div>';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success) { el.innerHTML = '<div style="color:var(--danger);padding:10px;">エラー</div>'; return; }
+      const sales = res.sales || [];
+      if (sales.length === 0) {
+        el.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-muted);">売上データがありません。「＋ 売上追加」で登録してください。</div>';
+        return;
+      }
+      const totalQty = sales.reduce((s,r) => s + (r.count||0), 0);
+      const totalAmt = sales.reduce((s,r) => s + (r.amount||0), 0);
+      let html = `
+        <div style="display:flex;gap:12px;margin-bottom:12px;">
+          <div class="summary-card"><div class="lbl">累計台数</div><div class="val c-blue">${totalQty.toLocaleString()} 台</div></div>
+          <div class="summary-card"><div class="lbl">累計売上</div><div class="val c-green">¥${totalAmt.toLocaleString()}</div></div>
+        </div>
+        <div class="table-wrap"><table>
+        <thead><tr style="background:#f1f5f9;font-size:12px;">
+          <th style="padding:7px 12px;">年月</th><th style="padding:7px 8px;">台数</th><th style="padding:7px 8px;text-align:right;">金額（税抜）</th>
+          <th style="padding:7px 8px;">再販区分</th><th style="padding:7px 8px;">備考</th><th style="padding:7px 8px;text-align:center;">操作</th>
+        </tr></thead><tbody>`;
+      sales.forEach(r => {
+        html += `<tr style="border-bottom:1px solid var(--border-light);font-size:12px;">
+          <td style="padding:6px 12px;font-weight:600;">${_esc(r.yearMonth||'—')}</td>
+          <td style="padding:6px 8px;">${r.count!==null?r.count.toLocaleString()+'台':'—'}</td>
+          <td style="padding:6px 8px;text-align:right;color:var(--danger);font-weight:600;">${r.amount!==null?'¥'+r.amount.toLocaleString():'—'}</td>
+          <td style="padding:6px 8px;">${r.resale?`<span style="background:#fef9c3;color:#854d0e;padding:2px 6px;border-radius:10px;font-size:11px;">再販</span>`:'新規'}</td>
+          <td style="padding:6px 8px;color:var(--text-muted);">${_esc(r.memo||'—')}</td>
+          <td style="padding:6px 8px;text-align:center;white-space:nowrap;">
+            <button class="btn btn-sm" style="font-size:11px;" onclick="openModelSalesModal('${_esc(modelCode)}','${_esc(r.id)}','${_esc(r.yearMonth)}',${r.count!==null?r.count:'null'},${r.amount!==null?r.amount:'null'},'${_esc(r.resale)}','${_esc(r.memo)}')">✏️</button>
+            <button class="btn btn-sm" style="font-size:11px;color:var(--danger);" onclick="deleteModelSales('${_esc(r.id)}','${_esc(modelCode)}')">🗑️</button>
+          </td>
+        </tr>`;
+      });
+      html += '</tbody></table></div>';
+      el.innerHTML = html;
+    })
+    .handleApiRequest('modelSalesList', { modelCode: modelCode });
+}
+
+function openModelSalesModal(modelCode, id, ym, count, amount, resale, memo) {
+  const old = document.getElementById('sales-modal-overlay');
+  if (old) old.remove();
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="sales-modal-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9000;display:flex;align-items:center;justify-content:center;">
+      <div style="background:#fff;border-radius:12px;width:min(460px,95vw);padding:24px 28px;box-shadow:0 8px 32px rgba(0,0,0,0.18);">
+        <h3 style="margin:0 0 14px;font-size:16px;">${!id ? '📊 売上追加' : '✏️ 売上編集'}</h3>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);">年月 <span style="color:var(--danger);">*</span></label>
+            <input id="sl-ym" type="month" value="${_esc(ym||'')}"
+              style="width:100%;padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;box-sizing:border-box;margin-top:3px;">
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <div>
+              <label style="font-size:12px;color:var(--text-muted);">台数</label>
+              <input id="sl-count" type="number" value="${count!==null&&count!==undefined?count:''}" min="0"
+                style="width:100%;padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;box-sizing:border-box;margin-top:3px;">
+            </div>
+            <div>
+              <label style="font-size:12px;color:var(--text-muted);">金額（税抜）</label>
+              <input id="sl-amount" type="number" value="${amount!==null&&amount!==undefined?amount:''}" min="0"
+                style="width:100%;padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;box-sizing:border-box;margin-top:3px;">
+            </div>
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);">再販区分</label>
+            <select id="sl-resale" style="width:100%;padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;margin-top:3px;">
+              <option value="" ${!resale?'selected':''}>新規</option>
+              <option value="再販" ${resale==='再販'?'selected':''}>再販</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);">備考</label>
+            <input id="sl-memo" type="text" value="${_esc(memo||'')}"
+              style="width:100%;padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;box-sizing:border-box;margin-top:3px;">
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px;">
+          <button class="btn btn-sm" onclick="document.getElementById('sales-modal-overlay').remove()">キャンセル</button>
+          <button class="btn btn-primary btn-sm" onclick="saveModelSales('${_esc(modelCode)}','${_esc(id||'')}')">💾 保存</button>
+        </div>
+      </div>
+    </div>`);
+}
+
+function saveModelSales(modelCode, id) {
+  const ym = document.getElementById('sl-ym')?.value?.trim();
+  if (!ym) { showToast('年月は必須です', true); return; }
+  const cnt = document.getElementById('sl-count')?.value;
+  const amt = document.getElementById('sl-amount')?.value;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) { showToast('✅ 保存しました'); document.getElementById('sales-modal-overlay')?.remove(); _loadModelSales(modelCode); }
+      else showToast('エラー: ' + ((res||{}).error||'不明'), true);
+    })
+    .handleApiRequest('modelSalesSave', {
+      id: id||'', modelCode: modelCode,
+      yearMonth: ym,
+      count:  cnt!==''&&cnt!==undefined ? Number(cnt)  : null,
+      amount: amt!==''&&amt!==undefined ? Number(amt) : null,
+      resale: document.getElementById('sl-resale')?.value || '',
+      memo:   document.getElementById('sl-memo')?.value?.trim() || '',
+    });
+}
+
+function deleteModelSales(id, modelCode) {
+  if (!confirm('この売上データを削除しますか？')) return;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) { showToast('🗑️ 削除しました'); _loadModelSales(modelCode); }
+      else showToast('エラー: ' + ((res||{}).error||'不明'), true);
+    })
+    .handleApiRequest('modelSalesDelete', { id });
+}
+
+// ============================================================
+// メーカー管理
+// ============================================================
+
+let _allMakers      = [];
+let _filteredMakers = [];
+let _selectedMakerId = null;
+const MAKER_GENRES_JS = ['遊技機メーカー', '部品メーカー', '販売代理店', 'その他'];
+
+function loadMakerPage() {
+  const listEl = document.getElementById('maker-list-container');
+  if (listEl) listEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);">読み込み中…</div>';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        _allMakers = res.items || [];
+        _filteredMakers = [..._allMakers];
+        _renderMakerList(_filteredMakers);
+        if (_selectedMakerId) {
+          const found = _allMakers.find(m => m.id === _selectedMakerId);
+          if (found) _renderMakerDetail(found);
+        }
+      } else {
+        if (listEl) listEl.innerHTML = '<div style="padding:20px;color:var(--danger);">読み込みエラー</div>';
+      }
+    })
+    .handleApiRequest('makerList', {});
+}
+
+function _renderMakerList(items) {
+  const el = document.getElementById('maker-list-container');
+  if (!el) return;
+  if (!items || items.length === 0) {
+    el.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px;">メーカーがありません<br><small>「＋ メーカー追加」で登録</small></div>';
+    return;
+  }
+  const today = new Date().toISOString().slice(0,10);
+  el.innerHTML = items.map(m => {
+    const active = m.id === _selectedMakerId;
+    const genreColor = { '遊技機メーカー':'#dbeafe', '部品メーカー':'#dcfce7', '販売代理店':'#fef9c3', 'その他':'#f1f5f9' };
+    const genreText  = { '遊技機メーカー':'#1e40af', '部品メーカー':'#15803d', '販売代理店':'#854d0e', 'その他':'#64748b' };
+    const gc = genreColor[m.genre] || '#f1f5f9';
+    const gt = genreText[m.genre]  || '#64748b';
+    const visitAlert = m.nextVisit && m.nextVisit <= today ? '🔴' : m.nextVisit ? '📅' : '';
+    return `<div class="${active ? 'model-list-item-active' : ''}"
+        style="padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--border-light);"
+        onclick="selectMaker('${_esc(m.id)}')"
+        onmouseover="if(!this.classList.contains('model-list-item-active'))this.style.background='#f8fafc'"
+        onmouseout="if(!this.classList.contains('model-list-item-active'))this.style.background=''">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+        <div style="font-weight:700;font-size:13px;">${_esc(m.name)}</div>
+        <span style="font-size:10px;padding:2px 6px;border-radius:10px;background:${gc};color:${gt};font-weight:600;">${_esc(m.genre||'—')}</span>
+      </div>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:2px;">${_esc(m.assignee||'担当未設定')}</div>
+      ${m.nextVisit ? `<div style="font-size:11px;">${visitAlert} 次回訪問: <strong>${_esc(m.nextVisit)}</strong></div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function filterMakerList() {
+  const kw = (document.getElementById('maker-search')?.value || '').trim().toLowerCase();
+  _filteredMakers = !kw ? [..._allMakers] : _allMakers.filter(m =>
+    (m.name||'').toLowerCase().includes(kw) ||
+    (m.assignee||'').toLowerCase().includes(kw) ||
+    (m.genre||'').toLowerCase().includes(kw)
+  );
+  _renderMakerList(_filteredMakers);
+}
+
+function selectMaker(id) {
+  _selectedMakerId = id;
+  _renderMakerList(_filteredMakers);
+  const m = _allMakers.find(m => m.id === id);
+  if (m) _renderMakerDetail(m);
+}
+
+function _renderMakerDetail(m) {
+  const el = document.getElementById('maker-detail-panel');
+  if (!el) return;
+  const today = new Date().toISOString().slice(0,10);
+  const visitUrgent = m.nextVisit && m.nextVisit <= today;
+  el.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:16px;">
+      <div>
+        <h3 style="margin:0 0 4px;font-size:18px;">${_esc(m.name)}</h3>
+        <div style="font-size:12px;color:var(--text-muted);">${_esc(m.genre||'—')}</div>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-sm" onclick="openEditMakerModal('${_esc(m.id)}')">✏️ 編集</button>
+        <button class="btn btn-sm" style="color:var(--danger);border-color:var(--danger);" onclick="deleteMaker('${_esc(m.id)}')">🗑️ 削除</button>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+      ${m.tel ? `<div class="summary-card"><div class="lbl">電話</div><div style="font-size:13px;">${_esc(m.tel)}</div></div>` : ''}
+      ${m.email ? `<div class="summary-card"><div class="lbl">メール</div><div style="font-size:13px;"><a href="mailto:${_esc(m.email)}">${_esc(m.email)}</a></div></div>` : ''}
+      ${m.url ? `<div class="summary-card" style="grid-column:1/-1;"><div class="lbl">URL</div><div style="font-size:13px;"><a href="${_esc(m.url)}" target="_blank" style="color:var(--primary);">${_esc(m.url)}</a></div></div>` : ''}
+      ${m.address ? `<div class="summary-card" style="grid-column:1/-1;"><div class="lbl">住所</div><div style="font-size:13px;">${_esc(m.address)}</div></div>` : ''}
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+      <div class="summary-card">
+        <div class="lbl">担当者</div>
+        <div style="font-size:14px;font-weight:600;">${_esc(m.assignee||'—')}</div>
+      </div>
+      <div class="summary-card ${visitUrgent ? 'style="border:1px solid var(--danger);"' : ''}">
+        <div class="lbl">最終訪問日</div>
+        <div style="font-size:13px;">${_esc(m.lastVisit||'—')}</div>
+      </div>
+      <div class="summary-card" style="${visitUrgent ? 'background:#fee2e2;border:1px solid var(--danger);' : ''}">
+        <div class="lbl">次回訪問予定</div>
+        <div style="font-size:14px;font-weight:700;color:${visitUrgent ? 'var(--danger)' : 'var(--text)'};">
+          ${visitUrgent ? '🔴 ' : ''}${_esc(m.nextVisit||'未設定')}
+        </div>
+      </div>
+    </div>
+
+    ${m.competitorInfo ? `
+    <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:12px 16px;margin-bottom:12px;">
+      <div style="font-weight:700;font-size:13px;margin-bottom:6px;color:#c2410c;">🏆 競合情報</div>
+      <div style="font-size:13px;white-space:pre-line;">${_esc(m.competitorInfo)}</div>
+    </div>` : ''}
+
+    ${m.settlementUrl ? `
+    <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:10px 16px;margin-bottom:12px;">
+      <div style="font-weight:700;font-size:13px;margin-bottom:4px;color:#15803d;">📊 決算資料</div>
+      <a href="${_esc(m.settlementUrl)}" target="_blank" style="color:var(--primary);font-size:13px;">${_esc(m.settlementUrl)}</a>
+    </div>` : ''}
+
+    ${m.memo ? `<div style="padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:13px;margin-bottom:12px;">📝 ${_esc(m.memo)}</div>` : ''}
+
+    <div style="font-size:11px;color:var(--text-muted);text-align:right;">
+      登録: ${_esc(m.createdAt||'—')}　更新: ${_esc(m.updatedAt||'—')}
+    </div>`;
+}
+
+function openNewMakerModal()    { _openMakerModal(null); }
+function openEditMakerModal(id) { const m = _allMakers.find(m => m.id === id); _openMakerModal(m||null); }
+
+function _openMakerModal(m) {
+  const isNew = !m;
+  const genreOpts = MAKER_GENRES_JS.map(g =>
+    `<option value="${_esc(g)}" ${(m&&m.genre===g)?'selected':''}>${_esc(g)}</option>`
+  ).join('');
+  const old = document.getElementById('maker-modal-overlay');
+  if (old) old.remove();
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="maker-modal-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9000;display:flex;align-items:center;justify-content:center;overflow-y:auto;padding:20px;">
+      <div style="background:#fff;border-radius:12px;width:min(640px,98vw);max-height:90vh;overflow-y:auto;padding:24px 28px;box-shadow:0 8px 32px rgba(0,0,0,0.18);">
+        <h3 style="margin:0 0 16px;font-size:17px;">${isNew ? '🏢 メーカー新規追加' : '✏️ メーカー編集'}</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+          <div style="grid-column:1/-1;">
+            <label style="font-size:12px;color:var(--text-muted);">メーカー名 <span style="color:var(--danger);">*</span></label>
+            <input id="mk-name" type="text" value="${_esc((m||{}).name||'')}" placeholder="例: ○○株式会社"
+              style="width:100%;padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;box-sizing:border-box;margin-top:3px;">
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);">ジャンル</label>
+            <select id="mk-genre" style="width:100%;padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;margin-top:3px;">${genreOpts}</select>
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);">担当者</label>
+            <input id="mk-assignee" type="text" value="${_esc((m||{}).assignee||'')}"
+              style="width:100%;padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;box-sizing:border-box;margin-top:3px;">
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);">電話</label>
+            <input id="mk-tel" type="text" value="${_esc((m||{}).tel||'')}"
+              style="width:100%;padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;box-sizing:border-box;margin-top:3px;">
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);">メール</label>
+            <input id="mk-email" type="email" value="${_esc((m||{}).email||'')}"
+              style="width:100%;padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;box-sizing:border-box;margin-top:3px;">
+          </div>
+          <div style="grid-column:1/-1;">
+            <label style="font-size:12px;color:var(--text-muted);">URL</label>
+            <input id="mk-url" type="url" value="${_esc((m||{}).url||'')}"
+              style="width:100%;padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;box-sizing:border-box;margin-top:3px;">
+          </div>
+          <div style="grid-column:1/-1;">
+            <label style="font-size:12px;color:var(--text-muted);">住所</label>
+            <input id="mk-address" type="text" value="${_esc((m||{}).address||'')}"
+              style="width:100%;padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;box-sizing:border-box;margin-top:3px;">
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);">最終訪問日</label>
+            <input id="mk-lastVisit" type="date" value="${_esc((m||{}).lastVisit||'')}"
+              style="width:100%;padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;box-sizing:border-box;margin-top:3px;">
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);">次回訪問予定</label>
+            <input id="mk-nextVisit" type="date" value="${_esc((m||{}).nextVisit||'')}"
+              style="width:100%;padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;box-sizing:border-box;margin-top:3px;">
+          </div>
+          <div style="grid-column:1/-1;">
+            <label style="font-size:12px;color:var(--text-muted);">🏆 競合情報</label>
+            <textarea id="mk-competitor" rows="3" style="width:100%;padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;box-sizing:border-box;resize:vertical;margin-top:3px;">${_esc((m||{}).competitorInfo||'')}</textarea>
+          </div>
+          <div style="grid-column:1/-1;">
+            <label style="font-size:12px;color:var(--text-muted);">📊 決算資料 URL（Google Drive 共有リンク）</label>
+            <input id="mk-settlement" type="url" value="${_esc((m||{}).settlementUrl||'')}"
+              style="width:100%;padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;box-sizing:border-box;margin-top:3px;">
+          </div>
+          <div style="grid-column:1/-1;">
+            <label style="font-size:12px;color:var(--text-muted);">備考</label>
+            <textarea id="mk-memo" rows="2" style="width:100%;padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;box-sizing:border-box;resize:vertical;margin-top:3px;">${_esc((m||{}).memo||'')}</textarea>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:4px;">
+          <button class="btn btn-sm" onclick="document.getElementById('maker-modal-overlay').remove()">キャンセル</button>
+          <button class="btn btn-primary btn-sm" onclick="saveMaker('${isNew ? '' : _esc(m.id)}')">💾 保存</button>
+        </div>
+      </div>
+    </div>`);
+}
+
+function saveMaker(id) {
+  const name = document.getElementById('mk-name')?.value?.trim();
+  if (!name) { showToast('メーカー名は必須です', true); return; }
+  const payload = {
+    id: id||'', name,
+    genre:          document.getElementById('mk-genre')?.value     || '',
+    assignee:       document.getElementById('mk-assignee')?.value?.trim() || '',
+    tel:            document.getElementById('mk-tel')?.value?.trim()      || '',
+    email:          document.getElementById('mk-email')?.value?.trim()    || '',
+    url:            document.getElementById('mk-url')?.value?.trim()      || '',
+    address:        document.getElementById('mk-address')?.value?.trim()  || '',
+    lastVisit:      document.getElementById('mk-lastVisit')?.value        || '',
+    nextVisit:      document.getElementById('mk-nextVisit')?.value        || '',
+    competitorInfo: document.getElementById('mk-competitor')?.value?.trim()  || '',
+    settlementUrl:  document.getElementById('mk-settlement')?.value?.trim()  || '',
+    memo:           document.getElementById('mk-memo')?.value?.trim()     || '',
+  };
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        showToast('✅ 保存しました');
+        document.getElementById('maker-modal-overlay')?.remove();
+        loadMakerPage();
+      } else showToast('エラー: ' + ((res||{}).error||'不明'), true);
+    })
+    .handleApiRequest('makerSave', payload);
+}
+
+function deleteMaker(id) {
+  if (!confirm('このメーカーを削除しますか？')) return;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        showToast('🗑️ 削除しました');
+        _selectedMakerId = null;
+        const det = document.getElementById('maker-detail-panel');
+        if (det) det.innerHTML = '<div style="text-align:center;padding:60px 20px;color:var(--text-muted);"><div style="font-size:48px;margin-bottom:12px;">🏢</div><div style="font-size:15px;font-weight:600;">メーカーを選択してください</div></div>';
+        loadMakerPage();
+      } else showToast('エラー: ' + ((res||{}).error||'不明'), true);
+    })
+    .handleApiRequest('makerDelete', { id });
 }
 
 // ============================================================

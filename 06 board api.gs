@@ -122,6 +122,22 @@ function handleApiRequest(action, payload) {
       case 'quoteSetList':   return apiQuoteSetList();
       case 'quoteSetSave':   return apiQuoteSetSave(payload);
       case 'quoteSetDelete': return apiQuoteSetDelete(payload);
+      // ── 機種付属ファイル（26_model_extensions.gs）──
+      case 'modelFilesList':     return apiModelFilesList(payload);
+      case 'modelFileSave':      return apiModelFileSave(payload);
+      case 'modelFileDelete':    return apiModelFileDelete(payload);
+      // ── 適合状況・12Dコード（26_model_extensions.gs）──
+      case 'complianceList':     return apiComplianceList(payload);
+      case 'complianceSave':     return apiComplianceSave(payload);
+      case 'complianceDelete':   return apiComplianceDelete(payload);
+      // ── 機種売上（26_model_extensions.gs）──
+      case 'modelSalesList':     return apiModelSalesList(payload);
+      case 'modelSalesSave':     return apiModelSalesSave(payload);
+      case 'modelSalesDelete':   return apiModelSalesDelete(payload);
+      // ── メーカーマスタ（27_maker_master.gs）──
+      case 'makerList':   return apiMakerList();
+      case 'makerSave':   return apiMakerSave(payload);
+      case 'makerDelete': return apiMakerDelete(payload);
       case 'reregisterTriggers':
         try {
           _registerTriggers();
