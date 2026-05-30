@@ -1428,6 +1428,11 @@ function loadAdminSettings() {
     _sc('cfg-alert-deadline',  s.alertDeadline  !== false);
     _sc('cfg-alert-overdue',   s.alertOverdue   !== false);
     _sc('cfg-alert-unlinked',  s.alertUnlinked  !== false);
+    _sc('cfg-alert-stagnant',  s.alertStagnant  !== false);
+    _sc('cfg-alert-checklist', s.alertChecklist !== false);
+    _sc('cfg-alert-ocr',       s.alertOcr       !== false);
+    _sc('cfg-alert-drive',     s.alertDrive     !== false);
+    toggleStagnantDays(s.alertStagnant !== false);
     _sv('cfg-rakuraku-endpoint', res.rakurakuEndpoint || ''); _sv('cfg-n8n-order-webhook', res.n8nOrderWebhook || ''); _sv('cfg-n8n-quote-webhook', res.n8nQuoteWebhook || ''); _sv('cfg-custom-webhook', res.customWebhook || '');
     _sv('cfg-sales-emails',      res.salesEmails      || '');
     _sv('cfg-procurement-email', res.procurementEmail || '');
@@ -1451,6 +1456,10 @@ function saveAdminAlertSettings() {
     alertDeadline      : _gc('cfg-alert-deadline'),
     alertOverdue       : _gc('cfg-alert-overdue'),
     alertUnlinked      : _gc('cfg-alert-unlinked'),
+    alertStagnant      : _gc('cfg-alert-stagnant'),
+    alertChecklist     : _gc('cfg-alert-checklist'),
+    alertOcr           : _gc('cfg-alert-ocr'),
+    alertDrive         : _gc('cfg-alert-drive'),
   };
   google.script.run
     .withSuccessHandler(function(r) {
@@ -1465,7 +1474,7 @@ function saveAdminMonitorSettings() {
   var alert = parseInt(_gv('cfg-stagnant-alert-days')) || 14;
   var unlinked = parseInt(_gv('cfg-unlinked-days')) || 2;
   var ocrFail  = parseInt(_gv('cfg-ocr-fail-threshold')) || 3;
-  if (warn >= alert) { showToast('停滞注意の日数は停滞警告より少なく設定してください', true); return; }
+  if (warn > 0 && alert > 0 && warn >= alert) { showToast('停滞注意の日数は停滞警告より少なく設定してください', true); return; }
   google.script.run
     .withSuccessHandler(function(r) {
       if (r && r.success) showToast('✅ 監視設定を保存しました');
@@ -1477,6 +1486,11 @@ function saveAdminMonitorSettings() {
       unlinkedOrderDays : unlinked,
       ocrFailThreshold  : ocrFail,
     });
+}
+
+function toggleStagnantDays(checked) {
+  var section = document.getElementById('cfg-stagnant-days-section');
+  if (section) section.style.opacity = checked ? '1' : '0.4';
 }
 
 function sendTestAlert() {
