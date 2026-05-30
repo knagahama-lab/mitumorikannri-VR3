@@ -581,25 +581,41 @@ tr:hover td{background:#f8fafc;}
             </div>
           </div>
 
-          <!-- アラート有効/無効トグル -->
+          <!-- アラート有効/無効トグル（全種別） -->
           <div style="background:#fffbeb;border-radius:8px;padding:14px 18px;border:1px solid #fde68a;margin-bottom:14px;">
-            <div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:10px;">アラート有効／無効</div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+            <div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:10px;">📢 アラート種別 ON / OFF</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:6px 8px;border-radius:6px;background:#fff;border:1px solid #fde68a;">
                 <input type="checkbox" id="cfg-alert-delivery" checked style="width:15px;height:15px;cursor:pointer;">
-                <span>📅 納期アラートを送信する</span>
+                <span>📅 納期アラート</span>
               </label>
-              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:6px 8px;border-radius:6px;background:#fff;border:1px solid #fde68a;">
                 <input type="checkbox" id="cfg-alert-deadline" checked style="width:15px;height:15px;cursor:pointer;">
-                <span>📦 発注期限アラートを送信する</span>
+                <span>📦 発注期限アラート</span>
               </label>
-              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:6px 8px;border-radius:6px;background:#fff;border:1px solid #fde68a;">
                 <input type="checkbox" id="cfg-alert-overdue" checked style="width:15px;height:15px;cursor:pointer;">
-                <span>🧨 期限超過アラートを送信する</span>
+                <span>🧨 期限超過アラート</span>
               </label>
-              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:6px 8px;border-radius:6px;background:#fff;border:1px solid #fde68a;">
                 <input type="checkbox" id="cfg-alert-unlinked" checked style="width:15px;height:15px;cursor:pointer;">
-                <span>🔗 未紐づけ注文書アラートを送信する</span>
+                <span>🔗 未紐づけ注文書アラート</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:6px 8px;border-radius:6px;background:#fff;border:1px solid #fde68a;" id="cfg-stagnant-toggle-wrap">
+                <input type="checkbox" id="cfg-alert-stagnant" checked style="width:15px;height:15px;cursor:pointer;" onchange="toggleStagnantDays(this.checked)">
+                <span>🚨 停滞アラート</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:6px 8px;border-radius:6px;background:#fff;border:1px solid #fde68a;">
+                <input type="checkbox" id="cfg-alert-checklist" checked style="width:15px;height:15px;cursor:pointer;">
+                <span>📋 見積セットアラート</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:6px 8px;border-radius:6px;background:#fff;border:1px solid #fde68a;">
+                <input type="checkbox" id="cfg-alert-ocr" checked style="width:15px;height:15px;cursor:pointer;">
+                <span>🤖 OCR失敗アラート</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;padding:6px 8px;border-radius:6px;background:#fff;border:1px solid #fde68a;">
+                <input type="checkbox" id="cfg-alert-drive" checked style="width:15px;height:15px;cursor:pointer;">
+                <span>📂 未処理ファイルアラート</span>
               </label>
             </div>
           </div>
@@ -612,8 +628,9 @@ tr:hover td{background:#f8fafc;}
         <!-- ③ 停滞案件アラート設定 -->
         <div style="background:white;border-radius:12px;padding:24px;box-shadow:var(--shadow);border-left:4px solid #ef4444;margin-bottom:16px;">
           <h3 style="font-size:15px;font-weight:700;color:#b91c1c;margin-bottom:6px;">🚨 停滞案件アラート設定</h3>
-          <p style="font-size:12px;color:var(--text-sub);margin-bottom:18px;">更新のない案件を検知してアラートするタイミングを設定します</p>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:14px;">
+          <p style="font-size:12px;color:var(--text-sub);margin-bottom:6px;">更新のない案件を検知してアラートするタイミングを設定します</p>
+          <p style="font-size:11px;color:#b91c1c;margin-bottom:14px;">※ 上の「停滞アラート」を OFF にすると、この設定に関わらず送信されません</p>
+          <div id="cfg-stagnant-days-section" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:14px;">
             <div class="form-field">
               <label>⚠️ 停滞注意（何日更新なし）</label>
               <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
@@ -625,9 +642,11 @@ tr:hover td{background:#f8fafc;}
               <label>🚨 停滞警告（何日更新なし）</label>
               <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
                 <input type="number" id="cfg-stagnant-alert-days" min="1" max="90" value="14" style="width:80px;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
-                <span style="font-size:13px;color:var(--text-sub);">日以上</span>
+                <span style="font-size:13px;color:var(--text-sub);">日以上（注意より大きい値）</span>
               </div>
             </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:14px;">
             <div class="form-field">
               <label>🔗 未紐づけ注文書（何日以上経過）</label>
               <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
@@ -876,7 +895,7 @@ tr:hover td{background:#f8fafc;}
         <!-- 左：案件リスト -->
         <div class="model-list-panel">
           <div style="padding:10px 12px 6px;border-bottom:1px solid var(--border-light);">
-            <input id="qs-search" type="text" placeholder="🔍 案件名・顧客名で検索…"
+            <input id="qs-set-search" type="text" placeholder="🔍 案件名・顧客名で検索…"
               style="width:100%;padding:6px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;box-sizing:border-box;"
               oninput="filterQsList()">
           </div>

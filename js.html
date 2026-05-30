@@ -918,7 +918,6 @@ function deleteMgmt(mgmtId, label) {
 
 // プレースホルダー
 function loadTodos() { document.getElementById('todo-container') && (document.getElementById('todo-container').innerHTML = '<div class="loading">Todoリストは準備中です</div>'); }
-function loadBoardList() { loadBoardMaster(); }
 function loadBoardAnalysis() { loadAnalysis(); } // alias（互換性維持）
 
 // ============================================================
@@ -5470,7 +5469,7 @@ function _renderQsList(items) {
 
 // ── フィルター ──
 function filterQsList() {
-  const kw = (document.getElementById('qs-search')?.value || '').trim().toLowerCase();
+  const kw = (document.getElementById('qs-set-search')?.value || '').trim().toLowerCase();
   if (!kw) {
     _filteredQsItems = [..._allQsItems];
   } else {

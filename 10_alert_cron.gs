@@ -40,7 +40,16 @@ var MONITOR_CONFIG = {
   DELIVERY_URGENT_DAYS  : 1,
   TRIGGER_HEALTH_KEY    : 'TRIGGER_LAST_RUN',
   TRIGGER_TIMEOUT_HOURS : 2,
-  CHECKLIST_STALE_DAYS  : 3,   // 見積セット: 未提出/作成中がこの日数を超えたらアラート
+  CHECKLIST_STALE_DAYS  : 3,
+  // アラート種別 ON/OFF（デフォルト: 全ON）
+  ALERT_DELIVERY   : true,
+  ALERT_DEADLINE   : true,
+  ALERT_OVERDUE    : true,
+  ALERT_UNLINKED   : true,
+  ALERT_CHECKLIST  : true,
+  ALERT_STAGNANT   : true,   // 停滞アラート
+  ALERT_OCR        : true,   // OCR失敗アラート
+  ALERT_DRIVE      : true,   // 未処理Driveファイルアラート
 };
 
 function _loadMonitorConfig() {
@@ -54,12 +63,16 @@ function _loadMonitorConfig() {
     if (s.stagnantAlertDays)  MONITOR_CONFIG.STAGNANT_ALERT_DAYS   = Number(s.stagnantAlertDays);
     if (s.unlinkedOrderDays)  MONITOR_CONFIG.UNLINKED_ORDER_DAYS   = Number(s.unlinkedOrderDays);
     if (s.ocrFailThreshold)   MONITOR_CONFIG.OCR_FAIL_THRESHOLD    = Number(s.ocrFailThreshold);
-    MONITOR_CONFIG.ALERT_DELIVERY = s.alertDelivery !== false;
-    MONITOR_CONFIG.ALERT_DEADLINE = s.alertDeadline !== false;
-    MONITOR_CONFIG.ALERT_OVERDUE  = s.alertOverdue  !== false;
-    MONITOR_CONFIG.ALERT_UNLINKED   = s.alertUnlinked   !== false;
-    MONITOR_CONFIG.ALERT_CHECKLIST  = s.alertChecklist !== false;
-    if (s.checklistStaleDays) MONITOR_CONFIG.CHECKLIST_STALE_DAYS = Number(s.checklistStaleDays);
+    if (s.checklistStaleDays) MONITOR_CONFIG.CHECKLIST_STALE_DAYS  = Number(s.checklistStaleDays);
+    // フラグ: undefined の場合は true（未設定＝有効）、明示的に false にした場合のみ無効
+    MONITOR_CONFIG.ALERT_DELIVERY  = s.alertDelivery  !== false;
+    MONITOR_CONFIG.ALERT_DEADLINE  = s.alertDeadline  !== false;
+    MONITOR_CONFIG.ALERT_OVERDUE   = s.alertOverdue   !== false;
+    MONITOR_CONFIG.ALERT_UNLINKED  = s.alertUnlinked  !== false;
+    MONITOR_CONFIG.ALERT_CHECKLIST = s.alertChecklist !== false;
+    MONITOR_CONFIG.ALERT_STAGNANT  = s.alertStagnant  !== false;
+    MONITOR_CONFIG.ALERT_OCR       = s.alertOcr       !== false;
+    MONITOR_CONFIG.ALERT_DRIVE     = s.alertDrive     !== false;
   } catch(e) {
     Logger.log('[_loadMonitorConfig ERROR] ' + e.message);
   }
@@ -364,12 +377,12 @@ function runAllMonitoring() {
   _loadMonitorConfig();
 
   var alertGroups = [];
-  alertGroups = alertGroups.concat(_checkOcrFailures());
-  if (MONITOR_CONFIG.ALERT_UNLINKED !== false) alertGroups = alertGroups.concat(_checkUnlinkedOrders());
-  alertGroups = alertGroups.concat(_checkStagnantCases());
-  if (MONITOR_CONFIG.ALERT_DELIVERY !== false) alertGroups = alertGroups.concat(_checkDeliveryDates());
-  if (MONITOR_CONFIG.ALERT_DEADLINE !== false) alertGroups = alertGroups.concat(checkOrderDeadlines());
-  alertGroups = alertGroups.concat(_checkUnprocessedDriveFiles());
+  if (MONITOR_CONFIG.ALERT_OCR       !== false) alertGroups = alertGroups.concat(_checkOcrFailures());
+  if (MONITOR_CONFIG.ALERT_UNLINKED  !== false) alertGroups = alertGroups.concat(_checkUnlinkedOrders());
+  if (MONITOR_CONFIG.ALERT_STAGNANT  !== false) alertGroups = alertGroups.concat(_checkStagnantCases());
+  if (MONITOR_CONFIG.ALERT_DELIVERY  !== false) alertGroups = alertGroups.concat(_checkDeliveryDates());
+  if (MONITOR_CONFIG.ALERT_DEADLINE  !== false) alertGroups = alertGroups.concat(checkOrderDeadlines());
+  if (MONITOR_CONFIG.ALERT_DRIVE     !== false) alertGroups = alertGroups.concat(_checkUnprocessedDriveFiles());
   if (MONITOR_CONFIG.ALERT_CHECKLIST !== false) alertGroups = alertGroups.concat(_checkChecklistAlerts());
   _updateTriggerHealth();
 
@@ -602,7 +615,7 @@ function _checkDeliveryDates() {
       }
     });
 
-    if (overdueItems.length > 0) groups.push({ level: 'critical', title: '\ud83e\udde8 \u7d0d\u671f\u8d85\u904e',       items: overdueItems.slice(0,5) });
+    if (overdueItems.length > 0 && MONITOR_CONFIG.ALERT_OVERDUE !== false) groups.push({ level: 'critical', title: '\ud83e\udde8 \u7d0d\u671f\u8d85\u904e',       items: overdueItems.slice(0,5) });
     if (urgentItems.length  > 0) groups.push({ level: 'critical', title: '\ud83d\udd25 \u660e\u65e5\u7d0d\u671f',       items: urgentItems.slice(0,5)  });
     if (remindItems.length  > 0) groups.push({ level: 'warning',  title: '\ud83d\udcc5 \u7d0d\u671f\u30ea\u30de\u30a4\u30f3\u30c9', items: remindItems.slice(0,5)  });
   } catch(e) {
@@ -716,7 +729,7 @@ function checkOrderDeadlines() {
     var urgentAlertItems = urgentItems.map(function(e){ return e.item; });
     var remindAlertItems = remindItems.map(function(e){ return e.item; });
 
-    if (overdueItems.length     > 0) groups.push({ level: 'critical', title: '\ud83d\udea8 \u767a\u6ce8\u671f\u9650\u8d85\u904e',              items: overdueItems.slice(0,5)     });
+    if (overdueItems.length     > 0 && MONITOR_CONFIG.ALERT_OVERDUE !== false) groups.push({ level: 'critical', title: '\ud83d\udea8 \u767a\u6ce8\u671f\u9650\u8d85\u904e',              items: overdueItems.slice(0,5)     });
     if (urgentAlertItems.length > 0) groups.push({ level: 'critical', title: '\ud83d\udd25 \u767a\u6ce8\u671f\u9650\uff08\u660e\u65e5\uff09', items: urgentAlertItems.slice(0,5) });
     if (remindAlertItems.length > 0) groups.push({ level: 'warning',  title: '\ud83d\udcc5 \u767a\u6ce8\u671f\u9650\u30ea\u30de\u30a4\u30f3\u30c9', items: remindAlertItems.slice(0,5) });
 
