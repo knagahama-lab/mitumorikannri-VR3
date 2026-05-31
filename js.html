@@ -5458,7 +5458,8 @@ function _renderQsList(items) {
         <div style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:160px;" title="${_esc(item.subject)}">${_esc(item.subject||'（案件名なし）')}</div>
         <span style="font-size:10px;padding:2px 6px;border-radius:10px;background:${pc.bg};color:${pc.text};font-weight:600;white-space:nowrap;">${_esc(item.progress)}</span>
       </div>
-      <div style="font-size:11px;color:var(--text-muted);margin-bottom:5px;">${_esc(item.client||'—')}</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:3px;">${_esc(item.client||'—')}</div>
+      ${item.boardCategory ? `<div style="font-size:10px;color:#0369a1;background:#e0f2fe;display:inline-block;padding:1px 6px;border-radius:8px;margin-bottom:4px;">🔷 ${_esc(item.boardCategory)}</div>` : ''}
       <div style="display:flex;align-items:center;justify-content:space-between;">
         <div style="display:flex;gap:4px;align-items:center;">${dots}</div>
         <div style="font-size:11px;color:var(--text-sub);font-weight:600;">${totalFmt}</div>
@@ -5477,7 +5478,8 @@ function filterQsList() {
       (i.subject||'').toLowerCase().includes(kw) ||
       (i.client||'').toLowerCase().includes(kw) ||
       (i.assignee||'').toLowerCase().includes(kw) ||
-      (i.rakurakuNo||'').toLowerCase().includes(kw)
+      (i.rakurakuNo||'').toLowerCase().includes(kw) ||
+      (i.boardCategory||'').toLowerCase().includes(kw)
     );
   }
   _renderQsList(_filteredQsItems);
@@ -5526,6 +5528,7 @@ function _renderQsDetail(item) {
       <div>
         <h3 style="margin:0 0 4px;font-size:18px;">${_esc(item.subject||'（案件名なし）')}</h3>
         <div style="font-size:12px;color:var(--text-muted);">
+          ${item.boardCategory ? '<span style="background:#e0f2fe;color:#0369a1;padding:1px 7px;border-radius:10px;font-weight:600;margin-right:6px;">🔷 ' + _esc(item.boardCategory) + '</span>' : ''}
           ${item.requestDate ? '依頼日: ' + _esc(item.requestDate) + '　' : ''}
           ${item.client ? '顧客: <strong>' + _esc(item.client) + '</strong>　' : ''}
           ${item.assignee ? '担当: ' + _esc(item.assignee) + '　' : ''}
@@ -5612,14 +5615,15 @@ function _saveQsToServer(item) {
       if (!res || !res.success) showToast('保存エラー: ' + ((res||{}).error||'不明'), true);
     })
     .handleApiRequest('quoteSetSave', {
-      id:          item.id,
-      requestDate: item.requestDate,
-      subject:     item.subject,
-      client:      item.client,
-      assignee:    item.assignee,
-      rakurakuNo:  item.rakurakuNo,
-      items:       item.items,
-      memo:        item.memo,
+      id:            item.id,
+      requestDate:   item.requestDate,
+      subject:       item.subject,
+      client:        item.client,
+      assignee:      item.assignee,
+      rakurakuNo:    item.rakurakuNo,
+      boardCategory: item.boardCategory || '',
+      items:         item.items,
+      memo:          item.memo,
     });
 }
 
@@ -5675,9 +5679,14 @@ function _openQsModal(item) {
             <input id="qs-f-date" type="date" value="${_esc((item||{}).requestDate||'')}"
               style="width:100%;padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;box-sizing:border-box;margin-top:3px;">
           </div>
-          <div style="grid-column:1/-1;">
+          <div>
             <label style="font-size:12px;color:var(--text-muted);">楽楽販売番号</label>
             <input id="qs-f-rakuraku" type="text" value="${_esc((item||{}).rakurakuNo||'')}" placeholder="楽楽販売番号"
+              style="width:100%;padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;box-sizing:border-box;margin-top:3px;">
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);">基板カテゴリ</label>
+            <input id="qs-f-category" type="text" value="${_esc((item||{}).boardCategory||'')}" placeholder="例: Aメイン基板・制御基板"
               style="width:100%;padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;box-sizing:border-box;margin-top:3px;">
           </div>
         </div>
@@ -5736,9 +5745,10 @@ function saveQs(id) {
     client:      document.getElementById('qs-f-client')?.value?.trim() || '',
     assignee:    document.getElementById('qs-f-assignee')?.value?.trim() || '',
     requestDate: document.getElementById('qs-f-date')?.value || '',
-    rakurakuNo:  document.getElementById('qs-f-rakuraku')?.value?.trim() || '',
-    memo:        document.getElementById('qs-f-memo')?.value?.trim() || '',
-    items:       items,
+    rakurakuNo:    document.getElementById('qs-f-rakuraku')?.value?.trim() || '',
+    boardCategory: document.getElementById('qs-f-category')?.value?.trim() || '',
+    memo:          document.getElementById('qs-f-memo')?.value?.trim() || '',
+    items:         items,
   };
 
   const btn = document.querySelector('#qs-modal-overlay .btn-primary');
