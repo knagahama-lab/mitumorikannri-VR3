@@ -8,14 +8,14 @@
 var QS_TYPES = ['基板回路設計費', '基板実装費', '量産基板', '注残処理'];
 var QS_STATUSES = ['未作成', '作成中', '承認待ち', '発行済', '却下'];
 
-// シートヘッダー（24列）
+// シートヘッダー（26列）
 var QS_HEADERS = [
   'セットID', '見積依頼日', '案件名', '顧客名', '担当者', '楽楽販売番号',
   '基板回路設計費_見積番号', '基板回路設計費_金額', '基板回路設計費_状態',
   '基板実装費_見積番号',     '基板実装費_金額',     '基板実装費_状態',
   '量産基板_見積番号',       '量産基板_金額',       '量産基板_状態',
   '注残処理_見積番号',       '注残処理_金額',       '注残処理_状態',
-  '基板カテゴリ', '進捗', '備考', '追加見積JSON', '登録日時', '更新日時'
+  '基板カテゴリ', '進捗', '備考', '追加見積JSON', '機種コード', '機種名', '登録日時', '更新日時'
 ];
 
 // ============================================================
@@ -115,8 +115,10 @@ function _qsRowToObj(row) {
     boardCategory:  String(row[18] || ''),
     progress:       String(row[19] || progress),
     memo:           String(row[20] || ''),
-    createdAt:      _toDateStr(row[22]),
-    updatedAt:      _toDateStr(row[23]),
+    modelCode:      String(row[22] || ''),
+    modelName:      String(row[23] || ''),
+    createdAt:      _toDateStr(row[24]),
+    updatedAt:      _toDateStr(row[25]),
   };
 }
 
@@ -198,10 +200,12 @@ function apiQuoteSetSave(payload) {
     rowData.push(progress);                          // 進捗 [19]
     rowData.push(payload.memo || '');                // 備考 [20]
     rowData.push(JSON.stringify(extraItems));         // 追加見積JSON [21]
+    rowData.push(payload.modelCode || '');           // 機種コード [22]
+    rowData.push(payload.modelName || '');           // 機種名 [23]
 
     if (isNew) {
-      rowData.push(now); // 登録日時 [22]
-      rowData.push(now); // 更新日時 [23]
+      rowData.push(now); // 登録日時 [24]
+      rowData.push(now); // 更新日時 [25]
       sheet.appendRow(rowData);
     } else {
       // 既存行を探して更新
@@ -212,8 +216,8 @@ function apiQuoteSetSave(payload) {
       if (idx < 0) return { success: false, error: 'IDが見つかりません: ' + id };
       var rowNum = idx + 2;
 
-      // 登録日時は既存値を保持（列23 = 1-based）
-      var existCreated = sheet.getRange(rowNum, 23).getValue();
+      // 登録日時は既存値を保持（列25 = 1-based）
+      var existCreated = sheet.getRange(rowNum, 25).getValue();
       rowData.push(existCreated || now); // 登録日時
       rowData.push(now);                 // 更新日時
       sheet.getRange(rowNum, 1, 1, QS_HEADERS.length).setValues([rowData]);

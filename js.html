@@ -5388,6 +5388,7 @@ function deleteMaker(id) {
 let _allQsItems      = [];
 let _filteredQsItems = [];
 let _selectedQsId    = null;
+let _qsModelFilter   = '';
 
 const QS_TYPES_JS = ['基板回路設計費', '基板実装費', '量産基板', '注残処理'];
 const QS_STATUS_LIST = ['未作成', '作成中', '承認待ち', '発行済', '却下'];
@@ -5414,6 +5415,7 @@ function loadQuoteSetPage() {
       if (res && res.success) {
         _allQsItems = res.items || [];
         _filteredQsItems = [..._allQsItems];
+        _updateQsModelFilterOptions();
         _renderQsList(_filteredQsItems);
         // 選択中案件を再表示
         if (_selectedQsId) {
@@ -5462,7 +5464,10 @@ function _renderQsList(items) {
         <span style="font-size:10px;padding:2px 6px;border-radius:10px;background:${pc.bg};color:${pc.text};font-weight:600;white-space:nowrap;">${_esc(item.progress)}</span>
       </div>
       <div style="font-size:11px;color:var(--text-muted);margin-bottom:3px;">${_esc(item.client||'—')}</div>
-      ${item.boardCategory ? `<div style="font-size:10px;color:#0369a1;background:#e0f2fe;display:inline-block;padding:1px 6px;border-radius:8px;margin-bottom:4px;">🔷 ${_esc(item.boardCategory)}</div>` : ''}
+      <div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:4px;">
+        ${item.modelCode ? `<span style="font-size:10px;color:#7c3aed;background:#ede9fe;padding:1px 6px;border-radius:8px;font-weight:600;">🏭 ${_esc(item.modelCode)}</span>` : ''}
+        ${item.boardCategory ? `<span style="font-size:10px;color:#0369a1;background:#e0f2fe;padding:1px 6px;border-radius:8px;">🔷 ${_esc(item.boardCategory)}</span>` : ''}
+      </div>
       <div style="display:flex;align-items:center;justify-content:space-between;">
         <div style="display:flex;gap:4px;align-items:center;">${dots}</div>
         <div style="font-size:11px;color:var(--text-sub);font-weight:600;">${totalFmt}</div>
@@ -5471,21 +5476,39 @@ function _renderQsList(items) {
   }).join('');
 }
 
-// ── フィルター ──
+// ── フィルター（テキスト検索 + 機種フィルター） ──
 function filterQsList() {
-  const kw = (document.getElementById('qs-set-search')?.value || '').trim().toLowerCase();
-  if (!kw) {
-    _filteredQsItems = [..._allQsItems];
-  } else {
-    _filteredQsItems = _allQsItems.filter(i =>
-      (i.subject||'').toLowerCase().includes(kw) ||
-      (i.client||'').toLowerCase().includes(kw) ||
-      (i.assignee||'').toLowerCase().includes(kw) ||
-      (i.rakurakuNo||'').toLowerCase().includes(kw) ||
-      (i.boardCategory||'').toLowerCase().includes(kw)
-    );
-  }
+  const kw    = (document.getElementById('qs-set-search')?.value || '').trim().toLowerCase();
+  const model = (document.getElementById('qs-model-filter')?.value || '').trim();
+  _filteredQsItems = _allQsItems.filter(i => {
+    // 機種フィルター
+    if (model && (i.modelCode || '') !== model) return false;
+    // テキスト検索
+    if (!kw) return true;
+    return (i.subject||'').toLowerCase().includes(kw) ||
+           (i.client||'').toLowerCase().includes(kw) ||
+           (i.assignee||'').toLowerCase().includes(kw) ||
+           (i.rakurakuNo||'').toLowerCase().includes(kw) ||
+           (i.boardCategory||'').toLowerCase().includes(kw) ||
+           (i.modelCode||'').toLowerCase().includes(kw) ||
+           (i.modelName||'').toLowerCase().includes(kw);
+  });
   _renderQsList(_filteredQsItems);
+}
+
+// ── 機種フィルタードロップダウンを読み込みデータで更新 ──
+function _updateQsModelFilterOptions() {
+  const sel = document.getElementById('qs-model-filter');
+  if (!sel) return;
+  const current = sel.value;
+  // ユニークな機種コードを収集（空除外、名前付き）
+  const modelMap = {};
+  _allQsItems.forEach(i => {
+    if (i.modelCode) modelMap[i.modelCode] = i.modelName || i.modelCode;
+  });
+  const codes = Object.keys(modelMap).sort();
+  sel.innerHTML = '<option value="">🏭 すべての機種（' + _allQsItems.length + '件）</option>' +
+    codes.map(c => `<option value="${_esc(c)}" ${c===current?'selected':''}>🔷 ${_esc(c)}${modelMap[c] && modelMap[c]!==c ? ' — ' + _esc(modelMap[c]) : ''}</option>`).join('');
 }
 
 // ── 案件選択・詳細表示 ──
@@ -5530,8 +5553,11 @@ function _renderQsDetail(item) {
     <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px;">
       <div>
         <h3 style="margin:0 0 4px;font-size:18px;">${_esc(item.subject||'（案件名なし）')}</h3>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-bottom:5px;">
+          ${item.modelCode ? `<span style="background:#ede9fe;color:#7c3aed;padding:2px 8px;border-radius:10px;font-weight:700;font-size:12px;">🏭 ${_esc(item.modelCode)}${item.modelName && item.modelName !== item.modelCode ? ' — ' + _esc(item.modelName) : ''}</span>` : ''}
+          ${item.boardCategory ? `<span style="background:#e0f2fe;color:#0369a1;padding:2px 8px;border-radius:10px;font-weight:600;font-size:12px;">🔷 ${_esc(item.boardCategory)}</span>` : ''}
+        </div>
         <div style="font-size:12px;color:var(--text-muted);">
-          ${item.boardCategory ? '<span style="background:#e0f2fe;color:#0369a1;padding:1px 7px;border-radius:10px;font-weight:600;margin-right:6px;">🔷 ' + _esc(item.boardCategory) + '</span>' : ''}
           ${item.requestDate ? '依頼日: ' + _esc(item.requestDate) + '　' : ''}
           ${item.client ? '顧客: <strong>' + _esc(item.client) + '</strong>　' : ''}
           ${item.assignee ? '担当: ' + _esc(item.assignee) + '　' : ''}
@@ -5658,10 +5684,20 @@ function _saveQsToServer(item) {
       assignee:      item.assignee,
       rakurakuNo:    item.rakurakuNo,
       boardCategory: item.boardCategory || '',
+      modelCode:     item.modelCode || '',
+      modelName:     item.modelName || '',
       items:         item.items,
       extraItems:    item.extraItems || [],
       memo:          item.memo,
     });
+}
+
+// ── 機種コード入力時に機種名を自動補完 ──
+function _qsAutoFillModelName(code) {
+  if (!code || !_allModels) return;
+  const found = _allModels.find(m => (m.modelCode||'').toLowerCase() === code.toLowerCase());
+  const nameEl = document.getElementById('qs-f-model-name');
+  if (nameEl && found && found.modelName) nameEl.value = found.modelName;
 }
 
 // ── 追加見積行を動的に追加 ──
@@ -5745,6 +5781,19 @@ function _openQsModal(item) {
             <input id="qs-f-category" type="text" value="${_esc((item||{}).boardCategory||'')}" placeholder="例: Aメイン基板・制御基板"
               style="width:100%;padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;box-sizing:border-box;margin-top:3px;">
           </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);">機種コード 🏭</label>
+            <input id="qs-f-model-code" type="text" list="qs-model-datalist"
+              value="${_esc((item||{}).modelCode||'')}" placeholder="例: KY-001"
+              style="width:100%;padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;box-sizing:border-box;margin-top:3px;"
+              oninput="_qsAutoFillModelName(this.value)">
+            <datalist id="qs-model-datalist"></datalist>
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);">機種名（自動入力）</label>
+            <input id="qs-f-model-name" type="text" value="${_esc((item||{}).modelName||'')}" placeholder="機種コード入力で自動補完"
+              style="width:100%;padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;box-sizing:border-box;margin-top:3px;background:#f8fafc;">
+          </div>
         </div>
 
         <div style="background:#f8fafc;border:1px solid var(--border-light);border-radius:8px;overflow:hidden;margin-bottom:14px;">
@@ -5804,6 +5853,15 @@ function _openQsModal(item) {
   const old = document.getElementById('qs-modal-overlay');
   if (old) old.remove();
   document.body.insertAdjacentHTML('beforeend', html);
+
+  // 機種マスタdatalistを _allModels で埋める
+  const dl = document.getElementById('qs-model-datalist');
+  if (dl && _allModels && _allModels.length > 0) {
+    dl.innerHTML = _allModels.map(m =>
+      `<option value="${_esc(m.modelCode||'')}">${_esc(m.modelCode||'')}${m.modelName ? ' — ' + _esc(m.modelName) : ''}</option>`
+    ).join('');
+  }
+  document.getElementById('qs-f-subject')?.focus();
 }
 
 // ── 保存 ──
@@ -5831,6 +5889,8 @@ function saveQs(id) {
     requestDate: document.getElementById('qs-f-date')?.value || '',
     rakurakuNo:    document.getElementById('qs-f-rakuraku')?.value?.trim() || '',
     boardCategory: document.getElementById('qs-f-category')?.value?.trim() || '',
+    modelCode:     document.getElementById('qs-f-model-code')?.value?.trim() || '',
+    modelName:     document.getElementById('qs-f-model-name')?.value?.trim() || '',
     memo:          document.getElementById('qs-f-memo')?.value?.trim() || '',
     items:         items,
     extraItems:    (() => {

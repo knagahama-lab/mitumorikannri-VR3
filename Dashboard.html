@@ -894,10 +894,14 @@ tr:hover td{background:#f8fafc;}
       <div class="model-master-layout">
         <!-- 左：案件リスト -->
         <div class="model-list-panel">
-          <div style="padding:10px 12px 6px;border-bottom:1px solid var(--border-light);">
-            <input id="qs-set-search" type="text" placeholder="🔍 案件名・顧客名で検索…"
+          <div style="padding:10px 12px 8px;border-bottom:1px solid var(--border-light);display:flex;flex-direction:column;gap:6px;">
+            <input id="qs-set-search" type="text" placeholder="🔍 案件名・機種コード・顧客名で検索…"
               style="width:100%;padding:6px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;box-sizing:border-box;"
               oninput="filterQsList()">
+            <select id="qs-model-filter" onchange="filterQsList()"
+              style="width:100%;padding:6px 8px;border:1px solid var(--border-light);border-radius:6px;font-size:12px;background:#fff;cursor:pointer;">
+              <option value="">🏭 すべての機種</option>
+            </select>
           </div>
           <div id="qs-list-container" style="flex:1;overflow-y:auto;"></div>
         </div>
