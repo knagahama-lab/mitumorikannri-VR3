@@ -1913,19 +1913,122 @@ function _renderModelList(items) {
   listEl.innerHTML = items.map(item => {
     const active = item.modelCode === _selectedModelCode ? 'model-list-item-active' : '';
     return `<div class="model-list-item ${active}" onclick="selectModel('${_esc(item.modelCode)}')">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-        <div>
-          <div style="font-weight:700;font-size:13px;color:var(--text);">${_esc(item.modelCode)}</div>
-          <div style="font-size:11.5px;color:var(--text-sub);margin-top:2px;">${_esc(item.modelName||'（機種名未設定）')}</div>
-          ${item.boardNames ? `<div style="font-size:10.5px;color:var(--text-muted);margin-top:2px;">🔧 ${_esc(item.boardNames)}</div>` : ''}
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;">
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:700;font-size:13px;color:var(--text);margin-bottom:3px;">${_esc(item.modelCode)}</div>
+          <!-- 機種名: クリックでインライン編集 -->
+          <div class="model-inline-field"
+               data-model-code="${_esc(item.modelCode)}"
+               data-field="modelName"
+               data-value="${_esc(item.modelName||'')}"
+               onclick="event.stopPropagation();_startModelInlineEdit(this)"
+               title="✏️ クリックして編集">
+            ${item.modelName
+              ? `<span class="mif-text">${_esc(item.modelName)}</span>`
+              : `<span class="mif-placeholder">機種名を入力…</span>`}
+            <span class="mif-icon">✏️</span>
+          </div>
+          <!-- 説明: クリックでインライン編集 -->
+          <div class="model-inline-field mif-desc"
+               data-model-code="${_esc(item.modelCode)}"
+               data-field="description"
+               data-value="${_esc(item.description||'')}"
+               onclick="event.stopPropagation();_startModelInlineEdit(this)"
+               title="✏️ クリックして説明を編集">
+            ${item.description
+              ? `<span class="mif-text">${_esc(item.description)}</span>`
+              : `<span class="mif-placeholder">説明を入力…</span>`}
+            <span class="mif-icon">✏️</span>
+          </div>
+          ${item.boardNames ? `<div style="font-size:10px;color:var(--text-muted);margin-top:3px;">🔧 ${_esc(item.boardNames)}</div>` : ''}
         </div>
-        <div style="text-align:right;flex-shrink:0;margin-left:8px;">
-          <div style="font-size:10.5px;color:var(--text-muted);">見積 <strong>${item.quoteCount}</strong> / 注文 <strong>${item.orderCount}</strong></div>
-          ${item.totalAmount > 0 ? `<div style="font-size:10.5px;color:var(--success);margin-top:1px;">¥${Number(item.totalAmount).toLocaleString()}</div>` : ''}
+        <div style="text-align:right;flex-shrink:0;">
+          <div style="font-size:10px;color:var(--text-muted);">見積 <strong>${item.quoteCount}</strong><br>注文 <strong>${item.orderCount}</strong></div>
+          ${item.totalAmount > 0 ? `<div style="font-size:10px;color:var(--success);margin-top:2px;font-weight:600;">¥${Number(item.totalAmount).toLocaleString()}</div>` : ''}
         </div>
       </div>
     </div>`;
   }).join('');
+}
+
+// ── インライン編集開始 ──
+function _startModelInlineEdit(el) {
+  if (el.dataset.editing === '1') return;
+  el.dataset.editing = '1';
+  const modelCode    = el.dataset.modelCode;
+  const field        = el.dataset.field;
+  const currentValue = el.dataset.value;
+  const isDesc       = field === 'description';
+
+  // 入力欄を生成
+  const input = isDesc ? document.createElement('textarea') : document.createElement('input');
+  input.value = currentValue;
+  if (!isDesc) { input.type = 'text'; }
+  else { input.rows = 2; }
+  input.style.cssText = `width:100%;padding:3px 6px;border:1.5px solid var(--primary);border-radius:4px;font-size:${isDesc ? '10.5' : '12'}px;font-family:inherit;box-sizing:border-box;background:#fff;resize:none;`;
+
+  // 保存処理
+  const commit = () => {
+    const newVal = input.value.trim();
+    delete el.dataset.editing;
+    el.dataset.value = newVal;
+    // DOM復元
+    if (field === 'modelName') {
+      el.innerHTML = newVal
+        ? `<span class="mif-text">${_esc(newVal)}</span><span class="mif-icon">✏️</span>`
+        : `<span class="mif-placeholder">機種名を入力…</span><span class="mif-icon">✏️</span>`;
+    } else {
+      el.innerHTML = newVal
+        ? `<span class="mif-text">${_esc(newVal)}</span><span class="mif-icon">✏️</span>`
+        : `<span class="mif-placeholder">説明を入力…</span><span class="mif-icon">✏️</span>`;
+    }
+    // ローカルキャッシュ更新
+    const m = _allModels.find(m => m.modelCode === modelCode);
+    if (m) m[field] = newVal;
+    // 変更があればサーバーへ保存
+    if (newVal !== currentValue) _saveModelFieldInline(modelCode, field, newVal);
+  };
+
+  // キャンセル処理
+  const cancel = () => {
+    delete el.dataset.editing;
+    if (field === 'modelName') {
+      el.innerHTML = currentValue
+        ? `<span class="mif-text">${_esc(currentValue)}</span><span class="mif-icon">✏️</span>`
+        : `<span class="mif-placeholder">機種名を入力…</span><span class="mif-icon">✏️</span>`;
+    } else {
+      el.innerHTML = currentValue
+        ? `<span class="mif-text">${_esc(currentValue)}</span><span class="mif-icon">✏️</span>`
+        : `<span class="mif-placeholder">説明を入力…</span><span class="mif-icon">✏️</span>`;
+    }
+  };
+
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); input.removeEventListener('blur', commit); commit(); }
+    if (e.key === 'Escape') { input.removeEventListener('blur', commit); cancel(); }
+  });
+
+  el.innerHTML = '';
+  el.appendChild(input);
+  input.focus();
+  input.select();
+}
+
+// ── フィールド単位でサーバー保存 ──
+function _saveModelFieldInline(modelCode, field, value) {
+  const m = _allModels.find(m => m.modelCode === modelCode) || {};
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res && res.success) showToast('✅ 保存しました');
+      else showToast('保存失敗: ' + ((res||{}).error||'不明'), true);
+    })
+    .withFailureHandler(() => showToast('通信エラー', true))
+    .handleApiRequest('modelMasterSave', {
+      modelCode:   modelCode,
+      modelName:   field === 'modelName'   ? value : (m.modelName   || ''),
+      description: field === 'description' ? value : (m.description || ''),
+    });
 }
 
 function selectModel(modelCode) {
