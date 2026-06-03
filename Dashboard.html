@@ -354,6 +354,8 @@ tr:hover td{background:#f8fafc;}
           <select id="filter-status" onchange="applyFilters()"><option value="">すべてのステータス</option><option value="作成予定">作成予定</option><option value="送信済み">送信済み</option><option value="受領">受領</option><option value="受注済み">受注済み</option><option value="納品済み">納品済み</option><option value="キャンセル">キャンセル</option></select>
           <select id="filter-order-type" onchange="applyFilters()"><option value="">すべての種別</option><option value="試作">試作</option><option value="量産">量産</option></select>
           <select id="filter-month" onchange="applyFilters()"><option value="">すべての月</option></select>
+          <input type="number" id="amount-search" placeholder="💴 金額・単価で検索" oninput="debounceSearch()" title="合計金額または明細単価で検索（注文書の単価で見積を探せます）" style="width:160px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;">
+          <select id="amount-tol" onchange="applyFilters()" title="許容誤差"><option value="0">完全一致</option><option value="5">±5%</option><option value="10">±10%</option></select>
           <button class="btn btn-outline btn-sm" onclick="clearFilters()">クリア</button>
           <button class="btn btn-outline btn-sm" onclick="loadData()">🔄</button>
           <button class="btn btn-outline btn-sm" onclick="exportOrderCsv()" title="CSV出力" style="color:#16a34a;border-color:#16a34a;">📥 CSV</button>
@@ -379,6 +381,8 @@ tr:hover td{background:#f8fafc;}
           <div class="search-box"><input type="text" id="qs-search" placeholder="見積番号・宛先・担当者で検索..." oninput="applyQuoteFilter()"></div>
           <select id="qs-filter-status" onchange="applyQuoteFilter()"><option value="">すべてのステータス</option><option value="送信済み">送信済み</option><option value="受領">受領</option><option value="作成予定">作成予定</option><option value="作成中">作成中</option><option value="納品済み">納品済み</option></select>
           <select id="qs-filter-linked" onchange="applyQuoteFilter()"><option value="">紐づき状況</option><option value="linked">注文書あり</option><option value="unlinked">注文書なし</option></select>
+          <input type="number" id="qs-amount-search" placeholder="💴 金額・単価で検索" oninput="applyQuoteFilter()" title="見積合計金額または明細単価で検索（注文書の単価で見積を探せます）" style="width:160px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;">
+          <select id="qs-amount-tol" onchange="applyQuoteFilter()" title="許容誤差"><option value="0">完全一致</option><option value="5">±5%</option><option value="10">±10%</option></select>
           <select id="qs-sort-key" onchange="setQuoteSort(this.value)" title="並び順の基準" style="font-size:12px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:#fff;cursor:pointer;">
             <option value="issueDate">📅 発行日</option>
             <option value="quoteNo">🔢 見積No.</option>

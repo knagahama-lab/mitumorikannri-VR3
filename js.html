@@ -547,20 +547,34 @@ function _renderPagination(total) {
 function goPage(n){S.page=n;_renderTable();}
 function debounceSearch(){clearTimeout(searchTimer);searchTimer=setTimeout(applyFilters,300);}
 
+// 金額・単価マッチ：合計金額や明細単価のいずれかが target±tol% に入れば true。金額未入力なら全件通過
+function _amtMatch(values, targetRaw, tolPct){
+  const target = Number(targetRaw);
+  if(!target || isNaN(target)) return true;            // 金額未入力 → フィルタ無効
+  const vals = (values||[]).map(Number).filter(v=>!isNaN(v) && v>0);
+  if(vals.length === 0) return false;
+  if(!tolPct) return vals.some(v=>Math.round(v)===Math.round(target)); // 完全一致
+  const lo = target*(1-tolPct/100), hi = target*(1+tolPct/100);
+  return vals.some(v=>v>=lo && v<=hi);
+}
+
 // ★ 究極の明細検索
 function applyFilters() {
   const rawKw = document.getElementById('search-input').value; const kws = normalizeSearchText(rawKw).split(/\s+/).filter(Boolean);
   const st = document.getElementById('filter-status').value; const ot = document.getElementById('filter-order-type').value; const mo = document.getElementById('filter-month').value;
+  const amtEl = document.getElementById('amount-search'); const amt = amtEl ? amtEl.value : '';
+  const amtTolEl = document.getElementById('amount-tol'); const amtTol = amtTolEl ? Number(amtTolEl.value) : 0;
   S.filtered = S.all.filter(r => {
     const txt = normalizeSearchText(JSON.stringify(r)); // 全情報を強制検索
     const mk = kws.length === 0 || kws.every(kw => txt.includes(kw));
     const ms = !st || r.status === st; const mo2 = !ot || r.orderType === ot;
     const mm = !mo || (String(r.orderDate).startsWith(mo) || String(r.quoteDate).startsWith(mo));
-    return mk && ms && mo2 && mm;
+    const ma = _amtMatch([r.orderAmount].concat(r.priceList||[]), amt, amtTol); // 合計金額 or 明細単価
+    return mk && ms && mo2 && mm && ma;
   });
   S.page = 1; _renderTable();
 }
-function clearFilters(){ document.getElementById('search-input').value=''; ['filter-status','filter-order-type','filter-month'].forEach(id=>document.getElementById(id).value=''); S.filtered=S.all.slice();S.page=1;_renderTable(); }
+function clearFilters(){ document.getElementById('search-input').value=''; ['filter-status','filter-order-type','filter-month'].forEach(id=>document.getElementById(id).value=''); const a=document.getElementById('amount-search'); if(a)a.value=''; const at=document.getElementById('amount-tol'); if(at)at.value='0'; S.filtered=S.all.slice();S.page=1;_renderTable(); }
 function _populateMonthFilter(){ const sel=document.getElementById('filter-month'); if(!sel) return; const now=new Date(); for(let i=0;i<12;i++){ const d=new Date(now.getFullYear(),now.getMonth()-i,1); const ym=d.getFullYear()+'/'+String(d.getMonth()+1).padStart(2,'0'); const o=document.createElement('option');o.value=ym;o.textContent=ym;sel.appendChild(o); } }
 
 // ── 見積書一覧 ──
@@ -604,18 +618,21 @@ function _mergeLedgerIntoQuotes() {
 }
 
 function applyQuoteFilter() {
-  const rawKw  = document.getElementById('qs-search').value; const kws = normalizeSearchText(rawKw).split(/\s+/).filter(Boolean); 
+  const rawKw  = document.getElementById('qs-search').value; const kws = normalizeSearchText(rawKw).split(/\s+/).filter(Boolean);
   const st = document.getElementById('qs-filter-status').value; const linked = document.getElementById('qs-filter-linked').value;
+  const amtEl = document.getElementById('qs-amount-search'); const amt = amtEl ? amtEl.value : '';
+  const amtTolEl = document.getElementById('qs-amount-tol'); const amtTol = amtTolEl ? Number(amtTolEl.value) : 0;
   _filteredQuotes = _allQuotes.filter(r => {
     const txt = normalizeSearchText(JSON.stringify(r)); // 全情報を強制検索
     const mk = kws.length === 0 || kws.every(kw => txt.includes(kw));
     const ms = !st || r.status === st; const ml = !linked || (linked === 'linked' && r.linked) || (linked === 'unlinked' && !r.linked);
-    return mk && ms && ml;
+    const ma = _amtMatch([r.quoteAmount].concat(r.priceList||[]), amt, amtTol); // 見積合計金額 or 明細単価
+    return mk && ms && ml && ma;
   });
   _filteredQuotes.sort((a, b) => _cmpByKey(a, b, _quoteSortKey, _quoteSortDir));
   _quotePage = 1; _renderQuoteTable();
 }
-function clearQuoteFilter() { document.getElementById('qs-search').value = ''; document.getElementById('qs-filter-status').value = ''; document.getElementById('qs-filter-linked').value = ''; _filteredQuotes = _allQuotes.slice(); _quotePage = 1; _renderQuoteTable(); }
+function clearQuoteFilter() { document.getElementById('qs-search').value = ''; document.getElementById('qs-filter-status').value = ''; document.getElementById('qs-filter-linked').value = ''; const a=document.getElementById('qs-amount-search'); if(a)a.value=''; const at=document.getElementById('qs-amount-tol'); if(at)at.value='0'; _filteredQuotes = _allQuotes.slice(); _quotePage = 1; _renderQuoteTable(); }
 
 function _renderQuoteTable() {
   _filteredQuotes.sort((a, b) => _cmpByKey(a, b, _quoteSortKey, _quoteSortDir));

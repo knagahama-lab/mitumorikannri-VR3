@@ -269,14 +269,20 @@ function _apiGetAll() {
       orderData.forEach(function(r) {
         var mgmtId = String(r[0]);
         if (!mgmtId) return;
-        if (!orderLinesMap[mgmtId]) orderLinesMap[mgmtId] = [];
+        if (!orderLinesMap[mgmtId]) orderLinesMap[mgmtId] = { text: [], prices: [] };
         // 品名(8列目), 仕様(9列目)の文字だけを抽出
-        orderLinesMap[mgmtId].push(String(r[8] || '') + ' ' + String(r[9] || ''));
+        orderLinesMap[mgmtId].text.push(String(r[8] || '') + ' ' + String(r[9] || ''));
+        // 明細の単価・金額を収集（金額・単価検索用）
+        var _up = Number(r[ORDER_COLS.UNIT_PRICE - 1]) || 0;
+        var _am = Number(r[ORDER_COLS.AMOUNT - 1]) || 0;
+        if (_up > 0) orderLinesMap[mgmtId].prices.push(_up);
+        if (_am > 0) orderLinesMap[mgmtId].prices.push(_am);
       });
 
       items.forEach(function(item) {
         if (orderLinesMap[item.id]) {
-          item.detailText = orderLinesMap[item.id].join(' ').substring(0, 300); // 通信制限に引っかからないよう文字数カット
+          item.detailText = orderLinesMap[item.id].text.join(' ').substring(0, 300); // 通信制限に引っかからないよう文字数カット
+          item.priceList  = orderLinesMap[item.id].prices; // 明細の単価・金額（単価検索用）
         }
       });
     }
@@ -355,11 +361,17 @@ function _apiQuoteListGetAll() {
             issueDate:   _toDateStr(r[QUOTE_COLS.ISSUE_DATE  - 1]),
             destCompany: String(r[QUOTE_COLS.DEST_COMPANY - 1] || ''),
             destPerson:  String(r[QUOTE_COLS.DEST_PERSON  - 1] || ''),
-            linesText:   '' 
+            linesText:   '',
+            prices:      []
           };
         }
         // 品名(6列目), 仕様(7列目) のみ抽出
         quoteLineMap[mgmtId].linesText += String(r[6] || '') + ' ' + String(r[7] || '') + ' ';
+        // 明細の単価・金額を収集（金額・単価検索用）
+        var _qup = Number(r[QUOTE_COLS.UNIT_PRICE - 1]) || 0;
+        var _qam = Number(r[QUOTE_COLS.AMOUNT - 1]) || 0;
+        if (_qup > 0) quoteLineMap[mgmtId].prices.push(_qup);
+        if (_qam > 0) quoteLineMap[mgmtId].prices.push(_qam);
       });
     }
 
@@ -381,7 +393,8 @@ function _apiQuoteListGetAll() {
         orderType:   String(r[MGMT_COLS.ORDER_TYPE - 1]    || ''),
         modelCode:   String(r[MGMT_COLS.MODEL_CODE - 1]    || ''),
         subject:     String(r[MGMT_COLS.SUBJECT - 1]       || ''),
-        detailText:  String(lineInfo.linesText).substring(0, 300) // 軽量化
+        detailText:  String(lineInfo.linesText).substring(0, 300), // 軽量化
+        priceList:   lineInfo.prices || [] // 明細の単価・金額（単価検索用）
       };
     });
 
