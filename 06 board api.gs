@@ -214,6 +214,13 @@ function handleApiRequest(action, payload) {
       case 'customDocDelete':     return apiCustomDocDelete(payload);
       case 'customDocOcr':        return apiCustomDocOcr(payload);
       case 'customDocPresets':    return apiCustomDocPresets();
+      // ── 見積提出管理 (09 quote submit ap.gs) ──
+      case 'qsGetAll':          return _apiQsGetAll(payload);
+      case 'qsSave':            return _apiQsSave(payload);
+      case 'qsDelete':          return _apiQsDelete(payload);
+      case 'qsUploadFile':      return _apiQsUploadFile(payload);
+      case 'qsGetMachines':     return _apiQsGetMachines();
+      case 'qsSearchByAmount':  return _apiQsSearchByAmount(payload);
       default: return { success: false, error: '不明なアクション: ' + action };
     }
     
@@ -1039,6 +1046,7 @@ function _apiLedgerSave(p) {
         p.saveUrl || '', p.machineCode || '', p.boardName || '',
         p.modelNo || '', p.amount !== undefined && p.amount !== '' ? Number(p.amount) : '',
         p.submitTo || '', p.remarks || '', p.sentDate || '',
+        p.compositionType || '',
       ]);
     } else {
       var last = sheet.getLastRow();
@@ -1056,6 +1064,7 @@ function _apiLedgerSave(p) {
         amount: LEDGER_COLS.AMOUNT, submitTo: LEDGER_COLS.SUBMIT_TO,
         remarks: LEDGER_COLS.REMARKS,
         sentDate: LEDGER_COLS.SENT_DATE,
+        compositionType: LEDGER_COLS.COMPOSITION_TYPE,
       };
       Object.keys(fields).forEach(function(key) {
         if (p[key] !== undefined) sheet.getRange(row, fields[key]).setValue(p[key]);

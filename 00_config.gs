@@ -159,21 +159,22 @@ var MODEL_INFO_COLS = {
 };
 
 var LEDGER_COLS = {
-  LEDGER_ID:    1,
-  QUOTE_NO:     2,
-  ISSUE_DATE:   3,
-  DEST:         4,
-  CATEGORY:     5,
-  SUBJECT:      6,
-  STATUS:       7,
-  SAVE_URL:     8,
-  MACHINE_CODE: 9,
-  BOARD_NAME:   10,
-  MODEL_NO:     11,
-  AMOUNT:       12,
-  SUBMIT_TO:    13,
-  REMARKS:      14,
-  SENT_DATE:    15,
+  LEDGER_ID:        1,
+  QUOTE_NO:         2,
+  ISSUE_DATE:       3,
+  DEST:             4,
+  CATEGORY:         5,
+  SUBJECT:          6,
+  STATUS:           7,
+  SAVE_URL:         8,
+  MACHINE_CODE:     9,
+  BOARD_NAME:       10,
+  MODEL_NO:         11,
+  AMOUNT:           12,
+  SUBMIT_TO:        13,
+  REMARKS:          14,
+  SENT_DATE:        15,
+  COMPOSITION_TYPE: 16,
 };
 
 var LEDGER_STATUS = {
@@ -333,6 +334,9 @@ function getGeminiApiKey() {
 function getSpreadsheet() {
   var id = CONFIG.SPREADSHEET_ID ||
            PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
+  if (!id || String(id).trim() === '') {
+    throw new Error('スプレッドシートIDが未設定です。システム管理 → 設定で SPREADSHEET_ID を登録してください。');
+  }
   return SpreadsheetApp.openById(id);
 }
 
@@ -426,7 +430,7 @@ function getAllLedgerData() {
   var ss    = getSpreadsheet();
   var sheet = ss.getSheetByName(CONFIG.SHEET_LEDGER);
   if (!sheet || sheet.getLastRow() <= 1) return [];
-  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 15).getValues();
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 16).getValues();
   data.forEach(function(row, i) {
     var hasContent = row.slice(1).some(function(v) { return String(v).trim() !== ''; });
     if (!hasContent) return;
@@ -467,21 +471,22 @@ function isMessageAlreadyProcessed(msgId) {
 
 function _ledgerRowToObject(row) {
   return {
-    ledgerId:    String(row[0]  || ''),
-    quoteNo:     String(row[1]  || ''),
-    issueDate:   _toDateStr(row[2]),
-    dest:        String(row[3]  || ''),
-    category:    String(row[4]  || ''),
-    subject:     String(row[5]  || ''),
-    status:      String(row[6]  || ''),
-    saveUrl:     String(row[7]  || ''),
-    machineCode: String(row[8]  || ''),
-    boardName:   String(row[9]  || ''),
-    modelNo:     String(row[10] || ''),
-    amount:      (row[11] !== '' && row[11] !== null) ? Number(row[11]) : null,
-    submitTo:    String(row[12] || ''),
-    remarks:     String(row[13] || ''),
-    sentDate:    _toDateStr(row[14]),
+    ledgerId:        String(row[0]  || ''),
+    quoteNo:         String(row[1]  || ''),
+    issueDate:       _toDateStr(row[2]),
+    dest:            String(row[3]  || ''),
+    category:        String(row[4]  || ''),
+    subject:         String(row[5]  || ''),
+    status:          String(row[6]  || ''),
+    saveUrl:         String(row[7]  || ''),
+    machineCode:     String(row[8]  || ''),
+    boardName:       String(row[9]  || ''),
+    modelNo:         String(row[10] || ''),
+    amount:          (row[11] !== '' && row[11] !== null) ? Number(row[11]) : null,
+    submitTo:        String(row[12] || ''),
+    remarks:         String(row[13] || ''),
+    sentDate:        _toDateStr(row[14]),
+    compositionType: String(row[15] || ''),
   };
 }
 

@@ -12,27 +12,28 @@
 var QS_SHEET_NAME = '見積提出管理';
 
 var QS_COL = {
-  ID:          1,
-  MACHINE:     2,
-  BRAND:       3,
-  BOARD:       4,
-  FORMAT:      5,
-  AMOUNT:      6,
-  REMARKS:     7,
-  QUOTE_NO:    8,
-  SUBMIT_TO:   9,
-  SUBMIT_DATE: 10,
-  FILE_URL:    11,
-  UPDATED_AT:  12,
-  PARENT_ID:   13,
-  IS_LATEST:   14,
-  STATUS:      15
+  ID:               1,
+  MACHINE:          2,
+  BRAND:            3,
+  BOARD:            4,
+  FORMAT:           5,
+  AMOUNT:           6,
+  REMARKS:          7,
+  QUOTE_NO:         8,
+  SUBMIT_TO:        9,
+  SUBMIT_DATE:      10,
+  FILE_URL:         11,
+  UPDATED_AT:       12,
+  PARENT_ID:        13,
+  IS_LATEST:        14,
+  STATUS:           15,
+  COMPOSITION_TYPE: 16
 };
 
-var QS_HEADERS = [
+var QSUB_HEADERS = [
   'ID','機種コード','ブランド','基板名','フォーマット',
   '金額','備考','見積No','提出先','提出日','ファイルURL','最終更新日',
-  '親ID','最新フラグ','ステータス'
+  '親ID','最新フラグ','ステータス','構成タイプ'
 ];
 
 // ============================================================
@@ -49,8 +50,8 @@ function initQuoteSubmitSheet() {
   }
 
   // ヘッダー設定
-  var hr = sheet.getRange(1, 1, 1, QS_HEADERS.length);
-  hr.setValues([QS_HEADERS]);
+  var hr = sheet.getRange(1, 1, 1, QSUB_HEADERS.length);
+  hr.setValues([QSUB_HEADERS]);
   hr.setBackground('#E8F0FE');
   hr.setFontWeight('bold');
   sheet.setFrozenRows(1);
@@ -94,7 +95,7 @@ function importQuoteSubmitInitialData() {
   });
 
   if (rows.length > 0) {
-    sheet.getRange(2, 1, rows.length, QS_HEADERS.length).setValues(rows);
+    sheet.getRange(2, 1, rows.length, QSUB_HEADERS.length).setValues(rows);
   }
   Logger.log('[QS] 初期データ投入完了: ' + rows.length + '件');
   SpreadsheetApp.getUi().alert('見積提出管理データを ' + rows.length + '件 投入しました！');
@@ -110,10 +111,10 @@ function _apiQsGetAll(p) {
     var sheet = ss.getSheetByName(QS_SHEET_NAME);
     if (!sheet || sheet.getLastRow() <= 1) return { success: true, items: [] };
 
-    var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, QS_HEADERS.length).getValues()
+    var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, QSUB_HEADERS.length).getValues()
       .filter(function(r) { return String(r[0]).trim() !== ''; });
 
-    var items = rows.map(_qsRowToObj);
+    var items = rows.map(_qsubRowToObj);
 
     // フィルタ
     var kw      = String(p.keyword  || '').toLowerCase().trim();
@@ -165,7 +166,7 @@ function _apiQsSave(p) {
     }
 
     var isNew = !p.id || p.id === '';
-    var id    = isNew ? _generateQsId(p.machineCode) : p.id;
+    var id    = isNew ? _generateQsubId(p.machineCode) : p.id;
     var now   = nowJST();
 
     var parentId = p.parentId || id; // 新規の場合は自分自身を親とする
@@ -197,7 +198,8 @@ function _apiQsSave(p) {
       now,
       parentId,
       true,
-      p.status || '有効'
+      p.status || '有効',
+      p.compositionType || ''
     ];
 
     if (isNew) {
@@ -260,27 +262,75 @@ function _apiQsGetMachines() {
   }
 }
 
+function _apiQsSearchByAmount(p) {
+  try {
+    var ss    = getSpreadsheet();
+    var sheet = ss.getSheetByName(QS_SHEET_NAME);
+    if (!sheet || sheet.getLastRow() <= 1) return { success: true, items: [] };
+
+    var target = Number(p.amount);
+    if (!target || isNaN(target)) return { success: false, error: '金額を入力してください' };
+    var tolerance = Number(p.tolerance || 5) / 100; // デフォルト ±5%
+    var min = target * (1 - tolerance);
+    var max = target * (1 + tolerance);
+
+    var rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, QSUB_HEADERS.length).getValues()
+      .filter(function(r) { return String(r[0]).trim() !== '' && r[QS_COL.AMOUNT - 1] !== '' && r[QS_COL.AMOUNT - 1] !== null; });
+
+    var items = rows.map(function(row) {
+      var obj = _qsubRowToObj(row);
+      var diff = Math.abs(obj.amount - target) / target * 100;
+      obj.matchScore = Math.round((1 - diff / 5) * 100);
+      obj.diffPct = diff.toFixed(1);
+      return obj;
+    }).filter(function(obj) {
+      return obj.amount >= min && obj.amount <= max;
+    });
+
+    // スコア降順ソート（金額が近い順）
+    items.sort(function(a, b) { return b.matchScore - a.matchScore; });
+
+    return { success: true, items: items, targetAmount: target };
+  } catch(e) {
+    Logger.log('[QS SEARCH BY AMOUNT ERROR] ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
 // ============================================================
 // ユーティリティ
 // ============================================================
 
-function _qsRowToObj(row) {
+function _qsubRowToObj(row) {
+  var boards = String(row[3]||'').split(/[\/、,]/).map(function(b){return b.trim();}).filter(Boolean);
+  // リユース基板判定：基板名の末尾が「-R」（ハイフン付きR）のもの。例: D2101A-R, DE2101A1-R
+  var reuseBoards = boards.filter(function(b){ return /-R$/i.test(b); });
+  var composition = boards.length === 0 ? 'NEW'
+    : reuseBoards.length === 0 ? 'NEW'
+    : reuseBoards.length === boards.length ? 'ALL_REUSE'
+    : 'MIXED';
   return {
-    id:          String(row[0]  || ''),
-    machineCode: String(row[1]  || ''),
-    brand:       String(row[2]  || ''),
-    boardName:   String(row[3]  || ''),
-    format:      String(row[4]  || ''),
-    amount:      row[5] !== '' && row[5] !== null ? Number(row[5]) : null,
-    remarks:     String(row[6]  || ''),
-    quoteNo:     String(row[7]  || ''),
-    submitTo:    String(row[8]  || ''),
-    submitDate:  String(row[9]  || ''),
-    fileUrl:     String(row[10] || ''),
-    updatedAt:   String(row[11] || ''),
-    parentId:    String(row[12] || ''),
-    isLatest:    row[13] !== undefined ? row[13] : true,
-    status:      String(row[14] || '')
+    id:              String(row[0]  || ''),
+    machineCode:     String(row[1]  || ''),
+    brand:           String(row[2]  || ''),
+    boardName:       String(row[3]  || ''),
+    format:          String(row[4]  || ''),
+    amount:          row[5] !== '' && row[5] !== null ? Number(row[5]) : null,
+    remarks:         String(row[6]  || ''),
+    quoteNo:         String(row[7]  || ''),
+    submitTo:        String(row[8]  || ''),
+    submitDate:      String(row[9]  || ''),
+    fileUrl:         String(row[10] || ''),
+    updatedAt:       String(row[11] || ''),
+    parentId:        String(row[12] || ''),
+    isLatest:        row[13] !== undefined ? row[13] : true,
+    status:          String(row[14] || ''),
+    compositionType: String(row[15] || ''),
+    boardList:       boards,
+    reuseBoards:     reuseBoards,
+    reuseCount:      reuseBoards.length,
+    totalBoardCount: boards.length,
+    composition:     composition
   };
 }
 
@@ -292,7 +342,7 @@ function _qsFindRowById(sheet, id) {
   return idx >= 0 ? idx + 2 : -1;
 }
 
-function _generateQsId(machineCode) {
+function _generateQsubId(machineCode) {
   var code = (machineCode || 'QS').replace(/[^A-Za-z0-9]/g, '').substring(0, 6);
   return 'QS-' + code + '-' + Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyyMMddHHmmss');
 }

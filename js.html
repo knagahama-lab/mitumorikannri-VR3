@@ -24,7 +24,8 @@ const DEFAULT_MENU = [
   { id:'todo',        icon:'✅', label:'ToDo',          section:'ツール',         visible:true },
   { id:'drivesearch', icon:'💾', label:'全文検索',      section:'ツール',         visible:true },
   { id:'admin',       icon:'⚙️', label:'管理コンソール',section:'設定',           visible:true },
-  { id:'quoteset',    icon:'📦', label:'見積セット管理', section:'営業・進行管理', visible:true },
+  { id:'quoteset',    icon:'📦', label:'見積セット管理',  section:'営業・進行管理', visible:true },
+  { id:'submitmgmt',  icon:'📩', label:'見積提出管理',  section:'営業・進行管理', visible:true },
   { id:'checklist',   icon:'📋', label:'見積セット',    section:'営業・進行管理', visible:true },
   { id:'quotecheck',  icon:'🔍', label:'見積書チェック', section:'営業・進行管理', visible:true },
   { id:'bom_ext',     icon:'🏭', label:'BOM・原価管理', section:'設定',           visible:true, external:'' }
@@ -32,11 +33,13 @@ const DEFAULT_MENU = [
 
 let IS_ADMIN = true;
 let userMenuConfig = [];
-const PAGE_TITLES = { list:'案件一覧', ledger:'見積台帳', matching:'AI紐づけ', calendar:'スケジュール', ocr:'簡易OCR', todo:'ToDo', drivesearch:'全文検索', admin:'システム管理コンソール', workflow:'業務フロー', assignees:'担当者管理', approval:'製造承認', board:'基板マスタ', simulation:'利益シミュレーション', analysis:'分析・レポート', aichat:'AIアシスタント', model:'機種マスタ', checklist:'見積セット チェックリスト', quotecheck:'見積書チェック（単価照合）', quoteset:'見積セット管理', maker:'メーカー管理' };
+const PAGE_TITLES = { list:'案件一覧', ledger:'見積台帳', matching:'AI紐づけ', calendar:'スケジュール', ocr:'簡易OCR', todo:'ToDo', drivesearch:'全文検索', admin:'システム管理コンソール', workflow:'業務フロー', assignees:'担当者管理', approval:'製造承認', board:'基板マスタ', simulation:'利益シミュレーション', analysis:'分析・レポート', aichat:'AIアシスタント', model:'機種マスタ', checklist:'見積セット チェックリスト', quotecheck:'見積書チェック（単価照合）', quoteset:'見積セット管理', maker:'メーカー管理', submitmgmt:'見積提出管理' };
 
 const S = { all:[], filtered:[], page:1, limit:30, docType:'quote', orderType:'', selectedFile:null };
 let searchTimer=null; let _allQuotes = []; let _filteredQuotes = []; let _quotePage = 1; const _quoteLimit = 20; let _allMatchingItems = [];
 let _allLedgerItems = []; let _filteredLedgerItems = []; let _currentLedgerTab = 'tree';
+let _allSmItems = [];
+let _filteredSmItems = [];
 let _quoteSortKey = 'issueDate'; let _quoteSortDir = 'desc';
 let _ledgerSortKey = 'issueDate'; let _ledgerSortDir = 'desc';
 let _adminLoaded = false; // ★ 管理コンソール初期化フラグ
@@ -302,8 +305,9 @@ function showPage(name){
   if(name==='board')  { showPage('model'); switchMasterTab('board'); return; }
   if(name==='checklist' && typeof initChecklistPage==='function') initChecklistPage();
   if(name==='quotecheck' && typeof initQuoteCheckPage==='function') initQuoteCheckPage();
-  if(name==='quoteset') loadQuoteSetPage();
-  if(name==='maker')    loadMakerPage();
+  if(name==='quoteset')   loadQuoteSetPage();
+  if(name==='submitmgmt') loadSubmitMgmt();
+  if(name==='maker')      loadMakerPage();
   if(name==='simulation') loadProfitSimulation();
   if(name==='workflow') loadWorkflowBoard();
   if(name==='analysis') loadAnalysis();
@@ -1552,11 +1556,13 @@ function openLedgerAddModal(ledgerId) {
   if (!modal) { console.warn('ledger-add-modal not found'); return; }
   // フォームをリセット
   ['ledger-edit-id','ledger-quote-no','ledger-dest','ledger-machine-code','ledger-subject',
-   'ledger-amount','ledger-board-name','ledger-model-no','ledger-save-url','ledger-remarks'].forEach(id => {
+   'ledger-amount','ledger-board-name','ledger-model-no','ledger-save-url','ledger-remarks',
+   'ledger-submit-to'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
   if (document.getElementById('ledger-issue-date')) document.getElementById('ledger-issue-date').value = '';
   if (document.getElementById('ledger-status')) document.getElementById('ledger-status').value = '作成予定';
+  if (document.getElementById('ledger-composition-type')) document.getElementById('ledger-composition-type').value = '';
 
   if (ledgerId) {
     const item = _allLedgerItems.find(r => r.ledgerId === ledgerId);
@@ -1572,6 +1578,8 @@ function openLedgerAddModal(ledgerId) {
       sv('ledger-model-no', item.modelNo || '');
       sv('ledger-save-url', item.saveUrl || '');
       sv('ledger-remarks', item.remarks || '');
+      sv('ledger-submit-to', item.submitTo || '');
+      if (document.getElementById('ledger-composition-type')) document.getElementById('ledger-composition-type').value = item.compositionType || '';
       if (item.issueDate || item.sentDate) {
         const d = (item.issueDate || item.sentDate || '').replace(/\//g, '-');
         if (document.getElementById('ledger-issue-date')) document.getElementById('ledger-issue-date').value = d;
@@ -1619,6 +1627,8 @@ function saveLedgerEntry() {
     modelNo: v('ledger-model-no') || undefined,
     saveUrl: v('ledger-save-url') || undefined,
     remarks: v('ledger-remarks') || undefined,
+    submitTo: v('ledger-submit-to') || undefined,
+    compositionType: v('ledger-composition-type') || undefined,
   };
   Object.keys(payload).forEach(k => { if (payload[k] === undefined) delete payload[k]; });
   google.script.run
@@ -6045,6 +6055,189 @@ function deleteQs(id) {
       }
     })
     .handleApiRequest('quoteSetDelete', { id });
+}
+
+// ============================================================
+// 見積提出管理
+// ============================================================
+
+function loadSubmitMgmt() {
+  const el = document.getElementById('sm-list-container');
+  if (el) el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted);">読み込み中…</div>';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success) {
+        if (el) el.innerHTML = '<div style="padding:20px;color:var(--danger);">読み込みエラー: ' + _esc((res||{}).error||'不明') + '</div>';
+        return;
+      }
+      _allSmItems = res.items || [];
+      _filteredSmItems = [..._allSmItems];
+      _updateSmMachineFilter(res.machines || []);
+      _renderSmList(_filteredSmItems);
+    })
+    .withFailureHandler(function(e) {
+      if (el) el.innerHTML = '<div style="padding:20px;color:var(--danger);">通信エラー</div>';
+    })
+    .handleApiRequest('qsGetAll', {});
+}
+
+function _updateSmMachineFilter(machines) {
+  const sel = document.getElementById('sm-machine-filter');
+  if (!sel) return;
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">🏭 すべての機種（' + _allSmItems.length + '件）</option>' +
+    machines.map(m => `<option value="${_esc(m)}" ${m===cur?'selected':''}>${_esc(m)}</option>`).join('');
+}
+
+function filterSubmitMgmt() {
+  const machine = (document.getElementById('sm-machine-filter')?.value || '').trim();
+  const comp    = (document.getElementById('sm-composition-filter')?.value || '').trim();
+  const kw      = (document.getElementById('sm-keyword')?.value || '').toLowerCase().trim();
+  _filteredSmItems = _allSmItems.filter(r => {
+    if (machine && r.machineCode !== machine) return false;
+    if (comp    && r.composition !== comp) return false;
+    if (kw) {
+      const txt = [r.boardName, r.quoteNo, r.submitTo, r.remarks, r.brand, r.machineCode].join(' ').toLowerCase();
+      if (!txt.includes(kw)) return false;
+    }
+    return true;
+  });
+  _renderSmList(_filteredSmItems);
+}
+
+function _smCompBadge(comp) {
+  const MAP = {
+    NEW:       ['🔵 新品', 'comp-badge comp-badge-NEW'],
+    MIXED:     ['🟡 混在', 'comp-badge comp-badge-MIXED'],
+    ALL_REUSE: ['🟢 全リユース', 'comp-badge comp-badge-ALL_REUSE'],
+  };
+  const [label, cls] = MAP[comp] || ['—', 'comp-badge'];
+  return `<span class="${cls}">${label}</span>`;
+}
+
+function _smTypeLabel(compositionType) {
+  const MAP = { '新品': '🔵 新品', 'リユース': '🟠 リユース', 'エコ': '🟢 エコ' };
+  if (!compositionType) return '';
+  return `<span style="font-size:10px;background:#f3f4f6;color:#374151;padding:1px 6px;border-radius:8px;margin-left:4px;">${_esc(MAP[compositionType]||compositionType)}</span>`;
+}
+
+function _renderSmList(items) {
+  const el = document.getElementById('sm-list-container');
+  if (!el) return;
+  if (!items || items.length === 0) {
+    el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted);font-size:13px;">見積データがありません</div>';
+    return;
+  }
+
+  const machineFilter = (document.getElementById('sm-machine-filter')?.value || '').trim();
+
+  // 機種フィルター中: 構成タイプ別グループ表示
+  if (machineFilter) {
+    const groups = { NEW: [], MIXED: [], ALL_REUSE: [], '': [] };
+    items.forEach(r => { const g = r.composition || ''; if (groups[g] !== undefined) groups[g].push(r); else groups[''].push(r); });
+    let html = '';
+    [['NEW','🔵 新品のみ','comp-badge-NEW'],['MIXED','🟡 混在（新品＋リユース）','comp-badge-MIXED'],['ALL_REUSE','🟢 全リユース','comp-badge-ALL_REUSE'],['','その他','']]
+      .forEach(([key, label, cls]) => {
+        const g = groups[key];
+        if (!g || g.length === 0) return;
+        html += `<div style="margin-bottom:16px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding:6px 10px;background:#f8fafc;border-radius:6px;border-left:3px solid var(--primary);">
+            <span class="comp-badge ${cls}" style="font-size:11px;">${label}</span>
+            <span style="font-size:12px;color:var(--text-muted);">${g.length}件</span>
+          </div>
+          ${_smRenderRows(g)}
+        </div>`;
+      });
+    el.innerHTML = `<div style="font-size:12px;color:var(--text-sub);margin-bottom:12px;">📊 機種 <strong>${_esc(machineFilter)}</strong> の見積一覧（${items.length}件）— 構成別グループ表示</div>${html}`;
+    return;
+  }
+
+  el.innerHTML = _smRenderRows(items);
+}
+
+function _smRenderRows(items) {
+  let html = `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;background:#fff;border-radius:8px;box-shadow:var(--shadow-sm);overflow:hidden;">
+    <thead><tr style="background:#f0f2f5;font-size:11px;color:var(--text-muted);">
+      <th style="padding:8px 12px;text-align:left;">機種</th>
+      <th style="text-align:left;padding:8px;">基板名</th>
+      <th style="text-align:left;padding:8px;">構成</th>
+      <th style="text-align:left;padding:8px;">見積No</th>
+      <th style="text-align:right;padding:8px;">金額</th>
+      <th style="text-align:left;padding:8px;">提出先</th>
+      <th style="text-align:left;padding:8px;">提出日</th>
+      <th style="text-align:left;padding:8px;">構成タイプ</th>
+      <th style="text-align:left;padding:8px;">ステータス</th>
+      <th style="text-align:center;padding:8px;">操作</th>
+    </tr></thead><tbody>`;
+  items.forEach(r => {
+    const amtStr = r.amount != null ? '¥' + Number(r.amount).toLocaleString() : '—';
+    html += `<tr style="border-bottom:1px solid #f0f0f0;">
+      <td style="padding:7px 12px;font-weight:600;color:var(--text);">${_esc(r.machineCode||'—')}</td>
+      <td style="padding:7px 8px;color:var(--text-sub);">${_esc(r.boardName||'—')}</td>
+      <td style="padding:7px 8px;">${_smCompBadge(r.composition)}</td>
+      <td style="padding:7px 8px;font-family:monospace;color:var(--primary);">${_esc(r.quoteNo||'—')}</td>
+      <td style="padding:7px 8px;text-align:right;font-weight:600;color:var(--danger);">${amtStr}</td>
+      <td style="padding:7px 8px;">${_esc(r.submitTo||'—')}</td>
+      <td style="padding:7px 8px;font-size:11px;color:var(--text-sub);">${_esc(r.submitDate||'—')}</td>
+      <td style="padding:7px 8px;">${_smTypeLabel(r.compositionType)}</td>
+      <td style="padding:7px 8px;"><span style="font-size:11px;padding:2px 6px;border-radius:8px;background:#f1f5f9;color:#64748b;">${_esc(r.status||'—')}</span></td>
+      <td style="padding:7px 8px;text-align:center;">
+        ${r.fileUrl ? `<a href="${_esc(r.fileUrl)}" target="_blank" style="font-size:16px;text-decoration:none;">📄</a>` : '—'}
+      </td>
+    </tr>`;
+  });
+  html += `</tbody></table></div>`;
+  return html;
+}
+
+function searchSubmitByAmount() {
+  const amtEl = document.getElementById('sm-amount-input');
+  const resEl = document.getElementById('sm-amount-results');
+  if (!amtEl || !resEl) return;
+  const amount = Number(amtEl.value);
+  if (!amount || isNaN(amount)) { showToast('金額を入力してください', true); return; }
+  resEl.innerHTML = '<div style="color:var(--text-muted);font-size:12px;">🔍 照合中…</div>';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success) { resEl.innerHTML = '<div style="color:var(--danger);font-size:12px;">検索失敗: ' + _esc((res||{}).error||'不明') + '</div>'; return; }
+      const items = res.items || [];
+      if (items.length === 0) {
+        resEl.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">±5%以内の見積書が見つかりませんでした</div>';
+        return;
+      }
+      let html = `<div style="font-size:11px;color:var(--text-sub);margin-bottom:6px;">対象金額 ¥${Number(amount).toLocaleString()} の±5%以内 — ${items.length}件 マッチ</div>`;
+      html += `<div style="display:flex;flex-direction:column;gap:4px;">`;
+      items.forEach(r => {
+        const diffSign = r.amount >= amount ? '+' : '-';
+        html += `<div style="display:flex;align-items:center;gap:8px;background:#fff;border:1px solid #bfdbfe;border-radius:6px;padding:6px 10px;flex-wrap:wrap;">
+          <span style="font-size:10px;font-weight:700;background:${r.matchScore >= 98 ? '#dcfce7' : '#fef9c3'};color:${r.matchScore >= 98 ? '#15803d' : '#92400e'};padding:2px 6px;border-radius:8px;">★ ${r.matchScore}%</span>
+          <span style="font-weight:700;color:var(--danger);">¥${Number(r.amount).toLocaleString()}</span>
+          <span style="font-size:10px;color:var(--text-muted);">(${diffSign}${r.diffPct}%)</span>
+          <span style="color:var(--primary);font-family:monospace;">${_esc(r.quoteNo||'—')}</span>
+          <span>${_esc(r.machineCode||'—')}</span>
+          <span style="color:var(--text-sub);">${_esc(r.boardName||'—')}</span>
+          ${_smCompBadge(r.composition)}
+          <span style="font-size:11px;color:var(--text-muted);">${_esc(r.submitDate||'—')}</span>
+        </div>`;
+      });
+      html += `</div>`;
+      resEl.innerHTML = html;
+    })
+    .withFailureHandler(function(e) {
+      resEl.innerHTML = '<div style="color:var(--danger);font-size:12px;">通信エラー</div>';
+    })
+    .handleApiRequest('qsSearchByAmount', { amount: amount, tolerance: 5 });
+}
+
+function clearAmountSearch() {
+  const amtEl = document.getElementById('sm-amount-input');
+  const resEl = document.getElementById('sm-amount-results');
+  if (amtEl) amtEl.value = '';
+  if (resEl) resEl.innerHTML = '';
+}
+
+function openNewQsSubmitModal() {
+  showToast('見積登録モーダルは準備中です');
 }
 
 </script>

@@ -1,0 +1,15 @@
+# すべて無視してから、GASに必要なファイルだけを対象にする
+**/**
+
+# 対象に含める（push する）ファイル
+!*.gs
+!*.html
+!appsscript.json
+
+# 念のため重いサブディレクトリを明示的に除外
+agents/**
+corporate-site/**
+creative-laboratory/**
+node_modules/**
+**/node_modules/**
+.git/**
