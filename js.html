@@ -1943,15 +1943,15 @@ function _renderModelList(items) {
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px;">
         <div style="flex:1;min-width:0;">
           <div style="font-weight:700;font-size:13px;color:var(--text);margin-bottom:3px;">${_esc(item.modelCode)}</div>
-          <!-- 機種名: クリックでインライン編集 -->
+          <!-- 機種名: 明示的に設定された場合のみ表示（コードと同値・空欄は非表示） -->
           <div class="model-inline-field"
                data-model-code="${_esc(item.modelCode)}"
                data-field="modelName"
                data-value="${_esc(item.modelName||'')}"
                onclick="event.stopPropagation();_startModelInlineEdit(this)"
-               title="✏️ クリックして編集">
-            ${item.modelName
-              ? `<span class="mif-text">${_esc(item.modelName)}</span>`
+               title="✏️ クリックして機種名を編集">
+            ${item.modelName && item.modelName !== item.modelCode
+              ? `<span class="mif-text" style="color:var(--text-sub);font-size:12px;">${_esc(item.modelName)}</span>`
               : `<span class="mif-placeholder">機種名を入力…</span>`}
             <span class="mif-icon">✏️</span>
           </div>
@@ -1967,7 +1967,7 @@ function _renderModelList(items) {
               : `<span class="mif-placeholder">説明を入力…</span>`}
             <span class="mif-icon">✏️</span>
           </div>
-          ${item.boardNames ? `<div style="font-size:10px;color:var(--text-muted);margin-top:3px;">🔧 ${_esc(item.boardNames)}</div>` : ''}
+          <!-- 基板名はリストには表示しない（詳細パネルで確認） -->
         </div>
         <div style="text-align:right;flex-shrink:0;">
           <div style="font-size:10px;color:var(--text-muted);">見積 <strong>${item.quoteCount}</strong><br>注文 <strong>${item.orderCount}</strong></div>
@@ -2196,7 +2196,7 @@ function _renderModelDetail(res) {
     <!-- ヘッダー -->
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
       <div>
-        <h2 style="font-size:18px;font-weight:700;color:var(--text);">${_esc(mi.modelName||mi.modelCode||'—')}</h2>
+        <h2 style="font-size:18px;font-weight:700;color:var(--text);">${_esc(mi.modelCode||'—')}${mi.modelName && mi.modelName !== mi.modelCode ? `<span style="font-size:14px;font-weight:400;color:var(--text-sub);margin-left:8px;">${_esc(mi.modelName)}</span>` : ''}</h2>
         <div style="margin-top:4px;">${codeTags}</div>
         ${mi.boardNames ? `<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">🔧 ${_esc(mi.boardNames)}</div>` : ''}
       </div>

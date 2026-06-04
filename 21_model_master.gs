@@ -484,7 +484,7 @@ function _ensureModelCode(modelCode, modelName) {
     sheet.appendRow([
       _generateModelId(),
       modelCode,
-      modelName || modelCode,
+      modelName || '',  // ★ 機種名は明示的に設定された場合のみ。空欄のままにする（コードや基板名で埋めない）
       '', '', now, now,
     ]);
     Logger.log('[_ensureModelCode] 機種マスタに追加: ' + modelCode);
@@ -603,7 +603,7 @@ function syncLedgerModelCodes() {
     ledgerData.forEach(function(r) {
       var mc = String(r[LEDGER_COLS.MACHINE_CODE - 1] || '').trim();
       var bn = String(r[LEDGER_COLS.BOARD_NAME   - 1] || '').trim();
-      if (mc) _ensureModelCode(mc, bn || mc);
+      if (mc) _ensureModelCode(mc, '');  // ★ 基板名を機種名として使わない
     });
     Logger.log('[syncLedgerModelCodes] 見積台帳→機種マスタ同期完了');
     return { success: true };
