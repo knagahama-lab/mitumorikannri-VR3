@@ -175,18 +175,24 @@ function apiModelMasterList() {
 
 function apiModelMasterGet(payload) {
   try {
-    var modelCode = String((payload || {}).modelCode || '').trim();
+    var modelCode  = String((payload || {}).modelCode  || '').trim();
+    var filterCode = String((payload || {}).filterCode || '').trim(); // ★ 検索で使った特定コード
     if (!modelCode) return { success: false, error: '機種コードが必要です' };
 
-    // ★② 複数機種コード対応（カンマ・読点・スペース区切り）
-    var modelCodes = modelCode.split(/[,、\s]+/).map(function(c){ return c.trim(); }).filter(Boolean);
+    // ★ filterCode が指定された場合はそのコードのみで絞り込む
+    // （例: modelCode="E64,E65,E66", filterCode="E66" → E66だけ表示）
+    var modelCodes = filterCode
+      ? [filterCode]
+      : modelCode.split(/[,、\s]+/).map(function(c){ return c.trim(); }).filter(Boolean);
+
     function _matchMC(val) {
       var valCodes = String(val || '').split(/[,、\s]+/).map(function(c){ return c.trim(); }).filter(Boolean);
       return valCodes.some(function(vc){ return modelCodes.indexOf(vc) >= 0; });
     }
 
     // ── 機種マスタ情報（先頭コードで取得）──
-    var primaryCode = modelCodes[0];
+    // filterCodeがある場合でもマスタ情報はエントリ全体（modelCode）の先頭コードで引く
+    var primaryCode = modelCode.split(/[,、\s]+/).map(function(c){ return c.trim(); }).filter(Boolean)[0];
     var masterInfo  = { modelCode: modelCode, modelName: '', description: '', boardNames: '' };
     var rowNum      = _findModelRowNum(primaryCode);
     if (rowNum > 0) {

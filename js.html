@@ -2058,8 +2058,19 @@ function _saveModelFieldInline(modelCode, field, value) {
     });
 }
 
-function selectModel(modelCode) {
+// ★ 検索で絞り込んだコードを保持（E66検索→E64,E65,E66クリック時に「E66」を記憶）
+let _modelSearchFilter = '';
+
+function selectModel(modelCode, filterCode) {
   _selectedModelCode = modelCode;
+  // 呼び出し元から filterCode が渡されなければ現在の検索欄の値を使う
+  const searchKw = filterCode || (document.getElementById('model-search')?.value.trim() || '');
+  // 検索キーワードが modelCode に含まれる個別コードに一致するか確認
+  const codesInEntry = modelCode.split(/[,、\s]+/).map(c => c.trim()).filter(Boolean);
+  const matched = codesInEntry.find(c => c.toLowerCase() === searchKw.toLowerCase());
+  // 一致する個別コードがあればそれだけを表示、なければエントリ全体を表示
+  _modelSearchFilter = matched || '';
+
   // ★ 全再描画せずアクティブ状態だけ更新（検索フィルタを維持するため）
   document.querySelectorAll('.model-list-item').forEach(el => {
     const code = el.getAttribute('data-model-code') || el.dataset.modelCode || '';
@@ -2069,6 +2080,11 @@ function selectModel(modelCode) {
   // 詳細パネルをローディング状態に
   const detailEl = document.getElementById('model-detail-panel');
   if (detailEl) detailEl.innerHTML = '<div class="loading"><div class="spinner"></div><br>詳細を取得中...</div>';
+
+  // ★ filterCode を渡してバックエンドで絞り込む
+  const payload = _modelSearchFilter
+    ? { modelCode: modelCode, filterCode: _modelSearchFilter }
+    : { modelCode: modelCode };
 
   google.script.run
     .withSuccessHandler(res => {
@@ -2081,7 +2097,7 @@ function selectModel(modelCode) {
     .withFailureHandler(err => {
       if (detailEl) detailEl.innerHTML = '<div class="loading" style="color:var(--danger);">通信エラー: ' + err.message + '</div>';
     })
-    .handleApiRequest('modelMasterGet', { modelCode: modelCode });
+    .handleApiRequest('modelMasterGet', payload);
 }
 
 function _clearModelDetail() {
