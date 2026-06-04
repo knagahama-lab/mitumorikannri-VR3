@@ -2318,12 +2318,16 @@ function deleteModel(modelCode) {
 }
 
 function filterModelList() {
-  const kw = document.getElementById('model-search').value.toLowerCase();
-  const filtered = _allModels.filter(m =>
-    m.modelCode.toLowerCase().includes(kw) ||
-    (m.modelName || '').toLowerCase().includes(kw) ||
-    (m.boardNames || '').toLowerCase().includes(kw)
-  );
+  const kw = document.getElementById('model-search').value.trim().toLowerCase();
+  if (!kw) { _renderModelList(_allModels); return; }
+  const filtered = _allModels.filter(m => {
+    // ★ カンマ区切り複数コードを個別に分解して部分一致検索
+    const codes = (m.modelCode || '').split(/[,、\s]+/).map(c => c.trim().toLowerCase()).filter(Boolean);
+    return codes.some(c => c.includes(kw)) ||
+      (m.modelCode || '').toLowerCase().includes(kw) ||
+      (m.modelName || '').toLowerCase().includes(kw) ||
+      (m.boardNames || '').toLowerCase().includes(kw);
+  });
   _renderModelList(filtered);
 }
 

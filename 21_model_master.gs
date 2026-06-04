@@ -86,32 +86,51 @@ function _generateModelId() {
 
 function apiModelMasterList() {
   try {
-    // 管理シートから機種コード別統計を集計
+    // ★ 複数機種コード対応の統計集計ヘルパー
+    // 管理シートのモデルコード（単一）を、機種マスタの複数コードエントリにマッピング
     var mgmtData = getAllMgmtData();
-    var statsMap = {};
+    // まず管理シートの単一コード別に統計を集計
+    var singleStatsMap = {};
     mgmtData.forEach(function(r) {
       var mc = String(r[MGMT_COLS.MODEL_CODE - 1] || '').trim();
       if (!mc) return;
-      if (!statsMap[mc]) {
-        statsMap[mc] = { quoteCount: 0, orderCount: 0, totalAmount: 0, latestDate: '' };
+      if (!singleStatsMap[mc]) {
+        singleStatsMap[mc] = { quoteCount: 0, orderCount: 0, totalAmount: 0, latestDate: '' };
       }
-      if (String(r[MGMT_COLS.QUOTE_NO - 1] || '').trim()) statsMap[mc].quoteCount++;
+      if (String(r[MGMT_COLS.QUOTE_NO - 1] || '').trim()) singleStatsMap[mc].quoteCount++;
       if (String(r[MGMT_COLS.ORDER_NO  - 1] || '').trim()) {
-        statsMap[mc].orderCount++;
-        statsMap[mc].totalAmount += _toNum(r[MGMT_COLS.ORDER_AMOUNT - 1]);
+        singleStatsMap[mc].orderCount++;
+        singleStatsMap[mc].totalAmount += _toNum(r[MGMT_COLS.ORDER_AMOUNT - 1]);
       }
       var d = _toDateStr(r[MGMT_COLS.ORDER_DATE - 1] || r[MGMT_COLS.QUOTE_DATE - 1]);
-      if (d > statsMap[mc].latestDate) statsMap[mc].latestDate = d;
+      if (d > singleStatsMap[mc].latestDate) singleStatsMap[mc].latestDate = d;
     });
-
-    // 見積台帳からも機種コードを収集
+    // 台帳の単一コード別集計も追加
     var ledgerData = getAllLedgerData();
     ledgerData.forEach(function(r) {
       var mc = String(r[LEDGER_COLS.MACHINE_CODE - 1] || '').trim();
-      if (mc && !statsMap[mc]) {
-        statsMap[mc] = { quoteCount: 0, orderCount: 0, totalAmount: 0, latestDate: '' };
+      if (mc && !singleStatsMap[mc]) {
+        singleStatsMap[mc] = { quoteCount: 0, orderCount: 0, totalAmount: 0, latestDate: '' };
       }
     });
+
+    // 機種マスタ行の複数コード（カンマ区切り）に対して統計を合算する関数
+    function _mergeStats(modelCodeField) {
+      var codes = String(modelCodeField || '').split(/[,、\s]+/).map(function(c){ return c.trim(); }).filter(Boolean);
+      var merged = { quoteCount: 0, orderCount: 0, totalAmount: 0, latestDate: '' };
+      codes.forEach(function(c) {
+        var s = singleStatsMap[c];
+        if (!s) return;
+        merged.quoteCount  += s.quoteCount;
+        merged.orderCount  += s.orderCount;
+        merged.totalAmount += s.totalAmount;
+        if (s.latestDate > merged.latestDate) merged.latestDate = s.latestDate;
+      });
+      // 単一コードとしてもチェック（完全一致フォールバック）
+      var exact = singleStatsMap[String(modelCodeField || '').trim()];
+      if (exact && merged.quoteCount === 0 && merged.orderCount === 0) return exact;
+      return merged;
+    }
 
     // ※ 自動追加は廃止 — 削除した機種コードが復活するバグを防ぐため
     // （新規登録時は onDocRegistered() が _ensureModelCode() を呼ぶ）
@@ -120,7 +139,7 @@ function apiModelMasterList() {
     var rows  = _getAllModelMasterRows();
     var items = rows.map(function(r) {
       var mc    = String(r[MODEL_MASTER_COLS.MODEL_CODE  - 1] || '').trim();
-      var stats = statsMap[mc] || { quoteCount: 0, orderCount: 0, totalAmount: 0, latestDate: '' };
+      var stats = _mergeStats(mc);
       return {
         id          : String(r[MODEL_MASTER_COLS.ID          - 1] || ''),
         modelCode   : mc,
