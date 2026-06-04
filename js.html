@@ -462,6 +462,9 @@ const _TYPE_MAP = {
   'オール中古': { bg:'#f3e8ff', color:'#6b21a8', border:'#a855f7', label:'オール中古' },
   'オール新品': { bg:'#dbeafe', color:'#1e40af', border:'#3b82f6', label:'オール新品' },
   '見本機':    { bg:'#d1fae5', color:'#065f46', border:'#10b981', label:'見本機'    },
+  // 旧データ互換: リユース→中古 として橙色で表示
+  'リユース':  { bg:'#ffedd5', color:'#9a3412', border:'#f97316', label:'中古'      },
+  '中古':      { bg:'#ffedd5', color:'#9a3412', border:'#f97316', label:'中古'      },
 };
 function _typeBadge(t){
   if(!t) return '';
