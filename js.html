@@ -2151,12 +2151,12 @@ function _renderModelDetail(res) {
     const seen = {};
     quotes.forEach(q => {
       const key = q.quoteNo || ('MGT_' + q.mgmtId);
-      if (!seen[key]) { seen[key] = true; mergedItems.push({ quoteNo: q.quoteNo, subject: q.subject, client: q.client, issueDate: q.quoteDate, amount: q.amount, status: q.status, pdfUrl: q.pdfUrl || '', linked: q.linked, source: 'mgmt' }); }
+      if (!seen[key]) { seen[key] = true; mergedItems.push({ quoteNo: q.quoteNo, subject: q.subject, client: q.client, issueDate: q.quoteDate, amount: q.amount, status: q.status, pdfUrl: q.pdfUrl || '', linked: q.linked, source: 'mgmt', compositionType: '' }); }
     });
     ledger.forEach(l => {
       const pdfUrl = (typeof _getLedgerPdfUrl === 'function') ? _getLedgerPdfUrl(l) : (l.saveUrl || '');
       const key = l.quoteNo || ('LED_' + l.ledgerId);
-      if (!seen[key]) { seen[key] = true; mergedItems.push({ quoteNo: l.quoteNo, subject: l.subject, client: l.dest, issueDate: l.issueDate, amount: l.amount, status: l.status, pdfUrl: pdfUrl, linked: false, source: 'ledger' }); }
+      if (!seen[key]) { seen[key] = true; mergedItems.push({ quoteNo: l.quoteNo, subject: l.subject, client: l.dest, issueDate: l.issueDate, amount: l.amount, status: l.status, pdfUrl: pdfUrl, linked: false, source: 'ledger', compositionType: l.compositionType||'' }); }
       else { const ex = mergedItems.find(m => (m.quoteNo || '') === (l.quoteNo || '') && m.quoteNo); if (ex && !ex.pdfUrl && pdfUrl) ex.pdfUrl = pdfUrl; }
     });
     mergedItems.sort((a, b) => (b.issueDate || '').localeCompare(a.issueDate || ''));

@@ -284,7 +284,7 @@ function apiModelMasterGet(payload) {
     var mergedMap = {};
     relatedLedger.forEach(function(l) {
       var key = l.quoteNo || ('LED_' + l.ledgerId);
-      mergedMap[key] = { quoteNo: l.quoteNo || '', subject: l.subject || '', client: l.dest || '', issueDate: l.issueDate || '', amount: l.amount || 0, status: l.status || '', pdfUrl: l.saveUrl || '', linked: false, source: 'ledger' };
+      mergedMap[key] = { quoteNo: l.quoteNo || '', subject: l.subject || '', client: l.dest || '', issueDate: l.issueDate || '', amount: l.amount || 0, status: l.status || '', pdfUrl: l.saveUrl || '', linked: false, source: 'ledger', compositionType: l.compositionType || '' };
     });
     relatedQuotes.forEach(function(q) {
       var key = q.quoteNo;
@@ -293,7 +293,7 @@ function apiModelMasterGet(payload) {
         mergedMap[key].linked = q.linked;
         mergedMap[key].source = 'both';
       } else {
-        mergedMap[key] = { quoteNo: q.quoteNo, subject: q.subject || '', client: q.client || '', issueDate: q.quoteDate || '', amount: q.amount || 0, status: q.status || '', pdfUrl: q.pdfUrl || '', linked: q.linked, source: 'mgmt' };
+        mergedMap[key] = { quoteNo: q.quoteNo, subject: q.subject || '', client: q.client || '', issueDate: q.quoteDate || '', amount: q.amount || 0, status: q.status || '', pdfUrl: q.pdfUrl || '', linked: q.linked, source: 'mgmt', compositionType: '' };
       }
     });
     var mergedQuotes = Object.keys(mergedMap).map(function(k){ return mergedMap[k]; });
