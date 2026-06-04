@@ -159,9 +159,17 @@ function apiModelMasterGet(payload) {
     var modelCode = String((payload || {}).modelCode || '').trim();
     if (!modelCode) return { success: false, error: '機種コードが必要です' };
 
-    // ── 機種マスタ情報 ──
-    var masterInfo = { modelCode: modelCode, modelName: '', description: '', boardNames: '' };
-    var rowNum     = _findModelRowNum(modelCode);
+    // ★② 複数機種コード対応（カンマ・読点・スペース区切り）
+    var modelCodes = modelCode.split(/[,、\s]+/).map(function(c){ return c.trim(); }).filter(Boolean);
+    function _matchMC(val) {
+      var valCodes = String(val || '').split(/[,、\s]+/).map(function(c){ return c.trim(); }).filter(Boolean);
+      return valCodes.some(function(vc){ return modelCodes.indexOf(vc) >= 0; });
+    }
+
+    // ── 機種マスタ情報（先頭コードで取得）──
+    var primaryCode = modelCodes[0];
+    var masterInfo  = { modelCode: modelCode, modelName: '', description: '', boardNames: '' };
+    var rowNum      = _findModelRowNum(primaryCode);
     if (rowNum > 0) {
       var sheet = _getModelMasterSheet();
       var row   = sheet.getRange(rowNum, 1, 1, 7).getValues()[0];
@@ -176,7 +184,7 @@ function apiModelMasterGet(payload) {
       };
     }
 
-    // ── 関連見積書・注文書（管理シートから）──
+    // ── 関連見積書・注文書（管理シートから・複数コード対応）──
     var mgmtData      = getAllMgmtData();
     var relatedQuotes = [];
     var relatedOrders = [];
@@ -185,7 +193,7 @@ function apiModelMasterGet(payload) {
 
     mgmtData.forEach(function(r) {
       var mc = String(r[MGMT_COLS.MODEL_CODE - 1] || '').trim();
-      if (mc !== modelCode) return;
+      if (!_matchMC(mc)) return;
 
       var qNo = String(r[MGMT_COLS.QUOTE_NO - 1] || '').trim();
       var oNo = String(r[MGMT_COLS.ORDER_NO  - 1] || '').trim();
@@ -222,24 +230,39 @@ function apiModelMasterGet(payload) {
       }
     });
 
-    // 日付降順ソート
     relatedQuotes.sort(function(a,b){ return (b.quoteDate||'').localeCompare(a.quoteDate||''); });
     relatedOrders.sort(function(a,b){ return (b.orderDate||'').localeCompare(a.orderDate||''); });
 
-    // ── 見積台帳（機種コード一致）──
+    // ── 見積台帳（複数機種コード対応）──
     var ledgerData    = getAllLedgerData();
     var relatedLedger = ledgerData
-      .filter(function(r) {
-        return String(r[LEDGER_COLS.MACHINE_CODE - 1] || '').trim() === modelCode;
-      })
-      .map(function(r) { return _ledgerRowToObject(r); });
+      .filter(function(r){ return _matchMC(r[LEDGER_COLS.MACHINE_CODE - 1]); })
+      .map(function(r){ return _ledgerRowToObject(r); });
+
+    // ★② 台帳と見積書を統合（mergedQuotes）quoteNoで重複除去・PDFを補完
+    var mergedMap = {};
+    relatedLedger.forEach(function(l) {
+      var key = l.quoteNo || ('LED_' + l.ledgerId);
+      mergedMap[key] = { quoteNo: l.quoteNo || '', subject: l.subject || '', client: l.dest || '', issueDate: l.issueDate || '', amount: l.amount || 0, status: l.status || '', pdfUrl: l.saveUrl || '', linked: false, source: 'ledger' };
+    });
+    relatedQuotes.forEach(function(q) {
+      var key = q.quoteNo;
+      if (mergedMap[key]) {
+        if (!mergedMap[key].pdfUrl && q.pdfUrl) mergedMap[key].pdfUrl = q.pdfUrl;
+        mergedMap[key].linked = q.linked;
+        mergedMap[key].source = 'both';
+      } else {
+        mergedMap[key] = { quoteNo: q.quoteNo, subject: q.subject || '', client: q.client || '', issueDate: q.quoteDate || '', amount: q.amount || 0, status: q.status || '', pdfUrl: q.pdfUrl || '', linked: q.linked, source: 'mgmt' };
+      }
+    });
+    var mergedQuotes = Object.keys(mergedMap).map(function(k){ return mergedMap[k]; });
+    mergedQuotes.sort(function(a,b){ return (b.issueDate||'').localeCompare(a.issueDate||''); });
 
     // ── BOM SS から基板一覧を取得 ──
-    var boards = _getBoardsForModel(modelCode);
+    var boards = _getBoardsForModel(primaryCode);
 
-    // 基板名を機種マスタに自動更新
     if (boards.length > 0 && rowNum > 0) {
-      var boardNamesStr = boards.map(function(b) { return b.boardName; }).join('、');
+      var boardNamesStr = boards.map(function(b){ return b.boardName; }).join('、');
       if (boardNamesStr !== masterInfo.boardNames) {
         var sh = _getModelMasterSheet();
         sh.getRange(rowNum, MODEL_MASTER_COLS.BOARD_NAMES).setValue(boardNamesStr);
@@ -254,6 +277,7 @@ function apiModelMasterGet(payload) {
       relatedQuotes : relatedQuotes,
       relatedOrders : relatedOrders,
       relatedLedger : relatedLedger,
+      mergedQuotes  : mergedQuotes,  // ★ 台帳＋見積書の統合リスト
       boards        : boards,
     }));
   } catch(e) {

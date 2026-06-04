@@ -679,7 +679,7 @@ function applyLedgerFilter() { const searchEl = document.getElementById('ledger-
 function clearLedgerFilter(){ if(document.getElementById('ledger-search')) document.getElementById('ledger-search').value = ''; if(document.getElementById('ledger-filter-status')) document.getElementById('ledger-filter-status').value = ''; applyLedgerFilter(); }
 function quickUpdateLedgerStatus(ledgerId, newStatus) { const item = _allLedgerItems.find(r => r.ledgerId === ledgerId); if (item) item.status = newStatus; google.script.run.withSuccessHandler(res => { if (res.success) { showToast('ステータスを更新しました'); loadQuoteList(); } else { showToast('更新失敗', true); } }).handleApiRequest('ledgerSave', { ledgerId: ledgerId, status: newStatus }); }
 
-function _renderLedgerTree(items) { const container = document.getElementById('ledger-tree-container'); if(!container) return; const machineSet = {}; items.forEach(r => { const m = (r.machineCode || '（機種未設定）').trim(); if (!machineSet[m]) machineSet[m] = []; if (r.status !== '__MACHINE_FOLDER__') machineSet[m].push(r); }); if (Object.keys(machineSet).length === 0) { container.innerHTML = '<div class="loading">該当する見積がありません。</div>'; return; } let html = ''; Object.keys(machineSet).sort().forEach(machine => { const machineItems = machineSet[machine]; const machineId = 'machine-' + machine.replace(/[^a-zA-Z0-9]/g, '_'); html += `<div style="background:var(--card);border-radius:8px;margin-bottom:6px;box-shadow:0 1px 3px rgba(0,0,0,.08);overflow:hidden;"><div class="ledger-machine-hd" onclick="_toggleSection('${machineId}')" style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;cursor:pointer;user-select:none;border-left:4px solid var(--primary);"><span style="display:flex;align-items:center;gap:10px;"><span style="font-size:15px;" id="${machineId}-arrow">▼</span><span style="font-weight:700;font-size:15px;letter-spacing:.03em;">📁 ${machine}</span><span style="font-size:12px;color:var(--text-sub);">${machineItems.length}件</span></span><button class="btn btn-outline btn-sm" onclick="event.stopPropagation();if(typeof _openLedgerAddModalWithMachine==='function')_openLedgerAddModalWithMachine('${machine}')" style="font-size:11px;padding:3px 8px;">＋ 見積登録</button></div><div id="${machineId}" style="display:block;">`; const boardGroups = {}; machineItems.forEach(r => { const bKey = (r.boardName || '（基板未設定）').trim(); if (!boardGroups[bKey]) boardGroups[bKey] = []; boardGroups[bKey].push(r); }); if (Object.keys(boardGroups).length === 0) html += `<div style="padding:14px 20px;color:var(--text-sub);font-size:13px;">まだ見積がありません。</div>`; Object.keys(boardGroups).sort().forEach(board => { const boardItems = boardGroups[board]; boardItems.sort((a,b) => { const da = _dateSortKey(b.issueDate||''); const db = _dateSortKey(a.issueDate||''); return da > db ? -1 : da < db ? 1 : String(b.quoteNo||'').localeCompare(String(a.quoteNo||'')); }); const boardId = machineId + '_' + board.replace(/[^a-zA-Z0-9]/g, '_'); html += `<div style="border-top:1px solid var(--border);"><div class="ledger-board-hd" onclick="_toggleSection('${boardId}')" style="display:flex;align-items:center;justify-content:space-between;padding:7px 16px 7px 28px;background:#f4f6f9;cursor:pointer;user-select:none;"><span style="display:flex;align-items:center;gap:8px;"><span style="font-size:12px;" id="${boardId}-arrow">▼</span><span style="font-size:13px;font-weight:600;">🔬 ${board}</span></span></div><div id="${boardId}"><table style="width:100%;border-collapse:collapse;"><thead><tr style="background:#f0f2f5;"><th style="padding:5px 10px 5px 50px;">見積No.</th><th>件名</th><th>宛先</th><th>金額</th><th>ステータス</th><th>発行日</th><th>PDF</th><th>操作</th></tr></thead><tbody>`; boardItems.forEach(r => { const safeId = (r.ledgerId || '').replace(/'/g, "\\'"); const statuses = ['作成予定', '作成中', '送信済み', '受注済み', 'キャンセル']; const statusOpts = statuses.map(s => `<option value="${s}" ${s === r.status ? 'selected' : ''}>${s}</option>`).join(''); const statusSelect = `<select onchange="event.stopPropagation(); quickUpdateLedgerStatus('${safeId}', this.value)" style="padding:2px 4px;font-size:11px;border-radius:4px;border:1px solid var(--border);background:#fff;cursor:pointer;">${statusOpts}</select>`; const pdfUrl = _getLedgerPdfUrl(r); const pdfCell = pdfUrl ? `<a href="${pdfUrl}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);font-size:18px;text-decoration:none;" title="📄 見積書PDF">📄</a>` : '<span style="color:var(--text-muted);">—</span>'; html += `<tr style="border-bottom:1px solid #f0f0f0;"> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'quoteNo', '${_esc(r.quoteNo||'')}', 'ledger')" style="padding:7px 10px 7px 50px;font-family:monospace;font-size:12px;color:var(--primary);"><strong>${r.quoteNo || '—'}</strong></td> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'subject', '${_esc(r.subject||'')}', 'ledger')" style="padding:7px 8px;font-size:12px;">${r.subject || '—'}</td> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'dest', '${_esc(r.dest||'')}', 'ledger')" style="padding:7px 8px;font-size:12px;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.dest || '—'}</td> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'amount', '${r.amount||''}', 'ledger')" style="padding:7px 8px;font-size:12px;color:var(--danger);font-weight:600;">${r.amount ? '¥'+Number(r.amount).toLocaleString() : '—'}</td> <td style="padding:7px 8px;" onclick="event.stopPropagation();">${statusSelect}</td> <td class="editable-cell" onclick="startInlineEditDate(event, '${safeId}', 'issueDate', '${_esc(r.issueDate||"")}', 'ledger')" style="padding:7px 8px;font-size:11px;color:var(--text-sub);white-space:nowrap;">${r.issueDate || '—'}</td> <td style="padding:7px 8px;text-align:center;">${pdfCell}</td> <td style="padding:7px 8px;white-space:nowrap;"> <button class="btn btn-outline btn-sm" onclick="event.stopPropagation(); if(typeof openLedgerAddModal==='function')openLedgerAddModal('${safeId}')">📋 詳細/編集</button> <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteLedgerEntry('${safeId}')" style="margin-left:2px;">🗑️</button> </td> </tr>`; }); html += `</tbody></table></div></div>`; }); html += `</div></div>`; }); container.innerHTML = html; }
+function _renderLedgerTree(items) { const container = document.getElementById('ledger-tree-container'); if(!container) return; const machineSet = {}; items.forEach(r => { if (r.status === '__MACHINE_FOLDER__') return; const rawCode = (r.machineCode || '（機種未設定）').trim(); const codes = rawCode.split(/[,、]+/).map(c => c.trim()).filter(Boolean); (codes.length ? codes : [rawCode]).forEach(m => { if (!machineSet[m]) machineSet[m] = []; machineSet[m].push(r); }); }); if (Object.keys(machineSet).length === 0) { container.innerHTML = '<div class="loading">該当する見積がありません。</div>'; return; } let html = ''; Object.keys(machineSet).sort().forEach(machine => { const machineItems = machineSet[machine]; const machineId = 'machine-' + machine.replace(/[^a-zA-Z0-9]/g, '_'); html += `<div style="background:var(--card);border-radius:8px;margin-bottom:6px;box-shadow:0 1px 3px rgba(0,0,0,.08);overflow:hidden;"><div class="ledger-machine-hd" onclick="_toggleSection('${machineId}')" style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;cursor:pointer;user-select:none;border-left:4px solid var(--primary);"><span style="display:flex;align-items:center;gap:10px;"><span style="font-size:15px;" id="${machineId}-arrow">▼</span><span style="font-weight:700;font-size:15px;letter-spacing:.03em;">📁 ${machine}</span><span style="font-size:12px;color:var(--text-sub);">${machineItems.length}件</span></span><button class="btn btn-outline btn-sm" onclick="event.stopPropagation();if(typeof _openLedgerAddModalWithMachine==='function')_openLedgerAddModalWithMachine('${machine}')" style="font-size:11px;padding:3px 8px;">＋ 見積登録</button></div><div id="${machineId}" style="display:block;">`; const boardGroups = {}; machineItems.forEach(r => { const bKey = (r.boardName || '（基板未設定）').trim(); if (!boardGroups[bKey]) boardGroups[bKey] = []; boardGroups[bKey].push(r); }); if (Object.keys(boardGroups).length === 0) html += `<div style="padding:14px 20px;color:var(--text-sub);font-size:13px;">まだ見積がありません。</div>`; Object.keys(boardGroups).sort().forEach(board => { const boardItems = boardGroups[board]; boardItems.sort((a,b) => { const da = _dateSortKey(b.issueDate||''); const db = _dateSortKey(a.issueDate||''); return da > db ? -1 : da < db ? 1 : String(b.quoteNo||'').localeCompare(String(a.quoteNo||'')); }); const boardId = machineId + '_' + board.replace(/[^a-zA-Z0-9]/g, '_'); html += `<div style="border-top:1px solid var(--border);"><div class="ledger-board-hd" onclick="_toggleSection('${boardId}')" style="display:flex;align-items:center;justify-content:space-between;padding:7px 16px 7px 28px;background:#f4f6f9;cursor:pointer;user-select:none;"><span style="display:flex;align-items:center;gap:8px;"><span style="font-size:12px;" id="${boardId}-arrow">▼</span><span style="font-size:13px;font-weight:600;">🔬 ${board}</span></span></div><div id="${boardId}"><table style="width:100%;border-collapse:collapse;"><thead><tr style="background:#f0f2f5;"><th style="padding:5px 10px 5px 50px;">見積No.</th><th>件名</th><th>宛先</th><th>金額</th><th>ステータス</th><th>発行日</th><th>PDF</th><th>操作</th></tr></thead><tbody>`; boardItems.forEach(r => { const safeId = (r.ledgerId || '').replace(/'/g, "\\'"); const statuses = ['作成予定', '作成中', '送信済み', '受注済み', 'キャンセル']; const statusOpts = statuses.map(s => `<option value="${s}" ${s === r.status ? 'selected' : ''}>${s}</option>`).join(''); const statusSelect = `<select onchange="event.stopPropagation(); quickUpdateLedgerStatus('${safeId}', this.value)" style="padding:2px 4px;font-size:11px;border-radius:4px;border:1px solid var(--border);background:#fff;cursor:pointer;">${statusOpts}</select>`; const pdfUrl = _getLedgerPdfUrl(r); const pdfCell = pdfUrl ? `<a href="${pdfUrl}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);font-size:18px;text-decoration:none;" title="📄 見積書PDF">📄</a>` : '<span style="color:var(--text-muted);">—</span>'; html += `<tr style="border-bottom:1px solid #f0f0f0;"> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'quoteNo', '${_esc(r.quoteNo||'')}', 'ledger')" style="padding:7px 10px 7px 50px;font-family:monospace;font-size:12px;color:var(--primary);"><strong>${r.quoteNo || '—'}</strong></td> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'subject', '${_esc(r.subject||'')}', 'ledger')" style="padding:7px 8px;font-size:12px;">${r.subject || '—'}</td> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'dest', '${_esc(r.dest||'')}', 'ledger')" style="padding:7px 8px;font-size:12px;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.dest || '—'}</td> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'amount', '${r.amount||''}', 'ledger')" style="padding:7px 8px;font-size:12px;color:var(--danger);font-weight:600;">${r.amount ? '¥'+Number(r.amount).toLocaleString() : '—'}</td> <td style="padding:7px 8px;" onclick="event.stopPropagation();">${statusSelect}</td> <td class="editable-cell" onclick="startInlineEditDate(event, '${safeId}', 'issueDate', '${_esc(r.issueDate||"")}', 'ledger')" style="padding:7px 8px;font-size:11px;color:var(--text-sub);white-space:nowrap;">${r.issueDate || '—'}</td> <td style="padding:7px 8px;text-align:center;">${pdfCell}</td> <td style="padding:7px 8px;white-space:nowrap;"> <button class="btn btn-outline btn-sm" onclick="event.stopPropagation(); if(typeof openLedgerAddModal==='function')openLedgerAddModal('${safeId}')">📋 詳細/編集</button> <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteLedgerEntry('${safeId}')" style="margin-left:2px;">🗑️</button> </td> </tr>`; }); html += `</tbody></table></div></div>`; }); html += `</div></div>`; }); container.innerHTML = html; }
 function _renderLedgerFlat(items) { const container = document.getElementById('ledger-flat-container'); if(!container) return; let data = items.filter(r => r.status !== '__MACHINE_FOLDER__'); data.sort((a,b) => _cmpByKey(a, b, _ledgerSortKey, _ledgerSortDir)); if (data.length === 0) { container.innerHTML = '<div class="loading">該当なし</div>'; return; } let html = `<table class="dtable" style="width:100%;border-collapse:collapse;font-size:12px;background:#fff;box-shadow:var(--shadow-sm);border-radius:8px;overflow:hidden;"><thead><tr style="background:#f0f2f5;"><th style="padding:8px 12px;text-align:left;">見積No.</th><th>件名</th><th>宛先</th><th>機種</th><th>基板名</th><th style="text-align:right;">金額</th><th>ステータス</th><th>発行日</th><th>PDF</th><th style="text-align:center;">操作</th></tr></thead><tbody>`; data.forEach(r => { const safeId = (r.ledgerId || '').replace(/'/g, "\\'"); const statuses = ['作成予定', '作成中', '送信済み', '受注済み', 'キャンセル']; const statusOpts = statuses.map(s => `<option value="${s}" ${s === r.status ? 'selected' : ''}>${s}</option>`).join(''); const statusSelect = `<select onchange="event.stopPropagation(); quickUpdateLedgerStatus('${safeId}', this.value)" style="padding:2px 4px;font-size:11px;border-radius:4px;border:1px solid var(--border);background:#fff;cursor:pointer;">${statusOpts}</select>`; const pdfUrl = _getLedgerPdfUrl(r); const pdfCell = pdfUrl ? `<a href="${pdfUrl}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);font-size:18px;text-decoration:none;" title="📄 見積書PDF">📄</a>` : '<span style="color:var(--text-muted);">—</span>'; html += `<tr style="border-bottom:1px solid #f0f0f0;"> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'quoteNo', '${_esc(r.quoteNo||'')}', 'ledger')" style="padding:8px 12px;font-family:monospace;color:var(--primary);font-weight:600;"><strong>${r.quoteNo || '—'}</strong></td> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'subject', '${_esc(r.subject||'')}', 'ledger')" style="padding:8px 12px;">${r.subject || '—'}</td> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'dest', '${_esc(r.dest||'')}', 'ledger')" style="padding:8px 12px;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.dest || '—'}</td> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'machineCode', '${_esc(r.machineCode||'')}', 'ledger')" style="padding:8px 12px;color:var(--text-sub);">${r.machineCode || '—'}</td> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'boardName', '${_esc(r.boardName||'')}', 'ledger')" style="padding:8px 12px;color:var(--text-sub);">${r.boardName || '—'}</td> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'amount', '${r.amount||''}', 'ledger')" style="padding:8px 12px;text-align:right;color:var(--danger);font-weight:600;">${r.amount ? '¥'+Number(r.amount).toLocaleString() : '—'}</td> <td style="padding:8px 12px;" onclick="event.stopPropagation();">${statusSelect}</td> <td class="editable-cell" onclick="startInlineEditDate(event, '${safeId}', 'issueDate', '${_esc(r.issueDate||'')}', 'ledger')" style="padding:8px 12px;font-size:11px;color:var(--text-sub);white-space:nowrap;">${r.issueDate || '—'}</td> <td style="padding:8px 12px;text-align:center;">${pdfCell}</td> <td style="padding:8px 12px;text-align:center;white-space:nowrap;"><button class="btn btn-outline btn-sm" onclick="event.stopPropagation(); openLedgerAddModal('${safeId}')">📋 詳細/編集</button> <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteLedgerEntry('${safeId}')">🗑️</button></td> </tr>`; }); html += `</tbody></table>`; container.innerHTML = `<div style="overflow-x:auto;">${html}</div>`; }
 function _toggleSection(id) { const el = document.getElementById(id); const arr = document.getElementById(id+'-arrow'); if(el){ el.style.display = el.style.display==='none'?'block':'none'; if(arr) arr.textContent = el.style.display==='none'?'▶':'▼'; } }
 
@@ -2097,23 +2097,53 @@ function _renderModelDetail(res) {
   const ledger = res.relatedLedger || [];
   const boards = res.boards || [];
 
-  const quoteTotal  = quotes.reduce((s, r) => s + (r.amount || 0), 0);
-  const orderTotal  = orders.reduce((s, r) => s + (r.amount || 0), 0);
+  // ★② 台帳と見積書を統合（同じ意味なので1つのリストに）
+  // バックエンドから mergedQuotes が返ってきた場合はそれを使う
+  let mergedItems = [];
+  if (res.mergedQuotes && res.mergedQuotes.length > 0) {
+    mergedItems = res.mergedQuotes;
+  } else {
+    const seen = {};
+    quotes.forEach(q => {
+      const key = q.quoteNo || ('MGT_' + q.mgmtId);
+      if (!seen[key]) { seen[key] = true; mergedItems.push({ quoteNo: q.quoteNo, subject: q.subject, client: q.client, issueDate: q.quoteDate, amount: q.amount, status: q.status, pdfUrl: q.pdfUrl || '', linked: q.linked, source: 'mgmt' }); }
+    });
+    ledger.forEach(l => {
+      const pdfUrl = (typeof _getLedgerPdfUrl === 'function') ? _getLedgerPdfUrl(l) : (l.saveUrl || '');
+      const key = l.quoteNo || ('LED_' + l.ledgerId);
+      if (!seen[key]) { seen[key] = true; mergedItems.push({ quoteNo: l.quoteNo, subject: l.subject, client: l.dest, issueDate: l.issueDate, amount: l.amount, status: l.status, pdfUrl: pdfUrl, linked: false, source: 'ledger' }); }
+      else { const ex = mergedItems.find(m => (m.quoteNo || '') === (l.quoteNo || '') && m.quoteNo); if (ex && !ex.pdfUrl && pdfUrl) ex.pdfUrl = pdfUrl; }
+    });
+    mergedItems.sort((a, b) => (b.issueDate || '').localeCompare(a.issueDate || ''));
+  }
 
-  const quoteRows = quotes.length === 0
-    ? '<tr><td colspan="5" style="text-align:center;color:var(--text-muted);font-size:12px;padding:12px;">データなし</td></tr>'
-    : quotes.map(q => `<tr>
-        <td><a href="${_esc(q.pdfUrl)}" target="_blank" style="color:var(--primary);font-weight:600;">${_esc(q.quoteNo)}</a></td>
-        <td>${_esc(q.client)}</td>
-        <td>${_esc(q.quoteDate)}</td>
-        <td style="text-align:right;">¥${Number(q.amount||0).toLocaleString()}</td>
-        <td>${_sBadge(q.status)}${q.linked ? ' <span style="font-size:10px;color:var(--success);">🔗</span>' : ''}</td>
-      </tr>`).join('');
+  const quoteTotal = mergedItems.reduce((s, r) => s + (r.amount || 0), 0);
+  const orderTotal = orders.reduce((s, r) => s + (r.amount || 0), 0);
+
+  // ★① 見積No. を PDF リンクにする（pdfUrlがある場合のみリンク化）
+  const quoteRows = mergedItems.length === 0
+    ? '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);font-size:12px;padding:12px;">データなし</td></tr>'
+    : mergedItems.map(q => {
+        const srcBadge = q.source === 'ledger'
+          ? '<span style="font-size:9px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:3px;padding:1px 4px;margin-left:3px;">台帳</span>'
+          : (q.source === 'both' ? '<span style="font-size:9px;background:#f0fdf4;color:#166534;border:1px solid #bbf7d0;border-radius:3px;padding:1px 4px;margin-left:3px;">台帳+OCR</span>' : '');
+        const qNoCell = q.pdfUrl
+          ? `<a href="${_esc(q.pdfUrl)}" target="_blank" style="color:var(--primary);font-weight:600;text-decoration:underline;" title="📄 PDFを開く">${_esc(q.quoteNo||'—')}</a>${srcBadge}`
+          : `<strong style="color:var(--primary);">${_esc(q.quoteNo||'—')}</strong>${srcBadge}`;
+        return `<tr>
+          <td>${qNoCell}</td>
+          <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${_esc(q.subject||'')}">${_esc(q.subject||'—')}</td>
+          <td>${_esc(q.client||'—')}</td>
+          <td>${_esc(q.issueDate||'—')}</td>
+          <td style="text-align:right;">¥${Number(q.amount||0).toLocaleString()}</td>
+          <td>${_sBadge(q.status)}${q.linked ? ' <span style="font-size:10px;color:var(--success);">🔗</span>' : ''}</td>
+        </tr>`;
+      }).join('');
 
   const orderRows = orders.length === 0
     ? '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);font-size:12px;padding:12px;">データなし</td></tr>'
     : orders.map(o => `<tr>
-        <td><a href="${_esc(o.pdfUrl)}" target="_blank" style="color:var(--primary);font-weight:600;">${_esc(o.orderNo)}</a></td>
+        <td>${o.pdfUrl ? `<a href="${_esc(o.pdfUrl)}" target="_blank" style="color:var(--danger);font-weight:600;text-decoration:underline;">${_esc(o.orderNo)}</a>` : `<strong>${_esc(o.orderNo)}</strong>`}</td>
         <td>${_esc(o.client)}</td>
         <td>${_esc(o.orderDate)}</td>
         <td style="text-align:right;">¥${Number(o.amount||0).toLocaleString()}</td>
@@ -2131,22 +2161,18 @@ function _renderModelDetail(res) {
         <td style="text-align:center;"><span style="font-size:11px;color:var(--text-muted);">→ 詳細</span></td>
       </tr>`).join('');
 
-  const ledgerRows = ledger.length === 0
-    ? '<tr><td colspan="4" style="text-align:center;color:var(--text-muted);font-size:12px;padding:12px;">台帳データなし</td></tr>'
-    : ledger.map(l => `<tr>
-        <td><strong>${_esc(l.quoteNo)}</strong></td>
-        <td>${_esc(l.issueDate)}</td>
-        <td style="text-align:right;">${l.amount != null ? '¥' + Number(l.amount).toLocaleString() : '—'}</td>
-        <td>${_esc(l.status)}</td>
-      </tr>`).join('');
+  // 機種コードを複数タグ表示（②複数コード対応）
+  const codeTags = (mi.modelCode || '').split(/[,、\s]+/).filter(Boolean)
+    .map(c => `<span style="display:inline-block;background:#e3f2fd;color:#1565c0;border-radius:4px;padding:1px 8px;font-family:monospace;font-size:12px;margin-right:4px;">${_esc(c)}</span>`)
+    .join('');
 
   detailEl.innerHTML = `
     <!-- ヘッダー -->
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
       <div>
-        <h2 style="font-size:18px;font-weight:700;color:var(--text);">${_esc(mi.modelCode||'—')}</h2>
-        <div style="font-size:13px;color:var(--text-sub);margin-top:2px;">${_esc(mi.modelName||'機種名未設定')}</div>
-        ${mi.boardNames ? `<div style="font-size:12px;color:var(--text-muted);margin-top:2px;">🔧 ${_esc(mi.boardNames)}</div>` : ''}
+        <h2 style="font-size:18px;font-weight:700;color:var(--text);">${_esc(mi.modelName||mi.modelCode||'—')}</h2>
+        <div style="margin-top:4px;">${codeTags}</div>
+        ${mi.boardNames ? `<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">🔧 ${_esc(mi.boardNames)}</div>` : ''}
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn btn-primary btn-sm" onclick="openEditModelModal('${_esc(mi.modelCode)}','${_esc(mi.modelName||'')}','${_esc(mi.description||'')}')">✏️ 編集</button>
@@ -2158,26 +2184,27 @@ function _renderModelDetail(res) {
 
     <!-- サマリーカード -->
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px;">
-      <div class="summary-card"><div class="lbl">見積件数</div><div class="val c-blue" style="font-size:22px;">${quotes.length}</div></div>
+      <div class="summary-card"><div class="lbl">見積件数</div><div class="val c-blue" style="font-size:22px;">${mergedItems.length}</div></div>
       <div class="summary-card"><div class="lbl">注文件数</div><div class="val c-red" style="font-size:22px;">${orders.length}</div></div>
       <div class="summary-card"><div class="lbl">見積合計</div><div class="val" style="font-size:16px;">¥${quoteTotal.toLocaleString()}</div></div>
       <div class="summary-card"><div class="lbl">注文合計</div><div class="val c-green" style="font-size:16px;">¥${orderTotal.toLocaleString()}</div></div>
     </div>
 
-    <!-- タブ -->
+    <!-- タブ（★台帳タブを廃止・見積書タブに統合） -->
     <div id="model-detail-tabs" style="display:flex;gap:0;border-bottom:2px solid var(--border-light);margin-bottom:14px;flex-wrap:wrap;">
-      <button class="admin-tab active" id="mdtab-quote"      onclick="switchModelTab('quote')">📄 見積書 (${quotes.length})</button>
+      <button class="admin-tab active" id="mdtab-quote"      onclick="switchModelTab('quote')">📄 見積書・台帳 (${mergedItems.length})</button>
       <button class="admin-tab" id="mdtab-order"      onclick="switchModelTab('order')">📦 注文書 (${orders.length})</button>
       <button class="admin-tab" id="mdtab-board"      onclick="switchModelTab('board')">🔧 基板 (${boards.length})</button>
-      <button class="admin-tab" id="mdtab-ledger"     onclick="switchModelTab('ledger')">📝 台帳 (${ledger.length})</button>
       <button class="admin-tab" id="mdtab-docs"       onclick="switchModelTab('docs');_loadModelDocs('${_esc(mi.modelCode)}')">📂 書類・仕様書</button>
       <button class="admin-tab" id="mdtab-compliance" onclick="switchModelTab('compliance');_loadModelCompliance('${_esc(mi.modelCode)}')">✅ 適合状況</button>
       <button class="admin-tab" id="mdtab-sales"      onclick="switchModelTab('sales');_loadModelSales('${_esc(mi.modelCode)}')">📊 売上数</button>
     </div>
 
+    <!-- ★統合リスト: 見積書＋台帳（見積NoクリックでPDF表示） -->
     <div id="mdtab-content-quote" class="admin-tab-content" style="display:block;">
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">💡 見積No.をクリックするとPDFが開きます。<span style="background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:3px;padding:1px 4px;margin-left:4px;font-size:10px;">台帳</span>は見積台帳からのデータです。</div>
       <div class="table-wrap"><table>
-        <thead><tr><th>見積番号</th><th>顧客名</th><th>見積日</th><th>見積金額</th><th>ステータス</th></tr></thead>
+        <thead><tr><th>見積No.</th><th>件名</th><th>宛先</th><th>発行日</th><th style="text-align:right;">見積金額</th><th>ステータス</th></tr></thead>
         <tbody>${quoteRows}</tbody>
       </table></div>
     </div>
@@ -2191,12 +2218,6 @@ function _renderModelDetail(res) {
       <div class="table-wrap"><table>
         <thead><tr><th>基板名</th><th>コード</th><th>バージョン</th><th>説明</th><th></th></tr></thead>
         <tbody>${boardRows}</tbody>
-      </table></div>
-    </div>
-    <div id="mdtab-content-ledger" class="admin-tab-content">
-      <div class="table-wrap"><table>
-        <thead><tr><th>見積No</th><th>発行日</th><th>見積金額</th><th>ステータス</th></tr></thead>
-        <tbody>${ledgerRows}</tbody>
       </table></div>
     </div>
     <div id="mdtab-content-docs" class="admin-tab-content">
@@ -2221,7 +2242,7 @@ function _renderModelDetail(res) {
 }
 
 function switchModelTab(name) {
-  ['quote','order','board','ledger','docs','compliance','sales'].forEach(t => {
+  ['quote','order','board','docs','compliance','sales'].forEach(t => {
     const btn = document.getElementById('mdtab-' + t);
     const con = document.getElementById('mdtab-content-' + t);
     if (btn) btn.classList.toggle('active', t === name);
