@@ -20,7 +20,11 @@ var MODEL_MASTER_COLS  = {
   BOARD_NAMES : 5,  // 基板名一覧（BOM SSから自動取得）
   CREATED_AT  : 6,  // 登録日時
   UPDATED_AT  : 7,  // 更新日時
+  MODEL_TYPE  : 8,  // 型式
+  RELEASE_DATE: 9,  // 発売日
+  VISIBLE     : 10, // 表示/非表示（TRUE=表示 / FALSE=非表示）
 };
+var MODEL_MASTER_COL_COUNT = 10;
 
 // ============================================================
 // 初期化
@@ -29,7 +33,7 @@ var MODEL_MASTER_COLS  = {
 function initModelMasterSheet() {
   try {
     var ss      = getSpreadsheet();
-    var headers = ['機種ID','機種コード','機種名','説明・備考','基板名一覧(自動)','登録日時','更新日時'];
+    var headers = ['機種ID','機種コード','機種名','説明・備考','基板名一覧(自動)','登録日時','更新日時','型式','発売日','表示'];
     var sheet   = _createOrSetupSheet(ss, MODEL_MASTER_SHEET, headers, '#E3F2FD');
     // 基板名列は自動列なので薄いグレー
     if (sheet.getLastRow() <= 1) {
@@ -60,7 +64,8 @@ function _getModelMasterSheet() {
 function _getAllModelMasterRows() {
   var sheet = _getModelMasterSheet();
   if (!sheet || sheet.getLastRow() <= 1) return [];
-  return sheet.getRange(2, 1, sheet.getLastRow() - 1, 7).getValues()
+  var colCount = sheet.getLastColumn() >= MODEL_MASTER_COL_COUNT ? MODEL_MASTER_COL_COUNT : 7;
+  return sheet.getRange(2, 1, sheet.getLastRow() - 1, colCount).getValues()
     .filter(function(r) { return String(r[MODEL_MASTER_COLS.MODEL_CODE - 1]).trim() !== ''; });
 }
 
@@ -138,8 +143,11 @@ function apiModelMasterList() {
     // 最新状態で再取得してレスポンス構築
     var rows  = _getAllModelMasterRows();
     var items = rows.map(function(r) {
-      var mc    = String(r[MODEL_MASTER_COLS.MODEL_CODE  - 1] || '').trim();
-      var stats = _mergeStats(mc);
+      var mc      = String(r[MODEL_MASTER_COLS.MODEL_CODE  - 1] || '').trim();
+      var stats   = _mergeStats(mc);
+      var visible = r[MODEL_MASTER_COLS.VISIBLE - 1];
+      // VISIBLE が明示的に FALSE のものは非表示（空欄・TRUE は表示）
+      var isVisible = (visible === false || String(visible).toUpperCase() === 'FALSE') ? false : true;
       return {
         id          : String(r[MODEL_MASTER_COLS.ID          - 1] || ''),
         modelCode   : mc,
@@ -148,6 +156,9 @@ function apiModelMasterList() {
         boardNames  : String(r[MODEL_MASTER_COLS.BOARD_NAMES - 1] || ''),
         createdAt   : _toDateStr(r[MODEL_MASTER_COLS.CREATED_AT - 1]),
         updatedAt   : _toDateStr(r[MODEL_MASTER_COLS.UPDATED_AT - 1]),
+        modelType   : String(r[MODEL_MASTER_COLS.MODEL_TYPE   - 1] || ''),
+        releaseDate : _toDateStr(r[MODEL_MASTER_COLS.RELEASE_DATE - 1]),
+        visible     : isVisible,
         quoteCount  : stats.quoteCount,
         orderCount  : stats.orderCount,
         totalAmount : stats.totalAmount,
@@ -155,14 +166,17 @@ function apiModelMasterList() {
       };
     });
 
+    // ★ VISIBLE=false のエントリを一覧から除外（非表示設定）
+    var visibleItems = items.filter(function(item) { return item.visible !== false; });
+
     // 最終活動日 → 更新日時の順でソート
-    items.sort(function(a, b) {
+    visibleItems.sort(function(a, b) {
       var da = a.latestDate || a.updatedAt || '';
       var db = b.latestDate || b.updatedAt || '';
       return db.localeCompare(da);
     });
 
-    return JSON.parse(JSON.stringify({ success: true, items: items }));
+    return JSON.parse(JSON.stringify({ success: true, items: visibleItems }));
   } catch(e) {
     Logger.log('[apiModelMasterList ERROR] ' + e.message);
     return { success: false, error: e.message };
@@ -335,11 +349,19 @@ function apiModelMasterSave(payload) {
       sheet.getRange(rowNum, MODEL_MASTER_COLS.MODEL_NAME  ).setValue(modelName);
       sheet.getRange(rowNum, MODEL_MASTER_COLS.DESCRIPTION ).setValue(description);
       sheet.getRange(rowNum, MODEL_MASTER_COLS.UPDATED_AT  ).setValue(now);
+      if (payload.modelType   !== undefined) sheet.getRange(rowNum, MODEL_MASTER_COLS.MODEL_TYPE   ).setValue(String(payload.modelType   || ''));
+      if (payload.releaseDate !== undefined) sheet.getRange(rowNum, MODEL_MASTER_COLS.RELEASE_DATE ).setValue(String(payload.releaseDate || ''));
+      if (payload.visible     !== undefined) sheet.getRange(rowNum, MODEL_MASTER_COLS.VISIBLE      ).setValue(payload.visible === false || payload.visible === 'false' ? false : true);
       // 機種名変更を見積台帳（BOARD_NAME列）へカスケード反映
       try { if (modelName) syncModelNameToMgmt(modelCode, modelName); } catch(e2) {}
     } else {
-      // 新規
-      sheet.appendRow([_generateModelId(), modelCode, modelName, description, '', now, now]);
+      // 新規（10列対応）
+      sheet.appendRow([
+        _generateModelId(), modelCode, modelName, description, '', now, now,
+        String(payload.modelType   || ''),
+        String(payload.releaseDate || ''),
+        true,  // VISIBLE: デフォルト表示
+      ]);
       // 削除済みリストから除外（再登録を許可）
       _removeFromDeletedModelCodes(modelCode);
     }
@@ -354,6 +376,57 @@ function apiModelMasterSave(payload) {
     return { success: true, modelCode: modelCode };
   } catch(e) {
     Logger.log('[apiModelMasterSave ERROR] ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// ============================================================
+// API: 機種マスタ 表示/非表示切り替え
+// ============================================================
+
+function apiModelMasterSetVisible(payload) {
+  try {
+    var modelCode = String((payload || {}).modelCode || '').trim();
+    var visible   = payload.visible !== false && payload.visible !== 'false'; // true/false
+    if (!modelCode) return { success: false, error: '機種コードが必要です' };
+    var rowNum = _findModelRowNum(modelCode);
+    if (rowNum < 0) return { success: false, error: '機種コードが見つかりません' };
+    var sheet = _getModelMasterSheet();
+    sheet.getRange(rowNum, MODEL_MASTER_COLS.VISIBLE   ).setValue(visible);
+    sheet.getRange(rowNum, MODEL_MASTER_COLS.UPDATED_AT).setValue(nowJST());
+    return { success: true, modelCode: modelCode, visible: visible };
+  } catch(e) {
+    Logger.log('[apiModelMasterSetVisible ERROR] ' + e.message);
+    return { success: false, error: e.message };
+  }
+}
+
+// ============================================================
+// API: 機種マスタ 管理表（全件・非表示含む）取得
+// ============================================================
+
+function apiModelMasterGetAll() {
+  try {
+    var rows = _getAllModelMasterRows();
+    var items = rows.map(function(r) {
+      var visible = r[MODEL_MASTER_COLS.VISIBLE - 1];
+      var isVisible = !(visible === false || String(visible).toUpperCase() === 'FALSE');
+      return {
+        id          : String(r[MODEL_MASTER_COLS.ID          - 1] || ''),
+        modelCode   : String(r[MODEL_MASTER_COLS.MODEL_CODE  - 1] || '').trim(),
+        modelName   : String(r[MODEL_MASTER_COLS.MODEL_NAME  - 1] || ''),
+        description : String(r[MODEL_MASTER_COLS.DESCRIPTION - 1] || ''),
+        boardNames  : String(r[MODEL_MASTER_COLS.BOARD_NAMES - 1] || ''),
+        createdAt   : _toDateStr(r[MODEL_MASTER_COLS.CREATED_AT - 1]),
+        updatedAt   : _toDateStr(r[MODEL_MASTER_COLS.UPDATED_AT - 1]),
+        modelType   : String(r[MODEL_MASTER_COLS.MODEL_TYPE   - 1] || ''),
+        releaseDate : _toDateStr(r[MODEL_MASTER_COLS.RELEASE_DATE - 1]),
+        visible     : isVisible,
+      };
+    });
+    return JSON.parse(JSON.stringify({ success: true, items: items }));
+  } catch(e) {
+    Logger.log('[apiModelMasterGetAll ERROR] ' + e.message);
     return { success: false, error: e.message };
   }
 }

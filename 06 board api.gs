@@ -175,6 +175,8 @@ function handleApiRequest(action, payload) {
       case 'modelMasterGet':         res = apiModelMasterGet(payload); break;
       case 'modelMasterSave':        res = apiModelMasterSave(payload); break;
       case 'modelMasterDelete':      res = apiModelMasterDelete(payload); break;
+      case 'modelMasterSetVisible':  res = apiModelMasterSetVisible(payload); break;
+      case 'modelMasterGetAll':      res = apiModelMasterGetAll(); break;
       case 'rebuildModelMaster':     res = apiRebuildModelMaster(); break;
       case 'syncLedgerModelCodes':   res = syncLedgerModelCodes(); break;
       case 'syncModelNameToMgmt':    res = syncModelNameToMgmt(payload.modelCode, payload.modelName); break;

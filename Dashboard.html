@@ -818,12 +818,27 @@ tr:hover td{background:#f8fafc;}
           <button class="btn btn-primary btn-sm" onclick="openNewModelModal()">＋ 機種を追加</button>
           <button class="btn btn-sm" onclick="rebuildModelMaster()" title="管理シートから機種コードを収集して再構築">🔄 再構築</button>
           <button class="btn btn-sm" onclick="loadModelMaster()">↻ 更新</button>
+          <button class="btn btn-sm" id="btn-model-mgmt" onclick="toggleModelMgmtView()" style="background:#f0f9ff;border-color:#0ea5e9;color:#0369a1;">⚙️ 表示管理設定</button>
         </div>
         <!-- 基板タブ用ボタン -->
         <div style="display:none;gap:8px;flex-wrap:wrap;" id="master-actions-board">
           <button class="btn btn-primary btn-sm" onclick="openBoardAddModal()">＋ 基板を追加</button>
           <button class="btn btn-sm" onclick="loadBoardMaster()">↻ 更新</button>
         </div>
+      </div>
+
+      <!-- ★ 表示管理設定パネル（トグル表示） -->
+      <div id="model-mgmt-panel" style="display:none;background:#fff;border:1px solid var(--border-light);border-radius:10px;padding:16px;margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,.08);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <h3 style="font-size:14px;font-weight:700;margin:0;">⚙️ 機種マスタ 表示管理設定</h3>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-primary btn-sm" onclick="_openAddModelFromMgmt()">＋ 機種を追加</button>
+            <button class="btn btn-sm" onclick="loadModelManagementTable()">↻ 再読み込み</button>
+            <button class="btn btn-sm" onclick="toggleModelMgmtView()">✕ 閉じる</button>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px;">機種名前・型式・発売日を編集でき、チェックを外すと一覧から非表示になります。</div>
+        <div id="model-mgmt-table-wrap"><div class="loading"><div class="spinner"></div></div></div>
       </div>
 
       <div class="model-master-layout">
