@@ -2121,9 +2121,16 @@ function _renderModelDetail(res) {
   const quoteTotal = mergedItems.reduce((s, r) => s + (r.amount || 0), 0);
   const orderTotal = orders.reduce((s, r) => s + (r.amount || 0), 0);
 
+  // 複数コードの場合に機種バッジを表示するヘルパー
+  const isMultiCode = (mi.modelCode || '').split(/[,、\s]+/).filter(Boolean).length > 1;
+  function _codeBadge(code) {
+    if (!isMultiCode || !code) return '';
+    return `<span style="font-size:9px;background:#fef3c7;color:#92400e;border:1px solid #fde68a;border-radius:3px;padding:1px 5px;margin-left:4px;font-family:monospace;">${_esc(code)}</span>`;
+  }
+
   // ★① 見積No. を PDF リンクにする（pdfUrlがある場合のみリンク化）
   const quoteRows = mergedItems.length === 0
-    ? '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);font-size:12px;padding:12px;">データなし</td></tr>'
+    ? '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);font-size:12px;padding:12px;">データなし</td></tr>'
     : mergedItems.map(q => {
         const srcBadge = q.source === 'ledger'
           ? '<span style="font-size:9px;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:3px;padding:1px 4px;margin-left:3px;">台帳</span>'
@@ -2133,16 +2140,17 @@ function _renderModelDetail(res) {
           : `<strong style="color:var(--primary);">${_esc(q.quoteNo||'—')}</strong>${srcBadge}`;
         return `<tr>
           <td>${qNoCell}</td>
-          <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${_esc(q.subject||'')}">${_esc(q.subject||'—')}</td>
+          <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${_esc(q.subject||'')}">${_esc(q.subject||'—')}</td>
           <td>${_esc(q.client||'—')}</td>
           <td>${_esc(q.issueDate||'—')}</td>
           <td style="text-align:right;">¥${Number(q.amount||0).toLocaleString()}</td>
           <td>${_sBadge(q.status)}${q.linked ? ' <span style="font-size:10px;color:var(--success);">🔗</span>' : ''}</td>
+          <td style="white-space:nowrap;">${_codeBadge(q.matchedCode||'')}</td>
         </tr>`;
       }).join('');
 
   const orderRows = orders.length === 0
-    ? '<tr><td colspan="6" style="text-align:center;color:var(--text-muted);font-size:12px;padding:12px;">データなし</td></tr>'
+    ? '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);font-size:12px;padding:12px;">データなし</td></tr>'
     : orders.map(o => `<tr>
         <td>${o.pdfUrl ? `<a href="${_esc(o.pdfUrl)}" target="_blank" style="color:var(--danger);font-weight:600;text-decoration:underline;">${_esc(o.orderNo)}</a>` : `<strong>${_esc(o.orderNo)}</strong>`}</td>
         <td>${_esc(o.client)}</td>
@@ -2150,6 +2158,7 @@ function _renderModelDetail(res) {
         <td style="text-align:right;">¥${Number(o.amount||0).toLocaleString()}</td>
         <td>${_esc(o.deliveryDate||'—')}</td>
         <td>${_sBadge(o.status)}${_otBadge(o.orderType)}</td>
+        <td style="white-space:nowrap;">${_codeBadge(o.matchedCode||'')}</td>
       </tr>`).join('');
 
   const boardRows = boards.length === 0
@@ -2203,15 +2212,15 @@ function _renderModelDetail(res) {
 
     <!-- ★統合リスト: 見積書＋台帳（見積NoクリックでPDF表示） -->
     <div id="mdtab-content-quote" class="admin-tab-content" style="display:block;">
-      <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">💡 見積No.をクリックするとPDFが開きます。<span style="background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:3px;padding:1px 4px;margin-left:4px;font-size:10px;">台帳</span>は見積台帳からのデータです。</div>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;">💡 見積No.をクリックするとPDFが開きます。<span style="background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:3px;padding:1px 4px;margin-left:4px;font-size:10px;">台帳</span>は見積台帳からのデータです。${isMultiCode ? '&nbsp;<span style="background:#fef3c7;color:#92400e;border:1px solid #fde68a;border-radius:3px;padding:1px 4px;margin-left:4px;font-size:10px;">E65</span>のような黄色バッジは管理シートの機種コードです。' : ''}</div>
       <div class="table-wrap"><table>
-        <thead><tr><th>見積No.</th><th>件名</th><th>宛先</th><th>発行日</th><th style="text-align:right;">見積金額</th><th>ステータス</th></tr></thead>
+        <thead><tr><th>見積No.</th><th>件名</th><th>宛先</th><th>発行日</th><th style="text-align:right;">見積金額</th><th>ステータス</th>${isMultiCode ? '<th>機種</th>' : ''}</tr></thead>
         <tbody>${quoteRows}</tbody>
       </table></div>
     </div>
     <div id="mdtab-content-order" class="admin-tab-content">
       <div class="table-wrap"><table>
-        <thead><tr><th>注文番号</th><th>顧客名</th><th>注文日</th><th>注文金額</th><th>納期</th><th>ステータス</th></tr></thead>
+        <thead><tr><th>注文番号</th><th>顧客名</th><th>注文日</th><th>注文金額</th><th>納期</th><th>ステータス</th>${isMultiCode ? '<th>機種</th>' : ''}</tr></thead>
         <tbody>${orderRows}</tbody>
       </table></div>
     </div>

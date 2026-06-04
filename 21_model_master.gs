@@ -220,15 +220,16 @@ function apiModelMasterGet(payload) {
       if (qNo && !seenQuotes[qNo]) {
         seenQuotes[qNo] = true;
         relatedQuotes.push({
-          mgmtId    : String(r[MGMT_COLS.ID           - 1] || ''),
-          quoteNo   : qNo,
-          client    : String(r[MGMT_COLS.CLIENT        - 1] || ''),
-          quoteDate : _toDateStr(r[MGMT_COLS.QUOTE_DATE - 1]),
-          amount    : _toNum(r[MGMT_COLS.QUOTE_AMOUNT  - 1]),
-          status    : String(r[MGMT_COLS.STATUS        - 1] || ''),
-          pdfUrl    : String(r[MGMT_COLS.QUOTE_PDF_URL - 1] || ''),
-          subject   : String(r[MGMT_COLS.SUBJECT       - 1] || ''),
-          linked    : _isLinkedVal(r[MGMT_COLS.LINKED  - 1]),
+          mgmtId      : String(r[MGMT_COLS.ID           - 1] || ''),
+          quoteNo     : qNo,
+          client      : String(r[MGMT_COLS.CLIENT        - 1] || ''),
+          quoteDate   : _toDateStr(r[MGMT_COLS.QUOTE_DATE - 1]),
+          amount      : _toNum(r[MGMT_COLS.QUOTE_AMOUNT  - 1]),
+          status      : String(r[MGMT_COLS.STATUS        - 1] || ''),
+          pdfUrl      : String(r[MGMT_COLS.QUOTE_PDF_URL - 1] || ''),
+          subject     : String(r[MGMT_COLS.SUBJECT       - 1] || ''),
+          linked      : _isLinkedVal(r[MGMT_COLS.LINKED  - 1]),
+          matchedCode : mc,  // ★ どのコードにマッチしたか
         });
       }
       if (oNo && !seenOrders[oNo]) {
@@ -245,6 +246,7 @@ function apiModelMasterGet(payload) {
           orderType    : String(r[MGMT_COLS.ORDER_TYPE       - 1] || ''),
           orderSlipNo  : String(r[MGMT_COLS.ORDER_SLIP_NO    - 1] || ''),
           linked       : _isLinkedVal(r[MGMT_COLS.LINKED     - 1]),
+          matchedCode  : mc,  // ★ どのコードにマッチしたか
         });
       }
     });
