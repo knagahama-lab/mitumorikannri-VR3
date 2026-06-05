@@ -765,10 +765,34 @@ function _buildDetailHtml(item, detail) {
 
   // ★ 明細ごとの紐づけ用プルダウンを作成
   const _qCandidates = detail.allQuoteLines ? [...new Map(detail.allQuoteLines.filter(q => q.mgmtId && q.quoteNo).map(q => [q.mgmtId, q])).values()] : [];
-  const _qOptions = '<option value="" data-pdf-url="">-- 見積書を選択 --</option>' + _qCandidates.map(c => `<option value="${c.mgmtId}" data-pdf-url="${c.pdfUrl || ''}">${c.quoteNo}${c.itemName?' 「'+c.itemName+'」':''}</option>`).join('');
+
+  // ★ 注文書の機種コードで候補を自動絞り込み
+  const _orderModelCodes = (item.modelCode||'').split(/[,、\/\s]+/).map(c=>c.trim()).filter(Boolean);
+  function _matchesOrderModel(candidateModelCode) {
+    if (_orderModelCodes.length === 0) return true; // 機種コードなし→全件表示
+    const cCodes = (candidateModelCode||'').split(/[,、\/\s]+/).map(c=>c.trim()).filter(Boolean);
+    return cCodes.some(c => _orderModelCodes.indexOf(c) >= 0);
+  }
+  // 候補ごとに機種コードを _allQuotes / S.all から補完
+  const _enrichedCandidates = _qCandidates.map(c => {
+    const q = (_allQuotes||[]).find(r=>r.id===c.mgmtId) || (S&&S.all||[]).find(r=>r.id===c.mgmtId);
+    return Object.assign({}, c, { modelCode: q ? (q.modelCode||q.machineCode||'') : '' });
+  });
+  // 機種コードが一致するものを先頭・不一致を後ろに（完全に除外はしない）
+  const _matchedCandidates  = _enrichedCandidates.filter(c =>  _matchesOrderModel(c.modelCode));
+  const _otherCandidates    = _enrichedCandidates.filter(c => !_matchesOrderModel(c.modelCode));
+  const _sortedCandidates   = [..._matchedCandidates, ..._otherCandidates];
+
+  const _makeOption = c => {
+    const modelTag = c.modelCode ? ` [${c.modelCode}]` : '';
+    const matched  = _matchesOrderModel(c.modelCode);
+    return `<option value="${c.mgmtId}" data-pdf-url="${c.pdfUrl||''}" data-model-code="${c.modelCode||''}"${matched?'':' style="color:#aaa;"'}>${c.quoteNo}${modelTag}${c.itemName?' 「'+c.itemName+'」':''}</option>`;
+  };
+  const _qOptions = `<option value="" data-pdf-url="" data-model-code="">-- 見積書を選択 (${_matchedCandidates.length}件一致 / 全${_enrichedCandidates.length}件) --</option>`
+    + _sortedCandidates.map(_makeOption).join('');
 
   // 見積書候補の検索バー付きオプション生成
-  let _allQuoteCandidates = _qCandidates.slice();
+  let _allQuoteCandidates = _sortedCandidates.slice();
   
   const oTable = detail.orderLines && detail.orderLines.length ? `
     <div style="margin-top:20px;">
@@ -776,9 +800,12 @@ function _buildDetailHtml(item, detail) {
         <h4 style="margin:0;">発注書 明細</h4>
         <div style="display:flex;align-items:center;gap:6px;background:#f0f6ff;border:1px solid #bfdbfe;border-radius:6px;padding:5px 10px;">
           <span style="font-size:11px;font-weight:600;color:#2563eb;">🔍 見積書候補を絞り込む:</span>
-          <input type="text" id="detail-quote-search" placeholder="見積No・件名・顧客名..." 
+          ${item.modelCode ? `<span style="font-size:10px;background:#dbeafe;color:#1e40af;border-radius:4px;padding:1px 6px;">機種: ${_esc(item.modelCode)} で自動絞込み済み</span>` : ''}
+          <input type="text" id="detail-quote-search" placeholder="見積No・件名・機種コード..."
+            value="${item.modelCode||''}"
             style="padding:4px 8px;border:1px solid #bfdbfe;border-radius:4px;font-size:12px;outline:none;width:200px;"
             oninput="_filterDetailQuoteOptions(this.value,'${item.id}',${detail.orderLines.map(l=>l.lineNo).join(',') ? '['+detail.orderLines.map(l=>l.lineNo).join(',')+']' : '[]'})">
+          <button style="font-size:10px;padding:3px 7px;background:#f1f5f9;border:1px solid #cbd5e1;border-radius:4px;cursor:pointer;color:#475569;" onclick="document.getElementById('detail-quote-search').value='';_filterDetailQuoteOptions('','${item.id}',${detail.orderLines.map(l=>l.lineNo).join(',') ? '['+detail.orderLines.map(l=>l.lineNo).join(',')+']' : '[]'})">全件表示</button>
         </div>
       </div>
       <p style="font-size:11px;color:var(--text-sub);margin-bottom:6px;">💡 「紐づく見積」欄で各明細行に対応する見積書を選択・確定できます</p>
@@ -809,7 +836,14 @@ function _buildDetailHtml(item, detail) {
   if (item.orderNo && !item.quoteNo) {
     let quoteOpts = '';
     if (typeof _allQuotes !== 'undefined') {
-      const unlinkedQuotes = _allQuotes.filter(q => !q.linked);
+      // ★ 注文書の機種コードで見積書候補を絞り込む
+      const _omc = (item.modelCode||'').split(/[,、\/\s]+/).map(c=>c.trim()).filter(Boolean);
+      const unlinkedQuotes = _allQuotes.filter(q => {
+        if (q.linked) return false;
+        if (_omc.length === 0) return true;
+        const qmc = (q.modelCode||q.machineCode||'').split(/[,、\/\s]+/).map(c=>c.trim()).filter(Boolean);
+        return qmc.some(c => _omc.indexOf(c) >= 0);
+      });
       quoteOpts = unlinkedQuotes.map(q => {
         let itemNames = q.subject || '—'; let unitPrice = '—';
         if (detail && detail.allQuoteLines && detail.allQuoteLines.length > 0) {
@@ -824,7 +858,7 @@ function _buildDetailHtml(item, detail) {
     <div style="background:#e8f0fe;border:1px solid #b5d4f4;border-radius:8px;padding:16px;margin:20px 0;">
       <div style="font-size:13px;font-weight:700;margin-bottom:10px;color:var(--info);">🔗 手動で他の見積書と紐づける</div>
       <div style="display:flex;gap:8px;align-items:center;">
-        <select id="manual-link-quote-id" style="flex:1;padding:8px 10px;border-radius:4px;border:1px solid #cbd5e1;font-size:13px;background:white;outline:none;"><option value="">-- 既存の未紐づけ見積書から選択 --</option>${quoteOpts}</select>
+        <select id="manual-link-quote-id" style="flex:1;padding:8px 10px;border-radius:4px;border:1px solid #cbd5e1;font-size:13px;background:white;outline:none;"><option value="">-- ${item.modelCode ? item.modelCode+'の' : ''}未紐づけ見積書から選択 (${unlinkedQuotes.length}件) --</option>${quoteOpts}</select>
         <button class="btn btn-primary" onclick="_manualLinkQuote('${item.id}')" style="white-space:nowrap;">この見積書で確定</button>
       </div>
     </div>`;
@@ -939,22 +973,18 @@ function updateStatus(mgmtId){ const ns=document.getElementById('status-sel').va
 // ─── ④ 発注書詳細の紐づけ候補 見積書検索フィルタ ───
 function _filterDetailQuoteOptions(kw, mgmtId, lineNos) {
   const lines = Array.isArray(lineNos) ? lineNos : [];
-  if (!kw) {
-    // すべてのselectを元に戻す（全候補表示）
-    lines.forEach(lineNo => {
-      const sel = document.getElementById('line-sel-' + mgmtId + '-' + lineNo);
-      if (!sel) return;
-      Array.from(sel.options).forEach(opt => { opt.style.display = ''; });
-    });
-    return;
-  }
-  const kwLower = kw.toLowerCase();
+  const kwLower = (kw || '').trim().toLowerCase();
   lines.forEach(lineNo => {
     const sel = document.getElementById('line-sel-' + mgmtId + '-' + lineNo);
     if (!sel) return;
     Array.from(sel.options).forEach(opt => {
-      if (!opt.value) { opt.style.display = ''; return; }
-      opt.style.display = opt.text.toLowerCase().includes(kwLower) ? '' : 'none';
+      if (!opt.value) { opt.style.display = ''; return; } // プレースホルダは常に表示
+      if (!kwLower) { opt.style.display = ''; return; }   // 空欄→全件表示
+      const optText    = opt.text.toLowerCase();
+      const modelCode  = (opt.getAttribute('data-model-code') || '').toLowerCase();
+      // テキスト or 機種コードで部分一致
+      const matched = optText.includes(kwLower) || modelCode.split(/[,、\/\s]+/).some(c => c && c.includes(kwLower));
+      opt.style.display = matched ? '' : 'none';
     });
   });
 }
