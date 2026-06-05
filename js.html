@@ -835,10 +835,11 @@ function _buildDetailHtml(item, detail) {
   let linkHtml = '';
   if (item.orderNo && !item.quoteNo) {
     let quoteOpts = '';
+    let unlinkedQuotes = []; // ★ スコープを外側に出す
     if (typeof _allQuotes !== 'undefined') {
       // ★ 注文書の機種コードで見積書候補を絞り込む
       const _omc = (item.modelCode||'').split(/[,、\/\s]+/).map(c=>c.trim()).filter(Boolean);
-      const unlinkedQuotes = _allQuotes.filter(q => {
+      unlinkedQuotes = _allQuotes.filter(q => {
         if (q.linked) return false;
         if (_omc.length === 0) return true;
         const qmc = (q.modelCode||q.machineCode||'').split(/[,、\/\s]+/).map(c=>c.trim()).filter(Boolean);
