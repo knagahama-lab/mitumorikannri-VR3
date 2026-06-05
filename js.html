@@ -844,13 +844,90 @@ function _buildDetailHtml(item, detail) {
 function _buildQuoteDetailHtml(res) {
   const m = res.mgmt || {}; const lines = res.quoteLines || []; const pdfUrl = lines.length ? lines[0].pdfUrl : m.quotePdfUrl;
   const lineRows = lines.map((l, i) => `<tr><td style="border:1px solid #eee;padding:6px;">${i+1}</td><td style="border:1px solid #eee;padding:6px;"><strong style="font-size:12px;">${l.itemName||''}</strong></td><td style="border:1px solid #eee;padding:6px;text-align:right;">${l.qty||''}</td><td style="border:1px solid #eee;padding:6px;text-align:right;">${l.amount?Number(l.amount).toLocaleString():''}</td></tr>`).join('');
+
+  // ★ 種別タブ: 台帳から現在値を取得
+  const currentType = _getCompositionType(m.quoteNo) || '';
+  const typeOptions = ['','2基板中古','1基板中古','オール中古','オール新品','見本機','リユース','中古']
+    .map(t => `<option value="${t}" ${t===currentType?'selected':''}>${t||'— 未設定 —'}</option>`).join('');
+
+  const typeSection = `
+    <div style="background:#f8fafc;border:1px solid var(--border-light);border-radius:8px;padding:14px 16px;margin-bottom:16px;">
+      <div style="font-weight:700;font-size:13px;margin-bottom:10px;">🏷️ 種別タブ設定</div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <div style="font-size:12px;color:var(--text-sub);">現在:</div>
+        <div id="qd-type-badge-preview">${_typeBadge(currentType) || '<span style="font-size:12px;color:var(--text-muted);">未設定</span>'}</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap;">
+        <select id="qd-composition-type" onchange="_previewCompositionType(this.value)"
+          style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:#fff;">
+          ${typeOptions}
+        </select>
+        <button class="btn btn-primary btn-sm" onclick="_saveCompositionTypeFromDetail('${m.id||''}','${(m.quoteNo||'').replace(/'/g,"\\'")}',document.getElementById('qd-composition-type').value)">
+          保存
+        </button>
+      </div>
+    </div>`;
+
   return `
+    ${typeSection}
     <table style="width:100%;font-size:13px;border-collapse:collapse;margin-bottom:16px;">
-      <tbody><tr><td style="padding:6px;width:30%;border-bottom:1px solid var(--border);">見積番号</td><td style="padding:6px;border-bottom:1px solid var(--border);">${m.quoteNo||'—'}</td></tr>
-      <tr><td style="padding:6px;border-bottom:1px solid var(--border);">見積金額</td><td style="padding:6px;border-bottom:1px solid var(--border);">${m.quoteAmount?Number(m.quoteAmount).toLocaleString()+' 円':'—'}</td></tr></tbody>
+      <tbody>
+      <tr><td style="padding:6px;width:30%;border-bottom:1px solid var(--border);">見積番号</td><td style="padding:6px;border-bottom:1px solid var(--border);">${m.quoteNo||'—'}</td></tr>
+      <tr><td style="padding:6px;border-bottom:1px solid var(--border);">件名</td><td style="padding:6px;border-bottom:1px solid var(--border);">${m.subject||'—'}</td></tr>
+      <tr><td style="padding:6px;border-bottom:1px solid var(--border);">顧客名</td><td style="padding:6px;border-bottom:1px solid var(--border);">${m.client||'—'}</td></tr>
+      <tr><td style="padding:6px;border-bottom:1px solid var(--border);">見積金額</td><td style="padding:6px;border-bottom:1px solid var(--border);">${m.quoteAmount?Number(m.quoteAmount).toLocaleString()+' 円':'—'}</td></tr>
+      <tr><td style="padding:6px;border-bottom:1px solid var(--border);">機種コード</td><td style="padding:6px;border-bottom:1px solid var(--border);">${m.modelCode||'—'}</td></tr>
+      <tr><td style="padding:6px;border-bottom:1px solid var(--border);">発行日</td><td style="padding:6px;border-bottom:1px solid var(--border);">${m.quoteDate||'—'}</td></tr>
+      </tbody>
     </table>
     ${pdfUrl ? `<div style="margin-bottom:16px;"><a href="${pdfUrl}" target="_blank" class="btn btn-outline btn-sm">📄 見積書PDFを開く</a></div>` : ''}
     <div><h4>見積書 明細</h4>${lineRows ? `<table style="width:100%;border-collapse:collapse;"><thead><tr style="background:#f9f9f9;"><th style="padding:6px;">#</th><th style="padding:6px;text-align:left;">品名</th><th style="padding:6px;text-align:right;">数量</th><th style="padding:6px;text-align:right;">金額</th></tr></thead><tbody>${lineRows}</tbody></table>` : '<div style="font-size:13px;color:var(--text-sub);">明細データなし</div>'}</div>`;
+}
+
+// 種別タブのプレビュー更新
+function _previewCompositionType(val) {
+  const el = document.getElementById('qd-type-badge-preview');
+  if (el) el.innerHTML = _typeBadge(val) || '<span style="font-size:12px;color:var(--text-muted);">未設定</span>';
+}
+
+// 種別タブを台帳エントリ経由で保存
+function _saveCompositionTypeFromDetail(mgmtId, quoteNo, compositionType) {
+  // 台帳エントリを quoteNo で検索
+  const ledgerItem = (_allLedgerItems || []).find(r => r.quoteNo === quoteNo);
+  if (ledgerItem && ledgerItem.ledgerId) {
+    // 台帳エントリあり → ledgerSave で更新
+    google.script.run
+      .withSuccessHandler(res => {
+        if (res && res.success) {
+          showToast('✅ 種別タブを「' + (compositionType || '未設定') + '」に更新しました');
+          // ローカルキャッシュ更新
+          if (ledgerItem) ledgerItem.compositionType = compositionType;
+          // 一覧を再描画
+          _renderQuoteTable();
+          const el = document.getElementById('qd-type-badge-preview');
+          if (el) el.innerHTML = _typeBadge(compositionType) || '<span style="font-size:12px;color:var(--text-muted);">未設定</span>';
+        } else { showToast('❌ 更新失敗: ' + (res ? res.error : '不明'), true); }
+      })
+      .withFailureHandler(err => showToast('通信エラー: ' + err.message, true))
+      .handleApiRequest('ledgerSave', { ledgerId: ledgerItem.ledgerId, compositionType: compositionType });
+  } else {
+    // 台帳エントリなし → 台帳に新規登録してから設定
+    if (!quoteNo) { showToast('見積番号が見つかりません', true); return; }
+    const confirmed = confirm('この見積書は見積台帳に未登録です。\n台帳に登録して種別タブを設定しますか？');
+    if (!confirmed) return;
+    google.script.run
+      .withSuccessHandler(res => {
+        if (res && res.success) {
+          showToast('✅ 台帳に登録し「' + (compositionType || '未設定') + '」を設定しました');
+          // 台帳データを再読み込み
+          google.script.run.withSuccessHandler(r2 => {
+            if (r2 && r2.success) { _allLedgerItems = r2.items || []; _renderQuoteTable(); }
+          }).handleApiRequest('ledgerGetAll', null);
+        } else { showToast('❌ ' + (res ? res.error : '失敗'), true); }
+      })
+      .withFailureHandler(err => showToast('通信エラー: ' + err.message, true))
+      .handleApiRequest('ledgerSave', { quoteNo: quoteNo, compositionType: compositionType, subject: '', status: '作成予定' });
+  }
 }
 
 function _updateLinePdfLink(selectEl, mgmtId, lineNo) { const linkEl = document.getElementById(`line-pdf-${mgmtId}-${lineNo}`); if (!linkEl) return; const selectedOption = selectEl.options[selectEl.selectedIndex]; const pdfUrl = selectedOption ? selectedOption.getAttribute('data-pdf-url') : ''; if (pdfUrl && pdfUrl !== 'undefined') { linkEl.href = pdfUrl; linkEl.style.display = 'inline-block'; } else { linkEl.href = '#'; linkEl.style.display = 'none'; } }
