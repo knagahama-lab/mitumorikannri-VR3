@@ -43,6 +43,10 @@ let _filteredSmItems = [];
 let _quoteSortKey = 'issueDate'; let _quoteSortDir = 'desc';
 let _ledgerSortKey = 'issueDate'; let _ledgerSortDir = 'desc';
 let _adminLoaded = false; // ★ 管理コンソール初期化フラグ
+let _approvalButtonEnabled = true; // ★ 承認ボタン表示設定
+google.script.run.withSuccessHandler(function(res) {
+  if (res && res.success && res.approvalButtonEnabled === false) _approvalButtonEnabled = false;
+}).handleApiRequest('getApprovalSettings', {});
 
 window.addEventListener('load', () => {
   renderSidebar(); showPage('list'); try { _populateMonthFilter(); } catch(e){}
@@ -122,13 +126,13 @@ function _dateSortKey(str) {
 }
 // 台帳レコードの PDF URL を取得（saveUrl → quoteNo で allQuotes を参照）
 function _getLedgerPdfUrl(r) {
-  if (r.saveUrl) return r.saveUrl;
   if (r.quoteNo) {
     const found = (_allQuotes || []).find(q => q.quoteNo === r.quoteNo && q.quotePdfUrl);
     if (found) return found.quotePdfUrl;
     const found2 = (S && S.all ? S.all : []).find(q => q.quoteNo === r.quoteNo && q.quotePdfUrl);
     if (found2) return found2.quotePdfUrl;
   }
+  if (r.saveUrl) return r.saveUrl;
   return '';
 }
 
@@ -551,7 +555,7 @@ function _renderTable() {
       </td>
       <td style="text-align:center; white-space:nowrap;">
         <button class="btn btn-outline btn-sm" onclick="event.stopPropagation(); openDetail('${r.id}')">📄 詳細</button>
-        ${window.APP_IS_SALES !== false ? `<button class="btn btn-sm" onclick="event.stopPropagation(); openApprovalModal('${r.id}')" style="background:#16a34a;color:#fff;border:none;margin-left:4px;" title="単価OK — 資材購買へ承認メール送信">✅ 承認</button>` : ''}
+        ${(window.APP_IS_SALES !== false && _approvalButtonEnabled !== false) ? `<button class="btn btn-sm" onclick="event.stopPropagation(); openApprovalModal('${r.id}')" style="background:#16a34a;color:#fff;border:none;margin-left:4px;" title="単価OK — 資材購買へ承認メール送信">✅ 承認</button>` : ''}
         <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteMgmt('${r.id}', '${(r.orderNo||r.quoteNo||'').replace(/'/g,'')}')">🗑️ 削除</button>
       </td>
     </tr>`).join('');
@@ -1595,6 +1599,7 @@ function loadAdminSettings() {
     _sv('cfg-rakuraku-endpoint', res.rakurakuEndpoint || ''); _sv('cfg-n8n-order-webhook', res.n8nOrderWebhook || ''); _sv('cfg-n8n-quote-webhook', res.n8nQuoteWebhook || ''); _sv('cfg-custom-webhook', res.customWebhook || '');
     _sv('cfg-sales-emails',      res.salesEmails      || '');
     _sv('cfg-procurement-email', res.procurementEmail || '');
+    _sc('cfg-approval-button-enabled', res.approvalButtonEnabled !== false);
     showToast('設定を読み込みました');
   }).handleApiRequest('loadSettings', {});
 }
@@ -4985,7 +4990,7 @@ function _buildWorkflowCard(r, stage, overdue) {
   ].filter(Boolean).join('');
 
   // 承認ボタン（単価チェック中のみ、営業課向け）
-  const approveBtn = (stage.id === 1 && window.APP_IS_SALES !== false)
+  const approveBtn = (stage.id === 1 && window.APP_IS_SALES !== false && _approvalButtonEnabled !== false)
     ? `<button onclick="event.stopPropagation();openApprovalModal('${r.id}')" style="width:100%;background:#16a34a;color:#fff;border:none;padding:5px 0;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;margin-top:6px;">✅ 承認・資材へ送信</button>`
     : '';
 
@@ -5193,7 +5198,9 @@ function saveAdminApproval() {
   const payload = {
     salesEmails:      _gv('cfg-sales-emails'),
     procurementEmail: _gv('cfg-procurement-email'),
+    approvalButtonEnabled: _gc('cfg-approval-button-enabled'),
   };
+  _approvalButtonEnabled = payload.approvalButtonEnabled;
   google.script.run
     .withSuccessHandler(function(r) {
       if (r && r.success) showToast('✅ 承認ワークフロー設定を保存しました');

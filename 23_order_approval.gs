@@ -118,7 +118,27 @@ function _apiGetApprovalSettings() {
       success:          true,
       procurementEmail: props.getProperty('PROCUREMENT_EMAIL') || '',
       salesEmails:      props.getProperty('SALES_EMAILS')      || '',
+      approvalButtonEnabled: props.getProperty('APPROVAL_BUTTON_ENABLED') !== 'false',
     };
+  } catch(e) {
+    return { success: false, error: e.message };
+  }
+}
+
+// ── 承認ボタンの表示/非表示などの設定を保存 ────────────────────
+function _apiSaveApprovalSettings(p) {
+  try {
+    var props = PropertiesService.getScriptProperties();
+    if (p.approvalButtonEnabled !== undefined) {
+      props.setProperty('APPROVAL_BUTTON_ENABLED', p.approvalButtonEnabled ? 'true' : 'false');
+    }
+    if (p.procurementEmail !== undefined) {
+      props.setProperty('PROCUREMENT_EMAIL', p.procurementEmail || '');
+    }
+    if (p.salesEmails !== undefined) {
+      props.setProperty('SALES_EMAILS', p.salesEmails || '');
+    }
+    return { success: true };
   } catch(e) {
     return { success: false, error: e.message };
   }

@@ -516,6 +516,13 @@ tr:hover td{background:#f8fafc;}
         <div style="background:white;border-radius:12px;padding:24px;box-shadow:var(--shadow);margin-bottom:20px;border-left:4px solid #16a34a;">
           <h3 style="font-size:15px;font-weight:700;color:#16a34a;margin-bottom:4px;">✅ 営業承認ワークフロー設定</h3>
           <p style="font-size:12px;color:var(--text-sub);margin-bottom:16px;">承認ボタンを押せる営業課メンバーと、通知先の資材購買課メールアドレスを設定します。</p>
+          <div style="margin-bottom:14px;">
+            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#374151;cursor:pointer;">
+              <input type="checkbox" id="cfg-approval-button-enabled" checked style="width:15px;height:15px;">
+              案件一覧・注文書一覧に「✅ 承認」ボタンを表示する
+            </label>
+            <div style="font-size:11px;color:#94a3b8;margin-top:3px;margin-left:21px;">オフにすると、注文書の承認・資材購買へ送信ボタンが全ユーザーから非表示になります</div>
+          </div>
           <div class="form-row">
             <div class="form-field">
               <label>営業課メールアドレス（承認ボタン使用者）</label>

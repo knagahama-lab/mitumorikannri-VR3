@@ -58,6 +58,7 @@ function _apiLoadSettings() {
       notifyEmails:    props.getProperty('NOTIFY_EMAILS')     || '',
       salesEmails:     props.getProperty('SALES_EMAILS')      || '',
       procurementEmail:props.getProperty('PROCUREMENT_EMAIL') || '',
+      approvalButtonEnabled: props.getProperty('APPROVAL_BUTTON_ENABLED') !== 'false',
       spreadsheetId:   props.getProperty('SPREADSHEET_ID')    || '',
       chatWebhook:     props.getProperty('CHAT_WEBHOOK_URL')  || s.webhookUrl || '',
       rakurakuCompany: props.getProperty('RAKURAKU_COMPANY')  || '',
@@ -80,6 +81,7 @@ function _apiSaveSettings(p) {
     if (p.notifyEmails       !== undefined) props.setProperty('NOTIFY_EMAILS',       String(p.notifyEmails));
     if (p.salesEmails        !== undefined) props.setProperty('SALES_EMAILS',        String(p.salesEmails));
     if (p.procurementEmail   !== undefined) props.setProperty('PROCUREMENT_EMAIL',   String(p.procurementEmail));
+    if (p.approvalButtonEnabled !== undefined) props.setProperty('APPROVAL_BUTTON_ENABLED', p.approvalButtonEnabled ? 'true' : 'false');
     if (p.spreadsheetId   !== undefined && p.spreadsheetId) props.setProperty('SPREADSHEET_ID', String(p.spreadsheetId));
     if (p.chatWebhook     !== undefined) props.setProperty('CHAT_WEBHOOK_URL',   String(p.chatWebhook));
     if (p.geminiKey       !== undefined && p.geminiKey) props.setProperty('GEMINI_API_KEY',   String(p.geminiKey));

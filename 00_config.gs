@@ -92,6 +92,7 @@ var MGMT_COLS = {
   REVISION_NO:       30,
   PARENT_MGMT_ID:    31,
   DEADLINE_NOTIFIED: 32,
+  BOARD_NAME:        33,
 };
 
 var QUOTE_COLS = {
@@ -413,7 +414,7 @@ function getAllMgmtData() {
   var sheet = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT);
   var last  = sheet.getLastRow();
   if (last <= 1) return [];
-  var readCols = Math.max(sheet.getLastColumn(), 27);
+  var readCols = Math.max(sheet.getLastColumn(), 33);
   return sheet.getRange(2, 1, last - 1, readCols).getValues()
     .filter(function(r) { return r[0] !== ''; });
 }

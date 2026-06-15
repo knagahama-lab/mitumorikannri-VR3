@@ -98,6 +98,7 @@ function handleApiRequest(action, payload) {
       case 'deleteMgmt':              res = _apiDeleteMgmt(payload); break;
       case 'approveOrderAndNotify':   res = _apiApproveOrderAndNotify(payload); break;
       case 'getApprovalSettings':     res = _apiGetApprovalSettings(); break;
+      case 'saveApprovalSettings':    res = _apiSaveApprovalSettings(payload); break;
       case 'getAnalysisReport':       res = apiGetAnalysisReport(payload); break;
       case 'chatbotQuery':        res = apiChatbotQuery(payload); break;
       case 'modelInfoGet':        res = _apiModelInfoGet(payload); break;
@@ -394,6 +395,7 @@ function _apiQuoteListGetAll() {
         linked:      _isLinkedVal(r[MGMT_COLS.LINKED - 1]),
         orderType:   String(r[MGMT_COLS.ORDER_TYPE - 1]    || ''),
         modelCode:   String(r[MGMT_COLS.MODEL_CODE - 1]    || ''),
+        boardName:   String(r[MGMT_COLS.BOARD_NAME - 1]    || ''),
         subject:     String(r[MGMT_COLS.SUBJECT - 1]       || ''),
         detailText:  String(lineInfo.linesText).substring(0, 300), // 軽量化
         priceList:   lineInfo.prices || [] // 明細の単価・金額（単価検索用）
@@ -604,6 +606,7 @@ function _apiUpdateMgmt(p) {
       revisionNo:    MGMT_COLS.REVISION_NO,
       memo:         MGMT_COLS.MEMO,
       linked:       MGMT_COLS.LINKED,
+      boardName:    MGMT_COLS.BOARD_NAME,
     };
     Object.keys(fields).forEach(function(key) {
       if (p[key] !== undefined) {
