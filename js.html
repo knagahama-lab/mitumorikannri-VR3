@@ -5096,9 +5096,47 @@ function openApprovalModal(mgmtId) {
     })
     .handleApiRequest('getApprovalSettings', {});
 
+  // ── 同一機種の見積書一覧を表示 ──
+  _loadApRelatedQuotes(order.modelCode, order.quoteNo);
+
   // モーダルに mgmtId を紐づけ
   document.getElementById('order-approval-modal').dataset.mgmtId = mgmtId;
   document.getElementById('order-approval-modal').classList.add('open');
+}
+
+function _loadApRelatedQuotes(modelCode, currentQuoteNo) {
+  const section = document.getElementById('ap-related-quotes-section');
+  const body    = document.getElementById('ap-related-quotes-body');
+  document.getElementById('ap-related-model').textContent = modelCode || '—';
+  if (!modelCode) { section.style.display = 'none'; return; }
+  body.innerHTML = '<div class="loading">読込中...</div>';
+  section.style.display = 'block';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success) { body.innerHTML = '<div class="loading">取得できませんでした</div>'; return; }
+      const items = res.mergedQuotes || [];
+      if (items.length === 0) { body.innerHTML = '<div class="loading">該当する見積書はありません</div>'; return; }
+      const rows = items.map(q => {
+        const ct = q.compositionType || '';
+        const pdf = q.pdfUrl ? `<a href="${q.pdfUrl}" target="_blank" style="color:#2563eb;font-size:11px;">📄PDF</a>` : '';
+        const cur = q.quoteNo === currentQuoteNo ? '<span style="font-size:10px;background:#fef3c7;color:#92400e;border-radius:4px;padding:1px 5px;margin-left:4px;">この注文書の見積</span>' : '';
+        return `<tr style="border-bottom:1px solid #f0f2f5;${_typeRowBorder(ct)}">
+          <td style="padding:6px 8px;white-space:nowrap;">${_typeBadge(ct)}<strong>${q.quoteNo || '—'}</strong>${cur}</td>
+          <td style="padding:6px 8px;">${q.subject || '—'}</td>
+          <td style="padding:6px 8px;white-space:nowrap;">${q.client || '—'}</td>
+          <td style="padding:6px 8px;white-space:nowrap;font-size:12px;color:var(--text-sub);">${q.issueDate || '—'}</td>
+          <td style="padding:6px 8px;text-align:right;white-space:nowrap;">${q.amount ? Number(q.amount).toLocaleString()+' 円' : '—'}</td>
+          <td style="padding:6px 8px;white-space:nowrap;">${q.status || '—'}</td>
+          <td style="padding:6px 8px;white-space:nowrap;">${pdf}</td>
+        </tr>`;
+      }).join('');
+      body.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead><tr style="background:#f8fafc;text-align:left;font-size:11px;color:#64748b;">
+          <th style="padding:6px 8px;">見積No.</th><th style="padding:6px 8px;">件名</th><th style="padding:6px 8px;">発行先</th><th style="padding:6px 8px;">発行日</th><th style="padding:6px 8px;">見積金額</th><th style="padding:6px 8px;">ステータス</th><th style="padding:6px 8px;">PDF</th>
+        </tr></thead><tbody>${rows}</tbody></table>`;
+    })
+    .withFailureHandler(function() { body.innerHTML = '<div class="loading">取得できませんでした</div>'; })
+    .handleApiRequest('modelMasterGet', { modelCode: modelCode });
 }
 
 function closeApprovalModal() {
