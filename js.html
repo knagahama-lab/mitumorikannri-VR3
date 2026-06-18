@@ -623,7 +623,10 @@ function _mergeLedgerIntoQuotes() {
     // 既存の見積Noと一致する場合はステータスのみ更新
     if (qNo && existingNos.has(qNo)) {
       const existing = _allQuotes.find(function(q) { return q.quoteNo === qNo; });
-      if (existing && led.status) existing.status = led.status;
+      if (existing) {
+        if (led.status) existing.status = led.status;
+        if (led.compositionType) existing.compositionType = led.compositionType;
+      }
       return;
     }
     // 既にマージ済みの台帳IDはスキップ（重複追加防止）
@@ -642,6 +645,7 @@ function _mergeLedgerIntoQuotes() {
       orderPdfUrl: '',
       modelCode: led.machineCode || led.modelCode || '',
       boardName: led.boardName || '',
+      compositionType: led.compositionType || '',
       linked: false,
       orderNo: '',
       _fromLedger: true,
@@ -675,8 +679,8 @@ function _renderQuoteTable() {
   const rows = data.map(r => {
     const fromLedger = r._fromLedger; const ledgerBadge = fromLedger ? '<span style="font-size:9px;background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;border-radius:4px;padding:1px 4px;margin-left:4px;">台帳</span>' : '';
     const selectId = fromLedger ? ('LEDGER_' + r._ledgerId) : r.id; const editType = fromLedger ? 'ledger' : 'mgmt'; const realId = fromLedger ? r._ledgerId : r.id;
-    // ★ 識別色: 台帳の compositionType、なければ quoteNo で検索
-    const rct = r.compositionType || (fromLedger ? '' : _getCompositionType(r.quoteNo));
+    // ★ 識別色: まず r.compositionType、なければ台帳/案件を quoteNo で検索
+    const rct = r.compositionType || _getCompositionType(r.quoteNo);
     return `
     <tr style="border-bottom:1px solid #f0f2f5;${_typeRowBorder(rct)}">
       <td class="editable-cell" onclick="startInlineEdit(event, '${realId}', 'quoteNo', '${_esc(r.quoteNo||'')}', '${editType}')" style="white-space:nowrap;">${_typeBadge(rct)}<strong>${r.quoteNo || '—'}</strong>${ledgerBadge}</td>
