@@ -30,9 +30,9 @@ function processDriveImports() {
     try { _updateTriggerHealth(); } catch(e) {}
 
     var processed = 0;
-    processed += _watchFolder(CONFIG.IMPORT_QUOTE_FOLDER_ID, CONFIG.QUOTE_FOLDER_ID, 'quote', '');
-    processed += _watchFolder(CONFIG.IMPORT_ORDER_TRIAL_FOLDER_ID, CONFIG.ORDER_TRIAL_FOLDER_ID, 'order', CONFIG.ORDER_TYPE.TRIAL);
-    processed += _watchFolder(CONFIG.IMPORT_ORDER_MASS_FOLDER_ID, CONFIG.ORDER_MASS_FOLDER_ID, 'order', CONFIG.ORDER_TYPE.MASS);
+    processed += _watchFolder(CONFIG.IMPORT_QUOTE_FOLDER_ID, CONFIG.QUOTE_FOLDER_ID, 'quote', '', CONFIG.PROCESSED_QUOTE_FOLDER_ID || '');
+    processed += _watchFolder(CONFIG.IMPORT_ORDER_TRIAL_FOLDER_ID, CONFIG.ORDER_TRIAL_FOLDER_ID, 'order', CONFIG.ORDER_TYPE.TRIAL, CONFIG.PROCESSED_ORDER_TRIAL_FOLDER_ID || '');
+    processed += _watchFolder(CONFIG.IMPORT_ORDER_MASS_FOLDER_ID, CONFIG.ORDER_MASS_FOLDER_ID, 'order', CONFIG.ORDER_TYPE.MASS, CONFIG.PROCESSED_ORDER_MASS_FOLDER_ID || '');
 
     Logger.log('[DRIVE WATCH] 完了。処理ファイル数: ' + processed);
     return processed;
@@ -45,7 +45,7 @@ function processDriveImports() {
 /**
  * 指定フォルダを監視し、未処理PDFを処理して保存先へ移動する
  */
-function _watchFolder(importFolderId, saveFolderId, docType, orderType) {
+function _watchFolder(importFolderId, saveFolderId, docType, orderType, processedFolderId) {
   var processedIds = _getProcessedFileIds();
   var count = 0;
   try {
@@ -103,7 +103,7 @@ function _watchFolder(importFolderId, saveFolderId, docType, orderType) {
         }
 
         _markFileAsProcessed(fileId);
-        _moveToProcessedSubfolder(file, folder);
+        _moveToProcessedSubfolder(file, folder, processedFolderId);
         count++;
         Logger.log('[DRIVE WATCH] 転記完了: ' + file.getName() + ' mgmtId=' + (finalMgmtId||'?'));
         Utilities.sleep(2000);
@@ -121,26 +121,27 @@ function _watchFolder(importFolderId, saveFolderId, docType, orderType) {
 }
 
 /**
- * 処理済みファイルをインポートフォルダ内の「処理済み」サブフォルダへ移動
- * サブフォルダが存在しない場合は自動作成
+ * 処理済みファイルを「処理済み」フォルダへ移動
+ * processedFolderId が指定された場合はそのフォルダへ、未指定の場合はインポートフォルダ内に「処理済み」サブフォルダを自動作成
  */
-function _moveToProcessedSubfolder(file, parentFolder) {
+function _moveToProcessedSubfolder(file, parentFolder, processedFolderId) {
   try {
-    var subFolderName = '処理済み';
-    var subFolders = parentFolder.getFoldersByName(subFolderName);
-    var subFolder;
-
-    if (subFolders.hasNext()) {
-      subFolder = subFolders.next();
+    var targetFolder;
+    if (processedFolderId) {
+      targetFolder = DriveApp.getFolderById(processedFolderId);
     } else {
-      subFolder = parentFolder.createFolder(subFolderName);
-      Logger.log('[DRIVE WATCH] 「処理済み」サブフォルダを作成: ' + parentFolder.getName());
+      var subFolderName = '処理済み';
+      var subFolders = parentFolder.getFoldersByName(subFolderName);
+      if (subFolders.hasNext()) {
+        targetFolder = subFolders.next();
+      } else {
+        targetFolder = parentFolder.createFolder(subFolderName);
+        Logger.log('[DRIVE WATCH] 「処理済み」サブフォルダを作成: ' + parentFolder.getName());
+      }
     }
-
-    // サブフォルダへ移動
-    subFolder.addFile(file);
-    parentFolder.removeFile(file);
-    Logger.log('[DRIVE WATCH] 「処理済み」フォルダへ移動: ' + file.getName());
+    // moveTo() を使用（Shared Drive 対応・addFile/removeFile より確実）
+    file.moveTo(targetFolder);
+    Logger.log('[DRIVE WATCH] 処理済みフォルダへ移動完了: ' + file.getName() + ' → ' + targetFolder.getName());
   } catch(e) {
     Logger.log('[DRIVE WATCH MOVE ERROR] ' + e.message);
     // 移動失敗でも処理は続行（スプレッドシートへの転記は完了済み）

@@ -28,6 +28,9 @@ var CONFIG = {
   IMPORT_ORDER_TRIAL_FOLDER_ID: '1Ufq4xMjOmZvUQLC_Zp0EAWlHF0mYAGDM',
   IMPORT_ORDER_MASS_FOLDER_ID:  '1ujzCtYzOqU9_a6tiEXOHhDWRv15a0p0k',
 
+  // 処理済み移動先フォルダ（未設定の場合はインポートフォルダ内に「処理済み」サブフォルダを自動作成）
+  PROCESSED_ORDER_TRIAL_FOLDER_ID: '1xSZfQulz5zseOtKYNx8QvuS7_R8Q1FJ5',
+
   SHEET_MANAGEMENT: '管理シート',
   SHEET_QUOTES:     '見積書シート',
   SHEET_ORDERS:     '注文書シート',
