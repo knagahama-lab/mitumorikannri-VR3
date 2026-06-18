@@ -54,7 +54,11 @@ function _watchFolder(importFolderId, saveFolderId, docType, orderType, processe
     while (files.hasNext()) {
       var file   = files.next();
       var fileId = file.getId();
-      if (processedIds[fileId]) { Logger.log('[DRIVE WATCH] スキップ（処理済み）: ' + file.getName()); continue; }
+      if (processedIds[fileId]) {
+        Logger.log('[DRIVE WATCH] スキップ（処理済み）: ' + file.getName());
+        _moveToProcessedSubfolder(file, folder, processedFolderId);
+        continue;
+      }
       Logger.log('[DRIVE WATCH] 処理開始: ' + file.getName());
       try {
         // OCR解析（17_ocr_hybrid.gs の extractPdfData が優先使用される）
