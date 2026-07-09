@@ -72,8 +72,16 @@ function _watchFolder(importFolderId, saveFolderId, docType, orderType, processe
         }
 
         // 保存先フォルダへコピー
-        var clientName    = ocr.destCompany || ocr.clientName || '未分類';
-        var finalFolderId = _getOrCreateSubFolder(saveFolderId, clientName);
+        // ★ 取引先マスタ（管理コンソール「取引先管理」）にDriveフォルダURLが
+        //   設定されている場合は、その取引先専用フォルダへ保存する。
+        //   未設定の顧客・未分類の顧客は従来どおりの既定フォルダへ保存される。
+        var clientName       = ocr.destCompany || ocr.clientName || '未分類';
+        var docTypeLabel     = docType === 'quote' ? '見積書' : (orderType === CONFIG.ORDER_TYPE.MASS ? '注文書(量産)' : '注文書(試作)');
+        var clientFolderId   = getClientDriveFolderId(clientName, saveFolderId);
+        var usesClientFolder = clientFolderId !== saveFolderId;
+        var finalFolderId    = usesClientFolder
+          ? _getOrCreateSubFolder(clientFolderId, docTypeLabel)
+          : _getOrCreateSubFolder(saveFolderId, clientName);
         var saveFolder    = DriveApp.getFolderById(finalFolderId);
         var newName       = nowJST().replace(/[\/: ]/g,'') + '_' + file.getName();
         var savedFile     = file.makeCopy(newName, saveFolder);

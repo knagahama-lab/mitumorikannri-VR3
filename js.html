@@ -36,6 +36,7 @@ let userMenuConfig = [];
 const PAGE_TITLES = { list:'案件一覧', ledger:'見積台帳', matching:'AI紐づけ', calendar:'スケジュール', ocr:'簡易OCR', todo:'ToDo', drivesearch:'全文検索', admin:'システム管理コンソール', workflow:'業務フロー', assignees:'担当者管理', approval:'製造承認', board:'基板マスタ', simulation:'利益シミュレーション', analysis:'分析・レポート', aichat:'AIアシスタント', model:'機種マスタ', checklist:'見積セット チェックリスト', quotecheck:'見積書チェック（単価照合）', quoteset:'見積セット管理', maker:'メーカー管理', submitmgmt:'見積提出管理' };
 
 const S = { all:[], filtered:[], page:1, limit:30, docType:'quote', orderType:'', selectedFile:null };
+let _clientMasterList = []; let _orderClientTab = 'all'; let _quoteClientTab = 'all'; let _editClientMaster = [];
 let searchTimer=null; let _allQuotes = []; let _filteredQuotes = []; let _quotePage = 1; const _quoteLimit = 20; let _allMatchingItems = [];
 let _allLedgerItems = []; let _filteredLedgerItems = []; let _currentLedgerTab = 'tree';
 let _allSmItems = [];
@@ -51,6 +52,7 @@ google.script.run.withSuccessHandler(function(res) {
 window.addEventListener('load', () => {
   renderSidebar(); showPage('list'); try { _populateMonthFilter(); } catch(e){}
   loadData(); // 注文書は独立して並行ロード
+  loadClientMasterList(); // 取引先マスタ（案件一覧の取引先タブ）
   // ★ 台帳を先にロードしてから見積一覧をマージ（競合状態を防ぐ）
   google.script.run.withSuccessHandler(function(res) {
     if (res && res.success) _allLedgerItems = res.items || [];
@@ -603,7 +605,8 @@ function applyFilters() {
     const ms = !st || r.status === st; const mo2 = !ot || r.orderType === ot;
     const mm = !mo || (String(r.orderDate).startsWith(mo) || String(r.quoteDate).startsWith(mo));
     const ma = _amtMatch([r.orderAmount].concat(r.priceList||[]), amt, amtTol); // 合計金額 or 明細単価
-    return mk && ms && mo2 && mm && ma;
+    const mc = _orderClientTab === 'all' || _matchClientGroup(r.client) === _orderClientTab;
+    return mk && ms && mo2 && mm && ma && mc;
   });
   S.page = 1; _renderTable();
 }
@@ -664,7 +667,8 @@ function applyQuoteFilter() {
     const mk = kws.length === 0 || kws.every(kw => txt.includes(kw));
     const ms = !st || r.status === st; const ml = !linked || (linked === 'linked' && r.linked) || (linked === 'unlinked' && !r.linked);
     const ma = _amtMatch([r.quoteAmount].concat(r.priceList||[]), amt, amtTol); // 見積合計金額 or 明細単価
-    return mk && ms && ml && ma;
+    const mc = _quoteClientTab === 'all' || _matchClientGroup(r.destCompany || r.client) === _quoteClientTab;
+    return mk && ms && ml && ma && mc;
   });
   _filteredQuotes.sort((a, b) => _cmpByKey(a, b, _quoteSortKey, _quoteSortDir));
   _quotePage = 1; _renderQuoteTable();
@@ -2002,6 +2006,139 @@ function switchAdminTab(tab) {
   }
   if (tab === 'apiconn') loadApiConnList();
   if (tab === 'doctype') _onShowDocTypeTab();
+  if (tab === 'clients') loadClientMasterAdmin();
+}
+
+// ============================================================
+// 取引先マスタ（複数社対応）
+// ============================================================
+
+// 案件一覧の「注文書一覧／見積書一覧」タブ用データ読み込み
+function loadClientMasterList() {
+  google.script.run.withSuccessHandler(function (res) {
+    if (res && res.success) {
+      _clientMasterList = res.items || [];
+      renderOrderClientTabs();
+      renderQuoteClientTabs();
+    }
+  }).withFailureHandler(function () { /* サイレント失敗（タブ非表示のまま） */ }).handleApiRequest('clientMasterList', null);
+}
+
+// 顧客名から取引先マスタのタブ名を判定（未一致は「その他」グループの表示名）
+function _matchClientGroup(name) {
+  var n = String(name || '');
+  var list = _clientMasterList || [];
+  for (var i = 0; i < list.length; i++) {
+    var c = list[i];
+    if (c.isFallback) continue;
+    var kws = (c.keywords && c.keywords.length) ? c.keywords : [c.name];
+    for (var j = 0; j < kws.length; j++) {
+      if (kws[j] && n.indexOf(kws[j]) !== -1) return c.name;
+    }
+  }
+  var fallback = list.filter(function (c) { return c.isFallback; })[0];
+  return fallback ? fallback.name : 'その他';
+}
+
+function _clientTabOrder() {
+  var list = _clientMasterList || [];
+  var main = list.filter(function (c) { return !c.isFallback; }).map(function (c) { return c.name; });
+  var fallback = list.filter(function (c) { return c.isFallback; }).map(function (c) { return c.name; });
+  return main.concat(fallback.length ? fallback : ['その他']);
+}
+
+function _renderClientTabButtons(containerId, names, activeName, onClick) {
+  var el = document.getElementById(containerId);
+  if (!el) return;
+  var all = ['すべて'].concat(names);
+  el.innerHTML = all.map(function (name) {
+    var val = (name === 'すべて') ? 'all' : name;
+    var active = (val === activeName);
+    var style = 'padding:5px 14px;border-radius:16px;font-size:12.5px;font-weight:600;cursor:pointer;border:1px solid ' +
+      (active ? 'var(--primary)' : 'var(--border)') + ';background:' + (active ? 'var(--primary)' : '#fff') + ';color:' + (active ? '#fff' : 'var(--text-sub)') + ';';
+    return '<button style="' + style + '" onclick="' + onClick + '(\'' + _escAttr(val) + '\')">' + _escAttr(name) + '</button>';
+  }).join('');
+}
+
+function renderOrderClientTabs() {
+  _renderClientTabButtons('order-client-tabs', _clientTabOrder(), _orderClientTab, 'setOrderClientTab');
+}
+function renderQuoteClientTabs() {
+  _renderClientTabButtons('quote-client-tabs', _clientTabOrder(), _quoteClientTab, 'setQuoteClientTab');
+}
+function setOrderClientTab(name) { _orderClientTab = name; renderOrderClientTabs(); applyFilters(); }
+function setQuoteClientTab(name) { _quoteClientTab = name; renderQuoteClientTabs(); applyQuoteFilter(); }
+
+// ── 管理コンソール「取引先管理」タブ ──
+function loadClientMasterAdmin() {
+  google.script.run.withSuccessHandler(function (res) {
+    if (!res || !res.success) { showToast('取引先マスタの読み込みに失敗しました', true); return; }
+    _editClientMaster = res.items || [];
+    renderClientMasterList();
+  }).handleApiRequest('clientMasterList', null);
+}
+
+function renderClientMasterList() {
+  var el = document.getElementById('client-master-list');
+  if (!el) return;
+  el.innerHTML = _editClientMaster.map(function (c, i) {
+    var kwStr = (c.keywords && c.keywords.length) ? c.keywords.join(', ') : '';
+    var nameAttrs = c.isFallback ? 'readonly style="background:#f0f0f0;"' : '';
+    var kwAttrs   = c.isFallback ? 'disabled placeholder="（一致しなかった案件が入る受け皿）" style="background:#f0f0f0;"' : '';
+    var delAttrs  = c.isFallback ? 'disabled title="その他は削除できません" style="opacity:.35;cursor:not-allowed;"' : '';
+    return `
+      <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--border);border-radius:8px;background:#fafbfc;">
+        <input type="text" value="${_escAttr(c.name)}" placeholder="例：藤商事" ${nameAttrs}
+          style="flex:1;min-width:120px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;" onchange="_updClientMaster(${i},'name',this.value)">
+        <input type="text" value="${_escAttr(kwStr)}" placeholder="例：藤商事, 株式会社藤商事" ${kwAttrs}
+          style="flex:1;min-width:140px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;" onchange="_updClientMaster(${i},'keywords',this.value)">
+        <input type="text" value="${_escAttr(c.driveFolderUrl || '')}" placeholder="https://drive.google.com/drive/folders/..."
+          style="flex:2;min-width:220px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;" onchange="_updClientMaster(${i},'driveFolderUrl',this.value)">
+        <button class="btn btn-outline btn-sm" ${delAttrs} onclick="deleteClientMasterItem(${i})" title="削除" style="color:var(--danger);border-color:var(--danger);">✕</button>
+      </div>`;
+  }).join('');
+}
+
+function _updClientMaster(i, field, value) {
+  if (!_editClientMaster[i]) return;
+  if (field === 'keywords') {
+    _editClientMaster[i].keywords = String(value || '').split(/[,、\s]+/).filter(Boolean);
+  } else {
+    _editClientMaster[i][field] = value;
+  }
+}
+
+function addClientMasterItem() {
+  _editClientMaster.splice(_editClientMaster.length - (_editClientMaster.some(function(c){return c.isFallback;}) ? 1 : 0), 0, {
+    id: 'client_' + Date.now().toString(36),
+    name: '', keywords: [], driveFolderUrl: '', isFallback: false
+  });
+  renderClientMasterList();
+}
+
+function deleteClientMasterItem(i) {
+  var c = _editClientMaster[i];
+  if (!c || c.isFallback) return;
+  if (!confirm('「' + (c.name || '(未入力)') + '」を取引先一覧から削除しますか？')) return;
+  _editClientMaster.splice(i, 1);
+  renderClientMasterList();
+}
+
+function saveClientMasterAdmin() {
+  var invalid = _editClientMaster.some(function (c) { return !c.isFallback && !String(c.name || '').trim(); });
+  if (invalid) { showToast('取引先名が空欄の行があります', true); return; }
+  google.script.run.withSuccessHandler(function (res) {
+    if (res && res.success) {
+      showToast('✅ 取引先マスタを保存しました');
+      _editClientMaster = res.items || _editClientMaster;
+      renderClientMasterList();
+      loadClientMasterList(); // 案件一覧のタブへ即反映
+    } else {
+      showToast('保存に失敗しました: ' + (res ? res.error : '不明'), true);
+    }
+  }).withFailureHandler(function (err) {
+    showToast('通信エラー: ' + err.message, true);
+  }).handleApiRequest('clientMasterSave', { list: _editClientMaster });
 }
 
 // ============================================================

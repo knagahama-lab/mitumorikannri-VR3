@@ -343,6 +343,7 @@ tr:hover td{background:#f8fafc;}
       </div>
 
       <div id="area-order">
+        <div id="order-client-tabs" style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;"></div>
         <div class="summary-grid">
           <div class="summary-card"><div class="lbl">送信済み（未受領）</div><div class="val c-blue" id="sum-sent">—</div><div class="sub">件</div></div>
           <div class="summary-card"><div class="lbl">注文受領</div><div class="val c-red" id="sum-received">—</div><div class="sub">件</div></div>
@@ -372,6 +373,7 @@ tr:hover td{background:#f8fafc;}
       </div>
 
       <div id="area-quote" style="display:none;">
+        <div id="quote-client-tabs" style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;"></div>
         <div class="summary-grid" style="grid-template-columns:repeat(3,1fr);">
           <div class="summary-card"><div class="lbl">見積書総件数</div><div class="val c-blue" id="qs-total">—</div><div class="sub">件</div></div>
           <div class="summary-card"><div class="lbl">注文書紐づけ済み</div><div class="val c-green" id="qs-linked">—</div><div class="sub">件</div></div>
@@ -492,6 +494,7 @@ tr:hover td{background:#f8fafc;}
         <button class="admin-tab" onclick="switchAdminTab('apiconn')" id="atab-apiconn">🔌 外部API連携管理</button>
         <button class="admin-tab" onclick="switchAdminTab('menu')" id="atab-menu">🗂️ メニュー設定</button>
         <button class="admin-tab" onclick="switchAdminTab('doctype')" id="atab-doctype">📋 書類テンプレート</button>
+        <button class="admin-tab" onclick="switchAdminTab('clients')" id="atab-clients">🏢 取引先管理</button>
       </div>
 
       <div id="admin-tab-basic" class="admin-tab-content" style="display:block;">
@@ -807,6 +810,37 @@ tr:hover td{background:#f8fafc;}
               <span style="font-size:11px;color:var(--text-sub);">保存すると全ユーザーに即反映</span>
               <button class="btn btn-primary" onclick="saveMenuConfig()">💾 保存して反映</button>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="admin-tab-clients" class="admin-tab-content">
+        <div style="background:white;border-radius:12px;padding:24px;box-shadow:var(--shadow);border-left:4px solid var(--primary);">
+          <h3 style="font-size:15px;font-weight:700;color:var(--primary);margin-bottom:8px;">🏢 取引先管理</h3>
+          <div style="background:#eff6ff;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--primary);line-height:1.6;">
+            💡 <strong>使い方：</strong>
+            取引先を追加すると「案件一覧」の注文書一覧・見積書一覧に取引先ごとのタブが自動で追加されます／
+            顧客名に「一致キーワード」が含まれる案件が、その取引先タブに分類されます／
+            「Driveフォルダ URL」を設定すると、PDF自動インポート時にその取引先専用のフォルダへ保存されます（未設定の場合は従来の保存先を使用）／
+            「その他」は削除できません（どの取引先にも一致しない案件の受け皿です）。
+          </div>
+
+          <div style="display:flex;align-items:center;gap:8px;padding:4px 12px;font-size:10px;font-weight:700;color:var(--text-sub);letter-spacing:.05em;margin-bottom:4px;">
+            <span style="flex:1;min-width:120px;">取引先名（タブ名）</span>
+            <span style="flex:1;min-width:140px;">一致キーワード（カンマ区切り）</span>
+            <span style="flex:2;min-width:220px;">Driveフォルダ URL（PDF保存先）</span>
+            <span style="width:32px;"></span>
+          </div>
+
+          <div id="client-master-list" style="display:flex; flex-direction:column; gap:6px; max-height:52vh; overflow-y:auto; padding:2px 4px; margin-bottom:12px;"></div>
+
+          <button class="btn btn-outline btn-sm" onclick="addClientMasterItem()"
+            style="width:100%; margin-bottom:16px; border-style:dashed; color:var(--primary);">
+            ＋ 取引先を追加
+          </button>
+
+          <div style="display:flex; align-items:center; justify-content:flex-end; border-top:1px solid var(--border); padding-top:16px;">
+            <button class="btn btn-primary" onclick="saveClientMasterAdmin()">💾 保存して反映</button>
           </div>
         </div>
       </div>

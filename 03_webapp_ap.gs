@@ -74,6 +74,28 @@ function _apiLoadSettings() {
   }
 }
 
+// ============================================================
+// ★ 取引先マスタ API（管理コンソール「取引先管理」タブ）
+// ============================================================
+function _apiClientMasterList() {
+  try {
+    return { success: true, items: getClientMasterList() };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+function _apiClientMasterSave(p) {
+  try {
+    var list  = (p && p.list) || [];
+    var saved = saveClientMasterList(list);
+    return { success: true, items: saved };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+}
+
+
 function _apiSaveSettings(p) {
   try {
     var props = PropertiesService.getScriptProperties();

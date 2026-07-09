@@ -166,6 +166,8 @@ function handleApiRequest(action, payload) {
       // ── システム設定（管理コンソール） ──
       case 'loadSettings':          res = _apiLoadSettings(); break;
       case 'saveSettings':          res = _apiSaveSettings(payload); break;
+      case 'clientMasterList':      res = _apiClientMasterList(); break;
+      case 'clientMasterSave':      res = _apiClientMasterSave(payload); break;
       // ── 注文書↔見積書 紐づけ ──
       case 'confirmOrderLink':      res = _apiConfirmOrderLink(payload); break;
       case 'getOrderLinkCandidates': res = _apiGetOrderLinkCandidates(payload); break;

@@ -733,3 +733,98 @@ function checkMgmtColumns() {
   Logger.log('管理シート 実際の列数: ' + headers.length);
   Logger.log('ヘッダー一覧: ' + JSON.stringify(headers));
 }
+
+// ============================================================
+// ★ 取引先マスタ（複数社対応・管理コンソールから設定）
+// ------------------------------------------------------------
+// 取引先ごとに「案件一覧の分類タブ」と「PDFインポート時のDrive
+// 保存先フォルダ」を紐づけるためのマスタ。今後、取引先企業が
+// 増えても管理コンソールから追加・編集できるようにするための仕組み。
+// ============================================================
+var CLIENT_MASTER_PROP_KEY  = 'CLIENT_MASTER_LIST';
+var CLIENT_MASTER_OTHER_ID  = 'default_other';
+
+/**
+ * 取引先マスタ一覧を取得する。
+ * 未設定の場合は「藤商事」「コナミ」「その他」の初期セットを返す
+ * （Driveフォルダは未設定＝従来どおりの保存先フォルダを使用）。
+ */
+function getClientMasterList() {
+  var props = PropertiesService.getScriptProperties();
+  var raw   = props.getProperty(CLIENT_MASTER_PROP_KEY);
+  if (raw) {
+    try {
+      var list = JSON.parse(raw);
+      if (Array.isArray(list) && list.length) return list;
+    } catch (e) {
+      Logger.log('[getClientMasterList] JSON parse error: ' + e.message);
+    }
+  }
+  return [
+    { id: 'default_fuji',   name: '藤商事', keywords: ['藤商事'],           driveFolderUrl: '' },
+    { id: 'default_konami', name: 'コナミ', keywords: ['コナミ', 'KONAMI'], driveFolderUrl: '' },
+    { id: CLIENT_MASTER_OTHER_ID, name: 'その他', keywords: [], driveFolderUrl: '', isFallback: true },
+  ];
+}
+
+/**
+ * 取引先マスタ一覧を保存する。「その他」は必ず1件残す（フォールバック用）。
+ */
+function saveClientMasterList(list) {
+  if (!Array.isArray(list)) throw new Error('取引先リストの形式が不正です');
+  list = list.map(function (c) {
+    return {
+      id:             c.id || ('client_' + Date.now().toString(36) + Math.floor(Math.random() * 1000)),
+      name:           String(c.name || '').trim(),
+      keywords:       Array.isArray(c.keywords) ? c.keywords.filter(Boolean) : String(c.keywords || c.name || '').split(/[,、\s]+/).filter(Boolean),
+      driveFolderUrl: String(c.driveFolderUrl || '').trim(),
+      isFallback:     !!c.isFallback,
+    };
+  }).filter(function (c) { return c.name; });
+
+  var hasOther = list.some(function (c) { return c.isFallback; });
+  if (!hasOther) {
+    list.push({ id: CLIENT_MASTER_OTHER_ID, name: 'その他', keywords: [], driveFolderUrl: '', isFallback: true });
+  }
+  PropertiesService.getScriptProperties().setProperty(CLIENT_MASTER_PROP_KEY, JSON.stringify(list));
+  return list;
+}
+
+/**
+ * DriveのURL/共有リンクからフォルダIDを抜き出す。
+ */
+function _extractDriveFolderId(url) {
+  if (!url) return '';
+  var m = String(url).match(/[-\w]{25,}/);
+  return m ? m[0] : '';
+}
+
+/**
+ * 顧客名（管理シートの「顧客名」／見積の「宛先」）から取引先マスタの
+ * どの分類に属するかを判定する。一致しない場合は「その他」を返す。
+ */
+function classifyClientName(clientName) {
+  var name = String(clientName || '');
+  var list = getClientMasterList();
+  for (var i = 0; i < list.length; i++) {
+    var c = list[i];
+    if (c.isFallback) continue;
+    var kws = (c.keywords && c.keywords.length) ? c.keywords : [c.name];
+    for (var j = 0; j < kws.length; j++) {
+      if (kws[j] && name.indexOf(kws[j]) !== -1) return c;
+    }
+  }
+  var fallback = list.filter(function (c) { return c.isFallback; })[0];
+  return fallback || { id: CLIENT_MASTER_OTHER_ID, name: 'その他', keywords: [], driveFolderUrl: '', isFallback: true };
+}
+
+/**
+ * 顧客名からPDF保存先のDriveフォルダIDを取得する。
+ * 取引先マスタにDriveフォルダURLが設定されていればそちらを優先し、
+ * 未設定の場合は従来の既定フォルダ（fallbackFolderId）を使う。
+ */
+function getClientDriveFolderId(clientName, fallbackFolderId) {
+  var matched  = classifyClientName(clientName);
+  var folderId = matched ? _extractDriveFolderId(matched.driveFolderUrl) : '';
+  return folderId || fallbackFolderId;
+}

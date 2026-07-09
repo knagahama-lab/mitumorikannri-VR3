@@ -1,0 +1,445 @@
+From cd89ac27a06a4d74791035460e1fedd9a91dbfc4 Mon Sep 17 00:00:00 2001
+From: keigo <keigo828n@gmail.com>
+Date: Thu, 9 Jul 2026 11:41:33 +0900
+Subject: [PATCH] =?UTF-8?q?=E5=8F=96=E5=BC=95=E5=85=88=E3=83=9E=E3=82=B9?=
+ =?UTF-8?q?=E3=82=BF=E5=AF=BE=E5=BF=9C=EF=BC=9A=E6=A1=88=E4=BB=B6=E4=B8=80?=
+ =?UTF-8?q?=E8=A6=A7=E3=82=92=E5=8F=96=E5=BC=95=E5=85=88=E5=88=A5=E3=82=BF?=
+ =?UTF-8?q?=E3=83=96=E3=81=AB=E5=88=86=E5=89=B2=E3=80=81PDF=E3=82=A4?=
+ =?UTF-8?q?=E3=83=B3=E3=83=9D=E3=83=BC=E3=83=88=E5=85=88Drive=E3=83=95?=
+ =?UTF-8?q?=E3=82=A9=E3=83=AB=E3=83=80=E3=82=92=E7=AE=A1=E7=90=86=E3=82=B3?=
+ =?UTF-8?q?=E3=83=B3=E3=82=BD=E3=83=BC=E3=83=AB=E3=81=8B=E3=82=89=E8=A8=AD?=
+ =?UTF-8?q?=E5=AE=9A=E5=8F=AF=E8=83=BD=E3=81=AB?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ 00_config.gs        |  95 +++++++++++++++++++++++++++++
+ 03_webapp_ap.gs     |  22 +++++++
+ 04 drive watcher.gs |  12 +++-
+ 06 board api.gs     |   2 +
+ Dashboard.html      |  34 +++++++++++
+ js.html             | 141 +++++++++++++++++++++++++++++++++++++++++++-
+ 6 files changed, 302 insertions(+), 4 deletions(-)
+
+diff --git a/00_config.gs b/00_config.gs
+index 4bfaf87..920b04d 100644
+--- a/00_config.gs
++++ b/00_config.gs
+@@ -733,3 +733,98 @@ function checkMgmtColumns() {
+   Logger.log('管理シート 実際の列数: ' + headers.length);
+   Logger.log('ヘッダー一覧: ' + JSON.stringify(headers));
+ }
++
++// ============================================================
++// ★ 取引先マスタ（複数社対応・管理コンソールから設定）
++// ------------------------------------------------------------
++// 取引先ごとに「案件一覧の分類タブ」と「PDFインポート時のDrive
++// 保存先フォルダ」を紐づけるためのマスタ。今後、取引先企業が
++// 増えても管理コンソールから追加・編集できるようにするための仕組み。
++// ============================================================
++var CLIENT_MASTER_PROP_KEY  = 'CLIENT_MASTER_LIST';
++var CLIENT_MASTER_OTHER_ID  = 'default_other';
++
++/**
++ * 取引先マスタ一覧を取得する。
++ * 未設定の場合は「藤商事」「コナミ」「その他」の初期セットを返す
++ * （Driveフォルダは未設定＝従来どおりの保存先フォルダを使用）。
++ */
++function getClientMasterList() {
++  var props = PropertiesService.getScriptProperties();
++  var raw   = props.getProperty(CLIENT_MASTER_PROP_KEY);
++  if (raw) {
++    try {
++      var list = JSON.parse(raw);
++      if (Array.isArray(list) && list.length) return list;
++    } catch (e) {
++      Logger.log('[getClientMasterList] JSON parse error: ' + e.message);
++    }
++  }
++  return [
++    { id: 'default_fuji',   name: '藤商事', keywords: ['藤商事'],           driveFolderUrl: '' },
++    { id: 'default_konami', name: 'コナミ', keywords: ['コナミ', 'KONAMI'], driveFolderUrl: '' },
++    { id: CLIENT_MASTER_OTHER_ID, name: 'その他', keywords: [], driveFolderUrl: '', isFallback: true },
++  ];
++}
++
++/**
++ * 取引先マスタ一覧を保存する。「その他」は必ず1件残す（フォールバック用）。
++ */
++function saveClientMasterList(list) {
++  if (!Array.isArray(list)) throw new Error('取引先リストの形式が不正です');
++  list = list.map(function (c) {
++    return {
++      id:             c.id || ('client_' + Date.now().toString(36) + Math.floor(Math.random() * 1000)),
++      name:           String(c.name || '').trim(),
++      keywords:       Array.isArray(c.keywords) ? c.keywords.filter(Boolean) : String(c.keywords || c.name || '').split(/[,、\s]+/).filter(Boolean),
++      driveFolderUrl: String(c.driveFolderUrl || '').trim(),
++      isFallback:     !!c.isFallback,
++    };
++  }).filter(function (c) { return c.name; });
++
++  var hasOther = list.some(function (c) { return c.isFallback; });
++  if (!hasOther) {
++    list.push({ id: CLIENT_MASTER_OTHER_ID, name: 'その他', keywords: [], driveFolderUrl: '', isFallback: true });
++  }
++  PropertiesService.getScriptProperties().setProperty(CLIENT_MASTER_PROP_KEY, JSON.stringify(list));
++  return list;
++}
++
++/**
++ * DriveのURL/共有リンクからフォルダIDを抜き出す。
++ */
++function _extractDriveFolderId(url) {
++  if (!url) return '';
++  var m = String(url).match(/[-\w]{25,}/);
++  return m ? m[0] : '';
++}
++
++/**
++ * 顧客名（管理シートの「顧客名」／見積の「宛先」）から取引先マスタの
++ * どの分類に属するかを判定する。一致しない場合は「その他」を返す。
++ */
++function classifyClientName(clientName) {
++  var name = String(clientName || '');
++  var list = getClientMasterList();
++  for (var i = 0; i < list.length; i++) {
++    var c = list[i];
++    if (c.isFallback) continue;
++    var kws = (c.keywords && c.keywords.length) ? c.keywords : [c.name];
++    for (var j = 0; j < kws.length; j++) {
++      if (kws[j] && name.indexOf(kws[j]) !== -1) return c;
++    }
++  }
++  var fallback = list.filter(function (c) { return c.isFallback; })[0];
++  return fallback || { id: CLIENT_MASTER_OTHER_ID, name: 'その他', keywords: [], driveFolderUrl: '', isFallback: true };
++}
++
++/**
++ * 顧客名からPDF保存先のDriveフォルダIDを取得する。
++ * 取引先マスタにDriveフォルダURLが設定されていればそちらを優先し、
++ * 未設定の場合は従来の既定フォルダ（fallbackFolderId）を使う。
++ */
++function getClientDriveFolderId(clientName, fallbackFolderId) {
++  var matched  = classifyClientName(clientName);
++  var folderId = matched ? _extractDriveFolderId(matched.driveFolderUrl) : '';
++  return folderId || fallbackFolderId;
++}
+diff --git a/03_webapp_ap.gs b/03_webapp_ap.gs
+index f67cdf2..8837561 100644
+--- a/03_webapp_ap.gs
++++ b/03_webapp_ap.gs
+@@ -74,6 +74,28 @@ function _apiLoadSettings() {
+   }
+ }
+ 
++// ============================================================
++// ★ 取引先マスタ API（管理コンソール「取引先管理」タブ）
++// ============================================================
++function _apiClientMasterList() {
++  try {
++    return { success: true, items: getClientMasterList() };
++  } catch (e) {
++    return { success: false, error: e.message };
++  }
++}
++
++function _apiClientMasterSave(p) {
++  try {
++    var list  = (p && p.list) || [];
++    var saved = saveClientMasterList(list);
++    return { success: true, items: saved };
++  } catch (e) {
++    return { success: false, error: e.message };
++  }
++}
++
++
+ function _apiSaveSettings(p) {
+   try {
+     var props = PropertiesService.getScriptProperties();
+diff --git a/04 drive watcher.gs b/04 drive watcher.gs
+index f5be5b0..eeceb10 100644
+--- a/04 drive watcher.gs	
++++ b/04 drive watcher.gs	
+@@ -72,8 +72,16 @@ function _watchFolder(importFolderId, saveFolderId, docType, orderType, processe
+         }
+ 
+         // 保存先フォルダへコピー
+-        var clientName    = ocr.destCompany || ocr.clientName || '未分類';
+-        var finalFolderId = _getOrCreateSubFolder(saveFolderId, clientName);
++        // ★ 取引先マスタ（管理コンソール「取引先管理」）にDriveフォルダURLが
++        //   設定されている場合は、その取引先専用フォルダへ保存する。
++        //   未設定の顧客・未分類の顧客は従来どおりの既定フォルダへ保存される。
++        var clientName       = ocr.destCompany || ocr.clientName || '未分類';
++        var docTypeLabel     = docType === 'quote' ? '見積書' : (orderType === CONFIG.ORDER_TYPE.MASS ? '注文書(量産)' : '注文書(試作)');
++        var clientFolderId   = getClientDriveFolderId(clientName, saveFolderId);
++        var usesClientFolder = clientFolderId !== saveFolderId;
++        var finalFolderId    = usesClientFolder
++          ? _getOrCreateSubFolder(clientFolderId, docTypeLabel)
++          : _getOrCreateSubFolder(saveFolderId, clientName);
+         var saveFolder    = DriveApp.getFolderById(finalFolderId);
+         var newName       = nowJST().replace(/[\/: ]/g,'') + '_' + file.getName();
+         var savedFile     = file.makeCopy(newName, saveFolder);
+diff --git a/06 board api.gs b/06 board api.gs
+index eb6d8d1..c942001 100644
+--- a/06 board api.gs	
++++ b/06 board api.gs	
+@@ -166,6 +166,8 @@ function handleApiRequest(action, payload) {
+       // ── システム設定（管理コンソール） ──
+       case 'loadSettings':          res = _apiLoadSettings(); break;
+       case 'saveSettings':          res = _apiSaveSettings(payload); break;
++      case 'clientMasterList':      res = _apiClientMasterList(); break;
++      case 'clientMasterSave':      res = _apiClientMasterSave(payload); break;
+       // ── 注文書↔見積書 紐づけ ──
+       case 'confirmOrderLink':      res = _apiConfirmOrderLink(payload); break;
+       case 'getOrderLinkCandidates': res = _apiGetOrderLinkCandidates(payload); break;
+diff --git a/Dashboard.html b/Dashboard.html
+index 9609dd0..fdc61e9 100644
+--- a/Dashboard.html
++++ b/Dashboard.html
+@@ -343,6 +343,7 @@ tr:hover td{background:#f8fafc;}
+       </div>
+ 
+       <div id="area-order">
++        <div id="order-client-tabs" style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;"></div>
+         <div class="summary-grid">
+           <div class="summary-card"><div class="lbl">送信済み（未受領）</div><div class="val c-blue" id="sum-sent">—</div><div class="sub">件</div></div>
+           <div class="summary-card"><div class="lbl">注文受領</div><div class="val c-red" id="sum-received">—</div><div class="sub">件</div></div>
+@@ -372,6 +373,7 @@ tr:hover td{background:#f8fafc;}
+       </div>
+ 
+       <div id="area-quote" style="display:none;">
++        <div id="quote-client-tabs" style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;"></div>
+         <div class="summary-grid" style="grid-template-columns:repeat(3,1fr);">
+           <div class="summary-card"><div class="lbl">見積書総件数</div><div class="val c-blue" id="qs-total">—</div><div class="sub">件</div></div>
+           <div class="summary-card"><div class="lbl">注文書紐づけ済み</div><div class="val c-green" id="qs-linked">—</div><div class="sub">件</div></div>
+@@ -492,6 +494,7 @@ tr:hover td{background:#f8fafc;}
+         <button class="admin-tab" onclick="switchAdminTab('apiconn')" id="atab-apiconn">🔌 外部API連携管理</button>
+         <button class="admin-tab" onclick="switchAdminTab('menu')" id="atab-menu">🗂️ メニュー設定</button>
+         <button class="admin-tab" onclick="switchAdminTab('doctype')" id="atab-doctype">📋 書類テンプレート</button>
++        <button class="admin-tab" onclick="switchAdminTab('clients')" id="atab-clients">🏢 取引先管理</button>
+       </div>
+ 
+       <div id="admin-tab-basic" class="admin-tab-content" style="display:block;">
+@@ -810,6 +813,37 @@ tr:hover td{background:#f8fafc;}
+           </div>
+         </div>
+       </div>
++
++      <div id="admin-tab-clients" class="admin-tab-content">
++        <div style="background:white;border-radius:12px;padding:24px;box-shadow:var(--shadow);border-left:4px solid var(--primary);">
++          <h3 style="font-size:15px;font-weight:700;color:var(--primary);margin-bottom:8px;">🏢 取引先管理</h3>
++          <div style="background:#eff6ff;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--primary);line-height:1.6;">
++            💡 <strong>使い方：</strong>
++            取引先を追加すると「案件一覧」の注文書一覧・見積書一覧に取引先ごとのタブが自動で追加されます／
++            顧客名に「一致キーワード」が含まれる案件が、その取引先タブに分類されます／
++            「Driveフォルダ URL」を設定すると、PDF自動インポート時にその取引先専用のフォルダへ保存されます（未設定の場合は従来の保存先を使用）／
++            「その他」は削除できません（どの取引先にも一致しない案件の受け皿です）。
++          </div>
++
++          <div style="display:flex;align-items:center;gap:8px;padding:4px 12px;font-size:10px;font-weight:700;color:var(--text-sub);letter-spacing:.05em;margin-bottom:4px;">
++            <span style="flex:1;min-width:120px;">取引先名（タブ名）</span>
++            <span style="flex:1;min-width:140px;">一致キーワード（カンマ区切り）</span>
++            <span style="flex:2;min-width:220px;">Driveフォルダ URL（PDF保存先）</span>
++            <span style="width:32px;"></span>
++          </div>
++
++          <div id="client-master-list" style="display:flex; flex-direction:column; gap:6px; max-height:52vh; overflow-y:auto; padding:2px 4px; margin-bottom:12px;"></div>
++
++          <button class="btn btn-outline btn-sm" onclick="addClientMasterItem()"
++            style="width:100%; margin-bottom:16px; border-style:dashed; color:var(--primary);">
++            ＋ 取引先を追加
++          </button>
++
++          <div style="display:flex; align-items:center; justify-content:flex-end; border-top:1px solid var(--border); padding-top:16px;">
++            <button class="btn btn-primary" onclick="saveClientMasterAdmin()">💾 保存して反映</button>
++          </div>
++        </div>
++      </div>
+     </div>
+ 
+     <!-- ============ 機種・基板マスタ（統合） ============ -->
+diff --git a/js.html b/js.html
+index 47513ed..816c068 100644
+--- a/js.html
++++ b/js.html
+@@ -36,6 +36,7 @@ let userMenuConfig = [];
+ const PAGE_TITLES = { list:'案件一覧', ledger:'見積台帳', matching:'AI紐づけ', calendar:'スケジュール', ocr:'簡易OCR', todo:'ToDo', drivesearch:'全文検索', admin:'システム管理コンソール', workflow:'業務フロー', assignees:'担当者管理', approval:'製造承認', board:'基板マスタ', simulation:'利益シミュレーション', analysis:'分析・レポート', aichat:'AIアシスタント', model:'機種マスタ', checklist:'見積セット チェックリスト', quotecheck:'見積書チェック（単価照合）', quoteset:'見積セット管理', maker:'メーカー管理', submitmgmt:'見積提出管理' };
+ 
+ const S = { all:[], filtered:[], page:1, limit:30, docType:'quote', orderType:'', selectedFile:null };
++let _clientMasterList = []; let _orderClientTab = 'all'; let _quoteClientTab = 'all'; let _editClientMaster = [];
+ let searchTimer=null; let _allQuotes = []; let _filteredQuotes = []; let _quotePage = 1; const _quoteLimit = 20; let _allMatchingItems = [];
+ let _allLedgerItems = []; let _filteredLedgerItems = []; let _currentLedgerTab = 'tree';
+ let _allSmItems = [];
+@@ -51,6 +52,7 @@ google.script.run.withSuccessHandler(function(res) {
+ window.addEventListener('load', () => {
+   renderSidebar(); showPage('list'); try { _populateMonthFilter(); } catch(e){}
+   loadData(); // 注文書は独立して並行ロード
++  loadClientMasterList(); // 取引先マスタ（案件一覧の取引先タブ）
+   // ★ 台帳を先にロードしてから見積一覧をマージ（競合状態を防ぐ）
+   google.script.run.withSuccessHandler(function(res) {
+     if (res && res.success) _allLedgerItems = res.items || [];
+@@ -603,7 +605,8 @@ function applyFilters() {
+     const ms = !st || r.status === st; const mo2 = !ot || r.orderType === ot;
+     const mm = !mo || (String(r.orderDate).startsWith(mo) || String(r.quoteDate).startsWith(mo));
+     const ma = _amtMatch([r.orderAmount].concat(r.priceList||[]), amt, amtTol); // 合計金額 or 明細単価
+-    return mk && ms && mo2 && mm && ma;
++    const mc = _orderClientTab === 'all' || _matchClientGroup(r.client) === _orderClientTab;
++    return mk && ms && mo2 && mm && ma && mc;
+   });
+   S.page = 1; _renderTable();
+ }
+@@ -664,7 +667,8 @@ function applyQuoteFilter() {
+     const mk = kws.length === 0 || kws.every(kw => txt.includes(kw));
+     const ms = !st || r.status === st; const ml = !linked || (linked === 'linked' && r.linked) || (linked === 'unlinked' && !r.linked);
+     const ma = _amtMatch([r.quoteAmount].concat(r.priceList||[]), amt, amtTol); // 見積合計金額 or 明細単価
+-    return mk && ms && ml && ma;
++    const mc = _quoteClientTab === 'all' || _matchClientGroup(r.destCompany || r.client) === _quoteClientTab;
++    return mk && ms && ml && ma && mc;
+   });
+   _filteredQuotes.sort((a, b) => _cmpByKey(a, b, _quoteSortKey, _quoteSortDir));
+   _quotePage = 1; _renderQuoteTable();
+@@ -2002,6 +2006,139 @@ function switchAdminTab(tab) {
+   }
+   if (tab === 'apiconn') loadApiConnList();
+   if (tab === 'doctype') _onShowDocTypeTab();
++  if (tab === 'clients') loadClientMasterAdmin();
++}
++
++// ============================================================
++// 取引先マスタ（複数社対応）
++// ============================================================
++
++// 案件一覧の「注文書一覧／見積書一覧」タブ用データ読み込み
++function loadClientMasterList() {
++  google.script.run.withSuccessHandler(function (res) {
++    if (res && res.success) {
++      _clientMasterList = res.items || [];
++      renderOrderClientTabs();
++      renderQuoteClientTabs();
++    }
++  }).withFailureHandler(function () { /* サイレント失敗（タブ非表示のまま） */ }).handleApiRequest('clientMasterList', null);
++}
++
++// 顧客名から取引先マスタのタブ名を判定（未一致は「その他」グループの表示名）
++function _matchClientGroup(name) {
++  var n = String(name || '');
++  var list = _clientMasterList || [];
++  for (var i = 0; i < list.length; i++) {
++    var c = list[i];
++    if (c.isFallback) continue;
++    var kws = (c.keywords && c.keywords.length) ? c.keywords : [c.name];
++    for (var j = 0; j < kws.length; j++) {
++      if (kws[j] && n.indexOf(kws[j]) !== -1) return c.name;
++    }
++  }
++  var fallback = list.filter(function (c) { return c.isFallback; })[0];
++  return fallback ? fallback.name : 'その他';
++}
++
++function _clientTabOrder() {
++  var list = _clientMasterList || [];
++  var main = list.filter(function (c) { return !c.isFallback; }).map(function (c) { return c.name; });
++  var fallback = list.filter(function (c) { return c.isFallback; }).map(function (c) { return c.name; });
++  return main.concat(fallback.length ? fallback : ['その他']);
++}
++
++function _renderClientTabButtons(containerId, names, activeName, onClick) {
++  var el = document.getElementById(containerId);
++  if (!el) return;
++  var all = ['すべて'].concat(names);
++  el.innerHTML = all.map(function (name) {
++    var val = (name === 'すべて') ? 'all' : name;
++    var active = (val === activeName);
++    var style = 'padding:5px 14px;border-radius:16px;font-size:12.5px;font-weight:600;cursor:pointer;border:1px solid ' +
++      (active ? 'var(--primary)' : 'var(--border)') + ';background:' + (active ? 'var(--primary)' : '#fff') + ';color:' + (active ? '#fff' : 'var(--text-sub)') + ';';
++    return '<button style="' + style + '" onclick="' + onClick + '(\'' + _escAttr(val) + '\')">' + _escAttr(name) + '</button>';
++  }).join('');
++}
++
++function renderOrderClientTabs() {
++  _renderClientTabButtons('order-client-tabs', _clientTabOrder(), _orderClientTab, 'setOrderClientTab');
++}
++function renderQuoteClientTabs() {
++  _renderClientTabButtons('quote-client-tabs', _clientTabOrder(), _quoteClientTab, 'setQuoteClientTab');
++}
++function setOrderClientTab(name) { _orderClientTab = name; renderOrderClientTabs(); applyFilters(); }
++function setQuoteClientTab(name) { _quoteClientTab = name; renderQuoteClientTabs(); applyQuoteFilter(); }
++
++// ── 管理コンソール「取引先管理」タブ ──
++function loadClientMasterAdmin() {
++  google.script.run.withSuccessHandler(function (res) {
++    if (!res || !res.success) { showToast('取引先マスタの読み込みに失敗しました', true); return; }
++    _editClientMaster = res.items || [];
++    renderClientMasterList();
++  }).handleApiRequest('clientMasterList', null);
++}
++
++function renderClientMasterList() {
++  var el = document.getElementById('client-master-list');
++  if (!el) return;
++  el.innerHTML = _editClientMaster.map(function (c, i) {
++    var kwStr = (c.keywords && c.keywords.length) ? c.keywords.join(', ') : '';
++    var nameAttrs = c.isFallback ? 'readonly style="background:#f0f0f0;"' : '';
++    var kwAttrs   = c.isFallback ? 'disabled placeholder="（一致しなかった案件が入る受け皿）" style="background:#f0f0f0;"' : '';
++    var delAttrs  = c.isFallback ? 'disabled title="その他は削除できません" style="opacity:.35;cursor:not-allowed;"' : '';
++    return `
++      <div style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--border);border-radius:8px;background:#fafbfc;">
++        <input type="text" value="${_escAttr(c.name)}" placeholder="例：藤商事" ${nameAttrs}
++          style="flex:1;min-width:120px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;" onchange="_updClientMaster(${i},'name',this.value)">
++        <input type="text" value="${_escAttr(kwStr)}" placeholder="例：藤商事, 株式会社藤商事" ${kwAttrs}
++          style="flex:1;min-width:140px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;" onchange="_updClientMaster(${i},'keywords',this.value)">
++        <input type="text" value="${_escAttr(c.driveFolderUrl || '')}" placeholder="https://drive.google.com/drive/folders/..."
++          style="flex:2;min-width:220px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;" onchange="_updClientMaster(${i},'driveFolderUrl',this.value)">
++        <button class="btn btn-outline btn-sm" ${delAttrs} onclick="deleteClientMasterItem(${i})" title="削除" style="color:var(--danger);border-color:var(--danger);">✕</button>
++      </div>`;
++  }).join('');
++}
++
++function _updClientMaster(i, field, value) {
++  if (!_editClientMaster[i]) return;
++  if (field === 'keywords') {
++    _editClientMaster[i].keywords = String(value || '').split(/[,、\s]+/).filter(Boolean);
++  } else {
++    _editClientMaster[i][field] = value;
++  }
++}
++
++function addClientMasterItem() {
++  _editClientMaster.splice(_editClientMaster.length - (_editClientMaster.some(function(c){return c.isFallback;}) ? 1 : 0), 0, {
++    id: 'client_' + Date.now().toString(36),
++    name: '', keywords: [], driveFolderUrl: '', isFallback: false
++  });
++  renderClientMasterList();
++}
++
++function deleteClientMasterItem(i) {
++  var c = _editClientMaster[i];
++  if (!c || c.isFallback) return;
++  if (!confirm('「' + (c.name || '(未入力)') + '」を取引先一覧から削除しますか？')) return;
++  _editClientMaster.splice(i, 1);
++  renderClientMasterList();
++}
++
++function saveClientMasterAdmin() {
++  var invalid = _editClientMaster.some(function (c) { return !c.isFallback && !String(c.name || '').trim(); });
++  if (invalid) { showToast('取引先名が空欄の行があります', true); return; }
++  google.script.run.withSuccessHandler(function (res) {
++    if (res && res.success) {
++      showToast('✅ 取引先マスタを保存しました');
++      _editClientMaster = res.items || _editClientMaster;
++      renderClientMasterList();
++      loadClientMasterList(); // 案件一覧のタブへ即反映
++    } else {
++      showToast('保存に失敗しました: ' + (res ? res.error : '不明'), true);
++    }
++  }).withFailureHandler(function (err) {
++    showToast('通信エラー: ' + err.message, true);
++  }).handleApiRequest('clientMasterSave', { list: _editClientMaster });
+ }
+ 
+ // ============================================================
+-- 
+2.34.1
+
