@@ -1794,7 +1794,7 @@ function saveLedgerEntry() {
     amount: v('ledger-amount') ? Number(v('ledger-amount')) : undefined,
     boardName: v('ledger-board-name') || undefined,
     modelNo: v('ledger-model-no') || undefined,
-    saveUrl: v('ledger-save-url') || undefined,
+    saveUrl: v('ledger-save-url'), // 空文字も明示送信（PDFリンク削除を可能にするため undefined 化しない）
     remarks: v('ledger-remarks') || undefined,
     submitTo: v('ledger-submit-to') || undefined,
     compositionType: v('ledger-composition-type') || undefined,
@@ -3226,6 +3226,19 @@ function startInlineEditAutocomplete(e, id, field, val, type) {
 }
 
 // ── ★ 台帳 PDF アップロード ──
+function clearLedgerPdfUrl() {
+  const urlEl = document.getElementById('ledger-save-url');
+  if (urlEl) urlEl.value = '';
+  const fileEl = document.getElementById('ledger-pdf-file');
+  if (fileEl) fileEl.value = '';
+  const nameEl = document.getElementById('ledger-pdf-name');
+  if (nameEl) nameEl.textContent = '未選択';
+  const uploadBtn = document.getElementById('ledger-pdf-upload-btn');
+  if (uploadBtn) uploadBtn.style.display = 'none';
+  const statusEl = document.getElementById('ledger-pdf-status');
+  if (statusEl) statusEl.textContent = '';
+  showToast('PDFリンクを削除しました。「保存」を押すと確定します');
+}
 function previewLedgerPdf(input) {
   const f = input.files[0];
   if (!f) return;

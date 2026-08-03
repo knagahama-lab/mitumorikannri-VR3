@@ -338,8 +338,8 @@ tr:hover td{background:#f8fafc;}
 
     <div id="page-list" class="page active">
       <div style="display:flex;gap:8px;margin-bottom:16px;border-bottom:2px solid var(--border);padding-bottom:0;">
-        <button id="subtab-order" onclick="switchSubTab('order')" style="padding:8px 20px;border:none;background:none;font-size:14px;font-weight:600;color:var(--primary);border-bottom:2px solid var(--primary);margin-bottom:-2px;cursor:pointer;">📦 注文書一覧</button>
         <button id="subtab-quote" onclick="switchSubTab('quote')" style="padding:8px 20px;border:none;background:none;font-size:14px;font-weight:500;color:var(--text-sub);border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;">📄 見積書一覧</button>
+        <button id="subtab-order" onclick="switchSubTab('order')" style="padding:8px 20px;border:none;background:none;font-size:14px;font-weight:600;color:var(--primary);border-bottom:2px solid var(--primary);margin-bottom:-2px;cursor:pointer;">📦 注文書一覧</button>
       </div>
 
       <div id="area-order">
@@ -1280,7 +1280,13 @@ tr:hover td{background:#f8fafc;}
         </div>
         <div id="ledger-pdf-status" style="margin-top:6px;font-size:12px;"></div>
       </div>
-      <div class="form-field" style="margin-bottom:12px;"><label>PDF URL（任意）</label><input type="text" id="ledger-save-url" placeholder="Google DriveのURLを貼り付け"></div>
+      <div class="form-field" style="margin-bottom:12px;">
+        <label>PDF URL（任意）</label>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input type="text" id="ledger-save-url" placeholder="Google DriveのURLを貼り付け" style="flex:1;">
+          <button type="button" class="btn btn-outline btn-sm" onclick="clearLedgerPdfUrl()" title="PDFリンクを削除して空欄にする">🗑 削除</button>
+        </div>
+      </div>
       <div class="form-field" style="margin-bottom:12px;"><label>備考</label><textarea id="ledger-remarks" rows="2" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;resize:vertical;font-family:inherit;"></textarea></div>
       <div style="background:#eff6ff;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:var(--primary);">
         💡 追加すると「見積書一覧」にも自動反映されます。PDF登録後は見積書PDFとも紐づけられます。
