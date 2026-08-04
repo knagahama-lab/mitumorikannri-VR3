@@ -1886,7 +1886,27 @@ function openLedgerAddModal(ledgerId) {
     const dd = document.getElementById('ledger-issue-date');
     if (dd) dd.value = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0') + '-' + String(today.getDate()).padStart(2,'0');
   }
+  _renderLedgerQdocSection(ledgerId || '');
   modal.classList.add('open');
+}
+
+// 見積予定を追加/編集モーダル内の「関連書類」セクション
+function _renderLedgerQdocSection(ledgerId) {
+  const hint    = document.getElementById('ledger-qdoc-hint');
+  const section = document.getElementById('ledger-qdoc-section');
+  const wrap    = document.getElementById('ledger-qdoc-list-wrap');
+  const addBtn  = document.getElementById('ledger-qdoc-add-btn');
+  if (!hint || !section || !wrap) return;
+  if (!ledgerId) {
+    hint.style.display = '';
+    section.style.display = 'none';
+    return;
+  }
+  hint.style.display = 'none';
+  section.style.display = '';
+  wrap.innerHTML = `<div id="qdoc-list-${ledgerId}"><div style="color:var(--text-muted);font-size:12px;">読み込み中…</div></div>`;
+  if (addBtn) addBtn.onclick = () => openQuoteDocModal(ledgerId);
+  _loadQuoteDocs(ledgerId);
 }
 
 function closeLedgerAddModal() {
@@ -1922,13 +1942,23 @@ function saveLedgerEntry() {
     compositionType: v('ledger-composition-type') || undefined,
   };
   Object.keys(payload).forEach(k => { if (payload[k] === undefined) delete payload[k]; });
+  const wasNew = !payload.ledgerId;
   google.script.run
     .withSuccessHandler(res => {
       if (res.success) {
-        showToast('保存しました');
-        closeLedgerAddModal();
         loadLedger();
         loadQuoteList();
+        if (wasNew) {
+          // 新規登録直後は関連書類を続けて追加できるようモーダルを開いたままにする
+          document.getElementById('ledger-edit-id').value = res.ledgerId;
+          const titleEl = document.getElementById('ledger-add-title');
+          if (titleEl) titleEl.textContent = '📝 見積台帳を編集';
+          _renderLedgerQdocSection(res.ledgerId);
+          showToast('✅ 保存しました。続けて関連書類を追加できます');
+        } else {
+          showToast('保存しました');
+          closeLedgerAddModal();
+        }
       } else { showToast('保存失敗: ' + (res.error || ''), true); }
     })
     .withFailureHandler(err => { showToast('通信エラー: ' + (err.message || err), true); })
@@ -3286,6 +3316,7 @@ function ocrApprove(){
           <strong style="color:#16a34a;font-size:14px;">✅ DB登録完了</strong><br>
           <span>${_esc(corrected.documentNo||'—')} / ${_esc(corrected.destCompany||'—')}</span><br>
           <span style="color:#6b7280;">明細: ${res.lineCount}行 ／ 合計: ${corrected.totalAmount?corrected.totalAmount.toLocaleString()+' 円':'—'}</span>
+          ${res.mgmtId ? `<div style="margin-top:10px;"><button class="btn btn-outline btn-sm" onclick="openQuoteDocModal('${_esc(res.mgmtId)}')">📎 関連書類を追加</button></div>` : ''}
           <div style="margin-top:8px;font-size:11px;color:#64748b;">次の「確認待ち」ファイルがある場合は上のキューから選択してください。</div>
         </div>`;
       showToast('✅ 登録完了しました');
