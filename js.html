@@ -931,7 +931,14 @@ function _buildQuoteDetailHtml(res) {
       <tr><td style="padding:6px;border-bottom:1px solid var(--border);">発行日</td><td style="padding:6px;border-bottom:1px solid var(--border);">${m.quoteDate||'—'}</td></tr>
       </tbody>
     </table>
-    ${pdfUrl ? `<div style="margin-bottom:16px;"><a href="${pdfUrl}" target="_blank" class="btn btn-outline btn-sm">📄 見積書PDFを開く</a></div>` : ''}
+    <div style="margin-bottom:16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      ${pdfUrl ? `<a href="${pdfUrl}" target="_blank" class="btn btn-outline btn-sm">📄 見積書PDFを開く</a>` : `<span style="font-size:12px;color:var(--text-muted);">見積書PDF未登録</span>`}
+      <label style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid var(--border-light);border-radius:6px;background:#f8fafc;cursor:pointer;font-size:12px;font-weight:600;color:#334155;">
+        ${pdfUrl ? '🔄 差し替え' : '＋ インポート'}
+        <input type="file" accept=".pdf" style="display:none;" onchange="replaceQuotePdf('${m.id||''}', this)">
+      </label>
+      ${pdfUrl ? `<button class="btn btn-outline btn-sm" style="color:var(--danger);" onclick="deleteQuotePdf('${m.id||''}')">🗑 削除</button>` : ''}
+    </div>
     <div id="qdoc-section" style="margin-bottom:16px;">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
         <h4 style="margin:0;">📎 関連書類</h4>
@@ -943,6 +950,45 @@ function _buildQuoteDetailHtml(res) {
 }
 
 // ── 関連書類（28_quote_documents.gs）UI ──
+// 見積書PDF本体の差し替え・削除（28_quote_documents.gs / apiReplaceQuotePdf）
+function replaceQuotePdf(mgmtId, input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  if (!mgmtId) { showToast('管理IDが不明です', true); return; }
+  if (!file.name.toLowerCase().endsWith('.pdf')) { showToast('PDFファイルを選択してください', true); input.value = ''; return; }
+  showToast('⏳ PDFをアップロード中…');
+  const reader = new FileReader();
+  reader.onload = () => {
+    const base64Data = reader.result.split(',')[1];
+    google.script.run
+      .withSuccessHandler(res => {
+        if (res && res.success) {
+          showToast('✅ 見積書PDFを差し替えました');
+          openQuoteDetail(mgmtId);
+          if (typeof loadQuoteList === 'function') loadQuoteList();
+        } else showToast('エラー: ' + ((res||{}).error||'不明'), true);
+      })
+      .withFailureHandler(err => showToast('通信エラー: ' + (err.message||err), true))
+      .handleApiRequest('replaceQuotePdf', { mgmtId, action: 'upload', fileName: file.name, mimeType: file.type, base64Data });
+  };
+  reader.readAsDataURL(file);
+}
+
+function deleteQuotePdf(mgmtId) {
+  if (!mgmtId) return;
+  if (!confirm('見積書PDFのリンクを削除しますか？（Drive上のファイル自体は削除されません）')) return;
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res && res.success) {
+        showToast('🗑️ 見積書PDFのリンクを削除しました');
+        openQuoteDetail(mgmtId);
+        if (typeof loadQuoteList === 'function') loadQuoteList();
+      } else showToast('エラー: ' + ((res||{}).error||'不明'), true);
+    })
+    .withFailureHandler(err => showToast('通信エラー: ' + (err.message||err), true))
+    .handleApiRequest('replaceQuotePdf', { mgmtId, action: 'delete' });
+}
+
 function _loadQuoteDocs(mgmtId) {
   const el = document.getElementById('qdoc-list-' + mgmtId);
   if (!el || !mgmtId) return;

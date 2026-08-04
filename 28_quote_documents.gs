@@ -145,3 +145,68 @@ function apiQuoteDocDelete(payload) {
     return { success: true };
   } catch (e) { return { success: false, error: e.message }; }
 }
+
+// ============================================================
+// 見積書PDF本体の差し替え・削除
+//   管理シート(MGMT_COLS.QUOTE_PDF_URL)と、同じ mgmtId/見積番号を
+//   共有する見積書シートの各明細行(QUOTE_COLS.PDF_URL)をまとめて更新する。
+//   action: 'upload'（新しいPDFに差し替え） | 'delete'（リンクを空にする）
+// ============================================================
+function apiReplaceQuotePdf(payload) {
+  try {
+    payload = payload || {};
+    var mgmtId = String(payload.mgmtId || '').trim();
+    if (!mgmtId) return { success: false, error: '管理IDが必要です' };
+
+    var ss        = getSpreadsheet();
+    var mgmtSheet = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT);
+    if (!mgmtSheet) return { success: false, error: '管理シートが見つかりません' };
+    var last = mgmtSheet.getLastRow();
+    if (last <= 1) return { success: false, error: '対象データがありません' };
+
+    var ids = mgmtSheet.getRange(2, MGMT_COLS.ID, last - 1, 1).getValues().flat().map(function(v) { return String(v); });
+    var idx = ids.indexOf(mgmtId);
+    if (idx < 0) return { success: false, error: '管理IDが見つかりません' };
+    var row = idx + 2;
+
+    var newUrl = '';
+    if (payload.action === 'upload') {
+      if (!payload.base64Data || !payload.fileName) return { success: false, error: 'ファイルデータ不足' };
+      var folder   = DriveApp.getFolderById(CONFIG.WEB_UPLOAD_FOLDER_ID);
+      var mimeType = payload.mimeType || 'application/pdf';
+      var safeName = String(payload.fileName).replace(/[/\\:*?"<>|]/g, '_');
+      var blob     = Utilities.newBlob(Utilities.base64Decode(payload.base64Data), mimeType, 'REPLACED_' + mgmtId + '_' + safeName);
+      var file     = folder.createFile(blob);
+      newUrl = file.getUrl();
+    } else if (payload.action === 'delete') {
+      newUrl = '';
+    } else {
+      return { success: false, error: '不正なactionです' };
+    }
+
+    mgmtSheet.getRange(row, MGMT_COLS.QUOTE_PDF_URL).setValue(newUrl);
+
+    // 同じ見積番号を共有する他の管理行も対象に含める（見積台帳など複数行に分かれているケース対応）
+    var quoteNo    = String(mgmtSheet.getRange(row, MGMT_COLS.QUOTE_NO).getValue() || '').trim();
+    var relatedIds = [mgmtId];
+    if (quoteNo) {
+      var allQuoteNos = mgmtSheet.getRange(2, MGMT_COLS.QUOTE_NO, last - 1, 1).getValues().flat().map(function(v) { return String(v).trim(); });
+      ids.forEach(function(id, i) {
+        if (id !== mgmtId && allQuoteNos[i] === quoteNo) relatedIds.push(id);
+      });
+    }
+
+    var quoteSheet = ss.getSheetByName(CONFIG.SHEET_QUOTES);
+    if (quoteSheet && quoteSheet.getLastRow() > 1) {
+      var qLast = quoteSheet.getLastRow();
+      var qIds  = quoteSheet.getRange(2, QUOTE_COLS.MGMT_ID, qLast - 1, 1).getValues().flat().map(function(v) { return String(v); });
+      qIds.forEach(function(id, i) {
+        if (relatedIds.indexOf(id) >= 0) {
+          quoteSheet.getRange(i + 2, QUOTE_COLS.PDF_URL).setValue(newUrl);
+        }
+      });
+    }
+
+    return { success: true, url: newUrl };
+  } catch (e) { return { success: false, error: e.message }; }
+}

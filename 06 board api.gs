@@ -144,6 +144,7 @@ function handleApiRequest(action, payload) {
       case 'quoteDocSave':    return apiQuoteDocSave(payload);
       case 'quoteDocUpload':  return apiQuoteDocUpload(payload);
       case 'quoteDocDelete':  return apiQuoteDocDelete(payload);
+      case 'replaceQuotePdf': return apiReplaceQuotePdf(payload);
       case 'reregisterTriggers':
         try {
           _registerTriggers();
