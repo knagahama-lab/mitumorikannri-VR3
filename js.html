@@ -750,8 +750,9 @@ function openQuoteDetail(mgmtId, quoteNo) {
   document.getElementById('quote-detail-body').innerHTML = '<div class="loading"><div class="spinner"></div></div>';
   google.script.run.withSuccessHandler(res => {
       if (!res.success) { document.getElementById('quote-detail-body').innerHTML = '<div style="color:var(--danger);padding:20px;">エラー: ' + res.error + '</div>'; return; }
-      if (!res.mgmt) res.mgmt = item; 
+      if (!res.mgmt) res.mgmt = item;
       document.getElementById('quote-detail-body').innerHTML = _buildQuoteDetailHtml(res);
+      _loadQuoteDocs(res.mgmt.id || mgmtId);
     }).handleApiRequest('getQuoteDetail', { mgmtId });
 }
 function closeQuoteDetail() { const el = document.getElementById('quote-detail-modal'); if(el) el.classList.remove('open'); }
@@ -931,7 +932,125 @@ function _buildQuoteDetailHtml(res) {
       </tbody>
     </table>
     ${pdfUrl ? `<div style="margin-bottom:16px;"><a href="${pdfUrl}" target="_blank" class="btn btn-outline btn-sm">📄 見積書PDFを開く</a></div>` : ''}
+    <div id="qdoc-section" style="margin-bottom:16px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <h4 style="margin:0;">📎 関連書類</h4>
+        <button class="btn btn-outline btn-sm" onclick="openQuoteDocModal('${m.id||''}')">＋ 資料を追加</button>
+      </div>
+      <div id="qdoc-list-${m.id||''}"><div style="color:var(--text-muted);font-size:12px;">読み込み中…</div></div>
+    </div>
     <div><h4>見積書 明細</h4>${lineRows ? `<table style="width:100%;border-collapse:collapse;"><thead><tr style="background:#f9f9f9;"><th style="padding:6px;">#</th><th style="padding:6px;text-align:left;">品名</th><th style="padding:6px;text-align:right;">数量</th><th style="padding:6px;text-align:right;">金額</th></tr></thead><tbody>${lineRows}</tbody></table>` : '<div style="font-size:13px;color:var(--text-sub);">明細データなし</div>'}</div>`;
+}
+
+// ── 関連書類（28_quote_documents.gs）UI ──
+function _loadQuoteDocs(mgmtId) {
+  const el = document.getElementById('qdoc-list-' + mgmtId);
+  if (!el || !mgmtId) return;
+  el.innerHTML = '<div style="color:var(--text-muted);font-size:12px;">読み込み中…</div>';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success) { el.innerHTML = '<div style="color:var(--danger);font-size:12px;">エラー: ' + _esc((res||{}).error||'不明') + '</div>'; return; }
+      const files = res.files || [];
+      if (files.length === 0) {
+        el.innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:8px 0;">関連書類はまだ登録されていません。</div>';
+        return;
+      }
+      const grouped = {};
+      QDOC_TYPES.forEach(t => { grouped[t] = []; });
+      files.forEach(f => { const t = f.docType || QDOC_TYPES[0]; if (!grouped[t]) grouped[t] = []; grouped[t].push(f); });
+      let html = '';
+      QDOC_TYPES.forEach(t => {
+        if (grouped[t].length === 0) return;
+        html += `<div style="margin-bottom:10px;">
+          <div style="font-weight:700;font-size:12px;margin-bottom:4px;color:var(--text-sub);">${QDOC_TYPE_ICONS[t]||'📎'} ${_esc(t)} (${grouped[t].length})</div>
+          <div style="display:flex;flex-direction:column;gap:5px;">`;
+        grouped[t].forEach(f => {
+          html += `<div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:#f8fafc;border:1px solid var(--border-light);border-radius:6px;">
+            <div style="flex:1;overflow:hidden;">
+              ${f.url ? `<a href="${_esc(f.url)}" target="_blank" style="font-weight:600;color:var(--primary);text-decoration:none;font-size:12px;">${_esc(f.fileName||f.url)}</a>` : `<span style="font-weight:600;font-size:12px;">${_esc(f.fileName||'—')}</span>`}
+              ${f.memo ? `<div style="font-size:11px;color:var(--text-muted);">${_esc(f.memo)}</div>` : ''}
+            </div>
+            <button class="btn btn-sm" style="font-size:11px;color:var(--danger);" onclick="deleteQuoteDoc('${_esc(f.id)}','${_esc(mgmtId)}')">🗑️</button>
+          </div>`;
+        });
+        html += '</div></div>';
+      });
+      el.innerHTML = html;
+    })
+    .handleApiRequest('quoteDocsList', { mgmtId });
+}
+
+function openQuoteDocModal(mgmtId) {
+  if (!mgmtId) { showToast('エラー: 管理IDが不明です', true); return; }
+  const typeOpts = QDOC_TYPES.map(t => `<option value="${_esc(t)}">${_esc(t)}</option>`).join('');
+  const old = document.getElementById('qdoc-modal-overlay');
+  if (old) old.remove();
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="qdoc-modal-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9500;display:flex;align-items:center;justify-content:center;">
+      <div style="background:#fff;border-radius:12px;width:min(480px,95vw);padding:24px 28px;box-shadow:0 8px 32px rgba(0,0,0,0.18);">
+        <h3 style="margin:0 0 16px;font-size:16px;">📎 関連書類の追加</h3>
+        <div style="display:flex;flex-direction:column;gap:12px;">
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);">書類種別</label>
+            <select id="qd-type" style="width:100%;padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;margin-top:3px;">${typeOpts}</select>
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);">ファイル（Excel / PDF / 画像）</label>
+            <input id="qd-file" type="file" accept=".xlsx,.xls,.pdf,.png,.jpg,.jpeg" style="width:100%;margin-top:3px;font-size:13px;">
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--text-muted);">備考</label>
+            <input id="qd-memo" type="text" placeholder="任意"
+              style="width:100%;padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;box-sizing:border-box;margin-top:3px;">
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px;">
+          <button class="btn btn-sm" onclick="document.getElementById('qdoc-modal-overlay').remove()">キャンセル</button>
+          <button class="btn btn-primary btn-sm" id="qd-save-btn" onclick="uploadQuoteDoc('${_esc(mgmtId)}')">💾 保存</button>
+        </div>
+      </div>
+    </div>`);
+}
+
+function uploadQuoteDoc(mgmtId) {
+  const fileInput = document.getElementById('qd-file');
+  const file = fileInput && fileInput.files && fileInput.files[0];
+  if (!file) { showToast('ファイルを選択してください', true); return; }
+  const docType = document.getElementById('qd-type')?.value || QDOC_TYPES[0];
+  const memo    = document.getElementById('qd-memo')?.value?.trim() || '';
+  const btn = document.getElementById('qd-save-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ アップロード中…'; }
+  const reader = new FileReader();
+  reader.onload = function() {
+    const base64Data = reader.result.split(',')[1];
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (res && res.success) {
+          showToast('✅ 保存しました');
+          document.getElementById('qdoc-modal-overlay')?.remove();
+          _loadQuoteDocs(mgmtId);
+        } else {
+          showToast('エラー: ' + ((res||{}).error||'不明'), true);
+          if (btn) { btn.disabled = false; btn.textContent = '💾 保存'; }
+        }
+      })
+      .withFailureHandler(function(err) {
+        showToast('エラー: ' + (err && err.message ? err.message : err), true);
+        if (btn) { btn.disabled = false; btn.textContent = '💾 保存'; }
+      })
+      .handleApiRequest('quoteDocUpload', { mgmtId, docType, fileName: file.name, mimeType: file.type, base64Data, memo });
+  };
+  reader.readAsDataURL(file);
+}
+
+function deleteQuoteDoc(id, mgmtId) {
+  if (!confirm('この関連書類を削除しますか？')) return;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) { showToast('🗑️ 削除しました'); _loadQuoteDocs(mgmtId); }
+      else showToast('エラー: ' + ((res||{}).error||'不明'), true);
+    })
+    .handleApiRequest('quoteDocDelete', { id });
 }
 
 // 種別タブのプレビュー更新
@@ -5372,6 +5491,10 @@ function saveAdminApproval() {
 
 const MODEL_FILE_TYPES = ['仕様書PDF', '指示書', '納入指示書', '構成表', 'その他'];
 const FILE_TYPE_ICONS  = { '仕様書PDF':'📋', '指示書':'📄', '納入指示書':'📑', '構成表':'🗂️', 'その他':'📎' };
+
+// ── 見積関連書類（28_quote_documents.gs）──
+const QDOC_TYPES = ['社内回覧用資料', 'お客様説明資料', '参考見積書_実装費原価', '参考見積書_組立費原価', '参考見積書_PCBメーカー'];
+const QDOC_TYPE_ICONS = { '社内回覧用資料':'🏢', 'お客様説明資料':'🤝', '参考見積書_実装費原価':'🔧', '参考見積書_組立費原価':'⚙️', '参考見積書_PCBメーカー':'🏭' };
 
 // ── 書類タブ ──
 function _loadModelDocs(modelCode) {

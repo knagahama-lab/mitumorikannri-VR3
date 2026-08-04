@@ -139,6 +139,11 @@ function handleApiRequest(action, payload) {
       case 'makerList':   return apiMakerList();
       case 'makerSave':   return apiMakerSave(payload);
       case 'makerDelete': return apiMakerDelete(payload);
+      // ── 見積関連書類（28_quote_documents.gs）──
+      case 'quoteDocsList':   return apiQuoteDocsList(payload);
+      case 'quoteDocSave':    return apiQuoteDocSave(payload);
+      case 'quoteDocUpload':  return apiQuoteDocUpload(payload);
+      case 'quoteDocDelete':  return apiQuoteDocDelete(payload);
       case 'reregisterTriggers':
         try {
           _registerTriggers();
