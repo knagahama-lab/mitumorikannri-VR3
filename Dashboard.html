@@ -1290,12 +1290,24 @@ tr:hover td{background:#f8fafc;}
       <div class="form-field" style="margin-bottom:12px;"><label>備考</label><textarea id="ledger-remarks" rows="2" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;resize:vertical;font-family:inherit;"></textarea></div>
       <div class="form-field" style="margin-bottom:12px;">
         <label>📎 関連書類（社内回覧用資料・お客様説明資料・参考見積書など）</label>
-        <div id="ledger-qdoc-hint" style="font-size:11px;color:var(--text-sub);margin:2px 0 6px;">💡 一度「保存」すると関連書類を追加できるようになります</div>
+        <!-- 既存（保存済み）データの編集時に表示 -->
         <div id="ledger-qdoc-section" style="display:none;">
           <div style="display:flex;justify-content:flex-end;margin-bottom:6px;">
             <button type="button" class="btn btn-outline btn-sm" id="ledger-qdoc-add-btn">＋ 資料を追加</button>
           </div>
           <div id="ledger-qdoc-list-wrap"></div>
+        </div>
+        <!-- 新規作成時：保存前に選択したファイルを一時キューし、保存と同時にアップロード -->
+        <div id="ledger-qdoc-queue-section" style="display:none;">
+          <div style="font-size:11px;color:var(--text-sub);margin:2px 0 6px;">💡 ここで選択したファイルは「保存」時に自動でアップロードされます</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+            <select id="ledger-qdoc-type" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;"></select>
+            <label style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid var(--border);border-radius:6px;background:#f8fafc;cursor:pointer;font-size:12px;font-weight:600;color:#334155;">
+              📂 ファイルを選択
+              <input type="file" id="ledger-qdoc-queue-file" accept=".pdf,.xlsx,.xls,.png,.jpg,.jpeg" style="display:none;" onchange="_ledgerQdocQueueFileSelected(this)">
+            </label>
+          </div>
+          <div id="ledger-qdoc-queue-list" style="display:flex;flex-direction:column;gap:4px;"></div>
         </div>
       </div>
       <div style="background:#eff6ff;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:var(--primary);">

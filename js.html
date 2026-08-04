@@ -1053,6 +1053,29 @@ function deleteQuoteDoc(id, mgmtId) {
     .handleApiRequest('quoteDocDelete', { id });
 }
 
+// レコードID確定前に選択された関連書類（{docType, file}[]）をまとめてアップロードする共通ヘルパー
+function _uploadQueuedQdocs(recordId, queue, onEach) {
+  if (!recordId || !queue || !queue.length) return;
+  showToast(`📎 関連書類 ${queue.length}件をアップロード中…`);
+  queue.forEach(function(q) {
+    const reader = new FileReader();
+    reader.onload = function() {
+      const base64Data = reader.result.split(',')[1];
+      google.script.run
+        .withSuccessHandler(function(res) {
+          if (!res || !res.success) showToast('関連書類アップロード失敗: ' + q.file.name + ' (' + ((res||{}).error||'不明') + ')', true);
+          if (onEach) onEach(res);
+        })
+        .withFailureHandler(function(err) {
+          showToast('関連書類アップロード失敗: ' + q.file.name, true);
+          if (onEach) onEach(null);
+        })
+        .handleApiRequest('quoteDocUpload', { mgmtId: recordId, docType: q.docType, fileName: q.file.name, mimeType: q.file.type, base64Data, memo: '' });
+    };
+    reader.readAsDataURL(q.file);
+  });
+}
+
 // 種別タブのプレビュー更新
 function _previewCompositionType(val) {
   const el = document.getElementById('qd-type-badge-preview');
@@ -1891,22 +1914,56 @@ function openLedgerAddModal(ledgerId) {
 }
 
 // 見積予定を追加/編集モーダル内の「関連書類」セクション
+// ・既存データ編集時: 保存済み一覧を表示し、そのまま追加/削除できる
+// ・新規作成時: ファイルをローカルにキューし、保存と同時にアップロードする
 function _renderLedgerQdocSection(ledgerId) {
-  const hint    = document.getElementById('ledger-qdoc-hint');
-  const section = document.getElementById('ledger-qdoc-section');
-  const wrap    = document.getElementById('ledger-qdoc-list-wrap');
-  const addBtn  = document.getElementById('ledger-qdoc-add-btn');
-  if (!hint || !section || !wrap) return;
-  if (!ledgerId) {
-    hint.style.display = '';
+  const section      = document.getElementById('ledger-qdoc-section');
+  const wrap         = document.getElementById('ledger-qdoc-list-wrap');
+  const addBtn       = document.getElementById('ledger-qdoc-add-btn');
+  const queueSection = document.getElementById('ledger-qdoc-queue-section');
+  const typeSel       = document.getElementById('ledger-qdoc-type');
+  if (!section || !wrap || !queueSection) return;
+
+  if (ledgerId) {
+    section.style.display = '';
+    queueSection.style.display = 'none';
+    wrap.innerHTML = `<div id="qdoc-list-${ledgerId}"><div style="color:var(--text-muted);font-size:12px;">読み込み中…</div></div>`;
+    if (addBtn) addBtn.onclick = () => openQuoteDocModal(ledgerId);
+    _loadQuoteDocs(ledgerId);
+  } else {
     section.style.display = 'none';
-    return;
+    queueSection.style.display = '';
+    window._ledgerQdocQueue = [];
+    if (typeSel) typeSel.innerHTML = QDOC_TYPES.map(t => `<option value="${_esc(t)}">${_esc(t)}</option>`).join('');
+    _renderLedgerQdocQueue();
   }
-  hint.style.display = 'none';
-  section.style.display = '';
-  wrap.innerHTML = `<div id="qdoc-list-${ledgerId}"><div style="color:var(--text-muted);font-size:12px;">読み込み中…</div></div>`;
-  if (addBtn) addBtn.onclick = () => openQuoteDocModal(ledgerId);
-  _loadQuoteDocs(ledgerId);
+}
+
+function _ledgerQdocQueueFileSelected(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const docType = document.getElementById('ledger-qdoc-type')?.value || QDOC_TYPES[0];
+  if (!window._ledgerQdocQueue) window._ledgerQdocQueue = [];
+  window._ledgerQdocQueue.push({ docType, file });
+  input.value = '';
+  _renderLedgerQdocQueue();
+}
+
+function _renderLedgerQdocQueue() {
+  const el = document.getElementById('ledger-qdoc-queue-list');
+  if (!el) return;
+  const queue = window._ledgerQdocQueue || [];
+  el.innerHTML = queue.map((q,i) => `
+    <div style="display:flex;align-items:center;gap:8px;font-size:12px;background:#f8fafc;border:1px solid var(--border);border-radius:6px;padding:5px 8px;">
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${QDOC_TYPE_ICONS[q.docType]||'📎'} ${_esc(q.docType)}: ${_esc(q.file.name)}</span>
+      <button onclick="_ledgerQdocQueueRemove(${i})" style="border:none;background:none;color:#dc2626;cursor:pointer;font-size:13px;">✕</button>
+    </div>`).join('');
+}
+
+function _ledgerQdocQueueRemove(i) {
+  if (!window._ledgerQdocQueue) return;
+  window._ledgerQdocQueue.splice(i, 1);
+  _renderLedgerQdocQueue();
 }
 
 function closeLedgerAddModal() {
@@ -1953,8 +2010,10 @@ function saveLedgerEntry() {
           document.getElementById('ledger-edit-id').value = res.ledgerId;
           const titleEl = document.getElementById('ledger-add-title');
           if (titleEl) titleEl.textContent = '📝 見積台帳を編集';
+          const queuedDocs = window._ledgerQdocQueue || [];
           _renderLedgerQdocSection(res.ledgerId);
-          showToast('✅ 保存しました。続けて関連書類を追加できます');
+          if (queuedDocs.length) _uploadQueuedQdocs(res.ledgerId, queuedDocs, () => _loadQuoteDocs(res.ledgerId));
+          showToast(queuedDocs.length ? '✅ 保存しました。関連書類をアップロード中…' : '✅ 保存しました。続けて関連書類を追加できます');
         } else {
           showToast('保存しました');
           closeLedgerAddModal();
@@ -3204,6 +3263,8 @@ function _openOcrReviewModal(res){
   const pdfPreviewBtn=res.pdfUrl?`<a href="${res.pdfUrl}" target="_blank" style="display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border:1px solid #2563eb;border-radius:5px;color:#2563eb;font-size:12px;text-decoration:none;">📄 PDFを確認</a>`:'';
   // ファイル名を取得
   const jobName = _ocrReviewJobId && _ocrQueue[_ocrReviewJobId] ? _ocrQueue[_ocrReviewJobId].fileName : '';
+  window._ocrQdocQueue = [];
+  const qdocTypeOpts = QDOC_TYPES.map(t=>`<option value="${_esc(t)}">${_esc(t)}</option>`).join('');
   document.getElementById('upload-status').innerHTML=`
     <div id="ocr-review-panel" style="margin-top:8px;border:2px solid #2563eb22;border-radius:10px;padding:14px;">
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #f0f2f5;">
@@ -3227,6 +3288,17 @@ function _openOcrReviewModal(res){
           </table>
         </div>
       </div>
+      <div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin-bottom:12px;">
+        <div style="font-size:12px;font-weight:600;margin-bottom:8px;">📎 関連書類（任意）<span style="font-size:11px;font-weight:400;color:#94a3b8;margin-left:6px;">社内回覧用資料・お客様説明資料・参考見積書（PDF/Excel/画像）</span></div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+          <select id="ocr-qdoc-type" style="padding:6px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:12px;">${qdocTypeOpts}</select>
+          <label style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid #e2e8f0;border-radius:6px;background:#f8fafc;cursor:pointer;font-size:12px;font-weight:600;color:#334155;">
+            📂 ファイルを選択
+            <input type="file" id="ocr-qdoc-file" accept=".pdf,.xlsx,.xls,.png,.jpg,.jpeg" style="display:none;" onchange="_ocrQdocFileSelected(this)">
+          </label>
+        </div>
+        <div id="ocr-qdoc-queue-list" style="display:flex;flex-direction:column;gap:4px;"></div>
+      </div>
       <div style="display:flex;gap:8px;justify-content:flex-end;">
         <button onclick="ocrDiscard()" style="border:1px solid #e2e8f0;background:#fff;color:#64748b;border-radius:6px;padding:7px 16px;font-size:13px;cursor:pointer;">✕ キャンセル</button>
         <button onclick="ocrApprove()" id="ocr-approve-btn" style="border:none;background:#2563eb;color:#fff;border-radius:6px;padding:7px 20px;font-size:13px;font-weight:600;cursor:pointer;">✅ 確認・承認してDB登録</button>
@@ -3234,6 +3306,33 @@ function _openOcrReviewModal(res){
     </div>`;
   window._ocrLines   = JSON.parse(JSON.stringify(lines));
   window._ocrDocType = S.docType;
+}
+
+function _ocrQdocFileSelected(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const docType = document.getElementById('ocr-qdoc-type')?.value || QDOC_TYPES[0];
+  if (!window._ocrQdocQueue) window._ocrQdocQueue = [];
+  window._ocrQdocQueue.push({ docType, file });
+  input.value = '';
+  _renderOcrQdocQueue();
+}
+
+function _renderOcrQdocQueue() {
+  const el = document.getElementById('ocr-qdoc-queue-list');
+  if (!el) return;
+  const queue = window._ocrQdocQueue || [];
+  el.innerHTML = queue.map((q,i) => `
+    <div style="display:flex;align-items:center;gap:8px;font-size:12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:5px 8px;">
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${QDOC_TYPE_ICONS[q.docType]||'📎'} ${_esc(q.docType)}: ${_esc(q.file.name)}</span>
+      <button onclick="_ocrQdocRemove(${i})" style="border:none;background:none;color:#dc2626;cursor:pointer;font-size:13px;">✕</button>
+    </div>`).join('');
+}
+
+function _ocrQdocRemove(i) {
+  if (!window._ocrQdocQueue) return;
+  window._ocrQdocQueue.splice(i, 1);
+  _renderOcrQdocQueue();
 }
 
 // ----- 明細編集 -----
@@ -3311,11 +3410,17 @@ function ocrApprove(){
       }
       _ocrReviewJobId = null;
       _ocrSessionId   = null;
+      const _qdocQueue = window._ocrQdocQueue || [];
+      if (res.mgmtId && _qdocQueue.length) {
+        _uploadQueuedQdocs(res.mgmtId, _qdocQueue);
+        window._ocrQdocQueue = [];
+      }
       document.getElementById('upload-status').innerHTML =
         `<div style="background:#e6f4ea;border-radius:8px;padding:14px;font-size:13px;margin-top:8px;">
           <strong style="color:#16a34a;font-size:14px;">✅ DB登録完了</strong><br>
           <span>${_esc(corrected.documentNo||'—')} / ${_esc(corrected.destCompany||'—')}</span><br>
           <span style="color:#6b7280;">明細: ${res.lineCount}行 ／ 合計: ${corrected.totalAmount?corrected.totalAmount.toLocaleString()+' 円':'—'}</span>
+          ${_qdocQueue.length ? `<div style="margin-top:6px;color:#16a34a;">📎 関連書類 ${_qdocQueue.length}件をアップロード中…</div>` : ''}
           ${res.mgmtId ? `<div style="margin-top:10px;"><button class="btn btn-outline btn-sm" onclick="openQuoteDocModal('${_esc(res.mgmtId)}')">📎 関連書類を追加</button></div>` : ''}
           <div style="margin-top:8px;font-size:11px;color:#64748b;">次の「確認待ち」ファイルがある場合は上のキューから選択してください。</div>
         </div>`;
