@@ -76,13 +76,21 @@ function _upsertPriceListRows(items) {
   return { appended: appended, updated: updated };
 }
 
-// 見積書シートの明細行を items[] へ変換（unitPrice=0 や品名なしの行は除外）
+// 見積書シートの明細行を items[] へ変換（品名なし・単価0の行は除外）
+// OCR結果によっては単価(UNIT_PRICE)が空で金額(AMOUNT)のみ入っているケースがあるため、
+// その場合は 金額÷数量（数量1件なら金額そのまま）を単価とみなす。
 function _quoteLinesToPriceItems(rows) {
   var map = {}; // 同一 品名+仕様 は最新の見積日のものだけ残す
   rows.forEach(function(r) {
     var itemName = String(r[QUOTE_COLS.ITEM_NAME - 1] || '').trim();
+    if (!itemName) return;
+    var qty = Number(r[QUOTE_COLS.QTY - 1] || 0);
+    var amount = Number(r[QUOTE_COLS.AMOUNT - 1] || 0);
     var unitPrice = Number(r[QUOTE_COLS.UNIT_PRICE - 1] || 0);
-    if (!itemName || !unitPrice) return;
+    if (!unitPrice && amount) {
+      unitPrice = (qty > 1) ? Math.round(amount / qty) : amount;
+    }
+    if (!unitPrice) return;
     var spec = String(r[QUOTE_COLS.SPEC - 1] || '').trim();
     var category = _classifyPriceItem(itemName);
     var issueDateRaw = r[QUOTE_COLS.ISSUE_DATE - 1];
@@ -122,12 +130,18 @@ function apiPriceListRebuild() {
   try {
     var ss = getSpreadsheet();
     var quoteSheet = ss.getSheetByName(CONFIG.SHEET_QUOTES);
-    if (!quoteSheet || quoteSheet.getLastRow() <= 1) return { success: true, appended: 0, updated: 0 };
+    if (!quoteSheet || quoteSheet.getLastRow() <= 1) {
+      return { success: true, appended: 0, updated: 0, total: 0, scanned: 0, diag: '見積書シートが空です' };
+    }
     var last = quoteSheet.getLastRow();
     var data = quoteSheet.getRange(2, 1, last - 1, 15).getValues();
+    var withItemName = data.filter(function(r) { return String(r[QUOTE_COLS.ITEM_NAME - 1] || '').trim(); }).length;
     var items = _quoteLinesToPriceItems(data);
     var res = _upsertPriceListRows(items);
-    return { success: true, appended: res.appended, updated: res.updated, total: items.length };
+    return {
+      success: true, appended: res.appended, updated: res.updated, total: items.length,
+      scanned: data.length, withItemName: withItemName,
+    };
   } catch (e) { return { success: false, error: e.message }; }
 }
 

@@ -7125,7 +7125,8 @@ function rebuildPriceList() {
   google.script.run
     .withSuccessHandler(res => {
       if (res && res.success) {
-        showToast(`✅ 再集計しました（新規${res.appended}件・更新${res.updated}件）`);
+        const diag = res.total === 0 ? `（明細${res.scanned||0}行中 品名あり${res.withItemName||0}行 / 単価が取得できた行が0件でした。${res.diag||''}）` : '';
+        showToast(`✅ 再集計しました（新規${res.appended}件・更新${res.updated}件）${diag}`);
         loadPriceList();
       } else showToast('エラー: ' + ((res||{}).error||'不明'), true);
     })
