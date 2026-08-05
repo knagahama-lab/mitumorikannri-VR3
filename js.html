@@ -16,6 +16,7 @@ const DEFAULT_MENU = [
   { id:'workflow',    icon:'🔄', label:'業務フロー',    section:'自動化・連携',   visible:true },
   { id:'assignees',   icon:'👥', label:'担当者管理',    section:'自動化・連携',   visible:true },
   { id:'approval',    icon:'✅', label:'製造承認',      section:'自動化・連携',   visible:true },
+  { id:'pricelist',   icon:'💹', label:'価格表',        section:'マスタ管理',     visible:true },
   { id:'model',       icon:'🏭', label:'機種マスタ',    section:'マスタ管理',     visible:true },
   { id:'board',       icon:'🏷️', label:'基板マスタ',     section:'マスタ管理',     visible:true },
   { id:'maker',       icon:'🏢', label:'メーカー管理',  section:'マスタ管理',     visible:true },
@@ -36,7 +37,7 @@ const DEFAULT_MENU = [
 
 let IS_ADMIN = true;
 let userMenuConfig = [];
-const PAGE_TITLES = { list:'案件一覧', ledger:'見積台帳', matching:'AI紐づけ', calendar:'スケジュール', ocr:'簡易OCR', todo:'ToDo', drivesearch:'全文検索', admin:'システム管理コンソール', workflow:'業務フロー', assignees:'担当者管理', approval:'製造承認', board:'基板マスタ', simulation:'利益シミュレーション', analysis:'分析・レポート', aichat:'AIアシスタント', model:'機種マスタ', checklist:'見積セット チェックリスト', quotecheck:'見積書チェック（単価照合）', quoteset:'見積セット管理', maker:'メーカー管理', submitmgmt:'見積提出管理' };
+const PAGE_TITLES = { list:'案件一覧', ledger:'見積台帳', matching:'AI紐づけ', calendar:'スケジュール', ocr:'簡易OCR', todo:'ToDo', drivesearch:'全文検索', admin:'システム管理コンソール', workflow:'業務フロー', assignees:'担当者管理', approval:'製造承認', board:'基板マスタ', simulation:'利益シミュレーション', analysis:'分析・レポート', aichat:'AIアシスタント', model:'機種マスタ', checklist:'見積セット チェックリスト', quotecheck:'見積書チェック（単価照合）', quoteset:'見積セット管理', maker:'メーカー管理', submitmgmt:'見積提出管理', pricelist:'価格表' };
 
 const S = { all:[], filtered:[], page:1, limit:30, docType:'quote', orderType:'', selectedFile:null };
 let _clientMasterList = []; let _orderClientTab = 'all'; let _quoteClientTab = 'all'; let _editClientMaster = [];
@@ -314,6 +315,7 @@ function showPage(name){
   if(name==='board')  { showPage('model'); switchMasterTab('board'); return; }
   if(name==='checklist' && typeof initChecklistPage==='function') initChecklistPage();
   if(name==='quotecheck' && typeof initQuoteCheckPage==='function') initQuoteCheckPage();
+  if(name==='pricelist' && typeof initPriceListPage==='function') initPriceListPage();
   if(name==='quoteset')   loadQuoteSetPage();
   if(name==='submitmgmt') loadSubmitMgmt();
   if(name==='maker')      loadMakerPage();
@@ -7059,6 +7061,166 @@ function clearAmountSearch() {
 
 function openNewQsSubmitModal() {
   showToast('見積登録モーダルは準備中です');
+}
+
+// ============================================================
+// 価格表（29_price_list.gs）— 基板価格・PCB価格・その他価格
+// ============================================================
+let _plAllRows = [];
+let _plCategoryTab = '';   // '' = すべて
+let _plSearchText = '';
+let _plInvertedOnly = false;
+
+function initPriceListPage() {
+  const wrap = document.getElementById('pricelist-wrap');
+  if (!wrap) return;
+  wrap.innerHTML = `
+  <div class="page-heading">
+    <div><h2>💹 価格表（基板・PCB・その他）</h2><p>登録された見積書の明細から品名ごとの最新単価を自動集計します。原価を入力すると粗利・逆ざやを確認できます。</p></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-outline btn-sm" onclick="rebuildPriceList()">🔄 価格表を再集計</button>
+    </div>
+  </div>
+  <div class="filter-bar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+    <div id="pl-cat-tabs" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+    <input type="text" id="pl-search" placeholder="品名・仕様・見積番号で検索..." style="flex:1;min-width:200px;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;" oninput="_plFilterAndRender()">
+    <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--danger);white-space:nowrap;">
+      <input type="checkbox" id="pl-inverted-only" onchange="_plFilterAndRender()"> ⚠️ 逆ざやのみ表示
+    </label>
+  </div>
+  <div id="pl-summary" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;"></div>
+  <div id="pl-table-wrap" style="overflow-x:auto;"><div class="loading" style="text-align:center;padding:40px;color:var(--text-muted);"><div class="spinner"></div><br>読み込み中...</div></div>`;
+  _plRenderCatTabs();
+  loadPriceList();
+}
+
+function _plRenderCatTabs() {
+  const el = document.getElementById('pl-cat-tabs');
+  if (!el) return;
+  const tabs = [{ id:'', label:'すべて' }, { id:'基板', label:'🔩 基板' }, { id:'PCB', label:'🟩 PCB' }, { id:'その他', label:'📦 その他' }];
+  el.innerHTML = tabs.map(t => `<button class="btn btn-sm ${_plCategoryTab===t.id?'btn-primary':'btn-outline'}" onclick="_plSetCategoryTab('${t.id}')">${t.label}</button>`).join('');
+}
+
+function _plSetCategoryTab(id) {
+  _plCategoryTab = id;
+  _plRenderCatTabs();
+  _plFilterAndRender();
+}
+
+function loadPriceList() {
+  const tableWrap = document.getElementById('pl-table-wrap');
+  if (tableWrap) tableWrap.innerHTML = '<div class="loading" style="text-align:center;padding:40px;color:var(--text-muted);"><div class="spinner"></div><br>読み込み中...</div>';
+  google.script.run
+    .withSuccessHandler(res => {
+      if (!res || !res.success) { if (tableWrap) tableWrap.innerHTML = '<div style="color:var(--danger);padding:20px;">エラー: ' + ((res||{}).error||'不明') + '</div>'; return; }
+      _plAllRows = res.rows || [];
+      _plFilterAndRender();
+    })
+    .withFailureHandler(err => { if (tableWrap) tableWrap.innerHTML = '<div style="color:var(--danger);padding:20px;">通信エラー: ' + (err.message||err) + '</div>'; })
+    .handleApiRequest('priceListGet', {});
+}
+
+function rebuildPriceList() {
+  showToast('⏳ 価格表を再集計中…');
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res && res.success) {
+        showToast(`✅ 再集計しました（新規${res.appended}件・更新${res.updated}件）`);
+        loadPriceList();
+      } else showToast('エラー: ' + ((res||{}).error||'不明'), true);
+    })
+    .withFailureHandler(err => showToast('通信エラー: ' + (err.message||err), true))
+    .handleApiRequest('priceListRebuild', {});
+}
+
+function _plFilterAndRender() {
+  const searchEl = document.getElementById('pl-search');
+  const invEl = document.getElementById('pl-inverted-only');
+  _plSearchText = searchEl ? searchEl.value.trim().toLowerCase() : '';
+  _plInvertedOnly = invEl ? invEl.checked : false;
+
+  let rows = _plAllRows.slice();
+  if (_plCategoryTab) rows = rows.filter(r => r.category === _plCategoryTab);
+  if (_plInvertedOnly) rows = rows.filter(r => r.inverted);
+  if (_plSearchText) {
+    rows = rows.filter(r => (r.itemName+' '+r.spec+' '+r.quoteNo).toLowerCase().indexOf(_plSearchText) >= 0);
+  }
+  _plRenderSummary(rows);
+  _plRenderTable(rows);
+}
+
+function _plRenderSummary(rows) {
+  const el = document.getElementById('pl-summary');
+  if (!el) return;
+  const invertedCount = rows.filter(r => r.inverted).length;
+  const catCounts = { '基板':0, 'PCB':0, 'その他':0 };
+  _plAllRows.forEach(r => { if (catCounts[r.category] !== undefined) catCounts[r.category]++; });
+  const chip = (label, val, color) => `<div style="background:#f8fafc;border:1px solid var(--border-light);border-radius:8px;padding:8px 14px;font-size:12px;"><span style="color:var(--text-sub);">${label}</span> <strong style="font-size:14px;color:${color||'var(--text)'};">${val}</strong></div>`;
+  el.innerHTML = chip('表示中', rows.length + '件')
+    + chip('🔩 基板', catCounts['基板']+'件')
+    + chip('🟩 PCB', catCounts['PCB']+'件')
+    + chip('📦 その他', catCounts['その他']+'件')
+    + (invertedCount ? chip('⚠️ 逆ざや', invertedCount+'件', 'var(--danger)') : '');
+}
+
+function _plRenderTable(rows) {
+  const wrap = document.getElementById('pl-table-wrap');
+  if (!wrap) return;
+  if (rows.length === 0) {
+    wrap.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted);">データがありません。見積書を登録するか「🔄 価格表を再集計」を押してください。</div>';
+    return;
+  }
+  const catIcon = { '基板':'🔩', 'PCB':'🟩', 'その他':'📦' };
+  const rowsHtml = rows.map(r => {
+    const invertedStyle = r.inverted ? 'background:#fef2f2;' : '';
+    const priceLink = r.pdfUrl
+      ? `<a href="${_esc(r.pdfUrl)}" target="_blank" style="color:var(--primary);text-decoration:none;font-weight:700;" title="見積書PDFを開く">¥${Number(r.unitPrice).toLocaleString()}</a>`
+      : `<span style="font-weight:700;">¥${Number(r.unitPrice).toLocaleString()}</span>`;
+    return `<tr style="${invertedStyle}border-bottom:1px solid var(--border-light);">
+      <td style="padding:8px 10px;white-space:nowrap;">${catIcon[r.category]||'📦'} ${_esc(r.category)}</td>
+      <td style="padding:8px 10px;"><strong>${_esc(r.itemName)}</strong>${r.spec?`<div style="font-size:11px;color:var(--text-sub);">${_esc(r.spec)}</div>`:''}</td>
+      <td style="padding:8px 10px;text-align:right;white-space:nowrap;">${priceLink}</td>
+      <td style="padding:8px 10px;white-space:nowrap;">
+        <input type="number" value="${r.cost===''?'':r.cost}" placeholder="未入力" data-id="${_esc(r.id)}"
+          onchange="_plSaveCost(this)" style="width:100px;padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:right;">
+      </td>
+      <td style="padding:8px 10px;text-align:right;white-space:nowrap;color:${r.margin!==''&&r.margin<0?'var(--danger)':'inherit'};">${r.margin===''?'—':'¥'+Number(r.margin).toLocaleString()}</td>
+      <td style="padding:8px 10px;text-align:right;white-space:nowrap;color:${r.marginRate!==''&&r.marginRate<0?'var(--danger)':'inherit'};">${r.marginRate===''?'—':r.marginRate+'%'}</td>
+      <td style="padding:8px 10px;text-align:center;white-space:nowrap;">${r.inverted?'<span style="color:var(--danger);font-weight:700;">⚠️ 逆ざや</span>':''}</td>
+      <td style="padding:8px 10px;font-size:11px;color:var(--text-sub);white-space:nowrap;">${_esc(r.quoteNo||'—')}</td>
+      <td style="padding:8px 10px;font-size:11px;color:var(--text-sub);white-space:nowrap;">${_esc(r.quoteDate||'—')}</td>
+    </tr>`;
+  }).join('');
+  wrap.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px;min-width:920px;">
+    <thead><tr style="background:#f8fafc;font-size:12px;color:var(--text-sub);">
+      <th style="padding:8px 10px;text-align:left;">分類</th>
+      <th style="padding:8px 10px;text-align:left;">品名／仕様</th>
+      <th style="padding:8px 10px;text-align:right;">見積単価（PDFへリンク）</th>
+      <th style="padding:8px 10px;text-align:left;">原価（手入力）</th>
+      <th style="padding:8px 10px;text-align:right;">粗利額</th>
+      <th style="padding:8px 10px;text-align:right;">粗利率</th>
+      <th style="padding:8px 10px;text-align:center;">判定</th>
+      <th style="padding:8px 10px;text-align:left;">見積番号</th>
+      <th style="padding:8px 10px;text-align:left;">見積日</th>
+    </tr></thead>
+    <tbody>${rowsHtml}</tbody>
+  </table>`;
+}
+
+function _plSaveCost(input) {
+  const id = input.dataset.id;
+  const cost = input.value === '' ? '' : Number(input.value);
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res && res.success) {
+        const row = _plAllRows.find(r => r.id === id);
+        if (row) { row.cost = cost; row.margin = res.margin; row.marginRate = res.marginRate; row.inverted = res.inverted; }
+        showToast(res.inverted ? '⚠️ 逆ざやです（原価が見積単価を上回っています）' : '✅ 原価を保存しました');
+        _plFilterAndRender();
+      } else showToast('エラー: ' + ((res||{}).error||'不明'), true);
+    })
+    .withFailureHandler(err => showToast('通信エラー: ' + (err.message||err), true))
+    .handleApiRequest('priceListSaveCost', { id, cost });
 }
 
 </script>

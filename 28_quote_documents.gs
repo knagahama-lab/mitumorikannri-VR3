@@ -207,6 +207,11 @@ function apiReplaceQuotePdf(payload) {
       });
     }
 
+    // 価格表に載っているこの見積のPDFリンクも合わせて更新
+    relatedIds.forEach(function(id) {
+      try { _upsertPriceListForMgmt(id); } catch (plErr) { Logger.log('[PRICE LIST UPDATE SKIP] ' + plErr.message); }
+    });
+
     return { success: true, url: newUrl };
   } catch (e) { return { success: false, error: e.message }; }
 }

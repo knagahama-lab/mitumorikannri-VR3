@@ -145,6 +145,10 @@ function handleApiRequest(action, payload) {
       case 'quoteDocUpload':  return apiQuoteDocUpload(payload);
       case 'quoteDocDelete':  return apiQuoteDocDelete(payload);
       case 'replaceQuotePdf': return apiReplaceQuotePdf(payload);
+      // ── 価格表（29_price_list.gs）──
+      case 'priceListGet':      return apiPriceListGet(payload);
+      case 'priceListRebuild':  return apiPriceListRebuild();
+      case 'priceListSaveCost': return apiPriceListSaveCost(payload);
       case 'reregisterTriggers':
         try {
           _registerTriggers();

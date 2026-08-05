@@ -196,6 +196,9 @@ function _processQuotePdf(attachment, gmailMsg, msgId) {
 
   _writeQuoteLines(ss, mgmtSheet, newRow, mgmtId, ocr, pdfUrl, folderUrl);
 
+  // 価格表（基板/PCB/その他）の自動更新
+  try { _upsertPriceListForMgmt(mgmtId); } catch(plErr) { Logger.log('[PRICE LIST UPDATE SKIP] ' + plErr.message); }
+
   // 見積台帳の自動更新
   try {
     _apiLedgerUpdateUrl({
@@ -611,6 +614,9 @@ function _processQuotePdfFromFile(pdfUrl, folderUrl, ocr, msgId) {
   mgmtSheet.getRange(newRow, 1, 1, 32).setValues([row]);
 
   _writeQuoteLines(ss, mgmtSheet, newRow, mgmtId, ocr, pdfUrl, folderUrl);
+
+  // 価格表（基板/PCB/その他）の自動更新
+  try { _upsertPriceListForMgmt(mgmtId); } catch(plErr) { Logger.log('[PRICE LIST UPDATE SKIP] ' + plErr.message); }
 
   // 見積台帳の自動更新
   try {
