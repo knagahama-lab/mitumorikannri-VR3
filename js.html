@@ -3457,19 +3457,19 @@ function ocrApprove(){
       _ocrReviewJobId = null;
       _ocrSessionId   = null;
       const _qdocQueue = window._ocrQdocQueue || [];
-      if (res.mgmtId && _qdocQueue.length) {
-        _uploadQueuedQdocs(res.mgmtId, _qdocQueue);
-        window._ocrQdocQueue = [];
-      }
+      window._ocrQdocQueue = [];
       document.getElementById('upload-status').innerHTML =
         `<div style="background:#e6f4ea;border-radius:8px;padding:14px;font-size:13px;margin-top:8px;">
           <strong style="color:#16a34a;font-size:14px;">✅ DB登録完了</strong><br>
           <span>${_esc(corrected.documentNo||'—')} / ${_esc(corrected.destCompany||'—')}</span><br>
           <span style="color:#6b7280;">明細: ${res.lineCount}行 ／ 合計: ${corrected.totalAmount?corrected.totalAmount.toLocaleString()+' 円':'—'}</span>
-          ${_qdocQueue.length ? `<div style="margin-top:6px;color:#16a34a;">📎 関連書類 ${_qdocQueue.length}件をアップロード中…</div>` : ''}
+          ${_qdocQueue.length ? `<div style="margin-top:6px;color:#16a34a;">📎 関連書類 ${_qdocQueue.length}件をアップロード中…</div><div id="qdoc-list-${_esc(res.mgmtId||'')}" style="margin-top:6px;"></div>` : ''}
           ${res.mgmtId ? `<div style="margin-top:10px;"><button class="btn btn-outline btn-sm" onclick="openQuoteDocModal('${_esc(res.mgmtId)}')">📎 関連書類を追加</button></div>` : ''}
           <div style="margin-top:8px;font-size:11px;color:#64748b;">次の「確認待ち」ファイルがある場合は上のキューから選択してください。</div>
         </div>`;
+      if (res.mgmtId && _qdocQueue.length) {
+        _uploadQueuedQdocs(res.mgmtId, _qdocQueue, () => _loadQuoteDocs(res.mgmtId));
+      }
       showToast('✅ 登録完了しました');
       loadData();
       if(typeof loadQuoteList==='function') loadQuoteList();
