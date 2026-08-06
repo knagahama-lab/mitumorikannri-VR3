@@ -7070,28 +7070,79 @@ let _plAllRows = [];
 let _plCategoryTab = '';   // '' = すべて
 let _plSearchText = '';
 let _plInvertedOnly = false;
+let _plPageTab = 'auto';   // 'auto' | 'master' | 'model'
+let _plMasterHeaders = []; let _plMasterRows = [];
+let _plModelHeaders = [];  let _plModelRows = [];
 
 function initPriceListPage() {
   const wrap = document.getElementById('pricelist-wrap');
   if (!wrap) return;
   wrap.innerHTML = `
   <div class="page-heading">
-    <div><h2>💹 価格表（基板・PCB・その他）</h2><p>登録された見積書の明細から品名ごとの最新単価を自動集計します。原価を入力すると粗利・逆ざやを確認できます。</p></div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;">
-      <button class="btn btn-outline btn-sm" onclick="rebuildPriceList()">🔄 価格表を再集計</button>
+    <div><h2>💹 価格表（基板・PCB・その他）</h2><p>見積書からの自動集計に加え、マスタ表（Excel）から取り込んだ基板原価・公表単価表、機種ごとの基板構成表を管理できます。</p></div>
+  </div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;border-bottom:1px solid var(--border-light);padding-bottom:10px;">
+    <button class="btn btn-sm" id="pl-tab-auto"   onclick="_plSwitchPageTab('auto')">📊 見積から自動集計</button>
+    <button class="btn btn-sm" id="pl-tab-master" onclick="_plSwitchPageTab('master')">📥 基板PCB価格マスタ</button>
+    <button class="btn btn-sm" id="pl-tab-model"  onclick="_plSwitchPageTab('model')">🧩 機種基板構成</button>
+  </div>
+
+  <div id="pl-panel-auto">
+    <div class="page-heading" style="margin-top:0;">
+      <div><p style="margin:0;">登録された見積書の明細から品名ごとの最新単価を自動集計します。原価を入力すると粗利・逆ざやを確認できます。</p></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-outline btn-sm" onclick="rebuildPriceList()">🔄 価格表を再集計</button>
+      </div>
     </div>
+    <div class="filter-bar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+      <div id="pl-cat-tabs" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+      <input type="text" id="pl-search" placeholder="品名・仕様・見積番号で検索..." style="flex:1;min-width:200px;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;" oninput="_plFilterAndRender()">
+      <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--danger);white-space:nowrap;">
+        <input type="checkbox" id="pl-inverted-only" onchange="_plFilterAndRender()"> ⚠️ 逆ざやのみ表示
+      </label>
+    </div>
+    <div id="pl-summary" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;"></div>
+    <div id="pl-table-wrap" style="overflow-x:auto;"><div class="loading" style="text-align:center;padding:40px;color:var(--text-muted);"><div class="spinner"></div><br>読み込み中...</div></div>
   </div>
-  <div class="filter-bar" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
-    <div id="pl-cat-tabs" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
-    <input type="text" id="pl-search" placeholder="品名・仕様・見積番号で検索..." style="flex:1;min-width:200px;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;" oninput="_plFilterAndRender()">
-    <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--danger);white-space:nowrap;">
-      <input type="checkbox" id="pl-inverted-only" onchange="_plFilterAndRender()"> ⚠️ 逆ざやのみ表示
-    </label>
+
+  <div id="pl-panel-master" style="display:none;">
+    <div class="page-heading" style="margin-top:0;">
+      <div><p style="margin:0;">Excelマスタ表「基板PCB価格」シートを取り込んだ原価・公表単価の一覧です。セルをクリックして直接編集できます。</p></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-outline btn-sm" onclick="seedMasterPriceData()">📥 Excelマスタ表から再取込み</button>
+      </div>
+    </div>
+    <div id="pl-master-table-wrap" style="overflow-x:auto;"><div class="loading" style="text-align:center;padding:40px;color:var(--text-muted);"><div class="spinner"></div><br>読み込み中...</div></div>
   </div>
-  <div id="pl-summary" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;"></div>
-  <div id="pl-table-wrap" style="overflow-x:auto;"><div class="loading" style="text-align:center;padding:40px;color:var(--text-muted);"><div class="spinner"></div><br>読み込み中...</div></div>`;
+
+  <div id="pl-panel-model" style="display:none;">
+    <div class="page-heading" style="margin-top:0;">
+      <div><p style="margin:0;">Excelマスタ表「機種メモ」シートの最新スナップショットから抽出した、機種ごとの主基板・払出基板・D/E/DE基板の構成一覧です。</p></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-outline btn-sm" onclick="addModelBoardCompositionRow()">＋ 機種を追加</button>
+        <button class="btn btn-outline btn-sm" onclick="seedMasterPriceData()">📥 Excelマスタ表から再取込み</button>
+      </div>
+    </div>
+    <div style="margin-bottom:10px;">
+      <input type="text" id="pl-model-search" placeholder="機種コード・基板コードで検索..." style="width:280px;max-width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;" oninput="_plRenderModelTable()">
+    </div>
+    <div id="pl-model-table-wrap" style="overflow-x:auto;"><div class="loading" style="text-align:center;padding:40px;color:var(--text-muted);"><div class="spinner"></div><br>読み込み中...</div></div>
+  </div>`;
   _plRenderCatTabs();
-  loadPriceList();
+  _plSwitchPageTab('auto');
+}
+
+function _plSwitchPageTab(tab) {
+  _plPageTab = tab;
+  ['auto','master','model'].forEach(t => {
+    const panel = document.getElementById('pl-panel-'+t);
+    const btn = document.getElementById('pl-tab-'+t);
+    if (panel) panel.style.display = (t===tab) ? '' : 'none';
+    if (btn) btn.className = 'btn btn-sm ' + (t===tab ? 'btn-primary' : 'btn-outline');
+  });
+  if (tab === 'auto' && _plAllRows.length === 0) loadPriceList();
+  if (tab === 'master' && _plMasterRows.length === 0) loadMasterBoardPrice();
+  if (tab === 'model' && _plModelRows.length === 0) loadModelBoardComposition();
 }
 
 function _plRenderCatTabs() {
@@ -7224,4 +7275,144 @@ function _plSaveCost(input) {
     .handleApiRequest('priceListSaveCost', { id, cost });
 }
 
+// ── 基板PCB価格マスタ（Excel取込み）──
+function seedMasterPriceData() {
+  if (!confirm('Excelマスタ表の内容で「基板PCB価格マスタ」と「機種基板構成」を再取込みします。\n取込み後に手入力で編集した内容は上書きされます。よろしいですか？')) return;
+  showToast('⏳ 取込み中…');
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res && res.success) {
+        showToast(`✅ 取込み完了（基板価格${res.priceRows}件・機種構成${res.modelRows}件）`);
+        _plMasterRows = []; _plModelRows = [];
+        if (_plPageTab === 'master') loadMasterBoardPrice();
+        if (_plPageTab === 'model') loadModelBoardComposition();
+      } else showToast('エラー: ' + ((res||{}).error||'不明'), true);
+    })
+    .withFailureHandler(err => showToast('通信エラー: ' + (err.message||err), true))
+    .handleApiRequest('seedMasterPriceData', {});
+}
+
+function loadMasterBoardPrice() {
+  const wrap = document.getElementById('pl-master-table-wrap');
+  if (wrap) wrap.innerHTML = '<div class="loading" style="text-align:center;padding:40px;color:var(--text-muted);"><div class="spinner"></div><br>読み込み中...</div>';
+  google.script.run
+    .withSuccessHandler(res => {
+      if (!res || !res.success) { if (wrap) wrap.innerHTML = '<div style="color:var(--danger);padding:20px;">エラー: '+((res||{}).error||'不明')+'</div>'; return; }
+      _plMasterHeaders = res.headers || [];
+      _plMasterRows = res.rows || [];
+      if (_plMasterRows.length === 0) {
+        wrap.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted);">データがありません。「📥 Excelマスタ表から再取込み」を押してください。</div>';
+        return;
+      }
+      _plRenderMasterTable();
+    })
+    .withFailureHandler(err => { if (wrap) wrap.innerHTML = '<div style="color:var(--danger);padding:20px;">通信エラー: '+(err.message||err)+'</div>'; })
+    .handleApiRequest('masterBoardPriceGet', {});
+}
+
+function _plRenderMasterTable() {
+  const wrap = document.getElementById('pl-master-table-wrap');
+  if (!wrap) return;
+  const headHtml = _plMasterHeaders.map(h => `<th style="padding:6px 8px;text-align:left;white-space:nowrap;">${_esc(h)}</th>`).join('');
+  const bodyHtml = _plMasterRows.map(r => {
+    const cells = _plMasterHeaders.map(h => {
+      const v = r[h];
+      const isUrl = typeof v === 'string' && /^https?:\/\//.test(v);
+      const linkBtn = isUrl ? `<a href="${_esc(v)}" target="_blank" style="margin-right:4px;text-decoration:none;">🔗</a>` : '';
+      return `<td style="padding:3px 4px;white-space:nowrap;">${linkBtn}<input type="text" value="${_esc(v===null||v===undefined?'':v)}" data-row="${r._row}" data-header="${_esc(h)}" onchange="_plSaveMasterCell(this)" style="width:${h==='基板グループ'||h==='基板コード'?'110px':h==='採用機種'||h==='設計課情報'||h.indexOf('過去見積')>=0?'160px':'80px'};padding:4px 6px;border:1px solid var(--border-light);border-radius:4px;font-size:12px;"></td>`;
+    }).join('');
+    return `<tr>${cells}</tr>`;
+  }).join('');
+  wrap.innerHTML = `<table style="border-collapse:collapse;font-size:12px;min-width:1600px;">
+    <thead><tr style="background:#f8fafc;">${headHtml}</tr></thead>
+    <tbody>${bodyHtml}</tbody>
+  </table>`;
+}
+
+function _plSaveMasterCell(input) {
+  const row = Number(input.dataset.row);
+  const header = input.dataset.header;
+  const value = input.value;
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res && res.success) {
+        const r = _plMasterRows.find(x => x._row === row);
+        if (r) r[header] = value;
+        showToast('✅ 保存しました');
+      } else showToast('エラー: ' + ((res||{}).error||'不明'), true);
+    })
+    .withFailureHandler(err => showToast('通信エラー: ' + (err.message||err), true))
+    .handleApiRequest('masterBoardPriceUpdateCell', { row, header, value });
+}
+
+// ── 機種基板構成（Excel取込み）──
+function loadModelBoardComposition() {
+  const wrap = document.getElementById('pl-model-table-wrap');
+  if (wrap) wrap.innerHTML = '<div class="loading" style="text-align:center;padding:40px;color:var(--text-muted);"><div class="spinner"></div><br>読み込み中...</div>';
+  google.script.run
+    .withSuccessHandler(res => {
+      if (!res || !res.success) { if (wrap) wrap.innerHTML = '<div style="color:var(--danger);padding:20px;">エラー: '+((res||{}).error||'不明')+'</div>'; return; }
+      _plModelHeaders = res.headers || [];
+      _plModelRows = res.rows || [];
+      if (_plModelRows.length === 0) {
+        wrap.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted);">データがありません。「📥 Excelマスタ表から再取込み」を押してください。</div>';
+        return;
+      }
+      _plRenderModelTable();
+    })
+    .withFailureHandler(err => { if (wrap) wrap.innerHTML = '<div style="color:var(--danger);padding:20px;">通信エラー: '+(err.message||err)+'</div>'; })
+    .handleApiRequest('modelBoardCompositionGet', {});
+}
+
+function _plRenderModelTable() {
+  const wrap = document.getElementById('pl-model-table-wrap');
+  if (!wrap) return;
+  const searchEl = document.getElementById('pl-model-search');
+  const q = searchEl ? searchEl.value.trim().toLowerCase() : '';
+  let rows = _plModelRows;
+  if (q) {
+    rows = rows.filter(r => _plModelHeaders.some(h => String(r[h]||'').toLowerCase().indexOf(q) >= 0));
+  }
+  const headHtml = _plModelHeaders.map(h => `<th style="padding:6px 8px;text-align:left;white-space:nowrap;">${_esc(h)}</th>`).join('');
+  const bodyHtml = rows.map(r => {
+    const cells = _plModelHeaders.map(h => {
+      const v = r[h];
+      return `<td style="padding:3px 4px;white-space:nowrap;"><input type="text" value="${_esc(v===null||v===undefined?'':v)}" data-row="${r._row}" data-header="${_esc(h)}" onchange="_plSaveModelCell(this)" style="width:${h==='機種コード'?'110px':'140px'};padding:4px 6px;border:1px solid var(--border-light);border-radius:4px;font-size:12px;"></td>`;
+    }).join('');
+    return `<tr>${cells}</tr>`;
+  }).join('');
+  wrap.innerHTML = `<table style="border-collapse:collapse;font-size:12px;min-width:900px;">
+    <thead><tr style="background:#f8fafc;">${headHtml}</tr></thead>
+    <tbody>${bodyHtml}</tbody>
+  </table>
+  <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">${rows.length} / ${_plModelRows.length} 件表示</div>`;
+}
+
+function _plSaveModelCell(input) {
+  const row = Number(input.dataset.row);
+  const header = input.dataset.header;
+  const value = input.value;
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res && res.success) {
+        const r = _plModelRows.find(x => x._row === row);
+        if (r) r[header] = value;
+        showToast('✅ 保存しました');
+      } else showToast('エラー: ' + ((res||{}).error||'不明'), true);
+    })
+    .withFailureHandler(err => showToast('通信エラー: ' + (err.message||err), true))
+    .handleApiRequest('modelBoardCompositionUpdateCell', { row, header, value });
+}
+
+function addModelBoardCompositionRow() {
+  const code = prompt('追加する機種コードを入力してください（例: e:A90）');
+  if (!code) return;
+  google.script.run
+    .withSuccessHandler(res => {
+      if (res && res.success) { showToast('✅ 追加しました'); loadModelBoardComposition(); }
+      else showToast('エラー: ' + ((res||{}).error||'不明'), true);
+    })
+    .withFailureHandler(err => showToast('通信エラー: ' + (err.message||err), true))
+    .handleApiRequest('modelBoardCompositionAddRow', { code });
+}
 </script>
