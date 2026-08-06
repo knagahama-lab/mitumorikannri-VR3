@@ -152,7 +152,7 @@ function handleApiRequest(action, payload) {
       // ── 基板PCB価格マスタ・機種基板構成（30_price_master_import.gs）──
       case 'seedMasterPriceData':          return apiSeedMasterPriceData();
       case 'masterBoardPriceGet':          return apiMasterBoardPriceGet();
-      case 'masterBoardPriceUpdateCell':   return apiMasterBoardPriceUpdateCell(payload);
+      case 'masterBoardPriceSaveRow':      return apiMasterBoardPriceSaveRow(payload);
       case 'modelBoardCompositionGet':        return apiModelBoardCompositionGet();
       case 'modelBoardCompositionUpdateCell': return apiModelBoardCompositionUpdateCell(payload);
       case 'modelBoardCompositionAddRow':     return apiModelBoardCompositionAddRow(payload);

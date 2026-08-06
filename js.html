@@ -7107,7 +7107,7 @@ function initPriceListPage() {
 
   <div id="pl-panel-master" style="display:none;">
     <div class="page-heading" style="margin-top:0;">
-      <div><p style="margin:0;">Excelマスタ表「基板PCB価格」シートを取り込んだ原価・公表単価の一覧です。セルをクリックして直接編集できます。</p></div>
+      <div><p style="margin:0;">Excelマスタ表「基板PCB価格」シートを取り込んだ原価・公表単価の一覧です（金額確認用・読み取り専用）。金額のリンクから参考見積等の資料を開けます。修正が必要な場合のみ「詳細」から行ってください（元のスプレッドシートにも反映されます）。</p></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button class="btn btn-outline btn-sm" onclick="seedMasterPriceData()">📥 Excelマスタ表から再取込み</button>
       </div>
@@ -7310,18 +7310,20 @@ function loadMasterBoardPrice() {
     .handleApiRequest('masterBoardPriceGet', {});
 }
 
+// 表示は読み取り専用（金額確認用）。行の「詳細」から開くモーダルの「修正」からのみ編集する。
 function _plRenderMasterTable() {
   const wrap = document.getElementById('pl-master-table-wrap');
   if (!wrap) return;
-  const headHtml = _plMasterHeaders.map(h => `<th style="padding:6px 8px;text-align:left;white-space:nowrap;">${_esc(h)}</th>`).join('');
+  const headHtml = _plMasterHeaders.map(h => `<th style="padding:6px 8px;text-align:left;white-space:nowrap;">${_esc(h)}</th>`).join('') + '<th style="padding:6px 8px;"></th>';
   const bodyHtml = _plMasterRows.map(r => {
     const cells = _plMasterHeaders.map(h => {
       const v = r[h];
-      const isUrl = typeof v === 'string' && /^https?:\/\//.test(v);
-      const linkBtn = isUrl ? `<a href="${_esc(v)}" target="_blank" style="margin-right:4px;text-decoration:none;">🔗</a>` : '';
-      return `<td style="padding:3px 4px;white-space:nowrap;">${linkBtn}<input type="text" value="${_esc(v===null||v===undefined?'':v)}" data-row="${r._row}" data-header="${_esc(h)}" onchange="_plSaveMasterCell(this)" style="width:${h==='基板グループ'||h==='基板コード'?'110px':h==='採用機種'||h==='設計課情報'||h.indexOf('過去見積')>=0?'160px':'80px'};padding:4px 6px;border:1px solid var(--border-light);border-radius:4px;font-size:12px;"></td>`;
+      const linkUrl = (r._links && r._links[h]) || (typeof v === 'string' && /^https?:\/\//.test(v) ? v : '');
+      const display = (v === null || v === undefined || v === '') ? '—' : _esc(v);
+      const cellHtml = linkUrl ? `<a href="${_esc(linkUrl)}" target="_blank" style="color:var(--primary);text-decoration:none;font-weight:600;" title="関連資料を開く">${display}</a>` : `<span>${display}</span>`;
+      return `<td style="padding:5px 8px;white-space:nowrap;font-size:12px;">${cellHtml}</td>`;
     }).join('');
-    return `<tr>${cells}</tr>`;
+    return `<tr style="border-bottom:1px solid var(--border-light);">${cells}<td style="padding:5px 8px;white-space:nowrap;"><button class="btn btn-outline btn-sm" style="font-size:11px;" onclick="openMasterBoardPriceDetail(${r._row})">詳細</button></td></tr>`;
   }).join('');
   wrap.innerHTML = `<table style="border-collapse:collapse;font-size:12px;min-width:1600px;">
     <thead><tr style="background:#f8fafc;">${headHtml}</tr></thead>
@@ -7329,20 +7331,88 @@ function _plRenderMasterTable() {
   </table>`;
 }
 
-function _plSaveMasterCell(input) {
-  const row = Number(input.dataset.row);
-  const header = input.dataset.header;
-  const value = input.value;
+// ── 詳細モーダル（表示 → 修正 → 保存）──
+let _plMasterEditMode = false;
+function openMasterBoardPriceDetail(row) {
+  const r = _plMasterRows.find(x => x._row === row);
+  if (!r) return;
+  _plMasterEditMode = false;
+  const old = document.getElementById('pl-master-detail-overlay');
+  if (old) old.remove();
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="pl-master-detail-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9500;display:flex;align-items:center;justify-content:center;">
+      <div style="background:#fff;border-radius:12px;width:min(560px,95vw);max-height:85vh;overflow-y:auto;padding:24px 28px;box-shadow:0 8px 32px rgba(0,0,0,0.18);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+          <h3 style="margin:0;font-size:16px;">🔩 ${_esc(r['基板コード']||'')} の詳細</h3>
+          <button onclick="document.getElementById('pl-master-detail-overlay').remove()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-sub);">✕</button>
+        </div>
+        <div id="pl-master-detail-body"></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:16px;">
+          <div style="font-size:11px;color:var(--text-muted);">${r._extRow ? '💾 保存すると元のスプレッドシートにも反映されます' : ''}</div>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-outline btn-sm" id="pl-master-edit-btn" onclick="_plToggleMasterEdit(${row})">✏️ 修正</button>
+            <button class="btn btn-primary btn-sm" id="pl-master-save-btn" style="display:none;" onclick="saveMasterBoardPriceDetail(${row})">💾 保存</button>
+          </div>
+        </div>
+      </div>
+    </div>`);
+  _plRenderMasterDetailBody(r, false);
+}
+
+function _plRenderMasterDetailBody(r, editMode) {
+  const body = document.getElementById('pl-master-detail-body');
+  if (!body) return;
+  body.innerHTML = `<table style="width:100%;font-size:13px;border-collapse:collapse;">
+    <tbody>${_plMasterHeaders.map(h => {
+      const v = r[h];
+      const linkUrl = (r._links && r._links[h]) || '';
+      if (editMode) {
+        return `<tr><td style="padding:6px 8px;width:38%;color:var(--text-sub);border-bottom:1px solid var(--border-light);">${_esc(h)}${linkUrl?' 🔗':''}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid var(--border-light);">
+            <input type="text" value="${_esc(v===null||v===undefined?'':v)}" data-header="${_esc(h)}" style="width:100%;padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:12px;box-sizing:border-box;">
+          </td></tr>`;
+      }
+      const display = (v===null||v===undefined||v==='') ? '—' : _esc(v);
+      const valueHtml = linkUrl ? `<a href="${_esc(linkUrl)}" target="_blank" style="color:var(--primary);text-decoration:none;font-weight:600;">${display} 🔗</a>` : display;
+      return `<tr><td style="padding:6px 8px;width:38%;color:var(--text-sub);border-bottom:1px solid var(--border-light);">${_esc(h)}</td><td style="padding:6px 8px;border-bottom:1px solid var(--border-light);">${valueHtml}</td></tr>`;
+    }).join('')}</tbody>
+  </table>`;
+}
+
+function _plToggleMasterEdit(row) {
+  const r = _plMasterRows.find(x => x._row === row);
+  if (!r) return;
+  _plMasterEditMode = true;
+  _plRenderMasterDetailBody(r, true);
+  document.getElementById('pl-master-edit-btn').style.display = 'none';
+  document.getElementById('pl-master-save-btn').style.display = '';
+}
+
+function saveMasterBoardPriceDetail(row) {
+  const body = document.getElementById('pl-master-detail-body');
+  if (!body) return;
+  const updates = {};
+  body.querySelectorAll('input[data-header]').forEach(inp => { updates[inp.dataset.header] = inp.value; });
+  const btn = document.getElementById('pl-master-save-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ 保存中…'; }
   google.script.run
     .withSuccessHandler(res => {
       if (res && res.success) {
         const r = _plMasterRows.find(x => x._row === row);
-        if (r) r[header] = value;
-        showToast('✅ 保存しました');
-      } else showToast('エラー: ' + ((res||{}).error||'不明'), true);
+        if (r) Object.keys(updates).forEach(h => r[h] = updates[h]);
+        showToast(res.externalSynced ? '✅ 保存しました（元のスプレッドシートにも反映しました）' : (res.externalRow ? '⚠️ 保存しましたが元のスプレッドシートへの反映に失敗しました: ' + (res.externalError||'') : '✅ 保存しました'));
+        document.getElementById('pl-master-detail-overlay')?.remove();
+        _plRenderMasterTable();
+      } else {
+        showToast('エラー: ' + ((res||{}).error||'不明'), true);
+        if (btn) { btn.disabled = false; btn.textContent = '💾 保存'; }
+      }
     })
-    .withFailureHandler(err => showToast('通信エラー: ' + (err.message||err), true))
-    .handleApiRequest('masterBoardPriceUpdateCell', { row, header, value });
+    .withFailureHandler(err => {
+      showToast('通信エラー: ' + (err.message||err), true);
+      if (btn) { btn.disabled = false; btn.textContent = '💾 保存'; }
+    })
+    .handleApiRequest('masterBoardPriceSaveRow', { row, updates });
 }
 
 // ── 機種基板構成（Excel取込み）──
