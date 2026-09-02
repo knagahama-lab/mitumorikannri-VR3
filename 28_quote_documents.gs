@@ -73,6 +73,34 @@ function apiQuoteDocsList(payload) {
   } catch (e) { return { success: false, error: e.message }; }
 }
 
+// ★ 全レコードの関連書類を一括取得（見積書一覧の「資料」列用）
+// キーは mgmtId または ledgerId（台帳登録分）。
+function apiQuoteDocsAll() {
+  try {
+    var ss    = getSpreadsheet();
+    var sheet = ss.getSheetByName(QDOC_SHEET);
+    if (!sheet) return { success: true, docTypes: QDOC_TYPES, map: {} };
+    var last = sheet.getLastRow();
+    if (last <= 1) return { success: true, docTypes: QDOC_TYPES, map: {} };
+    var rows = sheet.getRange(2, 1, last - 1, 7).getValues();
+    var map  = {};
+    rows.forEach(function(r) {
+      var key = String(r[1] || '').trim();
+      var url = String(r[4] || '').trim();
+      if (!key || !url) return;
+      if (!map[key]) map[key] = [];
+      map[key].push({
+        id:       String(r[0] || ''),
+        docType:  String(r[2] || ''),
+        fileName: String(r[3] || ''),
+        url:      url,
+        memo:     String(r[5] || ''),
+      });
+    });
+    return { success: true, docTypes: QDOC_TYPES, map: map };
+  } catch (e) { return { success: false, error: e.message }; }
+}
+
 // メタデータの新規/更新保存（URLは既に確定している場合）
 function apiQuoteDocSave(payload) {
   try {

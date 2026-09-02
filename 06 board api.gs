@@ -142,6 +142,7 @@ function handleApiRequest(action, payload) {
       case 'makerDelete': return apiMakerDelete(payload);
       // ── 見積関連書類（28_quote_documents.gs）──
       case 'quoteDocsList':   return apiQuoteDocsList(payload);
+      case 'quoteDocsAll':    return apiQuoteDocsAll();
       case 'quoteDocSave':    return apiQuoteDocSave(payload);
       case 'quoteDocUpload':  return apiQuoteDocUpload(payload);
       case 'quoteDocDelete':  return apiQuoteDocDelete(payload);

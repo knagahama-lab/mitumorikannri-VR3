@@ -42,6 +42,7 @@ const PAGE_TITLES = { list:'案件一覧', ledger:'見積台帳', matching:'AI�
 const S = { all:[], filtered:[], page:1, limit:30, docType:'quote', orderType:'', selectedFile:null };
 let _clientMasterList = []; let _orderClientTab = 'all'; let _quoteClientTab = 'all'; let _editClientMaster = [];
 let _quoteCatTab = 'all'; // ★ 見積カテゴリ絞り込みタブ
+let _quoteDocsMap = {};   // ★ 見積書一覧の「資料」列用: mgmtId/ledgerId → 関連書類[]
 let searchTimer=null; let _allQuotes = []; let _filteredQuotes = []; let _quotePage = 1; const _quoteLimit = 20; let _allMatchingItems = [];
 let _allLedgerItems = []; let _filteredLedgerItems = []; let _currentLedgerTab = 'tree';
 let _allSmItems = [];
@@ -497,6 +498,36 @@ function _getCompositionType(quoteNo){
 }
 
 // ============================================================
+// ★ 見積書一覧の「資料（参考資料）」列
+//    見積関連書類シートを一括読み込みして各行にリンクを出す
+// ============================================================
+function _loadQuoteDocsMap(){
+  google.script.run
+    .withSuccessHandler(function(res){
+      if (!res || !res.success) return;
+      _quoteDocsMap = res.map || {};
+      if (document.getElementById('quotelist-container')) _renderQuoteTable();
+    })
+    .handleApiRequest('quoteDocsAll', null);
+}
+// 関連書類のキー（案件は mgmtId、台帳登録分は ledgerId）
+function _quoteDocsKey(r){ return r && r._fromLedger ? String(r._ledgerId||'') : String((r&&r.id)||''); }
+function _quoteDocsCellHtml(r){
+  const docs = _quoteDocsMap[_quoteDocsKey(r)] || [];
+  if (!docs.length) return '<span style="color:var(--text-muted);">—</span>';
+  const shown = docs.slice(0, 4);
+  const links = shown.map(function(d){
+    const icon = QDOC_TYPE_ICONS[d.docType] || '📎';
+    const tip  = (d.docType || '参考資料') + (d.fileName ? ' / ' + d.fileName : '');
+    const lbl  = (docs.length === 1) ? (icon + ' 資料') : icon;
+    return `<a class="pdf-link" href="${_escAttr(d.url)}" target="_blank" onclick="event.stopPropagation()" title="${_escAttr(tip)}" style="text-decoration:none;margin-right:4px;">${lbl}</a>`;
+  }).join('');
+  const more = docs.length > shown.length
+    ? `<span style="font-size:10px;color:var(--text-sub);">+${docs.length - shown.length}</span>` : '';
+  return `<span style="white-space:nowrap;" title="参考資料 ${docs.length}件">${links}${more}</span>`;
+}
+
+// ============================================================
 // ★ 見積カテゴリ（仕掛基板 / PCB / 組立費 / ROM・RAM / 単品部品）
 //    保存先: 見積台帳シートの「見積カテゴリ」列（LEDGER_COLS.CATEGORY）
 // ============================================================
@@ -765,7 +796,7 @@ function clearFilters(){ document.getElementById('search-input').value=''; ['fil
 function _populateMonthFilter(){ const sel=document.getElementById('filter-month'); if(!sel) return; const now=new Date(); for(let i=0;i<12;i++){ const d=new Date(now.getFullYear(),now.getMonth()-i,1); const ym=d.getFullYear()+'/'+String(d.getMonth()+1).padStart(2,'0'); const o=document.createElement('option');o.value=ym;o.textContent=ym;sel.appendChild(o); } }
 
 // ── 見積書一覧 ──
-function loadQuoteList() { const container = document.getElementById('quotelist-container'); if(!container) return; container.innerHTML = '<div class="loading"><div class="spinner"></div><br>読み込み中...</div>'; google.script.run.withSuccessHandler(res => { if (!res.success) { container.innerHTML = '<div class="loading" style="color:var(--danger);">⚠️ ' + res.error + '</div>'; return; } _allQuotes = res.items || []; if(typeof _mergeLedgerIntoQuotes === 'function') _mergeLedgerIntoQuotes(); _filteredQuotes = _allQuotes.slice(); _quotePage = 1; if(document.getElementById('qs-total')) document.getElementById('qs-total').textContent = _allQuotes.length; if(document.getElementById('qs-linked')) document.getElementById('qs-linked').textContent = _allQuotes.filter(r => r.linked).length; if(document.getElementById('qs-amount')) document.getElementById('qs-amount').textContent = _allQuotes.reduce((s, r) => s + (Number(r.quoteAmount) || 0), 0).toLocaleString(); renderQuoteCategoryTabs(); applyQuoteFilter(); }).handleApiRequest('quoteListGetAll', null); }
+function loadQuoteList() { const container = document.getElementById('quotelist-container'); if(!container) return; container.innerHTML = '<div class="loading"><div class="spinner"></div><br>読み込み中...</div>'; google.script.run.withSuccessHandler(res => { if (!res.success) { container.innerHTML = '<div class="loading" style="color:var(--danger);">⚠️ ' + res.error + '</div>'; return; } _allQuotes = res.items || []; if(typeof _mergeLedgerIntoQuotes === 'function') _mergeLedgerIntoQuotes(); _filteredQuotes = _allQuotes.slice(); _quotePage = 1; if(document.getElementById('qs-total')) document.getElementById('qs-total').textContent = _allQuotes.length; if(document.getElementById('qs-linked')) document.getElementById('qs-linked').textContent = _allQuotes.filter(r => r.linked).length; if(document.getElementById('qs-amount')) document.getElementById('qs-amount').textContent = _allQuotes.reduce((s, r) => s + (Number(r.quoteAmount) || 0), 0).toLocaleString(); renderQuoteCategoryTabs(); applyQuoteFilter(); _loadQuoteDocsMap(); }).handleApiRequest('quoteListGetAll', null); }
 function _mergeLedgerIntoQuotes() {
   if (!_allLedgerItems || _allLedgerItems.length === 0) return;
   // 既存の見積No.セットと既にマージ済みの台帳IDセット（重複防止）
@@ -858,6 +889,7 @@ function _renderQuoteTable() {
           : `<button class="btn btn-outline btn-sm" style="font-size:10px;padding:2px 8px;" onclick="event.stopPropagation();_openQuickLinkQuote('${fromLedger ? 'LEDGER_'+r._ledgerId : r.id}')">🔗 注文書番号入力</button>`}
       </td>
       <td>${r.quotePdfUrl ? '<a class="pdf-link" href="' + r.quotePdfUrl + '" target="_blank" onclick="event.stopPropagation()">📄 見積</a>' : '—'}</td>
+      <td onclick="event.stopPropagation();">${_quoteDocsCellHtml(r)}</td>
       <td>${r.orderPdfUrl ? '<a class="pdf-link" href="' + r.orderPdfUrl + '" target="_blank" onclick="event.stopPropagation()" style="color:var(--danger);">📦 注文</a>' : '—'}</td>
       <td style="text-align:center; white-space:nowrap;">
         <button class="btn btn-outline btn-sm" onclick="event.stopPropagation(); ${fromLedger ? `if(typeof openLedgerAddModal==='function')openLedgerAddModal('${r._ledgerId}')` : `openQuoteDetail('${r.id}')`}">📄 詳細</button>
@@ -865,7 +897,7 @@ function _renderQuoteTable() {
       </td>
     </tr>`;
   }).join('');
-  document.getElementById('quotelist-container').innerHTML = `<div style="overflow-x:auto;"><table><thead><tr><th>見積No.</th><th>件名（ファイル名）</th><th>🗂️ カテゴリ</th><th>発行日</th><th>機種</th><th>基板名</th><th>宛先</th><th>金額</th><th>ステータス</th><th>紐づけ状況</th><th>注文書番号</th><th>見積PDF</th><th>注文書PDF</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  document.getElementById('quotelist-container').innerHTML = `<div style="overflow-x:auto;"><table><thead><tr><th>見積No.</th><th>件名（ファイル名）</th><th>🗂️ カテゴリ</th><th>発行日</th><th>機種</th><th>基板名</th><th>宛先</th><th>金額</th><th>ステータス</th><th>紐づけ状況</th><th>注文書番号</th><th>見積PDF</th><th>📎 資料</th><th>注文書PDF</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   const pages = Math.ceil(total / _quoteLimit); if (pages <= 1) { document.getElementById('qs-pagination').innerHTML = ''; return; }
   let pHtml = ''; for (let i = 1; i <= Math.min(pages, 10); i++) pHtml += `<button class="page-btn ${i === _quotePage ? 'active' : ''}" onclick="goQuotePage(${i})">${i}</button>`; document.getElementById('qs-pagination').innerHTML = pHtml;
 }
@@ -1249,6 +1281,7 @@ function uploadQuoteDoc(mgmtId) {
           showToast('✅ 保存しました');
           document.getElementById('qdoc-modal-overlay')?.remove();
           _loadQuoteDocs(mgmtId);
+          if (typeof _loadQuoteDocsMap === 'function') _loadQuoteDocsMap();
         } else {
           showToast('エラー: ' + ((res||{}).error||'不明'), true);
           if (btn) { btn.disabled = false; btn.textContent = '💾 保存'; }
@@ -1267,7 +1300,7 @@ function deleteQuoteDoc(id, mgmtId) {
   if (!confirm('この関連書類を削除しますか？')) return;
   google.script.run
     .withSuccessHandler(function(res) {
-      if (res && res.success) { showToast('🗑️ 削除しました'); _loadQuoteDocs(mgmtId); }
+      if (res && res.success) { showToast('🗑️ 削除しました'); _loadQuoteDocs(mgmtId); if (typeof _loadQuoteDocsMap === 'function') _loadQuoteDocsMap(); }
       else showToast('エラー: ' + ((res||{}).error||'不明'), true);
     })
     .handleApiRequest('quoteDocDelete', { id });
