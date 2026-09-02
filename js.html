@@ -594,51 +594,45 @@ function _matchQuoteCategory(r){
   return v === _quoteCatTab;
 }
 // 一覧・詳細からカテゴリを保存（見積台帳の「見積カテゴリ」列へ）
+// 台帳行の特定はサーバー側（quoteCategorySave）で行うので、
+// 案件一覧で _allLedgerItems が未読み込みでも確実に保存される。
 function quickUpdateQuoteCategory(rowId, quoteNo, category){
   const ledgerId = String(rowId||'').indexOf('LEDGER_') === 0 ? String(rowId).replace('LEDGER_','') : '';
-  const ledgerItem = ledgerId
-    ? (_allLedgerItems||[]).find(function(r){ return r.ledgerId === ledgerId; })
-    : (_allLedgerItems||[]).find(function(r){ return quoteNo && r.quoteNo === quoteNo; });
-
-  const done = function(msg){
-    showToast(msg);
-    const q = (_allQuotes||[]).find(function(x){ return x.id === rowId || (quoteNo && x.quoteNo === quoteNo); });
-    if (q) q.category = category;
-    const el = document.getElementById('qd-cat-badge-preview');
-    if (el) el.innerHTML = _catBadge(category, false);
-    renderQuoteCategoryTabs();
-    applyQuoteFilter();
-  };
-
-  if (ledgerItem && ledgerItem.ledgerId) {
-    google.script.run
-      .withSuccessHandler(function(res){
-        if (res && res.success) { ledgerItem.category = category; done('✅ カテゴリを「' + (category || '未分類') + '」に変更しました'); }
-        else showToast('❌ 更新失敗: ' + (res ? res.error : '不明'), true);
-      })
-      .withFailureHandler(function(err){ showToast('通信エラー: ' + (err.message||err), true); })
-      .handleApiRequest('ledgerSave', { ledgerId: ledgerItem.ledgerId, category: category });
-    return;
-  }
-  // 台帳未登録の見積書 → 台帳に登録してからカテゴリを保存
-  if (!quoteNo) { showToast('見積番号が無いためカテゴリを保存できません', true); return; }
-  const src = (_allQuotes||[]).find(function(x){ return x.id === rowId; }) || {};
+  if (!ledgerId && !quoteNo) { showToast('見積番号が無いためカテゴリを保存できません', true); return; }
+  const src = (_allQuotes||[]).find(function(x){ return x.id === rowId; })
+           || (_allLedgerItems||[]).find(function(x){ return ledgerId && x.ledgerId === ledgerId; })
+           || {};
   google.script.run
     .withSuccessHandler(function(res){
-      if (res && res.success) {
-        google.script.run.withSuccessHandler(function(r2){
-          if (r2 && r2.success) _allLedgerItems = r2.items || [];
-          done('✅ 台帳に登録しカテゴリを「' + (category || '未分類') + '」に設定しました');
-        }).handleApiRequest('ledgerGetAll', null);
-      } else showToast('❌ ' + (res ? res.error : '失敗'), true);
+      if (!res || !res.success) {
+        showToast('❌ 更新失敗: ' + ((res && res.error) || '不明'), true);
+        applyQuoteFilter(); // 選択を保存前の状態に戻す
+        return;
+      }
+      // ローカルキャッシュを更新（一覧・台帳の双方）
+      (_allQuotes||[]).forEach(function(x){
+        if (x.id === rowId || (quoteNo && x.quoteNo === quoteNo)) x.category = category;
+      });
+      (_allLedgerItems||[]).forEach(function(x){
+        if ((ledgerId && x.ledgerId === ledgerId) || (res.ledgerId && x.ledgerId === res.ledgerId)
+            || (quoteNo && x.quoteNo === quoteNo)) x.category = category;
+      });
+      const el = document.getElementById('qd-cat-badge-preview');
+      if (el) el.innerHTML = _catBadge(category, false);
+      showToast('✅ カテゴリを「' + (category || '未分類') + '」に変更しました'
+        + (res.created ? '（見積台帳に新規登録）' : ''));
+      renderQuoteCategoryTabs();
+      applyQuoteFilter();
+      if (res.created && typeof loadLedger === 'function' && (_allLedgerItems||[]).length) loadLedger();
+      else if ((_allLedgerItems||[]).length && typeof applyLedgerFilter === 'function') applyLedgerFilter();
     })
-    .withFailureHandler(function(err){ showToast('通信エラー: ' + (err.message||err), true); })
-    .handleApiRequest('ledgerSave', {
-      quoteNo: quoteNo, category: category,
-      subject: src.subject || '', dest: src.destCompany || src.client || '',
+    .withFailureHandler(function(err){ showToast('通信エラー: ' + (err.message||err), true); applyQuoteFilter(); })
+    .handleApiRequest('quoteCategorySave', {
+      ledgerId: ledgerId, quoteNo: quoteNo, category: category,
+      subject: src.subject || '', dest: src.destCompany || src.dest || src.client || '',
       machineCode: src.modelCode || src.machineCode || '', boardName: src.boardName || '',
       issueDate: src.issueDate || src.quoteDate || '',
-      amount: src.quoteAmount || '', status: src.status || '作成予定'
+      amount: src.quoteAmount || src.amount || '', status: src.status || '作成予定'
     });
 }
 // 見積詳細モーダルのカテゴリプレビュー
@@ -850,7 +844,7 @@ function _renderQuoteTable() {
     <tr style="border-bottom:1px solid #f0f2f5;${_typeRowBorder(rct)}">
       <td class="editable-cell" onclick="startInlineEdit(event, '${realId}', 'quoteNo', '${_esc(r.quoteNo||'')}', '${editType}')" style="white-space:nowrap;">${_typeBadge(rct)}<strong>${r.quoteNo || '—'}</strong>${ledgerBadge}</td>
       <td class="editable-cell" onclick="startInlineEdit(event, '${realId}', 'subject', '${_esc(r.subject||'')}', '${editType}')" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.subject || ''}">${r.subject || '—'}</td>
-      <td onclick="event.stopPropagation();" style="white-space:nowrap;">${_catSelectHtml(r.id, r.quoteNo||'', qci.value, qci.guessed)}</td>
+      <td onclick="event.stopPropagation();" style="white-space:nowrap;">${qci.guessed ? _catBadge(qci.value, true) + ' ' : ''}${_catSelectHtml(r.id, r.quoteNo||'', qci.guessed ? '' : qci.value, false)}</td>
       <td class="editable-cell" onclick="startInlineEditDate(event, '${realId}', 'issueDate', '${_esc(r.issueDate||r.quoteDate||"")}', '${editType}')" style="font-size:12px;color:var(--text-sub);white-space:nowrap;">${r.issueDate || r.quoteDate || '<span style=\"color:var(--text-muted);">—</span>'}</td>
       <td class="editable-cell" onclick="startInlineEditAutocomplete(event, '${realId}', '${fromLedger?'machineCode':'modelCode'}', '${_esc(r.modelCode||r.machineCode||'')}', '${editType}')" style="min-width:80px;">${r.modelCode||r.machineCode||'<span style="color:var(--text-muted);">—</span>'}</td>
       <td class="editable-cell" onclick="startInlineEdit(event, '${realId}', 'boardName', '${_esc(r.boardName||'')}', '${fromLedger?'ledger':'mgmt'}')" style="max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.boardName||''}">${r.boardName||'<span style="color:var(--text-muted);">—</span>'}</td>

@@ -88,6 +88,7 @@ function handleApiRequest(action, payload) {
       case 'getQuoteDetail':      res = _apiGetQuoteDetail(payload); break;
       case 'ledgerGetAll':        res = _apiLedgerGetAll(); break;
       case 'ledgerSave':          res = _apiLedgerSave(payload); break;
+      case 'quoteCategorySave':   res = _apiQuoteCategorySave(payload); break;
       case 'ledgerDelete':        res = _apiLedgerDelete(payload); break;
       case 'ledgerUpdateUrl':     res = _apiLedgerUpdateUrl(payload); break;
       case 'ledgerUploadFile':    res = _apiLedgerUploadFile(payload); break;
@@ -397,6 +398,16 @@ function _apiQuoteListGetAll() {
       });
     }
 
+    // ★ 見積台帳の「見積カテゴリ」を見積No.で引けるようにする
+    var ledgerCatMap = {};
+    try {
+      getAllLedgerData().forEach(function(lr) {
+        var lno  = String(lr[LEDGER_COLS.QUOTE_NO - 1] || '').trim();
+        var lcat = String(lr[LEDGER_COLS.CATEGORY - 1] || '').trim();
+        if (lno && lcat && !ledgerCatMap[lno]) ledgerCatMap[lno] = lcat;
+      });
+    } catch (eCat) { Logger.log('[quoteList] カテゴリ取得スキップ: ' + eCat.message); }
+
     var items = quoteRows.map(function(r) {
       var mgmtId  = String(r[MGMT_COLS.ID - 1] || '');
       var lineInfo = quoteLineMap[mgmtId] || { linesText: '' };
@@ -416,6 +427,7 @@ function _apiQuoteListGetAll() {
         modelCode:   String(r[MGMT_COLS.MODEL_CODE - 1]    || ''),
         boardName:   String(r[MGMT_COLS.BOARD_NAME - 1]    || ''),
         subject:     String(r[MGMT_COLS.SUBJECT - 1]       || ''),
+        category:    ledgerCatMap[String(r[MGMT_COLS.QUOTE_NO - 1] || '').trim()] || '', // ★ 見積カテゴリ（台帳由来）
         detailText:  String(lineInfo.linesText).substring(0, 300), // 軽量化
         priceList:   lineInfo.prices || [] // 明細の単価・金額（単価検索用）
       };
@@ -1114,6 +1126,61 @@ function _apiLedgerSave(p) {
     }
     return { success: true, ledgerId: ledgerId };
   } catch(e) { return { success: false, error: e.message }; }
+}
+
+// ★ 見積カテゴリ専用の保存。見積No.（または台帳ID）で台帳行をサーバー側で探して更新する。
+// クライアントに台帳データが読み込まれていなくても正しく保存でき、重複行も作らない。
+function _apiQuoteCategorySave(p) {
+  try {
+    p = p || {};
+    var quoteNo  = String(p.quoteNo  || '').trim();
+    var ledgerId = String(p.ledgerId || '').trim();
+    var category = (p.category === undefined || p.category === null) ? '' : String(p.category);
+    if (!ledgerId && !quoteNo) return { success: false, error: '見積番号が指定されていません' };
+    if (category && LEDGER_CATEGORIES.indexOf(category) < 0) {
+      return { success: false, error: '不正なカテゴリです: ' + category };
+    }
+
+    var ss    = getSpreadsheet();
+    var sheet = ss.getSheetByName(CONFIG.SHEET_LEDGER);
+    if (!sheet) return { success: false, error: '見積台帳シートが存在しません。' };
+
+    var last = sheet.getLastRow();
+    var row  = 0;
+    if (last > 1) {
+      var vals = sheet.getRange(2, 1, last - 1, LEDGER_COLS.QUOTE_NO).getValues();
+      for (var i = 0; i < vals.length; i++) {
+        var rid = String(vals[i][LEDGER_COLS.LEDGER_ID - 1] || '').trim();
+        var rno = String(vals[i][LEDGER_COLS.QUOTE_NO  - 1] || '').trim();
+        var hit = ledgerId ? (rid === ledgerId) : (rno !== '' && rno === quoteNo);
+        if (hit) { row = i + 2; break; }
+      }
+    }
+
+    if (row) {
+      sheet.getRange(row, LEDGER_COLS.CATEGORY).setValue(category);
+      return {
+        success: true, created: false,
+        ledgerId: String(sheet.getRange(row, LEDGER_COLS.LEDGER_ID).getValue() || ''),
+        category: category
+      };
+    }
+
+    // 台帳に未登録の見積書 → 最小限の行を新規作成してカテゴリを保存
+    var res = _apiLedgerSave({
+      quoteNo:     quoteNo,
+      category:    category,
+      subject:     String(p.subject     || ''),
+      dest:        String(p.dest        || ''),
+      machineCode: String(p.machineCode || ''),
+      boardName:   String(p.boardName   || ''),
+      issueDate:   String(p.issueDate   || ''),
+      amount:      p.amount,
+      status:      String(p.status      || LEDGER_STATUS.PENDING)
+    });
+    if (!res.success) return res;
+    return { success: true, created: true, ledgerId: res.ledgerId, category: category };
+  } catch (e) { return { success: false, error: e.message }; }
 }
 
 function _apiLedgerDelete(p) {
