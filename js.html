@@ -41,6 +41,7 @@ const PAGE_TITLES = { list:'案件一覧', ledger:'見積台帳', matching:'AI�
 
 const S = { all:[], filtered:[], page:1, limit:30, docType:'quote', orderType:'', selectedFile:null };
 let _clientMasterList = []; let _orderClientTab = 'all'; let _quoteClientTab = 'all'; let _editClientMaster = [];
+let _quoteCatTab = 'all'; // ★ 見積カテゴリ絞り込みタブ
 let searchTimer=null; let _allQuotes = []; let _filteredQuotes = []; let _quotePage = 1; const _quoteLimit = 20; let _allMatchingItems = [];
 let _allLedgerItems = []; let _filteredLedgerItems = []; let _currentLedgerTab = 'tree';
 let _allSmItems = [];
@@ -205,14 +206,14 @@ function exportOrderPdf() {
 // ── 見積書一覧 ──
 function exportQuoteCsv() {
   const data = _filteredQuotes.length ? _filteredQuotes : _allQuotes;
-  const headers = ['見積No.','件名','発行日','機種','基板名','宛先','見積金額','ステータス','注文書番号'];
-  const rows = data.map(r => [r.quoteNo||'',r.subject||'',r.issueDate||r.quoteDate||'',r.modelCode||r.machineCode||'',r.boardName||'',r.destCompany||r.client||'',r.quoteAmount||'',r.status||'',r.orderNo||'']);
+  const headers = ['見積No.','件名','カテゴリ','発行日','機種','基板名','宛先','見積金額','ステータス','注文書番号'];
+  const rows = data.map(r => [r.quoteNo||'',r.subject||'',_quoteCategoryInfo(r).value||'',r.issueDate||r.quoteDate||'',r.modelCode||r.machineCode||'',r.boardName||'',r.destCompany||r.client||'',r.quoteAmount||'',r.status||'',r.orderNo||'']);
   _downloadCsv('見積書一覧_' + _today() + '.csv', headers, rows);
 }
 function exportQuotePdf() {
   const data = _filteredQuotes.length ? _filteredQuotes : _allQuotes;
-  const headers = ['見積No.','件名','発行日','機種','宛先','見積金額','ステータス'];
-  const rows = data.map(r => [r.quoteNo||'',r.subject||'',r.issueDate||r.quoteDate||'',r.modelCode||r.machineCode||'',r.destCompany||r.client||'',r.quoteAmount ? Number(r.quoteAmount).toLocaleString()+'円' : '',r.status||'']);
+  const headers = ['見積No.','件名','カテゴリ','発行日','機種','宛先','見積金額','ステータス'];
+  const rows = data.map(r => [r.quoteNo||'',r.subject||'',_quoteCategoryInfo(r).value||'',r.issueDate||r.quoteDate||'',r.modelCode||r.machineCode||'',r.destCompany||r.client||'',r.quoteAmount ? Number(r.quoteAmount).toLocaleString()+'円' : '',r.status||'']);
   _printWindow('見積書一覧', headers, rows);
 }
 
@@ -495,6 +496,157 @@ function _getCompositionType(quoteNo){
   return l ? (l.compositionType||'') : '';
 }
 
+// ============================================================
+// ★ 見積カテゴリ（仕掛基板 / PCB / 組立費 / ROM・RAM / 単品部品）
+//    保存先: 見積台帳シートの「見積カテゴリ」列（LEDGER_COLS.CATEGORY）
+// ============================================================
+const QUOTE_CATEGORIES = ['仕掛基板','PCB','組立費','ROM・RAM','単品部品'];
+const _QCAT_MAP = {
+  '仕掛基板': { icon:'🔩', bg:'#e0e7ff', color:'#3730a3', border:'#6366f1' },
+  'PCB':      { icon:'🟩', bg:'#dcfce7', color:'#166534', border:'#22c55e' },
+  '組立費':   { icon:'🛠', bg:'#fef3c7', color:'#92400e', border:'#f59e0b' },
+  'ROM・RAM': { icon:'💾', bg:'#f3e8ff', color:'#6b21a8', border:'#a855f7' },
+  '単品部品': { icon:'📦', bg:'#e0f2fe', color:'#075985', border:'#0ea5e9' },
+};
+// 件名・基板名などからカテゴリを自動推定（カテゴリ未設定の既存データ用）
+const _QCAT_RULES = [
+  ['ROM・RAM', /(ROM|RAM|ＲＯＭ|ＲＡＭ|EPROM|FLASH|メモリ|ﾒﾓﾘ|フラッシュ)/i],
+  ['PCB',      /(P\.?C\.?B|生基板|プリント基板|ﾌﾟﾘﾝﾄ基板|ベア基板)/i],
+  ['組立費',   /(組立|組み立て|組付|実装|アッセン|ｱｯｾﾝ|ASSY|ASSEMBLY|加工費|工賃)/i],
+  ['仕掛基板', /(仕掛|半製品|中間品|基板)/],
+  ['単品部品', /(単品|部品|パーツ|ﾊﾟｰﾂ|PARTS|コネクタ|ｺﾈｸﾀ|リレー|センサ)/i],
+];
+function _guessQuoteCategory(r){
+  if(!r) return '';
+  const txt = [r.subject, r.boardName, r.detailText, r.remarks, r.quoteNo].filter(Boolean).join(' ');
+  if(!txt) return '';
+  for(var i=0;i<_QCAT_RULES.length;i++){ if(_QCAT_RULES[i][1].test(txt)) return _QCAT_RULES[i][0]; }
+  return '';
+}
+// quoteNoで台帳からカテゴリを引く（案件一覧用）
+function _getLedgerCategory(quoteNo){
+  if(!quoteNo) return '';
+  const l = (_allLedgerItems||[]).find(r=>r.quoteNo===quoteNo);
+  return l ? (l.category||'') : '';
+}
+// 明示設定を優先。未設定なら件名などから推定して {value, guessed} を返す
+function _quoteCategoryInfo(r){
+  const explicit = (r && r.category) || _getLedgerCategory(r && r.quoteNo);
+  if(explicit) return { value: explicit, guessed: false };
+  const g = _guessQuoteCategory(r);
+  return { value: g, guessed: !!g };
+}
+// カテゴリバッジ（guessed=true は破線＝自動推定・未確定）
+function _catBadge(cat, guessed){
+  if(!cat) return '<span style="font-size:10px;color:var(--text-muted);">未分類</span>';
+  const m = _QCAT_MAP[cat] || { icon:'🏷', bg:'#f3f4f6', color:'#374151', border:'#9ca3af' };
+  const dash = guessed ? 'border-style:dashed;opacity:.85;' : '';
+  const tip  = guessed ? ' title="件名から自動推定（未確定）"' : '';
+  return `<span${tip} style="display:inline-block;background:${m.bg};color:${m.color};border:1px solid ${m.border};${dash}border-radius:4px;padding:1px 7px;font-size:10px;font-weight:700;white-space:nowrap;">${m.icon} ${_esc(cat)}${guessed?'?':''}</span>`;
+}
+// 一覧の行に置くカテゴリ選択プルダウン（選ぶと台帳へ即保存）
+function _catSelectHtml(rowId, quoteNo, current, guessed){
+  const m = _QCAT_MAP[current] || {};
+  const opts = [''].concat(QUOTE_CATEGORIES).map(function(c){
+    return `<option value="${_escAttr(c)}" ${c===current?'selected':''}>${c ? ((_QCAT_MAP[c]||{}).icon||'') + ' ' + c : '— 未分類 —'}</option>`;
+  }).join('');
+  const qn  = String(quoteNo||'').replace(/'/g,"\\'");
+  const rid = String(rowId||'').replace(/'/g,"\\'");
+  const tip = (guessed && current) ? ('自動推定「'+current+'」。選び直すと確定保存されます') : 'カテゴリを選択すると見積台帳に保存されます';
+  return `<select onchange="event.stopPropagation();quickUpdateQuoteCategory('${rid}','${qn}',this.value)" title="${_escAttr(tip)}" style="padding:2px 5px;font-size:11px;border-radius:4px;border:1px ${guessed&&current?'dashed':'solid'} ${m.border||'var(--border)'};background:${m.bg||'#fff'};color:${m.color||'inherit'};font-weight:${current?'700':'400'};cursor:pointer;max-width:120px;">${opts}</select>`;
+}
+// カテゴリ別件数
+function _quoteCatCounts(){
+  const c = { all: (_allQuotes||[]).length, __none__: 0 };
+  QUOTE_CATEGORIES.forEach(function(k){ c[k] = 0; });
+  (_allQuotes||[]).forEach(function(r){
+    const v = _quoteCategoryInfo(r).value;
+    if (v && c[v] !== undefined) c[v]++; else c.__none__++;
+  });
+  return c;
+}
+// カテゴリタブ（チップ）描画
+function renderQuoteCategoryTabs(){
+  const el = document.getElementById('quote-cat-tabs');
+  const cnt = _quoteCatCounts();
+  if (el) {
+    const defs = [['all','すべて','📋']]
+      .concat(QUOTE_CATEGORIES.map(function(c){ return [c, c, (_QCAT_MAP[c]||{}).icon||'🏷']; }))
+      .concat([['__none__','未分類','⬜']]);
+    el.innerHTML = defs.map(function(d){
+      const val = d[0], label = d[1], icon = d[2];
+      const active = (val === _quoteCatTab);
+      const style = 'padding:5px 14px;border-radius:16px;font-size:12.5px;font-weight:600;cursor:pointer;border:1px solid '
+        + (active ? 'var(--primary)' : 'var(--border)') + ';background:' + (active ? 'var(--primary)' : '#fff')
+        + ';color:' + (active ? '#fff' : 'var(--text-sub)') + ';';
+      return '<button style="' + style + '" onclick="setQuoteCatTab(\'' + _escAttr(val) + '\')">'
+        + icon + ' ' + _escAttr(label) + ' <span style="font-size:11px;opacity:.75;">' + (cnt[val]||0) + '</span></button>';
+    }).join('');
+  }
+  const sel = document.getElementById('qs-filter-category');
+  if (sel && sel.value !== _quoteCatTab) sel.value = _quoteCatTab;
+}
+function setQuoteCatTab(val){ _quoteCatTab = val || 'all'; renderQuoteCategoryTabs(); applyQuoteFilter(); }
+function _matchQuoteCategory(r){
+  if (_quoteCatTab === 'all') return true;
+  const v = _quoteCategoryInfo(r).value;
+  if (_quoteCatTab === '__none__') return !v;
+  return v === _quoteCatTab;
+}
+// 一覧・詳細からカテゴリを保存（見積台帳の「見積カテゴリ」列へ）
+function quickUpdateQuoteCategory(rowId, quoteNo, category){
+  const ledgerId = String(rowId||'').indexOf('LEDGER_') === 0 ? String(rowId).replace('LEDGER_','') : '';
+  const ledgerItem = ledgerId
+    ? (_allLedgerItems||[]).find(function(r){ return r.ledgerId === ledgerId; })
+    : (_allLedgerItems||[]).find(function(r){ return quoteNo && r.quoteNo === quoteNo; });
+
+  const done = function(msg){
+    showToast(msg);
+    const q = (_allQuotes||[]).find(function(x){ return x.id === rowId || (quoteNo && x.quoteNo === quoteNo); });
+    if (q) q.category = category;
+    const el = document.getElementById('qd-cat-badge-preview');
+    if (el) el.innerHTML = _catBadge(category, false);
+    renderQuoteCategoryTabs();
+    applyQuoteFilter();
+  };
+
+  if (ledgerItem && ledgerItem.ledgerId) {
+    google.script.run
+      .withSuccessHandler(function(res){
+        if (res && res.success) { ledgerItem.category = category; done('✅ カテゴリを「' + (category || '未分類') + '」に変更しました'); }
+        else showToast('❌ 更新失敗: ' + (res ? res.error : '不明'), true);
+      })
+      .withFailureHandler(function(err){ showToast('通信エラー: ' + (err.message||err), true); })
+      .handleApiRequest('ledgerSave', { ledgerId: ledgerItem.ledgerId, category: category });
+    return;
+  }
+  // 台帳未登録の見積書 → 台帳に登録してからカテゴリを保存
+  if (!quoteNo) { showToast('見積番号が無いためカテゴリを保存できません', true); return; }
+  const src = (_allQuotes||[]).find(function(x){ return x.id === rowId; }) || {};
+  google.script.run
+    .withSuccessHandler(function(res){
+      if (res && res.success) {
+        google.script.run.withSuccessHandler(function(r2){
+          if (r2 && r2.success) _allLedgerItems = r2.items || [];
+          done('✅ 台帳に登録しカテゴリを「' + (category || '未分類') + '」に設定しました');
+        }).handleApiRequest('ledgerGetAll', null);
+      } else showToast('❌ ' + (res ? res.error : '失敗'), true);
+    })
+    .withFailureHandler(function(err){ showToast('通信エラー: ' + (err.message||err), true); })
+    .handleApiRequest('ledgerSave', {
+      quoteNo: quoteNo, category: category,
+      subject: src.subject || '', dest: src.destCompany || src.client || '',
+      machineCode: src.modelCode || src.machineCode || '', boardName: src.boardName || '',
+      issueDate: src.issueDate || src.quoteDate || '',
+      amount: src.quoteAmount || '', status: src.status || '作成予定'
+    });
+}
+// 見積詳細モーダルのカテゴリプレビュー
+function _previewQuoteCategory(val){
+  const el = document.getElementById('qd-cat-badge-preview');
+  if (el) el.innerHTML = _catBadge(val, false);
+}
+
 // ステータス手動切替ドロップダウン（注文書・見積書一覧共通）
 function _statusSelectHtml(id, currentStatus, editType) {
   const mgmtStatuses = ['作成予定','送信済み','受領','差し替え依頼中','受注済み','納品済み','キャンセル'];
@@ -619,7 +771,7 @@ function clearFilters(){ document.getElementById('search-input').value=''; ['fil
 function _populateMonthFilter(){ const sel=document.getElementById('filter-month'); if(!sel) return; const now=new Date(); for(let i=0;i<12;i++){ const d=new Date(now.getFullYear(),now.getMonth()-i,1); const ym=d.getFullYear()+'/'+String(d.getMonth()+1).padStart(2,'0'); const o=document.createElement('option');o.value=ym;o.textContent=ym;sel.appendChild(o); } }
 
 // ── 見積書一覧 ──
-function loadQuoteList() { const container = document.getElementById('quotelist-container'); if(!container) return; container.innerHTML = '<div class="loading"><div class="spinner"></div><br>読み込み中...</div>'; google.script.run.withSuccessHandler(res => { if (!res.success) { container.innerHTML = '<div class="loading" style="color:var(--danger);">⚠️ ' + res.error + '</div>'; return; } _allQuotes = res.items || []; if(typeof _mergeLedgerIntoQuotes === 'function') _mergeLedgerIntoQuotes(); _filteredQuotes = _allQuotes.slice(); _quotePage = 1; if(document.getElementById('qs-total')) document.getElementById('qs-total').textContent = _allQuotes.length; if(document.getElementById('qs-linked')) document.getElementById('qs-linked').textContent = _allQuotes.filter(r => r.linked).length; if(document.getElementById('qs-amount')) document.getElementById('qs-amount').textContent = _allQuotes.reduce((s, r) => s + (Number(r.quoteAmount) || 0), 0).toLocaleString(); _renderQuoteTable(); }).handleApiRequest('quoteListGetAll', null); }
+function loadQuoteList() { const container = document.getElementById('quotelist-container'); if(!container) return; container.innerHTML = '<div class="loading"><div class="spinner"></div><br>読み込み中...</div>'; google.script.run.withSuccessHandler(res => { if (!res.success) { container.innerHTML = '<div class="loading" style="color:var(--danger);">⚠️ ' + res.error + '</div>'; return; } _allQuotes = res.items || []; if(typeof _mergeLedgerIntoQuotes === 'function') _mergeLedgerIntoQuotes(); _filteredQuotes = _allQuotes.slice(); _quotePage = 1; if(document.getElementById('qs-total')) document.getElementById('qs-total').textContent = _allQuotes.length; if(document.getElementById('qs-linked')) document.getElementById('qs-linked').textContent = _allQuotes.filter(r => r.linked).length; if(document.getElementById('qs-amount')) document.getElementById('qs-amount').textContent = _allQuotes.reduce((s, r) => s + (Number(r.quoteAmount) || 0), 0).toLocaleString(); renderQuoteCategoryTabs(); applyQuoteFilter(); }).handleApiRequest('quoteListGetAll', null); }
 function _mergeLedgerIntoQuotes() {
   if (!_allLedgerItems || _allLedgerItems.length === 0) return;
   // 既存の見積No.セットと既にマージ済みの台帳IDセット（重複防止）
@@ -634,6 +786,7 @@ function _mergeLedgerIntoQuotes() {
       if (existing) {
         if (led.status) existing.status = led.status;
         if (led.compositionType) existing.compositionType = led.compositionType;
+        if (led.category) existing.category = led.category;
       }
       return;
     }
@@ -654,6 +807,7 @@ function _mergeLedgerIntoQuotes() {
       modelCode: led.machineCode || led.modelCode || '',
       boardName: led.boardName || '',
       compositionType: led.compositionType || '',
+      category: led.category || '',
       linked: false,
       orderNo: '',
       _fromLedger: true,
@@ -673,12 +827,13 @@ function applyQuoteFilter() {
     const ms = !st || r.status === st; const ml = !linked || (linked === 'linked' && r.linked) || (linked === 'unlinked' && !r.linked);
     const ma = _amtMatch([r.quoteAmount].concat(r.priceList||[]), amt, amtTol); // 見積合計金額 or 明細単価
     const mc = _quoteClientTab === 'all' || _matchClientGroup(r.destCompany || r.client) === _quoteClientTab;
-    return mk && ms && ml && ma && mc;
+    const mcat = _matchQuoteCategory(r); // ★ 見積カテゴリ絞り込み
+    return mk && ms && ml && ma && mc && mcat;
   });
   _filteredQuotes.sort((a, b) => _cmpByKey(a, b, _quoteSortKey, _quoteSortDir));
   _quotePage = 1; _renderQuoteTable();
 }
-function clearQuoteFilter() { document.getElementById('qs-search').value = ''; document.getElementById('qs-filter-status').value = ''; document.getElementById('qs-filter-linked').value = ''; const a=document.getElementById('qs-amount-search'); if(a)a.value=''; const at=document.getElementById('qs-amount-tol'); if(at)at.value='0'; _filteredQuotes = _allQuotes.slice(); _quotePage = 1; _renderQuoteTable(); }
+function clearQuoteFilter() { document.getElementById('qs-search').value = ''; document.getElementById('qs-filter-status').value = ''; document.getElementById('qs-filter-linked').value = ''; const a=document.getElementById('qs-amount-search'); if(a)a.value=''; const at=document.getElementById('qs-amount-tol'); if(at)at.value='0'; _quoteCatTab='all'; renderQuoteCategoryTabs(); _filteredQuotes = _allQuotes.slice(); _quotePage = 1; _renderQuoteTable(); }
 
 function _renderQuoteTable() {
   _filteredQuotes.sort((a, b) => _cmpByKey(a, b, _quoteSortKey, _quoteSortDir));
@@ -690,10 +845,12 @@ function _renderQuoteTable() {
     const selectId = fromLedger ? ('LEDGER_' + r._ledgerId) : r.id; const editType = fromLedger ? 'ledger' : 'mgmt'; const realId = fromLedger ? r._ledgerId : r.id;
     // ★ 識別色: まず r.compositionType、なければ台帳/案件を quoteNo で検索
     const rct = r.compositionType || _getCompositionType(r.quoteNo);
+    const qci = _quoteCategoryInfo(r); // ★ 見積カテゴリ（未設定は件名から推定）
     return `
     <tr style="border-bottom:1px solid #f0f2f5;${_typeRowBorder(rct)}">
       <td class="editable-cell" onclick="startInlineEdit(event, '${realId}', 'quoteNo', '${_esc(r.quoteNo||'')}', '${editType}')" style="white-space:nowrap;">${_typeBadge(rct)}<strong>${r.quoteNo || '—'}</strong>${ledgerBadge}</td>
       <td class="editable-cell" onclick="startInlineEdit(event, '${realId}', 'subject', '${_esc(r.subject||'')}', '${editType}')" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.subject || ''}">${r.subject || '—'}</td>
+      <td onclick="event.stopPropagation();" style="white-space:nowrap;">${_catSelectHtml(r.id, r.quoteNo||'', qci.value, qci.guessed)}</td>
       <td class="editable-cell" onclick="startInlineEditDate(event, '${realId}', 'issueDate', '${_esc(r.issueDate||r.quoteDate||"")}', '${editType}')" style="font-size:12px;color:var(--text-sub);white-space:nowrap;">${r.issueDate || r.quoteDate || '<span style=\"color:var(--text-muted);">—</span>'}</td>
       <td class="editable-cell" onclick="startInlineEditAutocomplete(event, '${realId}', '${fromLedger?'machineCode':'modelCode'}', '${_esc(r.modelCode||r.machineCode||'')}', '${editType}')" style="min-width:80px;">${r.modelCode||r.machineCode||'<span style="color:var(--text-muted);">—</span>'}</td>
       <td class="editable-cell" onclick="startInlineEdit(event, '${realId}', 'boardName', '${_esc(r.boardName||'')}', '${fromLedger?'ledger':'mgmt'}')" style="max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.boardName||''}">${r.boardName||'<span style="color:var(--text-muted);">—</span>'}</td>
@@ -714,7 +871,7 @@ function _renderQuoteTable() {
       </td>
     </tr>`;
   }).join('');
-  document.getElementById('quotelist-container').innerHTML = `<div style="overflow-x:auto;"><table><thead><tr><th>見積No.</th><th>件名（ファイル名）</th><th>発行日</th><th>機種</th><th>基板名</th><th>宛先</th><th>金額</th><th>ステータス</th><th>紐づけ状況</th><th>注文書番号</th><th>見積PDF</th><th>注文書PDF</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  document.getElementById('quotelist-container').innerHTML = `<div style="overflow-x:auto;"><table><thead><tr><th>見積No.</th><th>件名（ファイル名）</th><th>🗂️ カテゴリ</th><th>発行日</th><th>機種</th><th>基板名</th><th>宛先</th><th>金額</th><th>ステータス</th><th>紐づけ状況</th><th>注文書番号</th><th>見積PDF</th><th>注文書PDF</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   const pages = Math.ceil(total / _quoteLimit); if (pages <= 1) { document.getElementById('qs-pagination').innerHTML = ''; return; }
   let pHtml = ''; for (let i = 1; i <= Math.min(pages, 10); i++) pHtml += `<button class="page-btn ${i === _quotePage ? 'active' : ''}" onclick="goQuotePage(${i})">${i}</button>`; document.getElementById('qs-pagination').innerHTML = pHtml;
 }
@@ -723,12 +880,12 @@ function _renderQuoteTable() {
 function loadLedger(){ const container = document.getElementById('ledger-tree-container'); if(!container) return; container.innerHTML = '<div class="loading"><div class="spinner"></div><br>読み込み中...</div>'; document.getElementById('ledger-flat-container').innerHTML = '<div class="loading"><div class="spinner"></div><br>読み込み中...</div>'; google.script.run.withSuccessHandler(res => { if(!res.success) return; _allLedgerItems = res.items || []; applyLedgerFilter(); }).handleApiRequest('ledgerGetAll', null); }
 function _updateLedgerSummary(items){ const tot = document.getElementById('ledger-total'); const sent = document.getElementById('ledger-sent'); const plan = document.getElementById('ledger-planned'); const amt = document.getElementById('ledger-stat-amount'); if(tot) tot.textContent = items.length; if(sent) sent.textContent = items.filter(r => r.status === '送信済み').length; if(plan) plan.textContent = items.filter(r => r.status === '作成予定').length; if(amt) amt.textContent = items.reduce((s,r) => s + (Number(r.amount)||0), 0).toLocaleString(); }
 function switchLedgerTab(tab) { _currentLedgerTab = tab; const isTree = tab === 'tree'; document.getElementById('ledger-tree-container').style.display = isTree ? '' : 'none'; document.getElementById('ledger-flat-container').style.display = isTree ? 'none' : ''; const treeBtn = document.getElementById('subtab-ledger-tree'); const flatBtn = document.getElementById('subtab-ledger-flat'); if (treeBtn && flatBtn) { treeBtn.style.color = isTree ? 'var(--primary)' : 'var(--text-sub)'; treeBtn.style.borderBottom = isTree ? '2px solid var(--primary)' : '2px solid transparent'; flatBtn.style.color = isTree ? 'var(--text-sub)' : 'var(--primary)'; flatBtn.style.borderBottom = isTree ? '2px solid transparent' : '2px solid var(--primary)'; } applyLedgerFilter(); }
-function applyLedgerFilter() { const searchEl = document.getElementById('ledger-search'); const kw = searchEl ? normalizeSearchText(searchEl.value) : ''; const stEl = document.getElementById('ledger-filter-status'); const st = stEl ? stEl.value : ''; let filtered = _allLedgerItems.filter(r => { if (r.status === '__MACHINE_FOLDER__' && _currentLedgerTab === 'flat') return false; if (r.status === '__MACHINE_FOLDER__' && _currentLedgerTab === 'tree') return true; const txt = normalizeSearchText(JSON.stringify(r)); const mk = !kw || txt.includes(kw); const ms = !st || r.status === st; return mk && ms; }); const tot = document.getElementById('ledger-count-label'); if(tot) tot.textContent = filtered.filter(r=>r.status!=='__MACHINE_FOLDER__').length + '件'; _updateLedgerSummary(filtered.filter(r => r.status !== '__MACHINE_FOLDER__')); if (_currentLedgerTab === 'tree') { _renderLedgerTree(filtered); } else { _renderLedgerFlat(filtered); } }
-function clearLedgerFilter(){ if(document.getElementById('ledger-search')) document.getElementById('ledger-search').value = ''; if(document.getElementById('ledger-filter-status')) document.getElementById('ledger-filter-status').value = ''; applyLedgerFilter(); }
+function applyLedgerFilter() { const searchEl = document.getElementById('ledger-search'); const kw = searchEl ? normalizeSearchText(searchEl.value) : ''; const stEl = document.getElementById('ledger-filter-status'); const st = stEl ? stEl.value : ''; const catEl = document.getElementById('ledger-filter-category'); const catV = catEl ? catEl.value : ''; let filtered = _allLedgerItems.filter(r => { if (r.status === '__MACHINE_FOLDER__' && _currentLedgerTab === 'flat') return false; if (r.status === '__MACHINE_FOLDER__' && _currentLedgerTab === 'tree') return true; const txt = normalizeSearchText(JSON.stringify(r)); const mk = !kw || txt.includes(kw); const ms = !st || r.status === st; const lcv = _quoteCategoryInfo(r).value; const mcat = !catV || (catV === '__none__' ? !lcv : lcv === catV); return mk && ms && mcat; }); const tot = document.getElementById('ledger-count-label'); if(tot) tot.textContent = filtered.filter(r=>r.status!=='__MACHINE_FOLDER__').length + '件'; _updateLedgerSummary(filtered.filter(r => r.status !== '__MACHINE_FOLDER__')); if (_currentLedgerTab === 'tree') { _renderLedgerTree(filtered); } else { _renderLedgerFlat(filtered); } }
+function clearLedgerFilter(){ if(document.getElementById('ledger-search')) document.getElementById('ledger-search').value = ''; if(document.getElementById('ledger-filter-status')) document.getElementById('ledger-filter-status').value = ''; if(document.getElementById('ledger-filter-category')) document.getElementById('ledger-filter-category').value = ''; applyLedgerFilter(); }
 function quickUpdateLedgerStatus(ledgerId, newStatus) { const item = _allLedgerItems.find(r => r.ledgerId === ledgerId); if (item) item.status = newStatus; google.script.run.withSuccessHandler(res => { if (res.success) { showToast('ステータスを更新しました'); loadQuoteList(); } else { showToast('更新失敗', true); } }).handleApiRequest('ledgerSave', { ledgerId: ledgerId, status: newStatus }); }
 
-function _renderLedgerTree(items) { const container = document.getElementById('ledger-tree-container'); if(!container) return; const machineSet = {}; items.forEach(r => { if (r.status === '__MACHINE_FOLDER__') return; const rawCode = (r.machineCode || '（機種未設定）').trim(); const codes = rawCode.split(/[,、]+/).map(c => c.trim()).filter(Boolean); (codes.length ? codes : [rawCode]).forEach(m => { if (!machineSet[m]) machineSet[m] = []; machineSet[m].push(r); }); }); if (Object.keys(machineSet).length === 0) { container.innerHTML = '<div class="loading">該当する見積がありません。</div>'; return; } let html = ''; Object.keys(machineSet).sort().forEach(machine => { const machineItems = machineSet[machine]; const machineId = 'machine-' + machine.replace(/[^a-zA-Z0-9]/g, '_'); html += `<div style="background:var(--card);border-radius:8px;margin-bottom:6px;box-shadow:0 1px 3px rgba(0,0,0,.08);overflow:hidden;"><div class="ledger-machine-hd" onclick="_toggleSection('${machineId}')" style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;cursor:pointer;user-select:none;border-left:4px solid var(--primary);"><span style="display:flex;align-items:center;gap:10px;"><span style="font-size:15px;" id="${machineId}-arrow">▼</span><span style="font-weight:700;font-size:15px;letter-spacing:.03em;">📁 ${machine}</span><span style="font-size:12px;color:var(--text-sub);">${machineItems.length}件</span></span><button class="btn btn-outline btn-sm" onclick="event.stopPropagation();if(typeof _openLedgerAddModalWithMachine==='function')_openLedgerAddModalWithMachine('${machine}')" style="font-size:11px;padding:3px 8px;">＋ 見積登録</button></div><div id="${machineId}" style="display:block;">`; const boardGroups = {}; machineItems.forEach(r => { const bKey = (r.boardName || '（基板未設定）').trim(); if (!boardGroups[bKey]) boardGroups[bKey] = []; boardGroups[bKey].push(r); }); if (Object.keys(boardGroups).length === 0) html += `<div style="padding:14px 20px;color:var(--text-sub);font-size:13px;">まだ見積がありません。</div>`; Object.keys(boardGroups).sort().forEach(board => { const boardItems = boardGroups[board]; boardItems.sort((a,b) => { const da = _dateSortKey(b.issueDate||''); const db = _dateSortKey(a.issueDate||''); return da > db ? -1 : da < db ? 1 : String(b.quoteNo||'').localeCompare(String(a.quoteNo||'')); }); const boardId = machineId + '_' + board.replace(/[^a-zA-Z0-9]/g, '_'); html += `<div style="border-top:1px solid var(--border);"><div class="ledger-board-hd" onclick="_toggleSection('${boardId}')" style="display:flex;align-items:center;justify-content:space-between;padding:7px 16px 7px 28px;background:#f4f6f9;cursor:pointer;user-select:none;"><span style="display:flex;align-items:center;gap:8px;"><span style="font-size:12px;" id="${boardId}-arrow">▼</span><span style="font-size:13px;font-weight:600;">🔬 ${board}</span></span></div><div id="${boardId}"><table style="width:100%;border-collapse:collapse;"><thead><tr style="background:#f0f2f5;"><th style="padding:5px 10px 5px 50px;">見積No.</th><th>件名</th><th>宛先</th><th>金額</th><th>ステータス</th><th>発行日</th><th>PDF</th><th>操作</th></tr></thead><tbody>`; boardItems.forEach(r => { const safeId = (r.ledgerId || '').replace(/'/g, "\\'"); const statuses = ['作成予定', '作成中', '送信済み', '受注済み', 'キャンセル']; const statusOpts = statuses.map(s => `<option value="${s}" ${s === r.status ? 'selected' : ''}>${s}</option>`).join(''); const statusSelect = `<select onchange="event.stopPropagation(); quickUpdateLedgerStatus('${safeId}', this.value)" style="padding:2px 4px;font-size:11px;border-radius:4px;border:1px solid var(--border);background:#fff;cursor:pointer;">${statusOpts}</select>`; const pdfUrl = _getLedgerPdfUrl(r); const pdfCell = pdfUrl ? `<a href="${pdfUrl}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);font-size:18px;text-decoration:none;" title="📄 見積書PDF">📄</a>` : '<span style="color:var(--text-muted);">—</span>'; const ct = r.compositionType||''; html += `<tr style="border-bottom:1px solid #f0f0f0;${_typeRowBorder(ct)}"> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'quoteNo', '${_esc(r.quoteNo||'')}', 'ledger')" style="padding:7px 10px 7px 50px;font-family:monospace;font-size:12px;color:var(--primary);white-space:nowrap;">${_typeBadge(ct)}<strong>${r.quoteNo || '—'}</strong></td> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'subject', '${_esc(r.subject||'')}', 'ledger')" style="padding:7px 8px;font-size:12px;">${r.subject || '—'}</td> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'dest', '${_esc(r.dest||'')}', 'ledger')" style="padding:7px 8px;font-size:12px;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.dest || '—'}</td> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'amount', '${r.amount||''}', 'ledger')" style="padding:7px 8px;font-size:12px;color:var(--danger);font-weight:600;">${r.amount ? '¥'+Number(r.amount).toLocaleString() : '—'}</td> <td style="padding:7px 8px;" onclick="event.stopPropagation();">${statusSelect}</td> <td class="editable-cell" onclick="startInlineEditDate(event, '${safeId}', 'issueDate', '${_esc(r.issueDate||"")}', 'ledger')" style="padding:7px 8px;font-size:11px;color:var(--text-sub);white-space:nowrap;">${r.issueDate || '—'}</td> <td style="padding:7px 8px;text-align:center;">${pdfCell}</td> <td style="padding:7px 8px;white-space:nowrap;"> <button class="btn btn-outline btn-sm" onclick="event.stopPropagation(); if(typeof openLedgerAddModal==='function')openLedgerAddModal('${safeId}')">📋 詳細/編集</button> <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteLedgerEntry('${safeId}')" style="margin-left:2px;">🗑️</button> </td> </tr>`; }); html += `</tbody></table></div></div>`; }); html += `</div></div>`; }); container.innerHTML = html; }
-function _renderLedgerFlat(items) { const container = document.getElementById('ledger-flat-container'); if(!container) return; let data = items.filter(r => r.status !== '__MACHINE_FOLDER__'); data.sort((a,b) => _cmpByKey(a, b, _ledgerSortKey, _ledgerSortDir)); if (data.length === 0) { container.innerHTML = '<div class="loading">該当なし</div>'; return; } let html = `<table class="dtable" style="width:100%;border-collapse:collapse;font-size:12px;background:#fff;box-shadow:var(--shadow-sm);border-radius:8px;overflow:hidden;"><thead><tr style="background:#f0f2f5;"><th style="padding:8px 12px;text-align:left;">見積No.</th><th>件名</th><th>宛先</th><th>機種</th><th>基板名</th><th style="text-align:right;">金額</th><th>ステータス</th><th>発行日</th><th>PDF</th><th style="text-align:center;">操作</th></tr></thead><tbody>`; data.forEach(r => { const safeId = (r.ledgerId || '').replace(/'/g, "\\'"); const statuses = ['作成予定', '作成中', '送信済み', '受注済み', 'キャンセル']; const statusOpts = statuses.map(s => `<option value="${s}" ${s === r.status ? 'selected' : ''}>${s}</option>`).join(''); const statusSelect = `<select onchange="event.stopPropagation(); quickUpdateLedgerStatus('${safeId}', this.value)" style="padding:2px 4px;font-size:11px;border-radius:4px;border:1px solid var(--border);background:#fff;cursor:pointer;">${statusOpts}</select>`; const pdfUrl = _getLedgerPdfUrl(r); const pdfCell = pdfUrl ? `<a href="${pdfUrl}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);font-size:18px;text-decoration:none;" title="📄 見積書PDF">📄</a>` : '<span style="color:var(--text-muted);">—</span>'; const ctf = r.compositionType||''; html += `<tr style="border-bottom:1px solid #f0f0f0;${_typeRowBorder(ctf)}"> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'quoteNo', '${_esc(r.quoteNo||'')}', 'ledger')" style="padding:8px 12px;font-family:monospace;color:var(--primary);font-weight:600;white-space:nowrap;">${_typeBadge(ctf)}<strong>${r.quoteNo || '—'}</strong></td> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'subject', '${_esc(r.subject||'')}', 'ledger')" style="padding:8px 12px;min-width:180px;">${r.subject || '—'}</td> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'dest', '${_esc(r.dest||'')}', 'ledger')" style="padding:8px 12px;white-space:nowrap;">${r.dest || '—'}</td> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'machineCode', '${_esc(r.machineCode||'')}', 'ledger')" style="padding:8px 12px;color:var(--text-sub);">${r.machineCode || '—'}</td> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'boardName', '${_esc(r.boardName||'')}', 'ledger')" style="padding:8px 12px;color:var(--text-sub);">${r.boardName || '—'}</td> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'amount', '${r.amount||''}', 'ledger')" style="padding:8px 12px;text-align:right;color:var(--danger);font-weight:600;">${r.amount ? '¥'+Number(r.amount).toLocaleString() : '—'}</td> <td style="padding:8px 12px;" onclick="event.stopPropagation();">${statusSelect}</td> <td class="editable-cell" onclick="startInlineEditDate(event, '${safeId}', 'issueDate', '${_esc(r.issueDate||'')}', 'ledger')" style="padding:8px 12px;font-size:11px;color:var(--text-sub);white-space:nowrap;">${r.issueDate || '—'}</td> <td style="padding:8px 12px;text-align:center;">${pdfCell}</td> <td style="padding:8px 12px;text-align:center;white-space:nowrap;"><button class="btn btn-outline btn-sm" onclick="event.stopPropagation(); openLedgerAddModal('${safeId}')">📋 詳細/編集</button> <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteLedgerEntry('${safeId}')">🗑️</button></td> </tr>`; }); html += `</tbody></table>`; container.innerHTML = `<div style="overflow-x:auto;">${html}</div>`; }
+function _renderLedgerTree(items) { const container = document.getElementById('ledger-tree-container'); if(!container) return; const machineSet = {}; items.forEach(r => { if (r.status === '__MACHINE_FOLDER__') return; const rawCode = (r.machineCode || '（機種未設定）').trim(); const codes = rawCode.split(/[,、]+/).map(c => c.trim()).filter(Boolean); (codes.length ? codes : [rawCode]).forEach(m => { if (!machineSet[m]) machineSet[m] = []; machineSet[m].push(r); }); }); if (Object.keys(machineSet).length === 0) { container.innerHTML = '<div class="loading">該当する見積がありません。</div>'; return; } let html = ''; Object.keys(machineSet).sort().forEach(machine => { const machineItems = machineSet[machine]; const machineId = 'machine-' + machine.replace(/[^a-zA-Z0-9]/g, '_'); html += `<div style="background:var(--card);border-radius:8px;margin-bottom:6px;box-shadow:0 1px 3px rgba(0,0,0,.08);overflow:hidden;"><div class="ledger-machine-hd" onclick="_toggleSection('${machineId}')" style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;cursor:pointer;user-select:none;border-left:4px solid var(--primary);"><span style="display:flex;align-items:center;gap:10px;"><span style="font-size:15px;" id="${machineId}-arrow">▼</span><span style="font-weight:700;font-size:15px;letter-spacing:.03em;">📁 ${machine}</span><span style="font-size:12px;color:var(--text-sub);">${machineItems.length}件</span></span><button class="btn btn-outline btn-sm" onclick="event.stopPropagation();if(typeof _openLedgerAddModalWithMachine==='function')_openLedgerAddModalWithMachine('${machine}')" style="font-size:11px;padding:3px 8px;">＋ 見積登録</button></div><div id="${machineId}" style="display:block;">`; const boardGroups = {}; machineItems.forEach(r => { const bKey = (r.boardName || '（基板未設定）').trim(); if (!boardGroups[bKey]) boardGroups[bKey] = []; boardGroups[bKey].push(r); }); if (Object.keys(boardGroups).length === 0) html += `<div style="padding:14px 20px;color:var(--text-sub);font-size:13px;">まだ見積がありません。</div>`; Object.keys(boardGroups).sort().forEach(board => { const boardItems = boardGroups[board]; boardItems.sort((a,b) => { const da = _dateSortKey(b.issueDate||''); const db = _dateSortKey(a.issueDate||''); return da > db ? -1 : da < db ? 1 : String(b.quoteNo||'').localeCompare(String(a.quoteNo||'')); }); const boardId = machineId + '_' + board.replace(/[^a-zA-Z0-9]/g, '_'); html += `<div style="border-top:1px solid var(--border);"><div class="ledger-board-hd" onclick="_toggleSection('${boardId}')" style="display:flex;align-items:center;justify-content:space-between;padding:7px 16px 7px 28px;background:#f4f6f9;cursor:pointer;user-select:none;"><span style="display:flex;align-items:center;gap:8px;"><span style="font-size:12px;" id="${boardId}-arrow">▼</span><span style="font-size:13px;font-weight:600;">🔬 ${board}</span></span></div><div id="${boardId}"><table style="width:100%;border-collapse:collapse;"><thead><tr style="background:#f0f2f5;"><th style="padding:5px 10px 5px 50px;">見積No.</th><th>件名</th><th>カテゴリ</th><th>宛先</th><th>金額</th><th>ステータス</th><th>発行日</th><th>PDF</th><th>操作</th></tr></thead><tbody>`; boardItems.forEach(r => { const safeId = (r.ledgerId || '').replace(/'/g, "\\'"); const statuses = ['作成予定', '作成中', '送信済み', '受注済み', 'キャンセル']; const statusOpts = statuses.map(s => `<option value="${s}" ${s === r.status ? 'selected' : ''}>${s}</option>`).join(''); const statusSelect = `<select onchange="event.stopPropagation(); quickUpdateLedgerStatus('${safeId}', this.value)" style="padding:2px 4px;font-size:11px;border-radius:4px;border:1px solid var(--border);background:#fff;cursor:pointer;">${statusOpts}</select>`; const pdfUrl = _getLedgerPdfUrl(r); const pdfCell = pdfUrl ? `<a href="${pdfUrl}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);font-size:18px;text-decoration:none;" title="📄 見積書PDF">📄</a>` : '<span style="color:var(--text-muted);">—</span>'; const ct = r.compositionType||''; html += `<tr style="border-bottom:1px solid #f0f0f0;${_typeRowBorder(ct)}"> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'quoteNo', '${_esc(r.quoteNo||'')}', 'ledger')" style="padding:7px 10px 7px 50px;font-family:monospace;font-size:12px;color:var(--primary);white-space:nowrap;">${_typeBadge(ct)}<strong>${r.quoteNo || '—'}</strong></td> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'subject', '${_esc(r.subject||'')}', 'ledger')" style="padding:7px 8px;font-size:12px;">${r.subject || '—'}</td> <td style="padding:7px 8px;white-space:nowrap;">${_catBadge(_quoteCategoryInfo(r).value, _quoteCategoryInfo(r).guessed)}</td> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'dest', '${_esc(r.dest||'')}', 'ledger')" style="padding:7px 8px;font-size:12px;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.dest || '—'}</td> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'amount', '${r.amount||''}', 'ledger')" style="padding:7px 8px;font-size:12px;color:var(--danger);font-weight:600;">${r.amount ? '¥'+Number(r.amount).toLocaleString() : '—'}</td> <td style="padding:7px 8px;" onclick="event.stopPropagation();">${statusSelect}</td> <td class="editable-cell" onclick="startInlineEditDate(event, '${safeId}', 'issueDate', '${_esc(r.issueDate||"")}', 'ledger')" style="padding:7px 8px;font-size:11px;color:var(--text-sub);white-space:nowrap;">${r.issueDate || '—'}</td> <td style="padding:7px 8px;text-align:center;">${pdfCell}</td> <td style="padding:7px 8px;white-space:nowrap;"> <button class="btn btn-outline btn-sm" onclick="event.stopPropagation(); if(typeof openLedgerAddModal==='function')openLedgerAddModal('${safeId}')">📋 詳細/編集</button> <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteLedgerEntry('${safeId}')" style="margin-left:2px;">🗑️</button> </td> </tr>`; }); html += `</tbody></table></div></div>`; }); html += `</div></div>`; }); container.innerHTML = html; }
+function _renderLedgerFlat(items) { const container = document.getElementById('ledger-flat-container'); if(!container) return; let data = items.filter(r => r.status !== '__MACHINE_FOLDER__'); data.sort((a,b) => _cmpByKey(a, b, _ledgerSortKey, _ledgerSortDir)); if (data.length === 0) { container.innerHTML = '<div class="loading">該当なし</div>'; return; } let html = `<table class="dtable" style="width:100%;border-collapse:collapse;font-size:12px;background:#fff;box-shadow:var(--shadow-sm);border-radius:8px;overflow:hidden;"><thead><tr style="background:#f0f2f5;"><th style="padding:8px 12px;text-align:left;">見積No.</th><th>件名</th><th>カテゴリ</th><th>宛先</th><th>機種</th><th>基板名</th><th style="text-align:right;">金額</th><th>ステータス</th><th>発行日</th><th>PDF</th><th style="text-align:center;">操作</th></tr></thead><tbody>`; data.forEach(r => { const safeId = (r.ledgerId || '').replace(/'/g, "\\'"); const statuses = ['作成予定', '作成中', '送信済み', '受注済み', 'キャンセル']; const statusOpts = statuses.map(s => `<option value="${s}" ${s === r.status ? 'selected' : ''}>${s}</option>`).join(''); const statusSelect = `<select onchange="event.stopPropagation(); quickUpdateLedgerStatus('${safeId}', this.value)" style="padding:2px 4px;font-size:11px;border-radius:4px;border:1px solid var(--border);background:#fff;cursor:pointer;">${statusOpts}</select>`; const pdfUrl = _getLedgerPdfUrl(r); const pdfCell = pdfUrl ? `<a href="${pdfUrl}" target="_blank" onclick="event.stopPropagation()" style="color:var(--primary);font-size:18px;text-decoration:none;" title="📄 見積書PDF">📄</a>` : '<span style="color:var(--text-muted);">—</span>'; const ctf = r.compositionType||''; html += `<tr style="border-bottom:1px solid #f0f0f0;${_typeRowBorder(ctf)}"> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'quoteNo', '${_esc(r.quoteNo||'')}', 'ledger')" style="padding:8px 12px;font-family:monospace;color:var(--primary);font-weight:600;white-space:nowrap;">${_typeBadge(ctf)}<strong>${r.quoteNo || '—'}</strong></td> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'subject', '${_esc(r.subject||'')}', 'ledger')" style="padding:8px 12px;min-width:180px;">${r.subject || '—'}</td> <td style="padding:8px 12px;white-space:nowrap;">${_catBadge(_quoteCategoryInfo(r).value, _quoteCategoryInfo(r).guessed)}</td> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'dest', '${_esc(r.dest||'')}', 'ledger')" style="padding:8px 12px;white-space:nowrap;">${r.dest || '—'}</td> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'machineCode', '${_esc(r.machineCode||'')}', 'ledger')" style="padding:8px 12px;color:var(--text-sub);">${r.machineCode || '—'}</td> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'boardName', '${_esc(r.boardName||'')}', 'ledger')" style="padding:8px 12px;color:var(--text-sub);">${r.boardName || '—'}</td> <td class="editable-cell" onclick="startInlineEdit(event, '${safeId}', 'amount', '${r.amount||''}', 'ledger')" style="padding:8px 12px;text-align:right;color:var(--danger);font-weight:600;">${r.amount ? '¥'+Number(r.amount).toLocaleString() : '—'}</td> <td style="padding:8px 12px;" onclick="event.stopPropagation();">${statusSelect}</td> <td class="editable-cell" onclick="startInlineEditDate(event, '${safeId}', 'issueDate', '${_esc(r.issueDate||'')}', 'ledger')" style="padding:8px 12px;font-size:11px;color:var(--text-sub);white-space:nowrap;">${r.issueDate || '—'}</td> <td style="padding:8px 12px;text-align:center;">${pdfCell}</td> <td style="padding:8px 12px;text-align:center;white-space:nowrap;"><button class="btn btn-outline btn-sm" onclick="event.stopPropagation(); openLedgerAddModal('${safeId}')">📋 詳細/編集</button> <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); deleteLedgerEntry('${safeId}')">🗑️</button></td> </tr>`; }); html += `</tbody></table>`; container.innerHTML = `<div style="overflow-x:auto;">${html}</div>`; }
 function _toggleSection(id) { const el = document.getElementById(id); const arr = document.getElementById(id+'-arrow'); if(el){ el.style.display = el.style.display==='none'?'block':'none'; if(arr) arr.textContent = el.style.display==='none'?'▶':'▼'; } }
 
 // ── モーダル詳細 ＆ 明細紐づけ（高度な機能） ──
@@ -903,6 +1060,11 @@ function _buildQuoteDetailHtml(res) {
   const typeOptions = ['','2基板中古','1基板中古','オール中古','オール新品','見本機','リユース','中古']
     .map(t => `<option value="${t}" ${t===currentType?'selected':''}>${t||'— 未設定 —'}</option>`).join('');
 
+  // ★ 見積カテゴリ: 台帳から現在値を取得（未設定なら件名から推定）
+  const qdCat = _quoteCategoryInfo({ quoteNo: m.quoteNo, subject: m.subject, boardName: m.boardName });
+  const catOptions = [''].concat(QUOTE_CATEGORIES)
+    .map(c => `<option value="${_escAttr(c)}" ${c===qdCat.value?'selected':''}>${c ? ((_QCAT_MAP[c]||{}).icon||'') + ' ' + c : '— 未分類 —'}</option>`).join('');
+
   const typeSection = `
     <div style="background:#f8fafc;border:1px solid var(--border-light);border-radius:8px;padding:14px 16px;margin-bottom:16px;">
       <div style="font-weight:700;font-size:13px;margin-bottom:10px;">🏷️ 種別タブ設定</div>
@@ -918,6 +1080,22 @@ function _buildQuoteDetailHtml(res) {
         <button class="btn btn-primary btn-sm" onclick="_saveCompositionTypeFromDetail('${m.id||''}','${(m.quoteNo||'').replace(/'/g,"\\'")}',document.getElementById('qd-composition-type').value)">
           保存
         </button>
+      </div>
+      <div style="border-top:1px dashed var(--border);margin-top:14px;padding-top:12px;">
+        <div style="font-weight:700;font-size:13px;margin-bottom:10px;">🗂️ 見積カテゴリ設定</div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <div style="font-size:12px;color:var(--text-sub);">現在:</div>
+          <div id="qd-cat-badge-preview">${_catBadge(qdCat.value, qdCat.guessed)}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap;">
+          <select id="qd-quote-category" onchange="_previewQuoteCategory(this.value)"
+            style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:#fff;">
+            ${catOptions}
+          </select>
+          <button class="btn btn-primary btn-sm" onclick="quickUpdateQuoteCategory('${m.id||''}','${(m.quoteNo||'').replace(/'/g,"\\'")}',document.getElementById('qd-quote-category').value)">
+            保存
+          </button>
+        </div>
       </div>
     </div>`;
 
@@ -1925,6 +2103,7 @@ function openLedgerAddModal(ledgerId) {
   if (document.getElementById('ledger-issue-date')) document.getElementById('ledger-issue-date').value = '';
   if (document.getElementById('ledger-status')) document.getElementById('ledger-status').value = '作成予定';
   if (document.getElementById('ledger-composition-type')) document.getElementById('ledger-composition-type').value = '';
+  if (document.getElementById('ledger-category')) document.getElementById('ledger-category').value = '';
 
   if (ledgerId) {
     const item = _allLedgerItems.find(r => r.ledgerId === ledgerId);
@@ -1942,6 +2121,7 @@ function openLedgerAddModal(ledgerId) {
       sv('ledger-remarks', item.remarks || '');
       sv('ledger-submit-to', item.submitTo || '');
       if (document.getElementById('ledger-composition-type')) document.getElementById('ledger-composition-type').value = item.compositionType || '';
+      if (document.getElementById('ledger-category')) document.getElementById('ledger-category').value = item.category || '';
       if (item.issueDate || item.sentDate) {
         const d = (item.issueDate || item.sentDate || '').replace(/\//g, '-');
         if (document.getElementById('ledger-issue-date')) document.getElementById('ledger-issue-date').value = d;
@@ -2045,6 +2225,7 @@ function saveLedgerEntry() {
     remarks: v('ledger-remarks') || undefined,
     submitTo: v('ledger-submit-to') || undefined,
     compositionType: v('ledger-composition-type') || undefined,
+    category: v('ledger-category') || '', // ★ 見積カテゴリ（空 = 未分類として明示保存）
   };
   Object.keys(payload).forEach(k => { if (payload[k] === undefined) delete payload[k]; });
   const wasNew = !payload.ledgerId;

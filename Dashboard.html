@@ -374,6 +374,7 @@ tr:hover td{background:#f8fafc;}
 
       <div id="area-quote" style="display:none;">
         <div id="quote-client-tabs" style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;"></div>
+        <div id="quote-cat-tabs" style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;"></div>
         <div class="summary-grid" style="grid-template-columns:repeat(3,1fr);">
           <div class="summary-card"><div class="lbl">見積書総件数</div><div class="val c-blue" id="qs-total">—</div><div class="sub">件</div></div>
           <div class="summary-card"><div class="lbl">注文書紐づけ済み</div><div class="val c-green" id="qs-linked">—</div><div class="sub">件</div></div>
@@ -382,6 +383,7 @@ tr:hover td{background:#f8fafc;}
         <div class="filter-bar">
           <div class="search-box"><input type="text" id="qs-search" placeholder="見積番号・宛先・担当者で検索..." oninput="applyQuoteFilter()"></div>
           <select id="qs-filter-status" onchange="applyQuoteFilter()"><option value="">すべてのステータス</option><option value="送信済み">送信済み</option><option value="受領">受領</option><option value="作成予定">作成予定</option><option value="作成中">作成中</option><option value="納品済み">納品済み</option></select>
+          <select id="qs-filter-category" onchange="setQuoteCatTab(this.value)" title="見積カテゴリで絞り込み"><option value="all">🗂️ すべてのカテゴリ</option><option value="仕掛基板">🔩 仕掛基板</option><option value="PCB">🟩 PCB</option><option value="組立費">🛠️ 組立費</option><option value="ROM・RAM">💾 ROM・RAM</option><option value="単品部品">📦 単品部品</option><option value="__none__">⬜ 未分類</option></select>
           <select id="qs-filter-linked" onchange="applyQuoteFilter()"><option value="">紐づき状況</option><option value="linked">注文書あり</option><option value="unlinked">注文書なし</option></select>
           <input type="number" id="qs-amount-search" placeholder="💴 金額・単価で検索" oninput="applyQuoteFilter()" title="見積合計金額または明細単価で検索（注文書の単価で見積を探せます）" style="width:160px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;">
           <select id="qs-amount-tol" onchange="applyQuoteFilter()" title="許容誤差"><option value="0">完全一致</option><option value="5">±5%</option><option value="10">±10%</option></select>
@@ -428,6 +430,9 @@ tr:hover td{background:#f8fafc;}
         <div class="search-box" style="flex:2;">
           <input type="text" id="ledger-search" placeholder="見積No・件名・宛先・機種コードで検索..." oninput="applyLedgerFilter()">
         </div>
+        <select id="ledger-filter-category" onchange="applyLedgerFilter()" title="見積カテゴリで絞り込み">
+          <option value="">🗂️ すべてのカテゴリ</option><option value="仕掛基板">🔩 仕掛基板</option><option value="PCB">🟩 PCB</option><option value="組立費">🛠️ 組立費</option><option value="ROM・RAM">💾 ROM・RAM</option><option value="単品部品">📦 単品部品</option><option value="__none__">⬜ 未分類</option>
+        </select>
         <select id="ledger-filter-status" onchange="applyLedgerFilter()">
           <option value="">すべてのステータス</option>
           <option value="作成予定">作成予定</option>
@@ -1256,6 +1261,11 @@ tr:hover td{background:#f8fafc;}
           </select>
         </div>
         <div class="form-field"><label>見積金額</label><input type="number" id="ledger-amount" placeholder="税抜金額"></div>
+      </div>
+      <div class="form-field" style="margin-bottom:12px;"><label>見積カテゴリ</label>
+        <select id="ledger-category">
+          <option value="">— 未分類 —</option><option value="仕掛基板">🔩 仕掛基板</option><option value="PCB">🟩 PCB</option><option value="組立費">🛠️ 組立費</option><option value="ROM・RAM">💾 ROM・RAM</option><option value="単品部品">📦 単品部品</option>
+        </select>
       </div>
       <div class="form-row">
         <div class="form-field"><label>構成タイプ</label>

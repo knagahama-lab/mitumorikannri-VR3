@@ -181,6 +181,9 @@ var LEDGER_COLS = {
   COMPOSITION_TYPE: 16,
 };
 
+// ★ 見積カテゴリ（見積台帳シート E列 / LEDGER_COLS.CATEGORY）
+var LEDGER_CATEGORIES = ['仕掛基板', 'PCB', '組立費', 'ROM・RAM', '単品部品'];
+
 var LEDGER_STATUS = {
   DRAFT:   '作成中',
   PENDING: '作成予定',
@@ -247,13 +250,29 @@ function _setupTodoSheet(ss) {
 }
 
 function _setupLedgerSheet(ss) {
-  var headers = ['台帳ID','見積No.','発行日','宛先（企業名）','分類','件名','ステータス',
-                 '保存先URL','機種コード','基板名','型番','見積金額','提出先担当者','備考','メール送信日'];
+  var headers = ['台帳ID','見積No.','発行日','宛先（企業名）','見積カテゴリ','件名','ステータス',
+                 '保存先URL','機種コード','基板名','型番','見積金額','提出先担当者','備考','メール送信日','構成タイプ'];
   var sheet = _createOrSetupSheet(ss, CONFIG.SHEET_LEDGER, headers, '#FFF3E0');
+  // ★ 見積カテゴリ（仕掛基板 / PCB / 組立費 / ROM・RAM / 単品部品）
   sheet.getRange(2,5,1000,1).setDataValidation(
-    SpreadsheetApp.newDataValidation().requireValueInList(['試作','量産','修理','その他'],true).build());
+    SpreadsheetApp.newDataValidation().requireValueInList(LEDGER_CATEGORIES,true).build());
   sheet.getRange(2,7,1000,1).setDataValidation(
     SpreadsheetApp.newDataValidation().requireValueInList(['作成予定','作成中','送信済み','キャンセル'],true).build());
+}
+
+// ★ 既存の見積台帳シートに「見積カテゴリ」を適用するメンテナンス関数。
+// スクリプトエディタで 1 回実行すれば E列の見出しとプルダウン選択肢が入れ替わる（既存データは消えない）。
+function updateLedgerCategoryColumn() {
+  var ss    = getSpreadsheet();
+  var sheet = ss.getSheetByName(CONFIG.SHEET_LEDGER);
+  if (!sheet) throw new Error('見積台帳シートが見つかりません。');
+  sheet.getRange(1, LEDGER_COLS.CATEGORY).setValue('見積カテゴリ');
+  sheet.getRange(1, LEDGER_COLS.COMPOSITION_TYPE).setValue('構成タイプ');
+  var rows = Math.max(sheet.getMaxRows() - 1, 1);
+  sheet.getRange(2, LEDGER_COLS.CATEGORY, rows, 1).setDataValidation(
+    SpreadsheetApp.newDataValidation().requireValueInList(LEDGER_CATEGORIES, true).build());
+  Logger.log('見積カテゴリ列を更新しました: ' + LEDGER_CATEGORIES.join(' / '));
+  return true;
 }
 
 function _setupModelInfoSheet(ss) {
