@@ -17,6 +17,7 @@ const DEFAULT_MENU = [
   { id:'assignees',   icon:'👥', label:'担当者管理',    section:'自動化・連携',   visible:true },
   { id:'approval',    icon:'✅', label:'製造承認',      section:'自動化・連携',   visible:true },
   { id:'pricelist',   icon:'💹', label:'価格表',        section:'マスタ管理',     visible:true },
+  { id:'supplierdoc', icon:'🏭', label:'仕入先見積・値上げ', section:'マスタ管理',  visible:true },
   { id:'model',       icon:'🏭', label:'機種マスタ',    section:'マスタ管理',     visible:true },
   { id:'board',       icon:'🏷️', label:'基板マスタ',     section:'マスタ管理',     visible:true },
   { id:'maker',       icon:'🏢', label:'メーカー管理',  section:'マスタ管理',     visible:true },
@@ -37,12 +38,13 @@ const DEFAULT_MENU = [
 
 let IS_ADMIN = true;
 let userMenuConfig = [];
-const PAGE_TITLES = { list:'案件一覧', ledger:'見積台帳', matching:'AI紐づけ', calendar:'スケジュール', ocr:'簡易OCR', todo:'ToDo', drivesearch:'全文検索', admin:'システム管理コンソール', workflow:'業務フロー', assignees:'担当者管理', approval:'製造承認', board:'基板マスタ', simulation:'利益シミュレーション', analysis:'分析・レポート', aichat:'AIアシスタント', model:'機種マスタ', checklist:'見積セット チェックリスト', quotecheck:'見積書チェック（単価照合）', quoteset:'見積セット管理', maker:'メーカー管理', submitmgmt:'見積提出管理', pricelist:'価格表' };
+const PAGE_TITLES = { list:'案件一覧', ledger:'見積台帳', matching:'AI紐づけ', calendar:'スケジュール', ocr:'簡易OCR', todo:'ToDo', drivesearch:'全文検索', admin:'システム管理コンソール', workflow:'業務フロー', assignees:'担当者管理', approval:'製造承認', board:'基板マスタ', simulation:'利益シミュレーション', analysis:'分析・レポート', aichat:'AIアシスタント', model:'機種マスタ', checklist:'見積セット チェックリスト', quotecheck:'見積書チェック（単価照合）', quoteset:'見積セット管理', maker:'メーカー管理', submitmgmt:'見積提出管理', pricelist:'価格表', supplierdoc:'仕入先見積・値上げ管理' };
 
 const S = { all:[], filtered:[], page:1, limit:30, docType:'quote', orderType:'', selectedFile:null };
 let _clientMasterList = []; let _orderClientTab = 'all'; let _quoteClientTab = 'all'; let _editClientMaster = [];
 let _quoteCatTab = 'all'; // ★ 見積カテゴリ絞り込みタブ
 let _quoteDocsMap = {};   // ★ 見積書一覧の「資料」列用: mgmtId/ledgerId → 関連書類[]
+let _supplierDocsMap = {}; // ★ 見積書一覧の「仕入」列用: mgmtId/ledgerId/見積No. → 仕入先書類[]
 let searchTimer=null; let _allQuotes = []; let _filteredQuotes = []; let _quotePage = 1; const _quoteLimit = 20; let _allMatchingItems = [];
 let _allLedgerItems = []; let _filteredLedgerItems = []; let _currentLedgerTab = 'tree';
 let _allSmItems = [];
@@ -318,6 +320,7 @@ function showPage(name){
   if(name==='checklist' && typeof initChecklistPage==='function') initChecklistPage();
   if(name==='quotecheck' && typeof initQuoteCheckPage==='function') initQuoteCheckPage();
   if(name==='pricelist' && typeof initPriceListPage==='function') initPriceListPage();
+  if(name==='supplierdoc' && typeof initSupplierDocPage==='function') initSupplierDocPage();
   if(name==='quoteset')   loadQuoteSetPage();
   if(name==='submitmgmt') loadSubmitMgmt();
   if(name==='maker')      loadMakerPage();
@@ -525,6 +528,41 @@ function _quoteDocsCellHtml(r){
   const more = docs.length > shown.length
     ? `<span style="font-size:10px;color:var(--text-sub);">+${docs.length - shown.length}</span>` : '';
   return `<span style="white-space:nowrap;" title="参考資料 ${docs.length}件">${links}${more}</span>`;
+}
+
+// ============================================================
+// ★ 見積書一覧の「仕入」列
+//    紐づいた仕入先・商社の見積書／値上げ書面へのリンクを出す。
+//    クリックで仕入先書類の詳細（逆引き：この書類を使った弊社見積）を開く。
+// ============================================================
+function _loadSupplierDocsMap(){
+  google.script.run
+    .withSuccessHandler(function(res){
+      if (!res || !res.success) return;
+      _supplierDocsMap = res.map || {};
+      if (document.getElementById('quotelist-container')) _renderQuoteTable();
+    })
+    .handleApiRequest('supplierDocsMapAll', null);
+}
+// 案件は mgmtId、台帳登録分は ledgerId。どちらも無ければ見積No.で引く。
+function _supplierDocsFor(r){
+  if (!r) return [];
+  const key = r._fromLedger ? String(r._ledgerId||'') : String(r.id||'');
+  return _supplierDocsMap[key] || _supplierDocsMap[String(r.quoteNo||'')] || [];
+}
+function _supplierDocsCellHtml(r){
+  const docs = _supplierDocsFor(r);
+  if (!docs.length) return '<span style="color:var(--text-muted);">—</span>';
+  const shown = docs.slice(0, 3);
+  const links = shown.map(function(d){
+    const icon = SDOC_TYPE_ICONS[d.docType] || '🏭';
+    const who  = d.supplier || d.trader || '';
+    const tip  = [d.docType, who, d.itemName, d.fileName].filter(Boolean).join(' / ');
+    return `<a class="pdf-link" href="${_escAttr(d.url)}" target="_blank" onclick="event.stopPropagation()" title="${_escAttr(tip)}" style="text-decoration:none;margin-right:4px;">${icon}</a>`;
+  }).join('');
+  const more = docs.length > shown.length
+    ? `<span style="font-size:10px;color:var(--text-sub);">+${docs.length - shown.length}</span>` : '';
+  return `<span style="white-space:nowrap;" title="仕入先書類 ${docs.length}件">${links}${more}</span>`;
 }
 
 // ============================================================
@@ -796,7 +834,7 @@ function clearFilters(){ document.getElementById('search-input').value=''; ['fil
 function _populateMonthFilter(){ const sel=document.getElementById('filter-month'); if(!sel) return; const now=new Date(); for(let i=0;i<12;i++){ const d=new Date(now.getFullYear(),now.getMonth()-i,1); const ym=d.getFullYear()+'/'+String(d.getMonth()+1).padStart(2,'0'); const o=document.createElement('option');o.value=ym;o.textContent=ym;sel.appendChild(o); } }
 
 // ── 見積書一覧 ──
-function loadQuoteList() { const container = document.getElementById('quotelist-container'); if(!container) return; container.innerHTML = '<div class="loading"><div class="spinner"></div><br>読み込み中...</div>'; google.script.run.withSuccessHandler(res => { if (!res.success) { container.innerHTML = '<div class="loading" style="color:var(--danger);">⚠️ ' + res.error + '</div>'; return; } _allQuotes = res.items || []; if(typeof _mergeLedgerIntoQuotes === 'function') _mergeLedgerIntoQuotes(); _filteredQuotes = _allQuotes.slice(); _quotePage = 1; if(document.getElementById('qs-total')) document.getElementById('qs-total').textContent = _allQuotes.length; if(document.getElementById('qs-linked')) document.getElementById('qs-linked').textContent = _allQuotes.filter(r => r.linked).length; if(document.getElementById('qs-amount')) document.getElementById('qs-amount').textContent = _allQuotes.reduce((s, r) => s + (Number(r.quoteAmount) || 0), 0).toLocaleString(); renderQuoteCategoryTabs(); applyQuoteFilter(); _loadQuoteDocsMap(); }).handleApiRequest('quoteListGetAll', null); }
+function loadQuoteList() { const container = document.getElementById('quotelist-container'); if(!container) return; container.innerHTML = '<div class="loading"><div class="spinner"></div><br>読み込み中...</div>'; google.script.run.withSuccessHandler(res => { if (!res.success) { container.innerHTML = '<div class="loading" style="color:var(--danger);">⚠️ ' + res.error + '</div>'; return; } _allQuotes = res.items || []; if(typeof _mergeLedgerIntoQuotes === 'function') _mergeLedgerIntoQuotes(); _filteredQuotes = _allQuotes.slice(); _quotePage = 1; if(document.getElementById('qs-total')) document.getElementById('qs-total').textContent = _allQuotes.length; if(document.getElementById('qs-linked')) document.getElementById('qs-linked').textContent = _allQuotes.filter(r => r.linked).length; if(document.getElementById('qs-amount')) document.getElementById('qs-amount').textContent = _allQuotes.reduce((s, r) => s + (Number(r.quoteAmount) || 0), 0).toLocaleString(); renderQuoteCategoryTabs(); applyQuoteFilter(); _loadQuoteDocsMap(); _loadSupplierDocsMap(); }).handleApiRequest('quoteListGetAll', null); }
 function _mergeLedgerIntoQuotes() {
   if (!_allLedgerItems || _allLedgerItems.length === 0) return;
   // 既存の見積No.セットと既にマージ済みの台帳IDセット（重複防止）
@@ -890,6 +928,7 @@ function _renderQuoteTable() {
       </td>
       <td>${r.quotePdfUrl ? '<a class="pdf-link" href="' + r.quotePdfUrl + '" target="_blank" onclick="event.stopPropagation()">📄 見積</a>' : '—'}</td>
       <td onclick="event.stopPropagation();">${_quoteDocsCellHtml(r)}</td>
+      <td onclick="event.stopPropagation();">${_supplierDocsCellHtml(r)}</td>
       <td>${r.orderPdfUrl ? '<a class="pdf-link" href="' + r.orderPdfUrl + '" target="_blank" onclick="event.stopPropagation()" style="color:var(--danger);">📦 注文</a>' : '—'}</td>
       <td style="text-align:center; white-space:nowrap;">
         <button class="btn btn-outline btn-sm" onclick="event.stopPropagation(); ${fromLedger ? `if(typeof openLedgerAddModal==='function')openLedgerAddModal('${r._ledgerId}')` : `openQuoteDetail('${r.id}')`}">📄 詳細</button>
@@ -897,7 +936,7 @@ function _renderQuoteTable() {
       </td>
     </tr>`;
   }).join('');
-  document.getElementById('quotelist-container').innerHTML = `<div style="overflow-x:auto;"><table><thead><tr><th>見積No.</th><th>件名（ファイル名）</th><th>🗂️ カテゴリ</th><th>発行日</th><th>機種</th><th>基板名</th><th>宛先</th><th>金額</th><th>ステータス</th><th>紐づけ状況</th><th>注文書番号</th><th>見積PDF</th><th>📎 資料</th><th>注文書PDF</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  document.getElementById('quotelist-container').innerHTML = `<div style="overflow-x:auto;"><table><thead><tr><th>見積No.</th><th>件名（ファイル名）</th><th>🗂️ カテゴリ</th><th>発行日</th><th>機種</th><th>基板名</th><th>宛先</th><th>金額</th><th>ステータス</th><th>紐づけ状況</th><th>注文書番号</th><th>見積PDF</th><th>📎 資料</th><th>🏭 仕入</th><th>注文書PDF</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   const pages = Math.ceil(total / _quoteLimit); if (pages <= 1) { document.getElementById('qs-pagination').innerHTML = ''; return; }
   let pHtml = ''; for (let i = 1; i <= Math.min(pages, 10); i++) pHtml += `<button class="page-btn ${i === _quotePage ? 'active' : ''}" onclick="goQuotePage(${i})">${i}</button>`; document.getElementById('qs-pagination').innerHTML = pHtml;
 }
@@ -938,6 +977,7 @@ function openQuoteDetail(mgmtId, quoteNo) {
       if (!res.mgmt) res.mgmt = item;
       document.getElementById('quote-detail-body').innerHTML = _buildQuoteDetailHtml(res);
       _loadQuoteDocs(res.mgmt.id || mgmtId);
+      _loadSupplierLinksForQuote(res.mgmt.id || mgmtId, (res.mgmt || {}).quoteNo || '');
     }).handleApiRequest('getQuoteDetail', { mgmtId });
 }
 function closeQuoteDetail() { const el = document.getElementById('quote-detail-modal'); if(el) el.classList.remove('open'); }
@@ -1151,6 +1191,13 @@ function _buildQuoteDetailHtml(res) {
         <button class="btn btn-outline btn-sm" onclick="openQuoteDocModal('${m.id||''}')">＋ 資料を追加</button>
       </div>
       <div id="qdoc-list-${m.id||''}"><div style="color:var(--text-muted);font-size:12px;">読み込み中…</div></div>
+    </div>
+    <div id="sdoc-section" style="margin-bottom:16px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <h4 style="margin:0;">🏭 仕入先・商社の見積書／値上げ書面</h4>
+        <button class="btn btn-outline btn-sm" onclick="openSupplierLinkPicker('${_escAttr(m.id||'')}','mgmt','${_escAttr(m.quoteNo||'')}')">🔗 仕入先書類を紐づけ</button>
+      </div>
+      <div id="sdoc-link-list-${_escAttr(m.id||'')}"><div style="color:var(--text-muted);font-size:12px;">読み込み中…</div></div>
     </div>
     <div><h4>見積書 明細</h4>${lineRows ? `<table style="width:100%;border-collapse:collapse;"><thead><tr style="background:#f9f9f9;"><th style="padding:6px;">#</th><th style="padding:6px;text-align:left;">品名</th><th style="padding:6px;text-align:right;">数量</th><th style="padding:6px;text-align:right;">金額</th></tr></thead><tbody>${lineRows}</tbody></table>` : '<div style="font-size:13px;color:var(--text-sub);">明細データなし</div>'}</div>`;
 }
@@ -7693,4 +7740,643 @@ function addModelBoardCompositionRow() {
     .withFailureHandler(err => showToast('通信エラー: ' + (err.message||err), true))
     .handleApiRequest('modelBoardCompositionAddRow', { code });
 }
+
+// ============================================================
+// 🏭 仕入先・商社書類（31_supplier_docs.gs）UI
+//   ・仕入先／商社の見積書・値上げ書面を保存
+//   ・弊社見積 ⇔ 仕入先見積書 の双方向リンク／検索
+//   ・値上げの時系列表示
+// ============================================================
+
+const SDOC_TYPES = ['仕入先見積書','商社見積書','値上げ通知書','価格改定通知','単価表','その他'];
+const SDOC_TYPE_ICONS = { '仕入先見積書':'🏭', '商社見積書':'🏬', '値上げ通知書':'📈', '価格改定通知':'📊', '単価表':'📋', 'その他':'📎' };
+const SDOC_PRICE_CHANGE_TYPES = ['値上げ通知書','価格改定通知'];
+
+let _allSupplierDocs = [];
+let _sdocSuppliers   = [];
+let _sdocTab         = 'list';
+let _sdocFiltersReady = false;
+
+function initSupplierDocPage() {
+  if (_sdocTab === 'timeline') loadPriceTimeline();
+  loadSupplierDocs();
+}
+
+function switchSupplierDocTab(tab) {
+  _sdocTab = tab;
+  const on  = 'padding:8px 20px;border:none;background:none;font-size:14px;font-weight:600;color:var(--primary);border-bottom:2px solid var(--primary);margin-bottom:-2px;cursor:pointer;';
+  const off = 'padding:8px 20px;border:none;background:none;font-size:14px;font-weight:500;color:var(--text-sub);border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;';
+  const tl = document.getElementById('sdoc-tab-list');
+  const tt = document.getElementById('sdoc-tab-timeline');
+  if (tl) tl.style.cssText = (tab === 'list') ? on : off;
+  if (tt) tt.style.cssText = (tab === 'timeline') ? on : off;
+  const pl = document.getElementById('sdoc-pane-list');
+  const pt = document.getElementById('sdoc-pane-timeline');
+  if (pl) pl.style.display = (tab === 'list') ? '' : 'none';
+  if (pt) pt.style.display = (tab === 'timeline') ? '' : 'none';
+  if (tab === 'timeline') loadPriceTimeline();
+}
+
+// ── 一覧の読み込み ──
+function loadSupplierDocs() {
+  const c = document.getElementById('sdoc-list-container');
+  if (c) c.innerHTML = '<div class="loading"><div class="spinner"></div><br>読み込み中…</div>';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success) {
+        if (c) c.innerHTML = '<div class="loading" style="color:var(--danger);">⚠️ ' + _esc((res||{}).error||'不明') + '</div>';
+        return;
+      }
+      _allSupplierDocs = res.items || [];
+      _sdocSuppliers   = res.suppliers || [];
+      _fillSupplierDocFilters();
+      renderSupplierDocs();
+    })
+    .withFailureHandler(function(err) {
+      if (c) c.innerHTML = '<div class="loading" style="color:var(--danger);">通信エラー: ' + _esc(err && err.message ? err.message : err) + '</div>';
+    })
+    .handleApiRequest('supplierDocsList', {});
+}
+
+function _fillSupplierDocFilters() {
+  const tSel = document.getElementById('sdoc-filter-type');
+  if (tSel) {
+    const cur = tSel.value;
+    tSel.innerHTML = '<option value="">📁 すべての種別</option>' +
+      SDOC_TYPES.map(t => `<option value="${_escAttr(t)}">${SDOC_TYPE_ICONS[t]||'📎'} ${_esc(t)}</option>`).join('');
+    tSel.value = cur;
+  }
+  [['sdoc-filter-supplier','🏭 すべての仕入先'], ['sdoc-tl-supplier','🏭 すべての仕入先']].forEach(function(d) {
+    const sel = document.getElementById(d[0]);
+    if (!sel) return;
+    const cur = sel.value;
+    sel.innerHTML = `<option value="">${d[1]}</option>` +
+      _sdocSuppliers.map(s => `<option value="${_escAttr(s)}">${_esc(s)}</option>`).join('');
+    sel.value = cur;
+  });
+  _sdocFiltersReady = true;
+}
+
+function renderSupplierDocs() {
+  const c = document.getElementById('sdoc-list-container');
+  if (!c) return;
+  const kw   = (document.getElementById('sdoc-search')?.value || '').trim().toLowerCase();
+  const type = document.getElementById('sdoc-filter-type')?.value || '';
+  const sup  = document.getElementById('sdoc-filter-supplier')?.value || '';
+
+  const items = _allSupplierDocs.filter(function(d) {
+    if (type && d.docType !== type) return false;
+    if (sup && d.supplier !== sup && d.trader !== sup) return false;
+    if (kw) {
+      // 仕入先書類の属性に加え、紐づいた弊社見積の見積No.・宛先でも引ける（双方向検索）
+      let hay = [d.supplier, d.trader, d.subject, d.itemName, d.modelNo, d.fileName, d.memo, d.docType].join(' ').toLowerCase();
+      (d.links || []).forEach(l => { hay += ' ' + [l.quoteNo, l.subject, l.client].join(' ').toLowerCase(); });
+      if (hay.indexOf(kw) < 0) return false;
+    }
+    return true;
+  });
+
+  const stats = document.getElementById('sdoc-stats');
+  if (stats) {
+    const priceDocs = items.filter(d => SDOC_PRICE_CHANGE_TYPES.indexOf(d.docType) >= 0);
+    const linked    = items.filter(d => (d.linkCount || 0) > 0).length;
+    stats.innerHTML =
+      `<span>📄 書類 <b style="color:var(--text);">${items.length}</b> 件</span>` +
+      `<span>📈 値上げ書面 <b style="color:var(--danger);">${priceDocs.length}</b> 件</span>` +
+      `<span>🔗 弊社見積と紐づけ済み <b style="color:var(--primary);">${linked}</b> 件</span>`;
+  }
+
+  if (!items.length) {
+    c.innerHTML = '<div class="loading" style="color:var(--text-muted);">該当する書類はありません。「＋ 書類を登録」から追加できます。</div>';
+    return;
+  }
+
+  const rows = items.map(function(d) {
+    const icon = SDOC_TYPE_ICONS[d.docType] || '📎';
+    const who  = [d.supplier, d.trader].filter(Boolean).join(' / ');
+    const isUp = SDOC_PRICE_CHANGE_TYPES.indexOf(d.docType) >= 0;
+    const rate = d.diffRate
+      ? `<span style="font-weight:700;color:${d.diffRate > 0 ? 'var(--danger)' : 'var(--success,#16a34a)'};">${d.diffRate > 0 ? '▲' : '▼'}${Math.abs(d.diffRate)}%</span>`
+      : '<span style="color:var(--text-muted);">—</span>';
+    const price = (d.oldPrice || d.newPrice)
+      ? `${Number(d.oldPrice||0).toLocaleString()} → <b>${Number(d.newPrice||0).toLocaleString()}</b>`
+      : '<span style="color:var(--text-muted);">—</span>';
+    // 逆引き：この仕入先書類を使った弊社見積
+    const linkChips = (d.links || []).length
+      ? d.links.slice(0, 3).map(l =>
+          `<span style="display:inline-block;background:#eef2ff;color:#3730a3;border-radius:10px;padding:1px 8px;font-size:11px;margin:1px 2px 1px 0;">${_esc(l.quoteNo || l.targetId)}</span>`
+        ).join('') + ((d.links.length > 3) ? `<span style="font-size:11px;color:var(--text-sub);">+${d.links.length - 3}</span>` : '')
+      : '<span style="color:var(--text-muted);font-size:11px;">未紐づけ</span>';
+
+    return `<tr>
+      <td style="white-space:nowrap;">${icon} ${_esc(d.docType)}</td>
+      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${_escAttr(who)}">${_esc(who) || '—'}</td>
+      <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${_escAttr(d.itemName + ' ' + d.modelNo)}">${_esc(d.itemName || d.subject || '—')}${d.modelNo ? `<div style="font-size:11px;color:var(--text-muted);">${_esc(d.modelNo)}</div>` : ''}</td>
+      <td style="white-space:nowrap;">${_esc(d.issueDate || '—')}</td>
+      <td style="white-space:nowrap;">${isUp ? _esc(d.effectDate || '—') : '<span style="color:var(--text-muted);">—</span>'}</td>
+      <td style="text-align:right;white-space:nowrap;">${price}</td>
+      <td style="text-align:right;white-space:nowrap;">${rate}</td>
+      <td>${linkChips}</td>
+      <td style="white-space:nowrap;">${d.url ? `<a class="pdf-link" href="${_escAttr(d.url)}" target="_blank">📄 開く</a>` : '—'}</td>
+      <td style="text-align:center;white-space:nowrap;">
+        <button class="btn btn-outline btn-sm" onclick="openSupplierDocDetail('${_escAttr(d.id)}')">🔍 詳細</button>
+        <button class="btn btn-outline btn-sm" onclick="openSupplierDocModal('${_escAttr(d.id)}')">✏️</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteSupplierDoc('${_escAttr(d.id)}')">🗑️</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  c.innerHTML = `<div style="overflow-x:auto;"><table><thead><tr>
+    <th>種別</th><th>仕入先 / 商社</th><th>対象品名・型番</th><th>発行日</th><th>適用開始日</th>
+    <th>旧単価 → 新単価</th><th>増減率</th><th>🔗 弊社見積</th><th>ファイル</th><th>操作</th>
+  </tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+// ── 登録・編集モーダル ──
+function openSupplierDocModal(docId) {
+  const d = docId ? (_allSupplierDocs.find(x => x.id === docId) || {}) : {};
+  const typeOpts = SDOC_TYPES.map(t =>
+    `<option value="${_escAttr(t)}" ${d.docType === t ? 'selected' : ''}>${SDOC_TYPE_ICONS[t]||'📎'} ${_esc(t)}</option>`).join('');
+  document.getElementById('sdoc-modal-overlay')?.remove();
+  const fld = 'width:100%;padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;box-sizing:border-box;margin-top:3px;';
+  const lbl = 'font-size:12px;color:var(--text-muted);';
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="sdoc-modal-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9500;display:flex;align-items:center;justify-content:center;padding:20px;">
+      <div style="background:#fff;border-radius:12px;width:min(620px,96vw);max-height:92vh;overflow-y:auto;padding:24px 28px;box-shadow:0 8px 32px rgba(0,0,0,0.18);">
+        <h3 style="margin:0 0 16px;font-size:16px;">🏭 ${docId ? '仕入先書類の編集' : '仕入先・商社の書類を登録'}</h3>
+        <input type="hidden" id="sd-id" value="${_escAttr(d.id||'')}">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div style="grid-column:1/-1;"><label style="${lbl}">書類種別 <span style="color:var(--danger);">*</span></label>
+            <select id="sd-type" style="${fld}" onchange="_sdocToggleUpFields()">${typeOpts}</select></div>
+          <div><label style="${lbl}">仕入先名</label><input id="sd-supplier" type="text" value="${_escAttr(d.supplier||'')}" placeholder="例: ○○電子工業" style="${fld}"></div>
+          <div><label style="${lbl}">商社名</label><input id="sd-trader" type="text" value="${_escAttr(d.trader||'')}" placeholder="例: △△商事" style="${fld}"></div>
+          <div style="grid-column:1/-1;"><label style="${lbl}">件名</label><input id="sd-subject" type="text" value="${_escAttr(d.subject||'')}" style="${fld}"></div>
+          <div><label style="${lbl}">対象品名</label><input id="sd-item" type="text" value="${_escAttr(d.itemName||'')}" style="${fld}"></div>
+          <div><label style="${lbl}">型番</label><input id="sd-modelno" type="text" value="${_escAttr(d.modelNo||'')}" style="${fld}"></div>
+          <div><label style="${lbl}">発行日</label><input id="sd-issue" type="date" value="${_escAttr(_sdocToInputDate(d.issueDate))}" style="${fld}"></div>
+          <div class="sd-up-field"><label style="${lbl}">適用開始日（値上げ反映日）</label><input id="sd-effect" type="date" value="${_escAttr(_sdocToInputDate(d.effectDate))}" style="${fld}"></div>
+          <div class="sd-up-field"><label style="${lbl}">旧単価</label><input id="sd-old" type="number" step="0.01" value="${d.oldPrice||''}" style="${fld}" oninput="_sdocPreviewRate()"></div>
+          <div class="sd-up-field"><label style="${lbl}">新単価</label><input id="sd-new" type="number" step="0.01" value="${d.newPrice||''}" style="${fld}" oninput="_sdocPreviewRate()"></div>
+          <div><label style="${lbl}">数量</label><input id="sd-qty" type="number" step="0.01" value="${d.qty||''}" style="${fld}"></div>
+          <div><label style="${lbl}">通貨</label><input id="sd-currency" type="text" value="${_escAttr(d.currency||'JPY')}" style="${fld}"></div>
+          <div style="grid-column:1/-1;" class="sd-up-field"><div id="sd-rate-preview" style="font-size:12px;color:var(--text-sub);padding:4px 0;"></div></div>
+          <div style="grid-column:1/-1;"><label style="${lbl}">ファイル（PDF / Excel / 画像）${d.url ? ' — 未選択なら既存ファイルを維持' : ''}</label>
+            <input id="sd-file" type="file" accept=".pdf,.xlsx,.xls,.png,.jpg,.jpeg" style="${fld}">
+            ${d.url ? `<div style="font-size:11px;margin-top:4px;"><a href="${_escAttr(d.url)}" target="_blank">📄 ${_esc(d.fileName||'現在のファイル')}</a></div>` : ''}</div>
+          <div style="grid-column:1/-1;"><label style="${lbl}">備考</label><input id="sd-memo" type="text" value="${_escAttr(d.memo||'')}" style="${fld}"></div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:18px;">
+          <button class="btn btn-sm" onclick="document.getElementById('sdoc-modal-overlay').remove()">キャンセル</button>
+          <button class="btn btn-primary btn-sm" id="sd-save-btn" onclick="saveSupplierDoc()">💾 保存</button>
+        </div>
+      </div>
+    </div>`);
+  _sdocToggleUpFields();
+  _sdocPreviewRate();
+}
+
+// 値上げ系の種別を選んだときだけ単価・適用開始日を目立たせる
+function _sdocToggleUpFields() {
+  const t  = document.getElementById('sd-type')?.value || '';
+  const on = SDOC_PRICE_CHANGE_TYPES.indexOf(t) >= 0;
+  document.querySelectorAll('.sd-up-field').forEach(el => { el.style.opacity = on ? '1' : '0.55'; });
+}
+
+function _sdocPreviewRate() {
+  const el = document.getElementById('sd-rate-preview');
+  if (!el) return;
+  const o = Number(document.getElementById('sd-old')?.value || 0);
+  const n = Number(document.getElementById('sd-new')?.value || 0);
+  if (!o || !n) { el.textContent = ''; return; }
+  const rate = Math.round(((n - o) / o) * 1000) / 10;
+  el.innerHTML = `増減率: <b style="color:${rate > 0 ? 'var(--danger)' : 'var(--success,#16a34a)'};">${rate > 0 ? '▲' : '▼'}${Math.abs(rate)}%</b>（${(n-o).toLocaleString()} 円）`;
+}
+
+// yyyy/MM/dd → yyyy-MM-dd（<input type="date"> 用）
+function _sdocToInputDate(v) {
+  if (!v) return '';
+  const s = String(v).replace(/\//g, '-');
+  const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (!m) return '';
+  return m[1] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[3]).slice(-2);
+}
+
+function saveSupplierDoc() {
+  const payload = {
+    id:         document.getElementById('sd-id')?.value || '',
+    docType:    document.getElementById('sd-type')?.value || SDOC_TYPES[0],
+    supplier:   document.getElementById('sd-supplier')?.value?.trim() || '',
+    trader:     document.getElementById('sd-trader')?.value?.trim() || '',
+    subject:    document.getElementById('sd-subject')?.value?.trim() || '',
+    itemName:   document.getElementById('sd-item')?.value?.trim() || '',
+    modelNo:    document.getElementById('sd-modelno')?.value?.trim() || '',
+    issueDate:  document.getElementById('sd-issue')?.value || '',
+    effectDate: document.getElementById('sd-effect')?.value || '',
+    oldPrice:   document.getElementById('sd-old')?.value || 0,
+    newPrice:   document.getElementById('sd-new')?.value || 0,
+    qty:        document.getElementById('sd-qty')?.value || 0,
+    currency:   document.getElementById('sd-currency')?.value?.trim() || 'JPY',
+    memo:       document.getElementById('sd-memo')?.value?.trim() || '',
+  };
+  if (!payload.supplier && !payload.trader) { showToast('仕入先名または商社名を入力してください', true); return; }
+
+  const btn = document.getElementById('sd-save-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ 保存中…'; }
+  const restore = () => { if (btn) { btn.disabled = false; btn.textContent = '💾 保存'; } };
+  const done = (res) => {
+    if (res && res.success) {
+      showToast('✅ 保存しました');
+      document.getElementById('sdoc-modal-overlay')?.remove();
+      loadSupplierDocs();
+      if (typeof _loadSupplierDocsMap === 'function') _loadSupplierDocsMap();
+    } else { showToast('エラー: ' + ((res||{}).error||'不明'), true); restore(); }
+  };
+  const fail = (err) => { showToast('通信エラー: ' + (err && err.message ? err.message : err), true); restore(); };
+
+  const fileInput = document.getElementById('sd-file');
+  const file = fileInput && fileInput.files && fileInput.files[0];
+  if (file) {
+    const reader = new FileReader();
+    reader.onload = function() {
+      payload.fileName   = file.name;
+      payload.mimeType   = file.type;
+      payload.base64Data = reader.result.split(',')[1];
+      google.script.run.withSuccessHandler(done).withFailureHandler(fail)
+        .handleApiRequest('supplierDocUpload', payload);
+    };
+    reader.readAsDataURL(file);
+  } else {
+    // 既存ファイルを維持したままメタデータのみ更新
+    const cur = _allSupplierDocs.find(x => x.id === payload.id);
+    if (cur) { payload.fileName = cur.fileName; payload.url = cur.url; }
+    google.script.run.withSuccessHandler(done).withFailureHandler(fail)
+      .handleApiRequest('supplierDocSave', payload);
+  }
+}
+
+function deleteSupplierDoc(id) {
+  if (!confirm('この仕入先書類を削除しますか？\n（弊社見積との紐づけも同時に削除されます）')) return;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        showToast('✅ 削除しました');
+        loadSupplierDocs();
+        if (typeof _loadSupplierDocsMap === 'function') _loadSupplierDocsMap();
+      } else showToast('エラー: ' + ((res||{}).error||'不明'), true);
+    })
+    .withFailureHandler(err => showToast('通信エラー: ' + (err.message||err), true))
+    .handleApiRequest('supplierDocDelete', { id });
+}
+
+// ── 逆引き詳細：この仕入先書類を使った弊社見積 ──
+function openSupplierDocDetail(docId) {
+  const d = _allSupplierDocs.find(x => x.id === docId);
+  // 見積詳細からの遷移など、一覧が未読込のケースでは取得してから開き直す
+  if (!d) {
+    google.script.run
+      .withSuccessHandler(function(res) {
+        if (!res || !res.success) { showToast('書類の取得に失敗しました', true); return; }
+        _allSupplierDocs = res.items || [];
+        _sdocSuppliers   = res.suppliers || [];
+        if (!_allSupplierDocs.some(x => x.id === docId)) { showToast('書類が見つかりません', true); return; }
+        openSupplierDocDetail(docId);
+      })
+      .withFailureHandler(err => showToast('通信エラー: ' + (err.message||err), true))
+      .handleApiRequest('supplierDocsList', {});
+    return;
+  }
+  document.getElementById('sdoc-detail-overlay')?.remove();
+  document.body.insertAdjacentHTML('beforeend', `
+    <div id="sdoc-detail-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9500;display:flex;align-items:center;justify-content:center;padding:20px;">
+      <div style="background:#fff;border-radius:12px;width:min(720px,96vw);max-height:92vh;overflow-y:auto;padding:24px 28px;box-shadow:0 8px 32px rgba(0,0,0,0.18);">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px;">
+          <h3 style="margin:0;font-size:16px;">${SDOC_TYPE_ICONS[d.docType]||'📎'} ${_esc(d.docType)}</h3>
+          <button class="btn btn-sm" onclick="document.getElementById('sdoc-detail-overlay').remove()">✕</button>
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px;">
+          <tbody>
+            <tr><td style="padding:6px;border-bottom:1px solid var(--border);width:34%;color:var(--text-muted);">仕入先 / 商社</td><td style="padding:6px;border-bottom:1px solid var(--border);">${_esc([d.supplier,d.trader].filter(Boolean).join(' / ')) || '—'}</td></tr>
+            <tr><td style="padding:6px;border-bottom:1px solid var(--border);color:var(--text-muted);">件名</td><td style="padding:6px;border-bottom:1px solid var(--border);">${_esc(d.subject) || '—'}</td></tr>
+            <tr><td style="padding:6px;border-bottom:1px solid var(--border);color:var(--text-muted);">対象品名 / 型番</td><td style="padding:6px;border-bottom:1px solid var(--border);">${_esc(d.itemName) || '—'} ${d.modelNo ? '／ ' + _esc(d.modelNo) : ''}</td></tr>
+            <tr><td style="padding:6px;border-bottom:1px solid var(--border);color:var(--text-muted);">発行日 / 適用開始日</td><td style="padding:6px;border-bottom:1px solid var(--border);">${_esc(d.issueDate)||'—'} ／ ${_esc(d.effectDate)||'—'}</td></tr>
+            <tr><td style="padding:6px;border-bottom:1px solid var(--border);color:var(--text-muted);">旧単価 → 新単価</td><td style="padding:6px;border-bottom:1px solid var(--border);">${Number(d.oldPrice||0).toLocaleString()} → <b>${Number(d.newPrice||0).toLocaleString()}</b> ${_esc(d.currency||'')} ${d.diffRate ? `<span style="color:${d.diffRate>0?'var(--danger)':'var(--success,#16a34a)'};font-weight:700;">（${d.diffRate>0?'▲':'▼'}${Math.abs(d.diffRate)}%）</span>` : ''}</td></tr>
+            <tr><td style="padding:6px;border-bottom:1px solid var(--border);color:var(--text-muted);">備考</td><td style="padding:6px;border-bottom:1px solid var(--border);">${_esc(d.memo)||'—'}</td></tr>
+          </tbody>
+        </table>
+        ${d.url ? `<div style="margin-bottom:16px;"><a href="${_escAttr(d.url)}" target="_blank" class="btn btn-outline btn-sm">📄 ${_esc(d.fileName||'ファイルを開く')}</a></div>` : ''}
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <h4 style="margin:0;">🔗 この書類を使った弊社見積</h4>
+          <button class="btn btn-outline btn-sm" onclick="openQuotePickerForDoc('${_escAttr(d.id)}')">＋ 弊社見積を紐づけ</button>
+        </div>
+        <div id="sdoc-reverse-list"><div style="color:var(--text-muted);font-size:12px;">読み込み中…</div></div>
+      </div>
+    </div>`);
+  _loadSupplierReverseLinks(docId);
+}
+
+function _loadSupplierReverseLinks(docId) {
+  const el = document.getElementById('sdoc-reverse-list');
+  if (!el) return;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success) { el.innerHTML = '<div style="color:var(--danger);font-size:12px;">エラー: ' + _esc((res||{}).error||'不明') + '</div>'; return; }
+      const items = res.items || [];
+      if (!items.length) {
+        el.innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:8px 0;">まだ弊社見積と紐づいていません。</div>';
+        return;
+      }
+      el.innerHTML = items.map(function(q) {
+        return `<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:#f8fafc;border:1px solid var(--border-light);border-radius:6px;margin-bottom:5px;">
+          <div style="flex:1;overflow:hidden;">
+            <div style="font-weight:700;font-size:12.5px;">${_esc(q.quoteNo || q.targetId)}${q.missing ? ' <span style="color:var(--danger);font-size:11px;">（見積が見つかりません）</span>' : ''}</div>
+            <div style="font-size:11px;color:var(--text-muted);">${_esc(q.client||'')} ${q.subject ? '／ ' + _esc(q.subject) : ''} ${q.issueDate ? '／ ' + _esc(q.issueDate) : ''} ${q.amount ? '／ ' + Number(q.amount).toLocaleString() + ' 円' : ''}</div>
+          </div>
+          ${q.pdfUrl ? `<a class="pdf-link" href="${_escAttr(q.pdfUrl)}" target="_blank">📄</a>` : ''}
+          <button class="btn btn-sm" style="color:var(--danger);" title="紐づけを解除" onclick="unlinkSupplierDoc('${_escAttr(q.linkId)}','doc','${_escAttr(docId)}')">🔗✕</button>
+        </div>`;
+      }).join('');
+    })
+    .withFailureHandler(err => { el.innerHTML = '<div style="color:var(--danger);font-size:12px;">通信エラー: ' + _esc(err.message||err) + '</div>'; })
+    .handleApiRequest('supplierQuotesForDoc', { docId });
+}
+
+// ── 順引き：弊社見積の詳細に出す「紐づいた仕入先書類」 ──
+function _loadSupplierLinksForQuote(mgmtId, quoteNo) {
+  const el = document.getElementById('sdoc-link-list-' + mgmtId);
+  if (!el || !mgmtId) return;
+  el.innerHTML = '<div style="color:var(--text-muted);font-size:12px;">読み込み中…</div>';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success) { el.innerHTML = '<div style="color:var(--danger);font-size:12px;">エラー: ' + _esc((res||{}).error||'不明') + '</div>'; return; }
+      const items = res.items || [];
+      if (!items.length) {
+        el.innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:8px 0;">仕入先書類はまだ紐づいていません。</div>';
+        return;
+      }
+      el.innerHTML = items.map(function(d) {
+        const icon = SDOC_TYPE_ICONS[d.docType] || '📎';
+        const who  = [d.supplier, d.trader].filter(Boolean).join(' / ');
+        const rate = d.diffRate
+          ? `<span style="color:${d.diffRate>0?'var(--danger)':'var(--success,#16a34a)'};font-weight:700;">${d.diffRate>0?'▲':'▼'}${Math.abs(d.diffRate)}%</span>` : '';
+        return `<div style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:#f8fafc;border:1px solid var(--border-light);border-radius:6px;margin-bottom:5px;">
+          <div style="flex:1;overflow:hidden;">
+            <div style="font-weight:700;font-size:12.5px;">${icon} ${_esc(d.docType)} — ${_esc(who)}</div>
+            <div style="font-size:11px;color:var(--text-muted);">
+              ${_esc(d.itemName || d.subject || '')}
+              ${d.effectDate ? '／ 適用 ' + _esc(d.effectDate) : (d.issueDate ? '／ 発行 ' + _esc(d.issueDate) : '')}
+              ${(d.oldPrice||d.newPrice) ? '／ ' + Number(d.oldPrice||0).toLocaleString() + ' → ' + Number(d.newPrice||0).toLocaleString() : ''} ${rate}
+            </div>
+          </div>
+          ${d.url ? `<a class="pdf-link" href="${_escAttr(d.url)}" target="_blank">📄</a>` : ''}
+          <button class="btn btn-sm" title="この書類の逆引き（使った見積一覧）" onclick="openSupplierDocDetail('${_escAttr(d.id)}')">🔍</button>
+          <button class="btn btn-sm" style="color:var(--danger);" title="紐づけを解除" onclick="unlinkSupplierDoc('${_escAttr(d.linkId)}','quote','${_escAttr(mgmtId)}','${_escAttr(quoteNo||'')}')">🔗✕</button>
+        </div>`;
+      }).join('');
+    })
+    .withFailureHandler(err => { el.innerHTML = '<div style="color:var(--danger);font-size:12px;">通信エラー: ' + _esc(err.message||err) + '</div>'; })
+    .handleApiRequest('supplierDocsForQuote', { targetId: mgmtId, quoteNo: quoteNo || '' });
+}
+
+function unlinkSupplierDoc(linkId, from, ctxId, quoteNo) {
+  if (!confirm('この紐づけを解除しますか？（書類そのものは削除されません）')) return;
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        showToast('✅ 紐づけを解除しました');
+        if (from === 'doc') { _loadSupplierReverseLinks(ctxId); loadSupplierDocs(); }
+        else                { _loadSupplierLinksForQuote(ctxId, quoteNo || ''); }
+        if (typeof _loadSupplierDocsMap === 'function') _loadSupplierDocsMap();
+      } else showToast('エラー: ' + ((res||{}).error||'不明'), true);
+    })
+    .withFailureHandler(err => showToast('通信エラー: ' + (err.message||err), true))
+    .handleApiRequest('supplierDocLinkDelete', { id: linkId });
+}
+
+// ── 紐づけピッカー：弊社見積 → 仕入先書類を選ぶ ──
+function openSupplierLinkPicker(targetId, targetType, quoteNo) {
+  if (!targetId) { showToast('見積が特定できません', true); return; }
+  const build = function() {
+    const opts = _allSupplierDocs.map(d =>
+      `<option value="${_escAttr(d.id)}">${SDOC_TYPE_ICONS[d.docType]||'📎'} ${_esc(d.docType)} / ${_esc(d.supplier||d.trader||'')} / ${_esc(d.itemName||d.subject||'')} ${d.issueDate ? '(' + _esc(d.issueDate) + ')' : ''}</option>`
+    ).join('');
+    document.getElementById('sdoc-pick-overlay')?.remove();
+    document.body.insertAdjacentHTML('beforeend', `
+      <div id="sdoc-pick-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9600;display:flex;align-items:center;justify-content:center;padding:20px;">
+        <div style="background:#fff;border-radius:12px;width:min(560px,96vw);padding:24px 28px;box-shadow:0 8px 32px rgba(0,0,0,0.18);">
+          <h3 style="margin:0 0 14px;font-size:16px;">🔗 仕入先書類を紐づけ</h3>
+          ${_allSupplierDocs.length ? `
+            <label style="font-size:12px;color:var(--text-muted);">紐づける書類</label>
+            <select id="sd-pick" size="8" style="width:100%;padding:6px;border:1px solid var(--border-light);border-radius:6px;font-size:12.5px;margin-top:4px;">${opts}</select>
+            <label style="font-size:12px;color:var(--text-muted);display:block;margin-top:10px;">備考</label>
+            <input id="sd-pick-memo" type="text" placeholder="任意（例: 実装費の原価根拠）" style="width:100%;padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;box-sizing:border-box;margin-top:3px;">
+          ` : `<div style="font-size:13px;color:var(--text-muted);padding:12px 0;">登録済みの仕入先書類がありません。<br>「🏭 仕入先見積・値上げ」ページで先に書類を登録してください。</div>`}
+          <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px;">
+            <button class="btn btn-sm" onclick="document.getElementById('sdoc-pick-overlay').remove()">キャンセル</button>
+            ${_allSupplierDocs.length ? `<button class="btn btn-primary btn-sm" onclick="confirmSupplierLink('${_escAttr(targetId)}','${_escAttr(targetType||'mgmt')}','${_escAttr(quoteNo||'')}')">🔗 紐づける</button>` : ''}
+          </div>
+        </div>
+      </div>`);
+  };
+  // 一覧が未読込なら先に取得してから開く
+  if (_allSupplierDocs.length) { build(); return; }
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) { _allSupplierDocs = res.items || []; _sdocSuppliers = res.suppliers || []; }
+      build();
+    })
+    .withFailureHandler(err => showToast('通信エラー: ' + (err.message||err), true))
+    .handleApiRequest('supplierDocsList', {});
+}
+
+function confirmSupplierLink(targetId, targetType, quoteNo) {
+  const docId = document.getElementById('sd-pick')?.value;
+  if (!docId) { showToast('書類を選択してください', true); return; }
+  const memo = document.getElementById('sd-pick-memo')?.value?.trim() || '';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        showToast('✅ 紐づけました');
+        document.getElementById('sdoc-pick-overlay')?.remove();
+        _loadSupplierLinksForQuote(targetId, quoteNo);
+        if (typeof _loadSupplierDocsMap === 'function') _loadSupplierDocsMap();
+      } else showToast('エラー: ' + ((res||{}).error||'不明'), true);
+    })
+    .withFailureHandler(err => showToast('通信エラー: ' + (err.message||err), true))
+    .handleApiRequest('supplierDocLinkSave', { docId, targetId, targetType, quoteNo, memo });
+}
+
+// ── 紐づけピッカー：仕入先書類 → 弊社見積を選ぶ（逆方向） ──
+function openQuotePickerForDoc(docId) {
+  const pick = function(list) {
+    const opts = list.map(q =>
+      `<option value="${_escAttr(q._fromLedger ? q._ledgerId : q.id)}|${q._fromLedger ? 'ledger' : 'mgmt'}|${_escAttr(q.quoteNo||'')}">${_esc(q.quoteNo||'(番号なし)')} / ${_esc(q.destCompany||q.client||'')} / ${_esc(q.subject||'')} ${q.issueDate ? '(' + _esc(q.issueDate) + ')' : ''}</option>`
+    ).join('');
+    document.getElementById('sdoc-qpick-overlay')?.remove();
+    document.body.insertAdjacentHTML('beforeend', `
+      <div id="sdoc-qpick-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9700;display:flex;align-items:center;justify-content:center;padding:20px;">
+        <div style="background:#fff;border-radius:12px;width:min(600px,96vw);padding:24px 28px;box-shadow:0 8px 32px rgba(0,0,0,0.18);">
+          <h3 style="margin:0 0 14px;font-size:16px;">🔗 弊社見積を紐づけ</h3>
+          <input id="sd-qfilter" type="text" placeholder="🔍 見積No.・宛先で絞り込み" oninput="_filterQuotePickOptions()"
+            style="width:100%;padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;box-sizing:border-box;margin-bottom:8px;">
+          <select id="sd-qpick" size="10" style="width:100%;padding:6px;border:1px solid var(--border-light);border-radius:6px;font-size:12.5px;">${opts}</select>
+          <label style="font-size:12px;color:var(--text-muted);display:block;margin-top:10px;">備考</label>
+          <input id="sd-qpick-memo" type="text" placeholder="任意" style="width:100%;padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;box-sizing:border-box;margin-top:3px;">
+          <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px;">
+            <button class="btn btn-sm" onclick="document.getElementById('sdoc-qpick-overlay').remove()">キャンセル</button>
+            <button class="btn btn-primary btn-sm" onclick="confirmQuoteLinkForDoc('${_escAttr(docId)}')">🔗 紐づける</button>
+          </div>
+        </div>
+      </div>`);
+    _sdocQuotePickAll = Array.from(document.getElementById('sd-qpick').options).map(o => ({ v: o.value, t: o.text }));
+  };
+  if (_allQuotes && _allQuotes.length) { pick(_allQuotes); return; }
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success) { showToast('見積一覧の取得に失敗しました', true); return; }
+      _allQuotes = res.items || [];
+      pick(_allQuotes);
+    })
+    .withFailureHandler(err => showToast('通信エラー: ' + (err.message||err), true))
+    .handleApiRequest('quoteListGetAll', null);
+}
+
+let _sdocQuotePickAll = [];
+function _filterQuotePickOptions() {
+  const kw  = (document.getElementById('sd-qfilter')?.value || '').trim().toLowerCase();
+  const sel = document.getElementById('sd-qpick');
+  if (!sel) return;
+  const list = kw ? _sdocQuotePickAll.filter(o => o.t.toLowerCase().indexOf(kw) >= 0) : _sdocQuotePickAll;
+  sel.innerHTML = list.map(o => `<option value="${_escAttr(o.v)}">${_esc(o.t)}</option>`).join('');
+}
+
+function confirmQuoteLinkForDoc(docId) {
+  const val = document.getElementById('sd-qpick')?.value;
+  if (!val) { showToast('見積を選択してください', true); return; }
+  const parts      = val.split('|');
+  const targetId   = parts[0];
+  const targetType = parts[1] || 'mgmt';
+  const quoteNo    = parts[2] || '';
+  const memo       = document.getElementById('sd-qpick-memo')?.value?.trim() || '';
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (res && res.success) {
+        showToast('✅ 紐づけました');
+        document.getElementById('sdoc-qpick-overlay')?.remove();
+        _loadSupplierReverseLinks(docId);
+        loadSupplierDocs();
+        if (typeof _loadSupplierDocsMap === 'function') _loadSupplierDocsMap();
+      } else showToast('エラー: ' + ((res||{}).error||'不明'), true);
+    })
+    .withFailureHandler(err => showToast('通信エラー: ' + (err.message||err), true))
+    .handleApiRequest('supplierDocLinkSave', { docId, targetId, targetType, quoteNo, memo });
+}
+
+// ============================================================
+// 📈 値上げ時系列
+// ============================================================
+function clearPriceTimelineFilter() {
+  ['sdoc-tl-item','sdoc-tl-from','sdoc-tl-to'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  const s = document.getElementById('sdoc-tl-supplier'); if (s) s.value = '';
+  loadPriceTimeline();
+}
+
+function loadPriceTimeline() {
+  const c = document.getElementById('sdoc-timeline-container');
+  if (!c) return;
+  c.innerHTML = '<div class="loading"><div class="spinner"></div><br>読み込み中…</div>';
+  const payload = {
+    supplier: document.getElementById('sdoc-tl-supplier')?.value || '',
+    itemName: document.getElementById('sdoc-tl-item')?.value?.trim() || '',
+    dateFrom: document.getElementById('sdoc-tl-from')?.value || '',
+    dateTo:   document.getElementById('sdoc-tl-to')?.value || '',
+  };
+  google.script.run
+    .withSuccessHandler(function(res) {
+      if (!res || !res.success) { c.innerHTML = '<div class="loading" style="color:var(--danger);">⚠️ ' + _esc((res||{}).error||'不明') + '</div>'; return; }
+      _renderPriceTimeline(res);
+    })
+    .withFailureHandler(err => { c.innerHTML = '<div class="loading" style="color:var(--danger);">通信エラー: ' + _esc(err.message||err) + '</div>'; })
+    .handleApiRequest('priceIncreaseTimeline', payload);
+}
+
+function _renderPriceTimeline(res) {
+  const c = document.getElementById('sdoc-timeline-container');
+  const events = res.events || [];
+  const series = res.series || [];
+
+  if (!events.length) {
+    c.innerHTML = '<div class="loading" style="color:var(--text-muted);">値上げ書面が登録されていません。<br>「＋ 書類を登録」で種別に「値上げ通知書」または「価格改定通知」を選び、旧単価・新単価・適用開始日を入力してください。</div>';
+    return;
+  }
+
+  // 品目別の累計上昇率サマリ
+  const seriesHtml = series.map(function(s) {
+    const color = s.totalRate > 0 ? 'var(--danger)' : 'var(--success,#16a34a)';
+    return `<tr>
+      <td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${_escAttr(s.key)}">${_esc(s.key)}</td>
+      <td style="text-align:center;">${s.count} 回</td>
+      <td style="text-align:right;white-space:nowrap;">${Number(s.firstPrice||0).toLocaleString()} → <b>${Number(s.latestPrice||0).toLocaleString()}</b></td>
+      <td style="text-align:right;white-space:nowrap;color:${color};font-weight:700;">${s.totalRate > 0 ? '▲' : '▼'}${Math.abs(s.totalRate)}%</td>
+    </tr>`;
+  }).join('');
+
+  // 年ごとに区切った時系列（古い→新しい）
+  let timelineHtml = '';
+  let lastYear = '';
+  events.forEach(function(ev) {
+    const year = (ev.dateKey || '').slice(0, 4) || '日付未設定';
+    if (year !== lastYear) {
+      timelineHtml += `<div style="margin:18px 0 8px;font-weight:700;font-size:13px;color:var(--text-sub);border-bottom:1px solid var(--border-light);padding-bottom:4px;">📅 ${_esc(year)}</div>`;
+      lastYear = year;
+    }
+    const color = ev.diffRate > 0 ? 'var(--danger)' : 'var(--success,#16a34a)';
+    const quotes = (ev.quotes || []).length
+      ? (ev.quotes || []).slice(0, 5).map(q =>
+          `<span style="display:inline-block;background:#eef2ff;color:#3730a3;border-radius:10px;padding:1px 8px;font-size:11px;margin:2px 3px 0 0;">${_esc(q.quoteNo || q.targetId)}</span>`).join('')
+        + (((ev.quotes||[]).length > 5) ? `<span style="font-size:11px;color:var(--text-sub);">+${ev.quotes.length - 5}</span>` : '')
+      : '<span style="font-size:11px;color:var(--text-muted);">紐づく弊社見積なし</span>';
+
+    timelineHtml += `<div style="display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-bottom:1px dashed var(--border-light);">
+      <div style="flex:0 0 96px;text-align:right;">
+        <div style="font-weight:700;font-size:12.5px;">${_esc(ev.date || '—')}</div>
+        <div style="font-size:10.5px;color:var(--text-muted);">${_esc(ev.effectDate ? '適用開始' : '発行日')}</div>
+      </div>
+      <div style="flex:0 0 12px;display:flex;flex-direction:column;align-items:center;padding-top:4px;">
+        <div style="width:10px;height:10px;border-radius:50%;background:${color};"></div>
+        <div style="flex:1;width:2px;background:var(--border-light);min-height:24px;"></div>
+      </div>
+      <div style="flex:1;overflow:hidden;">
+        <div style="font-weight:700;font-size:13px;">
+          ${SDOC_TYPE_ICONS[ev.docType]||'📈'} ${_esc(ev.supplier || '（仕入先未設定）')}
+          <span style="font-weight:500;color:var(--text-sub);">— ${_esc(ev.itemName || ev.subject || '品名未設定')}</span>
+          ${ev.modelNo ? `<span style="font-size:11px;color:var(--text-muted);">（${_esc(ev.modelNo)}）</span>` : ''}
+        </div>
+        <div style="font-size:12.5px;margin-top:3px;">
+          ${Number(ev.oldPrice||0).toLocaleString()} → <b>${Number(ev.newPrice||0).toLocaleString()}</b> ${_esc(ev.currency||'')}
+          ${ev.diffRate ? `<span style="color:${color};font-weight:700;margin-left:6px;">${ev.diffRate > 0 ? '▲' : '▼'}${Math.abs(ev.diffRate)}%</span>` : ''}
+          ${ev.diff ? `<span style="color:var(--text-muted);font-size:11px;margin-left:4px;">(${ev.diff > 0 ? '+' : ''}${Number(ev.diff).toLocaleString()})</span>` : ''}
+        </div>
+        ${ev.memo ? `<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${_esc(ev.memo)}</div>` : ''}
+        <div style="margin-top:4px;">${quotes}</div>
+      </div>
+      <div style="flex:0 0 auto;display:flex;gap:4px;align-items:center;">
+        ${ev.url ? `<a class="pdf-link" href="${_escAttr(ev.url)}" target="_blank" title="${_escAttr(ev.fileName||'')}">📄</a>` : ''}
+        <button class="btn btn-sm" title="この書類を使った弊社見積" onclick="openSupplierDocDetail('${_escAttr(ev.id)}')">🔍</button>
+      </div>
+    </div>`;
+  });
+
+  c.innerHTML = `
+    <div style="margin-bottom:20px;">
+      <h4 style="margin:0 0 8px;font-size:14px;">📊 品目別 累計値上げ率（${series.length} 品目）</h4>
+      <div style="overflow-x:auto;"><table><thead><tr>
+        <th>仕入先 / 品名</th><th style="text-align:center;">改定回数</th><th style="text-align:right;">当初 → 最新単価</th><th style="text-align:right;">累計増減率</th>
+      </tr></thead><tbody>${seriesHtml}</tbody></table></div>
+    </div>
+    <div>
+      <h4 style="margin:0 0 4px;font-size:14px;">🕒 値上げ時系列（${events.length} 件・古い順）</h4>
+      ${timelineHtml}
+    </div>`;
+}
+
 </script>

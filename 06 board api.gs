@@ -147,6 +147,18 @@ function handleApiRequest(action, payload) {
       case 'quoteDocUpload':  return apiQuoteDocUpload(payload);
       case 'quoteDocDelete':  return apiQuoteDocDelete(payload);
       case 'replaceQuotePdf': return apiReplaceQuotePdf(payload);
+      // ── 仕入先・商社書類（31_supplier_docs.gs）──
+      case 'supplierDocsList':      return apiSupplierDocsList(payload);
+      case 'supplierDocSave':       return apiSupplierDocSave(payload);
+      case 'supplierDocUpload':     return apiSupplierDocUpload(payload);
+      case 'supplierDocDelete':     return apiSupplierDocDelete(payload);
+      case 'supplierDocLinkSave':   return apiSupplierDocLinkSave(payload);
+      case 'supplierDocLinkDelete': return apiSupplierDocLinkDelete(payload);
+      case 'supplierDocsForQuote':  return apiSupplierDocsForQuote(payload);   // 順引き 弊社見積→仕入先書類
+      case 'supplierQuotesForDoc':  return apiSupplierQuotesForDoc(payload);   // 逆引き 仕入先書類→弊社見積
+      case 'supplierDocsMapAll':    return apiSupplierDocsMapAll();
+      case 'priceIncreaseTimeline': return apiPriceIncreaseTimeline(payload);
+      case 'initSupplierDocSheets': return initSupplierDocSheets();
       // ── 価格表（29_price_list.gs）──
       case 'priceListGet':      return apiPriceListGet(payload);
       case 'priceListRebuild':  return apiPriceListRebuild();

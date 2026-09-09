@@ -961,6 +961,66 @@ tr:hover td{background:#f8fafc;}
       <div id="pricelist-wrap"></div>
     </div>
 
+    <!-- ===== 仕入先書類（仕入先・商社の見積書／値上げ書面）ページ ===== -->
+    <div id="page-supplierdoc" class="page">
+      <div class="page-heading" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
+        <div>
+          <h2>🏭 仕入先見積・値上げ管理</h2>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">仕入先・商社の見積書／値上げ書面を保存し、弊社見積と双方向で紐づけ・検索</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button class="btn btn-sm" onclick="loadSupplierDocs()" title="更新">↻ 更新</button>
+          <button class="btn btn-primary btn-sm" onclick="openSupplierDocModal()">＋ 書類を登録</button>
+        </div>
+      </div>
+
+      <!-- タブ -->
+      <div style="display:flex;gap:8px;margin-bottom:16px;border-bottom:2px solid var(--border);padding-bottom:0;">
+        <button id="sdoc-tab-list"     onclick="switchSupplierDocTab('list')"     style="padding:8px 20px;border:none;background:none;font-size:14px;font-weight:600;color:var(--primary);border-bottom:2px solid var(--primary);margin-bottom:-2px;cursor:pointer;">📄 書類一覧</button>
+        <button id="sdoc-tab-timeline" onclick="switchSupplierDocTab('timeline')" style="padding:8px 20px;border:none;background:none;font-size:14px;font-weight:500;color:var(--text-sub);border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;">📈 値上げ時系列</button>
+      </div>
+
+      <!-- 書類一覧タブ -->
+      <div id="sdoc-pane-list">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
+          <input id="sdoc-search" type="text" placeholder="🔍 仕入先・品名・型番・見積No.で検索…"
+            style="flex:1;min-width:240px;padding:7px 12px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;"
+            oninput="renderSupplierDocs()">
+          <select id="sdoc-filter-type" onchange="renderSupplierDocs()"
+            style="padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;background:#fff;cursor:pointer;">
+            <option value="">📁 すべての種別</option>
+          </select>
+          <select id="sdoc-filter-supplier" onchange="renderSupplierDocs()"
+            style="padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;background:#fff;cursor:pointer;">
+            <option value="">🏭 すべての仕入先</option>
+          </select>
+        </div>
+        <div id="sdoc-stats" style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px;font-size:12px;color:var(--text-sub);"></div>
+        <div id="sdoc-list-container"><div class="loading">読み込み中…</div></div>
+      </div>
+
+      <!-- 値上げ時系列タブ -->
+      <div id="sdoc-pane-timeline" style="display:none;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
+          <select id="sdoc-tl-supplier" onchange="loadPriceTimeline()"
+            style="padding:7px 10px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;background:#fff;cursor:pointer;">
+            <option value="">🏭 すべての仕入先</option>
+          </select>
+          <input id="sdoc-tl-item" type="text" placeholder="🔍 品名・型番で絞り込み"
+            style="padding:7px 12px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;min-width:200px;"
+            onchange="loadPriceTimeline()">
+          <label style="font-size:12px;color:var(--text-muted);">適用日</label>
+          <input id="sdoc-tl-from" type="date" onchange="loadPriceTimeline()"
+            style="padding:6px 8px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;">
+          <span style="color:var(--text-muted);">〜</span>
+          <input id="sdoc-tl-to" type="date" onchange="loadPriceTimeline()"
+            style="padding:6px 8px;border:1px solid var(--border-light);border-radius:6px;font-size:13px;">
+          <button class="btn btn-sm" onclick="clearPriceTimelineFilter()">クリア</button>
+        </div>
+        <div id="sdoc-timeline-container"><div class="loading">読み込み中…</div></div>
+      </div>
+    </div>
+
     <!-- ===== 見積セット管理ページ ===== -->
     <div id="page-quoteset" class="page">
       <div class="page-heading" style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
