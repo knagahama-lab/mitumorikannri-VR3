@@ -1327,11 +1327,43 @@ function _apiGetCalendar(p) {
   var all   = getAllMgmtData().map(_rowToObject);
   var todos = getAllTodoData().map(function(r) { return { id:r[0], title:r[1], client:r[2], dueDate:r[3], priority:r[4], status:r[5], linkedMgmt:r[6], type:'todo' }; });
   var events = [];
+  // 管理シート由来の見積No.（台帳側の重複表示を避けるための索引）
+  var mgmtQuoteNos = {};
   all.forEach(function(item) {
+    if (item.quoteNo) mgmtQuoteNos[String(item.quoteNo).trim()] = true;
     if (item.orderDate    && String(item.orderDate).indexOf(ym)    === 0) events.push({ date: item.orderDate,    label: item.client || item.orderNo,            type: 'order',    status: item.status, mgmtId: item.id });
     if (item.deliveryDate && String(item.deliveryDate).indexOf(ym) === 0) events.push({ date: item.deliveryDate, label: '納期: ' + (item.client || item.orderNo), type: 'delivery', status: item.status, mgmtId: item.id });
     if (item.quoteDate    && String(item.quoteDate).indexOf(ym)    === 0) events.push({ date: item.quoteDate,    label: '見積: ' + (item.client || item.quoteNo), type: 'quote',    status: item.status, mgmtId: item.id });
   });
+  // ★ 見積台帳のみに存在する案件（まだ管理シート/受注に紐づいていない見積）も
+  //   発行日でカレンダーに出す。見積書一覧の _mergeLedgerIntoQuotes と同様に、
+  //   キャンセル・機種フォルダ行は除外し、管理シート側に同じ見積No.があれば
+  //   二重表示を避けてスキップする。
+  try {
+    var ledgerSheet = getSpreadsheet().getSheetByName(CONFIG.SHEET_LEDGER);
+    if (ledgerSheet && ledgerSheet.getLastRow() > 1) {
+      var lLast = ledgerSheet.getLastRow();
+      var lRows = ledgerSheet.getRange(2, 1, lLast - 1, ledgerSheet.getLastColumn()).getValues();
+      lRows.forEach(function(r) {
+        var ledgerId  = String(r[LEDGER_COLS.LEDGER_ID - 1]  || '').trim();
+        var status    = String(r[LEDGER_COLS.STATUS - 1]     || '').trim();
+        var issueDate = _toDateStr(r[LEDGER_COLS.ISSUE_DATE - 1]);
+        var quoteNo   = String(r[LEDGER_COLS.QUOTE_NO - 1]   || '').trim();
+        if (!ledgerId || status === 'キャンセル' || status === '__MACHINE_FOLDER__') return;
+        if (quoteNo && mgmtQuoteNos[quoteNo]) return; // 管理シート側に既出
+        if (!issueDate || String(issueDate).indexOf(ym) !== 0) return;
+        var dest = String(r[LEDGER_COLS.DEST - 1] || '');
+        events.push({
+          date:     issueDate,
+          label:    '見積: ' + (dest || quoteNo || '（宛先未設定）'),
+          type:     'quote',
+          status:   status,
+          ledgerId: ledgerId,
+          quoteNo:  quoteNo,
+        });
+      });
+    }
+  } catch (e) { Logger.log('[_apiGetCalendar ledger] ' + e.message); }
   todos.forEach(function(t) {
     if (t.dueDate && String(t.dueDate).indexOf(ym) === 0) events.push({ date: t.dueDate, label: '📝 ' + t.title, type: 'todo', status: t.status, todoId: t.id });
   });

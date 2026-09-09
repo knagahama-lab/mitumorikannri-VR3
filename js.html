@@ -4142,7 +4142,7 @@ function loadCalendar() {
         if (!res.success) { failureCallback(res.error); return; }
         const fcEvents = (res.events || []).map(ev => {
           let bgColor = '#3498db'; if (ev.type === 'delivery') bgColor = '#e74c3c'; if (ev.type === 'quote') bgColor = '#2ecc71'; if (ev.type === 'todo') bgColor = '#f39c12';
-          return { title: ev.label, start: String(ev.date).replace(/\//g, '-'), backgroundColor: bgColor, borderColor: bgColor, extendedProps: { mgmtId: ev.mgmtId, todoId: ev.todoId, label: ev.label, type: ev.type } };
+          return { title: ev.label, start: String(ev.date).replace(/\//g, '-'), backgroundColor: bgColor, borderColor: bgColor, extendedProps: { mgmtId: ev.mgmtId, ledgerId: ev.ledgerId, quoteNo: ev.quoteNo, todoId: ev.todoId, label: ev.label, type: ev.type } };
         });
         successCallback(fcEvents);
       }).handleApiRequest('getCalendar', { year: midDate.getFullYear(), month: midDate.getMonth() + 1 });
@@ -4154,6 +4154,22 @@ function loadCalendar() {
 function openCalEventDetail(evProps) {
   if (!evProps) return;
   if (evProps.mgmtId) { const isQuote = (evProps.label && evProps.label.includes('見積')) || evProps.type === 'quote'; if (isQuote) { openQuoteDetail(evProps.mgmtId, ''); } else { openDetail(evProps.mgmtId); } }
+  // ★ 見積台帳のみに存在する見積（まだ管理シート/受注に紐づいていない案件）は
+  //   カレンダー側で ledgerId を持つイベントとして届く。openLedgerAddModal は
+  //   _allLedgerItems のキャッシュしか見ないため、カレンダーから初めて開いた
+  //   ケース（台帳ページ未訪問で空のまま）に備えて必要なら先に読み込む。
+  else if (evProps.ledgerId) {
+    if (_allLedgerItems && _allLedgerItems.length) {
+      openLedgerAddModal(evProps.ledgerId);
+    } else {
+      google.script.run.withSuccessHandler(function(res) {
+        if (res && res.success) _allLedgerItems = res.items || [];
+        openLedgerAddModal(evProps.ledgerId);
+      }).withFailureHandler(function(err) {
+        showToast('通信エラー: ' + (err && err.message ? err.message : err), true);
+      }).handleApiRequest('ledgerGetAll', null);
+    }
+  }
   else if (evProps.todoId) { showToast('Todo詳細は準備中です', true); }
 }
 
