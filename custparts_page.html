@@ -1,0 +1,41 @@
+<!-- ============================================================
+     custparts_page.html — 客先部品コードマスタ（34_customer_part_master.gs）
+     ============================================================ -->
+<style>
+  .cpm-code{ font-family:ui-monospace,Consolas,monospace; font-weight:700; letter-spacing:.02em; }
+  .cpm-tabs{ display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px; }
+  .cpm-box{ border:1px solid #fbcfe8; background:#fff; border-radius:8px; padding:10px 12px; margin:14px 0 12px; }
+  .cpm-box h4{ margin:0 0 8px; font-size:13px; }
+  .cpm-diff{ color:#dc2626; font-weight:700; }
+  #page-custparts table td, #page-custparts table th{ white-space:nowrap; }
+</style>
+
+<div id="page-custparts" class="page">
+  <div class="page-heading" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
+    <div>
+      <h2>🔖 客先部品コードマスタ</h2>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">注文書の取込時に自動登録。同じ部品コードの注文が来ると、前回の品名・単価・数量・弊社見積を自動で引き当てます。</div>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;">
+      <button class="btn btn-outline btn-sm" onclick="cpmRebuild()" title="注文書シートの全明細から部品コードを抽出してマスタを作成・更新（手入力した見積No.・備考は保持）">🔄 過去の注文書から作成・更新</button>
+      <button class="btn btn-outline btn-sm" onclick="cpmExportCsv()" style="color:#16a34a;border-color:#16a34a;">📥 CSV出力</button>
+      <button class="btn btn-outline btn-sm" onclick="cpmLoad()">↻</button>
+    </div>
+  </div>
+  <div class="of-summary" id="cpm-summary"></div>
+  <div class="cpm-tabs" id="cpm-tabs"></div>
+  <div class="of-toolbar">
+    <div class="search-box"><input type="text" id="cpm-search" placeholder="部品コード・品名・図番・機種・見積No.で検索（部品コードを完全入力してEnterで詳細）" oninput="cpmRender()" onkeydown="if(event.key==='Enter')cpmQuickLookup(this.value)"></div>
+    <label style="font-size:12px;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="cpm-unconfirmed" onchange="cpmRender()"> 未確認のみ</label>
+    <label style="font-size:12px;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="cpm-noquote" onchange="cpmRender()"> 見積未紐づけのみ</label>
+  </div>
+  <div id="cpm-container"><div class="loading"><div class="spinner"></div></div></div>
+</div>
+
+<div class="modal-overlay" id="cpm-modal" style="z-index:450;" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="modal" style="max-width:900px;">
+    <div class="modal-head"><h3 id="cpm-modal-title">部品コード詳細</h3><button class="modal-close" onclick="document.getElementById('cpm-modal').classList.remove('open')">✕</button></div>
+    <div class="modal-body" id="cpm-modal-body"></div>
+  </div>
+</div>
+<datalist id="cpm-dl-quotes"></datalist>

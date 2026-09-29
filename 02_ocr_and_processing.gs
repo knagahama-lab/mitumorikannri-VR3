@@ -351,8 +351,17 @@ function _saveOrderData(ocr, orderType, pdfUrl, folderUrl, msgId, fallbackSubjec
 
   // キャンセル以外は明細書き込み＋AI紐付け
   if (action !== 'cancellation') {
-    _writeOrderLines(ss, mgmtSheet, updateRow, finalMgmtId, ocr, orderType, pdfUrl, folderUrl);
-    try { aiLinkOrderToQuote(finalMgmtId); } catch(e) { Logger.log('[AI LINK ERROR] ' + e.message); }
+    var written = _writeOrderLines(ss, mgmtSheet, updateRow, finalMgmtId, ocr, orderType, pdfUrl, folderUrl);
+    // ★ 客先部品コードマスタ（34_customer_part_master.gs）：登録＋リピート引き当て
+    var cpm = null;
+    try { cpm = cpmOnOrderSaved(finalMgmtId, ocr, written); } catch(e) { Logger.log('[CPM ERROR] ' + e.message); }
+    // 全明細が部品コードで見積に紐づいた場合はAI推定を省略。一部だけならAIの後にコード一致で上書き
+    if (!(cpm && cpm.allLinked)) {
+      try { aiLinkOrderToQuote(finalMgmtId); } catch(e) { Logger.log('[AI LINK ERROR] ' + e.message); }
+    }
+    if (cpm && cpm.links.length) {
+      try { cpmApplyLinks(finalMgmtId, cpm.links); } catch(e) { Logger.log('[CPM LINK ERROR] ' + e.message); }
+    }
   }
 
   // Chat通知
@@ -390,6 +399,7 @@ function _writeOrderLines(ss, mgmtSheet, mgmtRow, mgmtId, ocr, orderType, pdfUrl
   var startRow = os.getLastRow() + 1;
   os.getRange(startRow, 1, lines.length, 19).setValues(lines);
   mgmtSheet.getRange(mgmtRow, MGMT_COLS.ORDER_SHEET_ROW).setValue(startRow);
+  return { startRow: startRow, count: lines.length };
 }
 
 // ============================================================
@@ -478,9 +488,10 @@ function _buildOcrPrompt(docType) {
       ' "tax": 消費税(数値),\n' +
       ' "totalAmount": 合計(数値),\n' +
       ' "lineItems": [\n' +
-      '   {"itemName":"品名","spec":"仕様","firstDelivery":"初回納入日(YYYY/MM/DD)","deliveryDest":"納入先","qty":数量,"unit":"単位","unitPrice":単価,"amount":金額,"remarks":"備考"}\n' +
+      '   {"partCode":"部品コード・品番（客先の部品番号。品名の上や左にある数字/英数字コード。なければ空文字）","itemName":"品名（部品コードは含めない）","drawingNo":"図番・型式（品名の括弧内の型番。なければ空文字）","spec":"仕様","firstDelivery":"初回納入日(YYYY/MM/DD)","deliveryDest":"納入先","qty":数量,"unit":"単位","unitPrice":単価,"amount":金額,"remarks":"備考"}\n' +
       ' ]\n' +
       '}\n' +
+      '※部品コードは品名と同じ枠に上下で書かれていることが多い。必ず partCode に分けて入れ、itemName に含めないこと。\n' +
       '※重要: 書類内に「差し替え」「訂正」「版数更新」等の文言があればrevision、「中止」「取消」「キャンセル」等があればcancellationと判定。\n' +
       'ルール: 有効なJSONのみ。金額は数値。不明は空文字か0。合計行はlineItemsに含めない。';
   }

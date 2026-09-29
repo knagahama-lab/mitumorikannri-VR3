@@ -281,6 +281,12 @@ function handleApiRequest(action, payload) {
       case 'qeNextNo':      return apiQeNextNo();
       case 'qeMasters':     return apiQeMasters();
       case 'qeSaveCompany': return apiQeSaveCompany(payload);
+      // ★ 客先部品コードマスタ（34_customer_part_master.gs）
+      case 'cpmList':     return apiCpmList(payload);
+      case 'cpmLookup':   return apiCpmLookup(payload);
+      case 'cpmSave':     return apiCpmSave(payload);
+      case 'cpmRebuild':  return apiCpmRebuild();
+      case 'cpmForOrder': return apiCpmForOrder(payload);
       default: return { success: false, error: '不明なアクション: ' + action };
     }
     

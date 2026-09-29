@@ -1,0 +1,191 @@
+<script>
+// ============================================================
+// custparts_js.html — 客先部品コードマスタ（34_customer_part_master.gs）
+// ============================================================
+const CPMS = { items: [], clients: {}, tab: 'all', cur: null };
+
+(function registerCustParts() {
+  const at = DEFAULT_MENU.findIndex(m => m.id === 'board');
+  DEFAULT_MENU.splice(at >= 0 ? at + 1 : DEFAULT_MENU.length, 0,
+    { id:'custparts', icon:'🔖', label:'客先部品コード', section:'マスタ管理', visible:true });
+  PAGE_TITLES.custparts = '客先部品コードマスタ';
+  const orig = showPage;
+  showPage = function(name) { orig(name); if (name === 'custparts') cpmLoad(); };
+})();
+
+const _cpmYen = n => n ? '¥' + Number(n).toLocaleString() : '—';
+
+function cpmLoad() {
+  const c = document.getElementById('cpm-container');
+  if (!CPMS.items.length) c.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  _ofApi('cpmList', {}, res => { CPMS.items = res.items; CPMS.clients = res.clients; cpmRender(); });
+  // 見積No.の候補（見積書一覧のデータを流用）
+  const dl = document.getElementById('cpm-dl-quotes');
+  if (dl && (_allQuotes || []).length && !dl.children.length) {
+    dl.innerHTML = _allQuotes.filter(q => q.quoteNo).slice(0, 3000)
+      .map(q => `<option value="${_esc(q.quoteNo)}">${_esc((q.subject || '') + ' ' + (q.issueDate || q.quoteDate || ''))}</option>`).join('');
+  }
+}
+
+function _cpmFiltered() {
+  const kws = normalizeSearchText(document.getElementById('cpm-search').value).split(/\s+/).filter(Boolean);
+  const onlyUnconf = document.getElementById('cpm-unconfirmed').checked;
+  const onlyNoQuote = document.getElementById('cpm-noquote').checked;
+  return CPMS.items.filter(m => {
+    if (CPMS.tab !== 'all' && m.client !== CPMS.tab) return false;
+    if (onlyUnconf && m.confirmed) return false;
+    if (onlyNoQuote && m.quoteNo) return false;
+    if (!kws.length) return true;
+    const t = normalizeSearchText([m.code, m.name, m.drawing, m.modelCode, m.quoteNo, m.boardName, m.lastOrderNo].join(' '));
+    return kws.every(k => t.includes(k));
+  });
+}
+
+function cpmRender() {
+  const all = CPMS.items;
+  document.getElementById('cpm-summary').innerHTML = [
+    ['登録品番', all.length, ''], ['リピート品番（2回以上）', all.filter(m => m.count >= 2).length, ''],
+    ['未確認', all.filter(m => !m.confirmed).length, 'warn'], ['見積未紐づけ', all.filter(m => !m.quoteNo).length, 'warn'],
+  ].map(([l, n, c]) => `<div class="of-sum ${n ? c : ''}"><b>${n}</b>${l}</div>`).join('');
+  const tabs = [['all', `すべて ${all.length}`]].concat(Object.keys(CPMS.clients).map(k => [k, `${k} ${CPMS.clients[k]}`]));
+  document.getElementById('cpm-tabs').innerHTML = tabs.map(([k, l]) =>
+    `<button class="btn btn-sm ${CPMS.tab === k ? 'btn-primary' : 'btn-outline'}" onclick="CPMS.tab='${_ofq(k)}';cpmRender()">${_esc(l)}</button>`).join('');
+
+  const items = _cpmFiltered();
+  const c = document.getElementById('cpm-container');
+  if (!all.length) {
+    c.innerHTML = `<div class="loading" style="line-height:1.8;">まだ登録がありません。<br>「🔄 過去の注文書から作成・更新」で、取込済みの注文書から部品コードを抽出して一括登録できます。<br>以降は注文書の取込時に自動で登録されます。</div>`;
+    return;
+  }
+  if (!items.length) { c.innerHTML = '<div class="loading">該当なし</div>'; return; }
+  c.innerHTML = `<div style="overflow-x:auto;"><table><thead><tr>
+      <th>取引先</th><th>客先部品コード</th><th>客先品名</th><th>図番</th><th>機種</th><th>区分</th><th>弊社見積</th>
+      <th>前回発注</th><th style="text-align:right;">前回数量</th><th style="text-align:right;">前回単価</th><th style="text-align:right;">回数</th><th>状態</th></tr></thead><tbody>` +
+    items.slice(0, 500).map(m => {
+      const priceDiff = m.quotePrice && m.lastPrice && m.quotePrice !== m.lastPrice;
+      return `<tr style="cursor:pointer;" onclick="cpmOpen('${_ofq(m.client)}','${_ofq(m.code)}')">
+        <td style="font-size:12px;">${_esc(m.client)}</td>
+        <td class="cpm-code">${_esc(m.code)}</td>
+        <td style="max-width:320px;overflow:hidden;text-overflow:ellipsis;" title="${_esc(m.name)}">${_esc(m.name)}</td>
+        <td style="font-size:11px;">${_esc(m.drawing)}</td>
+        <td>${_esc(m.modelCode)}</td>
+        <td>${m.variant ? `<span class="of-tag ${m.variant === '量産' ? 'ok' : 'info'}">${_esc(m.variant)}</span>` : ''}</td>
+        <td>${m.quoteNo ? `<b>${_esc(m.quoteNo)}</b> <span style="font-size:11px;color:var(--text-sub);">${_cpmYen(m.quotePrice)}</span>` : '<span class="of-tag warn">未紐づけ</span>'}</td>
+        <td style="font-size:12px;">${_esc(m.lastDate)} <span style="color:var(--text-sub);">No.${_esc(m.lastOrderNo)}</span></td>
+        <td style="text-align:right;">${m.lastQty || ''}</td>
+        <td style="text-align:right;" class="${priceDiff ? 'cpm-diff' : ''}" title="${priceDiff ? '見積単価 ' + _cpmYen(m.quotePrice) + ' と異なる' : ''}">${_cpmYen(m.lastPrice)}</td>
+        <td style="text-align:right;">${m.count >= 2 ? `<span class="of-tag ok">🔁 ${m.count}</span>` : m.count}</td>
+        <td>${m.confirmed ? '<span class="of-tag ok">確認済</span>' : '<span class="of-tag warn">未確認</span>'}</td>
+      </tr>`;
+    }).join('') + '</tbody></table></div>' + (items.length > 500 ? `<div style="font-size:12px;color:var(--text-sub);padding:8px;">先頭500件を表示（全${items.length}件）。検索で絞り込んでください。</div>` : '');
+}
+
+function cpmQuickLookup(v) {
+  const code = String(v || '').replace(/\s/g, '').toUpperCase(); if (!code) return;
+  const hits = CPMS.items.filter(m => m.code.toUpperCase() === code);
+  if (hits.length === 1) cpmOpen(hits[0].client, hits[0].code);
+  else if (!hits.length) showToast('部品コード ' + code + ' はマスタに未登録です（新規品番）');
+}
+
+function cpmRebuild() {
+  if (!confirm('注文書シートの全明細から部品コードを抽出し、マスタを作成・更新します。\n手入力した「弊社見積No.・見積単価・弊社基板名・備考・確認済」は保持されます。\n実行しますか？')) return;
+  const c = document.getElementById('cpm-container');
+  c.innerHTML = '<div class="loading"><div class="spinner"></div><br>過去の注文書を解析中...（件数により数十秒かかります）</div>';
+  _ofApi('cpmRebuild', {}, res => {
+    showToast(`新規 ${res.created}件・更新 ${res.updated}件（部品コード補完 ${res.codesFilled}行）`);
+    if (res.noCode) showToast(`部品コードを読み取れなかった明細が ${res.noCode} 行あります`, false);
+    cpmLoad();
+  }, () => cpmLoad());
+}
+
+function cpmExportCsv() {
+  const h = ['取引先','客先部品コード','客先品名','図番','機種コード','区分','弊社見積No','見積単価','弊社基板名','前回発注日','前回発注書No','前回数量','前回単価','発注回数','初回発注日','確認済','備考'];
+  const rows = _cpmFiltered().map(m => [m.client, m.code, m.name, m.drawing, m.modelCode, m.variant, m.quoteNo, m.quotePrice || '', m.boardName,
+    m.lastDate, m.lastOrderNo, m.lastQty, m.lastPrice, m.count, m.firstDate, m.confirmed ? '済' : '', m.note]);
+  _downloadCsv('客先部品コードマスタ_' + _today() + '.csv', h, rows);
+}
+
+// ── 詳細（マスタ＋発注履歴＋弊社見積） ──
+function cpmOpen(client, code) {
+  document.getElementById('cpm-modal-title').textContent = '🔖 ' + code;
+  document.getElementById('cpm-modal-body').innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  document.getElementById('cpm-modal').classList.add('open');
+  _ofApi('cpmLookup', { client, code }, res => { CPMS.cur = res; _cpmRenderDetail(); });
+}
+function _cpmRenderDetail() {
+  const { master: m, history: h, quote: q } = CPMS.cur;
+  if (!m) { document.getElementById('cpm-modal-body').innerHTML = '<div class="loading">マスタに未登録です</div>'; return; }
+  const suggest = !m.quoteNo ? (h.find(x => x.linkedQuote && x.linkedQuote !== '(複数)') || {}).linkedQuote : '';
+  const prices = [...new Set(h.map(x => x.price))];
+  let html = `
+    <div style="font-size:13px;margin-bottom:10px;"><b>${_esc(m.name)}</b>
+      <div style="font-size:12px;color:var(--text-sub);margin-top:2px;">${_esc(m.client)}｜図番 ${_esc(m.drawing || '—')}｜機種 ${_esc(m.modelCode || '—')}｜初回 ${_esc(m.firstDate)}｜発注 ${m.count}回</div></div>
+    <div class="of-grid2">
+      <div><label>弊社見積No.</label><input id="cpm-f-quote" list="cpm-dl-quotes" value="${_esc(m.quoteNo)}" placeholder="例）Q-2026-0123">
+        ${suggest ? `<div style="font-size:11px;margin-top:3px;">候補（注文で紐づいた見積）: <a href="#" onclick="event.preventDefault();document.getElementById('cpm-f-quote').value='${_ofq(suggest)}'">${_esc(suggest)} を使う</a></div>` : ''}</div>
+      <div><label>見積単価（空欄なら見積書から自動取得）</label><input id="cpm-f-qprice" inputmode="decimal" value="${m.quotePrice || ''}"></div>
+      <div><label>弊社基板名・品名</label><input id="cpm-f-board" value="${_esc(m.boardName)}"></div>
+      <div><label>区分</label><select id="cpm-f-variant">${['', '見本機', '量産', '試作'].map(v => `<option${v === m.variant ? ' selected' : ''}>${v}</option>`).join('')}</select></div>
+      <div style="grid-column:1/-1;"><label>備考</label><input id="cpm-f-note" value="${_esc(m.note)}"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;">
+      <label style="font-size:13px;display:flex;align-items:center;gap:6px;"><input type="checkbox" id="cpm-f-conf" ${m.confirmed ? 'checked' : ''}> 内容を確認済みにする</label>
+      <button class="btn btn-primary btn-sm" onclick="cpmSave()">💾 保存</button>
+    </div>`;
+  if (q) html += `<div class="cpm-box"><h4>📄 弊社見積</h4><div style="font-size:13px;"><b>${_esc(q.quoteNo)}</b>　${_esc(q.quoteDate || '')}　${_esc(q.subject || '')}　${q.amount ? Number(q.amount).toLocaleString() + ' 円' : ''}
+      ${q.pdfUrl ? `<a class="pdf-link" href="${_esc(q.pdfUrl)}" target="_blank">見積PDF</a>` : ''} <button class="btn btn-outline btn-sm" onclick="document.getElementById('cpm-modal').classList.remove('open');openQuoteDetail('${_ofq(q.mgmtId)}','${_ofq(q.quoteNo)}')">詳細</button></div></div>`;
+  html += `<div class="cpm-box" style="border-color:var(--border);"><h4>📦 発注履歴（${h.length}件）${prices.length > 1 ? ' <span class="of-tag bad">単価変動あり</span>' : ''}</h4>` +
+    (h.length ? `<div style="max-height:280px;overflow:auto;"><table class="of-table"><thead><tr><th>発注日</th><th>注文番号</th><th style="text-align:right;">数量</th><th style="text-align:right;">単価</th><th>紐づけ見積</th><th>品名（当時）</th><th></th></tr></thead><tbody>` +
+      h.map((x, i) => { const up = h[i + 1] && h[i + 1].price !== x.price; return `<tr>
+        <td>${_esc(x.orderDate)}</td><td><b>${_esc(x.orderNo)}</b></td><td style="text-align:right;">${x.qty}</td>
+        <td style="text-align:right;" class="${up ? 'cpm-diff' : ''}" title="${up ? '前回 ' + _cpmYen(h[i + 1].price) + ' から変更' : ''}">${_cpmYen(x.price)}</td>
+        <td>${_esc(x.linkedQuote || '—')}</td><td style="font-size:11px;max-width:260px;overflow:hidden;text-overflow:ellipsis;" title="${_esc(x.name)}">${_esc(x.name)}</td>
+        <td>${x.mgmtId ? `<button class="btn btn-outline btn-sm" onclick="document.getElementById('cpm-modal').classList.remove('open');openDetail('${_ofq(x.mgmtId)}')">詳細</button>` : ''}${x.orderPdfUrl ? ` <a class="pdf-link" href="${_esc(x.orderPdfUrl)}" target="_blank">PDF</a>` : ''}</td></tr>`; }).join('') +
+      '</tbody></table></div>' : '<div style="font-size:12px;color:var(--text-muted);">履歴なし</div>') + '</div>';
+  document.getElementById('cpm-modal-body').innerHTML = html;
+}
+function cpmSave() {
+  const m = CPMS.cur.master;
+  const p = { client: m.client, code: m.code,
+    quoteNo: document.getElementById('cpm-f-quote').value.trim(), quotePrice: document.getElementById('cpm-f-qprice').value.trim(),
+    boardName: document.getElementById('cpm-f-board').value.trim(), variant: document.getElementById('cpm-f-variant').value,
+    note: document.getElementById('cpm-f-note').value.trim(), confirmed: document.getElementById('cpm-f-conf').checked };
+  if (p.quoteNo !== m.quoteNo && String(p.quotePrice) === String(m.quotePrice || '')) p.quotePrice = ''; // 見積を変えたら単価は再取得
+  _ofApi('cpmSave', p, res => {
+    showToast('保存しました');
+    const i = CPMS.items.findIndex(x => x.client === m.client && x.code === m.code); if (i >= 0) CPMS.items[i] = res.item;
+    cpmRender(); cpmOpen(m.client, m.code);
+  });
+}
+
+// ── 注文書の詳細モーダルに「客先部品コード照合」を表示 ──
+(function hookOrderDetail() {
+  let curId = null;
+  const orig = openDetail;
+  openDetail = function(mgmtId) { curId = mgmtId; orig.apply(this, arguments); };
+  window.addEventListener('load', () => {
+    const body = document.getElementById('detail-body'); if (!body) return;
+    new MutationObserver(() => {
+      if (!curId || body.querySelector('.spinner') || body.querySelector('.cpm-slot') || !body.children.length) return;
+      const slot = document.createElement('div'); slot.className = 'cpm-slot';
+      body.insertBefore(slot, body.firstChild);
+      const id = curId;
+      _ofApi('cpmForOrder', { mgmtId: id }, res => { if (id === curId) slot.innerHTML = _cpmOrderBox(res.items); });
+    }).observe(body, { childList: true });
+  });
+})();
+function _cpmOrderBox(items) {
+  const withCode = items.filter(x => x.code);
+  if (!withCode.length) return '';
+  const rows = withCode.map(x => {
+    const m = x.master, p = x.prev;
+    const kind = !p ? '<span class="of-tag info">🆕 初回</span>' : `<span class="of-tag ok">🔁 リピート${m && m.count >= 2 ? ` ${m.count}回目` : ''}</span>`;
+    const prev = p ? `${_esc(p.orderDate)} No.${_esc(p.orderNo)}<br>${p.qty}個 ${_cpmYen(p.price)}${p.price && x.price && p.price !== x.price ? ` <span class="cpm-diff">⚠ 単価変更</span>` : ''}` : '—';
+    const quote = m && m.quoteNo ? `<b>${_esc(m.quoteNo)}</b> ${_cpmYen(m.quotePrice)}${m.quotePrice && x.price && m.quotePrice !== x.price ? ' <span class="cpm-diff">⚠ 見積と相違</span>' : ''}` : '<span class="of-tag warn">未紐づけ</span>';
+    return `<tr><td>${x.lineNo}</td><td class="cpm-code"><a href="#" onclick="event.preventDefault();cpmOpen('${_ofq(x.clientKey)}','${_ofq(x.code)}')">${_esc(x.code)}</a></td>
+      <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${_esc(x.name)}">${_esc(x.name)}</td>
+      <td style="text-align:right;">${x.qty}</td><td style="text-align:right;">${_cpmYen(x.price)}</td><td>${kind}</td><td style="font-size:12px;">${prev}</td><td style="font-size:12px;">${quote}</td></tr>`;
+  }).join('');
+  return `<div class="cpm-box"><h4>🔖 客先部品コード照合</h4><div style="overflow-x:auto;"><table class="of-table"><thead><tr><th>行</th><th>部品コード</th><th>品名</th><th style="text-align:right;">数量</th><th style="text-align:right;">単価</th><th>判定</th><th>前回発注</th><th>弊社見積</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+}
+</script>
