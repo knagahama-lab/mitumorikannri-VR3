@@ -1,0 +1,162 @@
+<!-- ============================================================
+     quote_entry_page.html — 見積入力（33_quote_entry.gs）
+     基幹システム風：青ラベルのヘッダ枠＋2段組み明細＋下部固定の合計バー
+     ============================================================ -->
+<style>
+  #page-quoteentry{ --qe-blue:#2f65b5; --qe-blue-d:#244f91; --qe-line:#c6d1e2; --qe-alt:#eefaf1; --qe-ro:#f6f8fb; padding-bottom:70px; }
+  .qe-title{ display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:8px; }
+  .qe-title h2{ font-size:18px; font-weight:700; border-left:5px solid var(--qe-blue-d); padding-left:10px; margin:0; }
+  .qe-actions{ display:flex; gap:6px; flex-wrap:wrap; }
+  .qe-btn{ border:1px solid #9aa9c2; background:#fff; color:#334155; border-radius:4px; padding:6px 12px; font-size:12px; font-weight:600; cursor:pointer; white-space:nowrap; }
+  .qe-btn:hover{ background:#f1f5f9; }
+  .qe-btn.pri{ background:var(--qe-blue); border-color:var(--qe-blue); color:#fff; }
+  .qe-btn.pri:hover{ background:var(--qe-blue-d); }
+  .qe-mode{ display:flex; align-items:center; gap:10px; font-size:12px; font-weight:700; color:#475569; margin:6px 0 8px; }
+  .qe-mode .pill{ font-size:11px; padding:2px 8px; border-radius:10px; background:#e0e7ff; color:#3730a3; font-weight:600; }
+  .qe-mode .pill.new{ background:#dcfce7; color:#166534; } .qe-mode .pill.dirty{ background:#fef3c7; color:#92400e; }
+
+  .qe-box{ background:#fff; border:1px solid var(--qe-line); overflow-x:auto; }
+  table.qe-hd{ width:100%; border-collapse:collapse; table-layout:fixed; min-width:980px; }
+  table.qe-hd th{ background:var(--qe-blue); color:#fff; font-size:12px; font-weight:700; padding:7px 6px; border:1px solid #fff; text-align:center; letter-spacing:.05em; }
+  table.qe-hd td{ border:1px solid var(--qe-line); padding:0; height:30px; font-size:13px; }
+  .qe-in{ width:100%; height:100%; min-height:30px; border:none; background:transparent; padding:4px 8px; font-size:13px; font-family:inherit; box-sizing:border-box; color:#0f172a; }
+  .qe-in:focus{ outline:2px solid #60a5fa; outline-offset:-2px; background:#fffef2; }
+  .qe-in.r{ text-align:right; } .qe-in.c{ text-align:center; }
+  .qe-in[readonly]{ background:var(--qe-ro); color:#334155; }
+  select.qe-in{ appearance:none; -webkit-appearance:none; cursor:pointer; }
+  textarea.qe-in{ resize:vertical; min-height:58px; }
+  .qe-split{ display:grid; grid-template-columns:120px 1fr; height:100%; }
+  .qe-split .qe-in:first-child{ border-right:1px solid var(--qe-line); }
+  .qe-meta{ display:flex; justify-content:flex-end; gap:22px; font-size:12px; color:#475569; padding:6px 4px 12px; }
+
+  table.qe-ln{ width:100%; border-collapse:collapse; table-layout:fixed; min-width:1080px; }
+  table.qe-ln th{ background:#f3f5f9; color:#1e293b; font-size:12px; font-weight:700; padding:6px 4px; border:1px solid var(--qe-line); text-align:center; }
+  table.qe-ln td{ border:1px solid var(--qe-line); padding:0; height:30px; font-size:13px; }
+  table.qe-ln tbody.alt td:not(.qe-no){ background:var(--qe-alt); }
+  table.qe-ln td.qe-no{ text-align:center; font-weight:700; color:#334155; background:#fff; }
+  table.qe-ln td.qe-del{ text-align:center; background:#fff; }
+  .qe-x{ border:none; background:none; color:#94a3b8; font-size:15px; cursor:pointer; }
+  .qe-x:hover{ color:#dc2626; }
+  table.qe-ln tbody.discount .qe-amt{ color:#dc2626; }
+  table.qe-ln tbody.memo .qe-numrow input, table.qe-ln tbody.memo .qe-numrow select{ visibility:hidden; }
+  .qe-addrow{ display:flex; gap:8px; align-items:center; padding:8px 4px; font-size:12px; color:#64748b; }
+
+  .qe-foot{ position:sticky; bottom:0; z-index:5; display:flex; justify-content:flex-end; flex-wrap:wrap; margin-top:12px; background:var(--bg); padding:6px 0; }
+  .qe-foot .cell{ display:flex; border:1px solid var(--qe-line); background:#fff; min-width:230px; }
+  .qe-foot .cell b{ background:var(--qe-blue); color:#fff; font-size:12px; padding:9px 14px; min-width:110px; text-align:center; }
+  .qe-foot .cell span{ flex:1; text-align:right; padding:8px 12px; font-size:15px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .qe-foot .cell.grand span{ font-size:17px; color:#0f172a; }
+  .qe-breakdown{ font-size:11px; color:#64748b; text-align:right; padding:2px 4px 0; }
+  .qe-status{ font-size:12px; margin-left:4px; }
+
+  .qe-list tr{ cursor:pointer; } .qe-list tr:hover td{ background:#f1f5ff; }
+  @media (max-width: 760px){
+    .qe-foot .cell{ min-width:0; flex:1 1 100%; }
+  }
+</style>
+
+<div id="page-quoteentry" class="page">
+  <div class="qe-title">
+    <h2>見積入力</h2>
+    <div class="qe-actions">
+      <button class="qe-btn" onclick="qeNew()">＋ 新規</button>
+      <button class="qe-btn" onclick="qeOpenList()">📂 開く</button>
+      <button class="qe-btn" onclick="qeCopy()" title="内容をコピーして新しい見積No.で作成">⧉ 複写</button>
+      <button class="qe-btn" onclick="qeSave(true)" title="改訂番号を上げて別版として保存（旧版は履歴に残ります）">改訂版で保存</button>
+      <button class="qe-btn" onclick="qePrint()">🖨 見積書印刷</button>
+      <button class="qe-btn pri" onclick="qeSave(false)">💾 保存</button>
+    </div>
+  </div>
+  <div class="qe-mode"><span id="qe-mode-label">▲ 新規</span><span id="qe-mode-pill" class="pill new">新規作成</span><span id="qe-order-status" class="qe-status"></span><span id="qe-revs" style="font-weight:400;color:#64748b;"></span></div>
+
+  <!-- ヘッダ -->
+  <div class="qe-box">
+    <table class="qe-hd">
+      <colgroup><col style="width:12%"><col style="width:6%"><col style="width:11%"><col style="width:12%"><col style="width:13%"><col style="width:7%"><col style="width:6%"><col style="width:11%"><col style="width:11%"><col style="width:11%"></colgroup>
+      <tr><th>見積No.</th><th>改訂</th><th>見積日</th><th>部門</th><th>担当者</th><th>通貨</th><th>承認</th><th>注文種別</th><th>機種コード</th><th>基板名</th></tr>
+      <tr>
+        <td><input class="qe-in" data-f="quoteNo" placeholder="自動採番"></td>
+        <td><input class="qe-in r" data-f="rev" readonly></td>
+        <td><input class="qe-in c" type="date" data-f="quoteDate"></td>
+        <td><input class="qe-in c" data-f="dept" list="qe-dl-dept" placeholder="営業部"></td>
+        <td><input class="qe-in c" data-f="assignee" list="qe-dl-assignee"></td>
+        <td><select class="qe-in c" data-f="currency"><option>円</option><option>USD</option><option>CNY</option></select></td>
+        <td style="text-align:center;"><input type="checkbox" data-f="approved" style="width:17px;height:17px;cursor:pointer;" title="承認済み"></td>
+        <td><select class="qe-in c" data-f="orderType"><option value="">—</option><option>試作</option><option>量産</option></select></td>
+        <td><input class="qe-in c" data-f="modelCode"></td>
+        <td><input class="qe-in c" data-f="boardName"></td>
+      </tr>
+    </table>
+    <table class="qe-hd">
+      <colgroup><col style="width:12%"><col style="width:53%"><col style="width:12%"><col style="width:23%"></colgroup>
+      <tr><th>得意先</th><td><div class="qe-split"><input class="qe-in" data-f="clientCode" placeholder="コード"><input class="qe-in" data-f="client" list="qe-dl-client" placeholder="株式会社〇〇（必須）"></div></td>
+          <th>客先担当者</th><td><input class="qe-in" data-f="clientPerson" placeholder="〇〇 様"></td></tr>
+      <tr><th>請求先</th><td><div class="qe-split"><input class="qe-in" data-f="billCode" placeholder="コード"><input class="qe-in" data-f="billTo" list="qe-dl-client" placeholder="（得意先と同じ）"></div></td>
+          <th>担当連絡先</th><td><input class="qe-in" data-f="contact" placeholder="TEL / メール"></td></tr>
+      <tr><th>件名</th><td colspan="3"><input class="qe-in" data-f="subject" placeholder="例）○○機種 LED基板 量産見積"></td></tr>
+    </table>
+    <table class="qe-hd">
+      <colgroup><col style="width:12%"><col style="width:38%"><col style="width:12%"><col style="width:38%"></colgroup>
+      <tr><th>納入場所</th><td><input class="qe-in" data-f="deliveryPlace" list="qe-dl-place"></td><th>納入期限</th><td><input class="qe-in" data-f="deliveryTerm" list="qe-dl-term"></td></tr>
+      <tr><th>支払条件</th><td><input class="qe-in" data-f="payment" list="qe-dl-pay"></td><th>有効期限</th><td><input class="qe-in" data-f="validity" list="qe-dl-valid"></td></tr>
+      <tr><th style="height:62px;">備考</th><td colspan="3"><textarea class="qe-in" data-f="note" rows="2"></textarea></td></tr>
+    </table>
+  </div>
+  <div class="qe-meta"><span id="qe-updated-by"></span><span id="qe-updated-at"></span></div>
+
+  <!-- 明細 -->
+  <div class="qe-box">
+    <table class="qe-ln">
+      <colgroup><col style="width:34px"><col style="width:74px"><col style="width:9%"><col style="width:7%"><col style="width:8%"><col style="width:6%"><col style="width:11%"><col style="width:12%"><col style="width:9%"><col style="width:7%"><col style="width:8%"><col style="width:34px"></colgroup>
+      <thead>
+        <tr><th rowspan="2"></th><th>区分</th><th colspan="2">品番</th><th colspan="4">品名</th><th colspan="3">規格</th><th rowspan="2" style="font-size:11px;">削<br>除</th></tr>
+        <tr><th></th><th>入数</th><th>ケース数</th><th>数量</th><th>単位</th><th>単価</th><th>見積金額</th><th>税</th><th>税率</th><th>税区分</th></tr>
+      </thead>
+    </table>
+  </div>
+  <div class="qe-addrow">
+    <button class="qe-btn" onclick="qeAddLines(1)">＋ 1行追加</button>
+    <button class="qe-btn" onclick="qeAddLines(5)">＋ 5行追加</button>
+    <span>Enter で次の欄へ移動／品番・品名は過去の見積から候補表示（選ぶと規格・単位・単価を補完）</span>
+  </div>
+
+  <div class="qe-foot">
+    <div class="cell"><b>税抜合計</b><span id="qe-subtotal">0</span></div>
+    <div class="cell"><b>消費税</b><span id="qe-tax">0</span></div>
+    <div class="cell grand"><b>税込合計金額</b><span id="qe-total">0</span></div>
+  </div>
+  <div class="qe-breakdown" id="qe-breakdown"></div>
+
+  <datalist id="qe-dl-client"></datalist><datalist id="qe-dl-dept"></datalist><datalist id="qe-dl-assignee"></datalist>
+  <datalist id="qe-dl-code"></datalist><datalist id="qe-dl-name"></datalist>
+  <datalist id="qe-dl-place"><option>貴社ご指定場所</option><option>弊社工場渡し</option></datalist>
+  <datalist id="qe-dl-term"><option>貴社ご指定日</option><option>受注後 2週間</option><option>受注後 1ヶ月</option><option>別途ご相談</option></datalist>
+  <datalist id="qe-dl-pay"><option>20日締め翌月末現金払い</option><option>月末締め翌月末現金払い</option><option>従来通り</option></datalist>
+  <datalist id="qe-dl-valid"><option>発行日より1ヶ月以内</option><option>発行日より3ヶ月以内</option></datalist>
+</div>
+
+<!-- 見積を開く -->
+<div class="modal-overlay" id="qe-list-modal" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="modal" style="max-width:820px;">
+    <div class="modal-head"><h3>📂 見積を開く</h3><button class="modal-close" onclick="document.getElementById('qe-list-modal').classList.remove('open')">✕</button></div>
+    <div class="modal-body">
+      <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+        <input class="of-in" id="qe-list-kw" placeholder="見積No.・得意先・件名" style="flex:1;min-width:200px;" oninput="clearTimeout(window._qeKwT);window._qeKwT=setTimeout(qeLoadList,300)">
+        <label style="font-size:12px;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="qe-list-all" onchange="qeLoadList()"> 旧版も表示</label>
+      </div>
+      <div id="qe-list-body"></div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:8px;">※ PDF取込（OCR）の見積は、見積書一覧の「詳細」→「見積入力で開く」から編集できます。</div>
+    </div>
+  </div>
+</div>
+
+<!-- 自社情報（印刷用） -->
+<div class="modal-overlay" id="qe-company-modal" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-head"><h3>🏢 見積書に印字する自社情報</h3><button class="modal-close" onclick="document.getElementById('qe-company-modal').classList.remove('open')">✕</button></div>
+    <div class="modal-body">
+      <div class="of-grid2" id="qe-company-form"></div>
+      <div style="text-align:right;margin-top:12px;"><button class="btn btn-primary btn-sm" onclick="qeSaveCompany()">保存して印刷</button></div>
+    </div>
+  </div>
+</div>

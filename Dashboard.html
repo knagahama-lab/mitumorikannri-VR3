@@ -1128,6 +1128,9 @@ tr:hover td{background:#f8fafc;}
       <div class="page-heading"><div><h2>✅ 製造承認</h2></div></div>
       <div id="approval-container"><div class="loading" style="text-align:center;padding:40px;color:var(--text-muted);">準備中</div></div>
     </div>
+    <!-- ===== 受注進捗ボード／見積→注文カレンダー（order_flow_page.html） ===== -->
+    <?!= include("order_flow_page") ?>
+    <?!= include("quote_entry_page") ?>
     <!-- page-board は機種・基板統合ページ(page-model)にリダイレクト。showPage('board')で自動切替 -->
     <div id="page-board" class="page" style="display:none!important;"></div>
 
@@ -1484,6 +1487,8 @@ tr:hover td{background:#f8fafc;}
 </script>
 
 <?!= include("js") ?>
+<?!= include("order_flow_js") ?>
+<?!= include("quote_entry_js") ?>
 
 <!-- ============ カスタム書類 ページ ============ -->
 <div id="page-customdoc" class="page">

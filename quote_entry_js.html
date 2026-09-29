@@ -1,0 +1,374 @@
+<script>
+// ============================================================
+// quote_entry_js.html — 見積入力（33_quote_entry.gs）
+// ============================================================
+const QE = { doc: null, masters: null, dirty: false, source: 'new', itemByCode: {}, itemByName: {} };
+const QE_KINDS = ['通常', '値引', '送料', '摘要'];
+const QE_NUM_FIELDS = ['perCase', 'cases', 'qty', 'price'];
+
+(function registerQuoteEntry() {
+  const at = DEFAULT_MENU.findIndex(m => m.id === 'list');
+  DEFAULT_MENU.splice(at + 1, 0, { id:'quoteentry', icon:'🧾', label:'見積入力', section:'営業・進行管理', visible:true });
+  PAGE_TITLES.quoteentry = '見積入力';
+  const orig = showPage;
+  showPage = function(name) { orig(name); if (name === 'quoteentry') qeInit(); };
+  window.addEventListener('beforeunload', e => { if (QE.dirty) { e.preventDefault(); e.returnValue = ''; } });
+})();
+
+// ── ユーティリティ ──
+const _qeNum = v => { const n = Number(String(v == null ? '' : v).replace(/[,，¥円\s]/g, '')); return isNaN(n) ? 0 : n; };
+const _qeFmt = n => (Number(n) || 0).toLocaleString();
+const _qeToday = () => _ofToday();
+const _qeBlankLine = () => ({ kind:'通常', code:'', name:'', spec:'', perCase:'', cases:'', qty:'', unit:'', price:'', taxRate:10, taxType:'外税' });
+const _qeIsBlank = l => !String(l.code||'').trim() && !String(l.name||'').trim() && !String(l.spec||'').trim() && !_qeNum(l.qty) && !_qeNum(l.price);
+
+function _qeDefaultDoc() {
+  const lines = []; for (let i = 0; i < 6; i++) lines.push(_qeBlankLine());
+  return { mgmtId:'', quoteNo:'', rev:1, quoteDate:_qeToday(), dept:'', assignee:(QE.masters && QE.masters.me || '').split('@')[0], currency:'円',
+    approved:false, orderType:'', modelCode:'', boardName:'', clientCode:'', client:'', clientPerson:'', billCode:'', billTo:'', contact:'',
+    subject:'', deliveryPlace:'貴社ご指定場所', deliveryTerm:'貴社ご指定日', payment:'20日締め翌月末現金払い', validity:'発行日より1ヶ月以内', note:'', lines };
+}
+
+// サーバーの _qeCalc と同じ計算（税率×税区分ごとに1回切り捨て）
+function _qeCalc(doc) {
+  const groups = {};
+  doc.lines.forEach(l => {
+    if (l.kind === '摘要') { l.amount = 0; l.tax = 0; return; }
+    let qty = _qeNum(l.qty);
+    if (!qty && _qeNum(l.perCase) && _qeNum(l.cases)) qty = _qeNum(l.perCase) * _qeNum(l.cases);
+    let amt = Math.round(qty * _qeNum(l.price));
+    if (l.kind === '値引') amt = -Math.abs(amt);
+    l.amount = amt;
+    const type = l.taxType || '外税'; const rate = type === '非課税' ? 0 : _qeNum(l.taxRate);
+    l.tax = type === '内税' ? Math.floor(amt * rate / (100 + rate)) : Math.floor(amt * rate / 100);
+    const k = type + '|' + rate; (groups[k] = groups[k] || { type, rate, amount: 0 }).amount += amt;
+  });
+  let sub = 0, tax = 0, total = 0; const bd = [];
+  Object.values(groups).forEach(g => {
+    const t = g.type === '内税' ? Math.floor(g.amount * g.rate / (100 + g.rate)) : Math.floor(g.amount * g.rate / 100);
+    const excl = g.type === '内税' ? g.amount - t : g.amount;
+    sub += excl; tax += t; total += excl + t; bd.push({ type: g.type, rate: g.rate, base: excl, tax: t });
+  });
+  Object.assign(doc, { subtotal: sub, tax, total, breakdown: bd });
+  return doc;
+}
+
+// ── 初期化・マスタ ──
+function qeInit() {
+  if (!QE.masters) {
+    _ofApi('qeMasters', {}, res => { QE.masters = res; _qeFillDatalists(); if (!QE.doc) qeNew(true); else _qeRender(); });
+  } else if (!QE.doc) qeNew(true);
+}
+function _qeFillDatalists() {
+  const m = QE.masters; const opt = (v, label) => `<option value="${_esc(v)}">${label ? _esc(label) : ''}</option>`;
+  document.getElementById('qe-dl-client').innerHTML = m.clients.map(c => opt(c.name, c.code)).join('');
+  document.getElementById('qe-dl-dept').innerHTML = m.depts.map(d => opt(d)).join('');
+  document.getElementById('qe-dl-assignee').innerHTML = m.assignees.map(d => opt(d)).join('');
+  QE.itemByCode = {}; QE.itemByName = {};
+  m.items.forEach(it => { if (it.code) QE.itemByCode[it.code] = it; QE.itemByName[it.name] = it; });
+  document.getElementById('qe-dl-code').innerHTML = Object.values(QE.itemByCode).map(it => opt(it.code, it.name)).join('');
+  document.getElementById('qe-dl-name').innerHTML = Object.values(QE.itemByName).map(it => opt(it.name, `${it.spec || ''} ${it.price ? '¥' + _qeFmt(it.price) : ''}`)).join('');
+}
+
+// ── 新規・読込・複写 ──
+function _qeConfirmDiscard() { return !QE.dirty || confirm('保存していない変更があります。破棄してよろしいですか？'); }
+function qeNew(silent) {
+  if (!silent && !_qeConfirmDiscard()) return;
+  QE.doc = _qeDefaultDoc(); QE.source = 'new'; QE.dirty = false; _qeRender();
+}
+function qeOpen(params) { // 他画面から呼ぶ入口（{quoteNo} / {mgmtId}）
+  if (!_qeConfirmDiscard()) return;
+  if (typeof closeQuoteDetail === 'function') closeQuoteDetail();
+  showPage('quoteentry'); _qeLoad(params);
+}
+function _qeLoad(params) {
+  _ofApi('qeGet', params, res => {
+    QE.doc = res.doc; QE.source = res.source; QE.dirty = false;
+    QE.doc.quoteDate = QE.doc.quoteDate || _qeToday();
+    while (QE.doc.lines.length < 6) QE.doc.lines.push(_qeBlankLine());
+    _qeRender();
+    document.getElementById('qe-list-modal').classList.remove('open');
+    if (res.source === 'imported') showToast('PDF取込の見積を読み込みました。保存すると見積入力データとして登録されます');
+  });
+}
+function qeCopy() {
+  if (!QE.doc) return;
+  const d = JSON.parse(JSON.stringify(QE.doc));
+  Object.assign(d, { mgmtId:'', quoteNo:'', rev:1, approved:false, approvedBy:'', quoteDate:_qeToday(), pdfUrl:'', revisions:[], updatedAt:'', updatedBy:'' });
+  QE.doc = d; QE.source = 'new'; QE.dirty = true; _qeRender();
+  showToast('複写しました。見積No.は保存時に採番されます');
+}
+
+// ── 描画 ──
+function _qeRender() {
+  const d = QE.doc; const page = document.getElementById('page-quoteentry');
+  page.querySelectorAll('[data-f]').forEach(el => {
+    const f = el.dataset.f; const v = d[f];
+    if (el.type === 'checkbox') el.checked = !!v;
+    else if (el.type === 'date') el.value = _ofInputDate(v);
+    else el.value = v == null ? '' : v;
+    el.oninput = el.onchange = () => _qeHeaderInput(el);
+  });
+  const billTo = page.querySelector('[data-f="billTo"]'); billTo.placeholder = d.client ? d.client + '（得意先と同じ）' : '（得意先と同じ）';
+  _qeRenderLines(); _qeRenderStatus(); _qeUpdateTotals();
+  _qeWireEnter();
+}
+function _qeRenderStatus() {
+  const d = QE.doc; const saved = !!d.updatedAt;
+  document.getElementById('qe-mode-label').textContent = saved || QE.source === 'imported' ? '▲ 修正' : '▲ 新規';
+  const pill = document.getElementById('qe-mode-pill');
+  pill.className = 'pill' + (QE.dirty ? ' dirty' : !saved ? ' new' : '');
+  pill.textContent = QE.dirty ? '未保存の変更あり' : QE.source === 'imported' ? 'PDF取込データ（未登録）' : saved ? '保存済み' : '新規作成';
+  document.getElementById('qe-updated-by').textContent = d.updatedBy ? '更新者 ' + d.updatedBy.split('@')[0] : '';
+  document.getElementById('qe-updated-at').textContent = d.updatedAt ? '更新日 ' + d.updatedAt : '';
+  const revs = (d.revisions || []);
+  document.getElementById('qe-revs').innerHTML = revs.length > 1
+    ? '改訂履歴: ' + revs.map(r => r.rev === Number(d.rev) ? `<b>第${r.rev}版</b>` : `<a href="#" onclick="event.preventDefault();_qeConfirmDiscard()&&_qeLoad({quoteNo:'${_ofq(d.quoteNo)}',rev:${r.rev}})">第${r.rev}版</a>`).join(' ・ ') : '';
+  const s = (typeof QOL !== 'undefined' && d.quoteNo) ? QOL.byQuote[d.quoteNo] : null;
+  document.getElementById('qe-order-status').innerHTML = !s ? '' : s.state === 'ordered'
+    ? `<span class="of-tag ok">📦 注文書受領 ${_ofMd(s.orders[0].orderDate)}（${_esc(s.orders[0].orderNo)}）</span>`
+    : s.state === 'waiting' ? `<span class="of-tag ${s.waitingDays >= 14 ? 'warn' : 'info'}">⏳ 注文待ち ${s.waitingDays != null ? s.waitingDays + '日' : ''}</span>` : '';
+}
+function _qeHeaderInput(el) {
+  const f = el.dataset.f; const d = QE.doc;
+  d[f] = el.type === 'checkbox' ? el.checked : el.type === 'date' ? String(el.value).replace(/-/g, '/') : el.value;
+  if (f === 'client') {
+    const hit = (QE.masters && QE.masters.clients || []).find(c => c.name === el.value);
+    if (hit && hit.code && !d.clientCode) { d.clientCode = hit.code; document.querySelector('#page-quoteentry [data-f="clientCode"]').value = hit.code; }
+    document.querySelector('#page-quoteentry [data-f="billTo"]').placeholder = el.value ? el.value + '（得意先と同じ）' : '（得意先と同じ）';
+  }
+  _qeMarkDirty();
+}
+function _qeMarkDirty() { if (!QE.dirty) { QE.dirty = true; _qeRenderStatus(); } }
+
+function _qeRenderLines() {
+  const table = document.querySelector('#page-quoteentry table.qe-ln');
+  table.querySelectorAll('tbody.qe-line').forEach(tb => tb.remove());
+  QE.doc.lines.forEach((l, i) => table.appendChild(_qeLineEl(l, i)));
+}
+function _qeLineEl(l, i) {
+  const tb = document.createElement('tbody');
+  tb.className = 'qe-line' + (i % 2 ? ' alt' : '') + (l.kind === '値引' ? ' discount' : '') + (l.kind === '摘要' ? ' memo' : '');
+  const sel = (f, opts, v) => `<select class="qe-in c" data-lf="${f}">${opts.map(o => `<option value="${o}"${String(o) === String(v) ? ' selected' : ''}>${f === 'taxRate' ? o + '%' : o}</option>`).join('')}</select>`;
+  const inp = (f, cls, extra) => `<input class="qe-in ${cls || ''}" data-lf="${f}" value="${_esc(l[f] == null ? '' : l[f])}" ${extra || ''}>`;
+  tb.innerHTML = `
+    <tr>
+      <td class="qe-no" rowspan="2">${i + 1}</td>
+      <td>${sel('kind', QE_KINDS, l.kind)}</td>
+      <td colspan="2">${inp('code', '', 'list="qe-dl-code"')}</td>
+      <td colspan="4">${inp('name', '', 'list="qe-dl-name"' + (l.kind === '摘要' ? ' placeholder="摘要（金額なしの説明行）"' : ''))}</td>
+      <td colspan="3">${inp('spec')}</td>
+      <td class="qe-del" rowspan="2"><button class="qe-x" title="この行を削除" onclick="qeDelLine(${i})">✕</button></td>
+    </tr>
+    <tr class="qe-numrow">
+      <td></td>
+      <td>${inp('perCase', 'r', 'inputmode="decimal"')}</td>
+      <td>${inp('cases', 'r', 'inputmode="decimal"')}</td>
+      <td>${inp('qty', 'r', 'inputmode="decimal"')}</td>
+      <td>${inp('unit', 'c', 'list="qe-dl-unit"')}</td>
+      <td>${inp('price', 'r', 'inputmode="decimal"')}</td>
+      <td><input class="qe-in r qe-amt" data-out="amount" readonly tabindex="-1"></td>
+      <td><input class="qe-in r" data-out="tax" readonly tabindex="-1"></td>
+      <td>${sel('taxRate', [10, 8, 0], l.taxRate)}</td>
+      <td>${sel('taxType', ['外税', '内税', '非課税'], l.taxType)}</td>
+    </tr>`;
+  tb.querySelectorAll('[data-lf]').forEach(el => {
+    el.addEventListener('input', () => _qeLineInput(i, el, tb));
+    if (el.dataset.lf === 'code' || el.dataset.lf === 'name') el.addEventListener('change', () => _qeLookupItem(i, el.dataset.lf, tb));
+    if (QE_NUM_FIELDS.includes(el.dataset.lf)) el.addEventListener('blur', () => { if (el.value !== '') el.value = _qeNum(el.value).toLocaleString(undefined, { maximumFractionDigits: 4 }); });
+  });
+  return tb;
+}
+function _qeLineInput(i, el, tb) {
+  const l = QE.doc.lines[i]; const f = el.dataset.lf;
+  l[f] = QE_NUM_FIELDS.includes(f) ? (el.value === '' ? '' : _qeNum(el.value)) : el.value;
+  if ((f === 'perCase' || f === 'cases') && _qeNum(l.perCase) && _qeNum(l.cases)) {
+    l.qty = _qeNum(l.perCase) * _qeNum(l.cases);
+    tb.querySelector('[data-lf="qty"]').value = l.qty.toLocaleString();
+  }
+  if (f === 'kind') { tb.classList.toggle('discount', l.kind === '値引'); tb.classList.toggle('memo', l.kind === '摘要'); }
+  if (f === 'taxType' && l.taxType === '非課税') { l.taxRate = 0; tb.querySelector('[data-lf="taxRate"]').value = '0'; }
+  // 最終行まで入力したら自動で1行追加
+  if (i === QE.doc.lines.length - 1 && !_qeIsBlank(l)) qeAddLines(1, true);
+  _qeMarkDirty(); _qeUpdateTotals();
+}
+function _qeLookupItem(i, f, tb) {
+  const l = QE.doc.lines[i];
+  const hit = f === 'code' ? QE.itemByCode[l.code] : QE.itemByName[l.name];
+  if (!hit) return;
+  [['code', hit.code], ['name', hit.name], ['spec', hit.spec], ['unit', hit.unit], ['price', hit.price]].forEach(([k, v]) => {
+    if (v && (l[k] === '' || l[k] == null)) { l[k] = v; tb.querySelector(`[data-lf="${k}"]`).value = k === 'price' ? _qeFmt(v) : v; }
+  });
+  if (hit.price) showToast(`「${hit.name}」前回単価 ¥${_qeFmt(hit.price)}${hit.date ? '（' + hit.date + '）' : ''} を補完しました`);
+  _qeUpdateTotals();
+}
+function qeAddLines(n, keepFocus) {
+  const table = document.querySelector('#page-quoteentry table.qe-ln');
+  for (let k = 0; k < n; k++) { const l = _qeBlankLine(); QE.doc.lines.push(l); table.appendChild(_qeLineEl(l, QE.doc.lines.length - 1)); }
+  _qeUpdateTotals(); _qeWireEnter();
+}
+function qeDelLine(i) {
+  const l = QE.doc.lines[i];
+  if (!_qeIsBlank(l) && !confirm(`${i + 1}行目「${l.name || l.code}」を削除しますか？`)) return;
+  QE.doc.lines.splice(i, 1);
+  if (!QE.doc.lines.length) QE.doc.lines.push(_qeBlankLine());
+  _qeMarkDirty(); _qeRenderLines(); _qeUpdateTotals(); _qeWireEnter();
+}
+function _qeUpdateTotals() {
+  const d = _qeCalc(QE.doc);
+  document.querySelectorAll('#page-quoteentry tbody.qe-line').forEach((tb, i) => {
+    const l = d.lines[i]; if (!l) return; const blank = _qeIsBlank(l) || l.kind === '摘要';
+    tb.querySelector('[data-out="amount"]').value = blank ? '' : _qeFmt(l.amount);
+    tb.querySelector('[data-out="tax"]').value = blank ? '' : _qeFmt(l.tax);
+  });
+  const yen = n => (d.currency && d.currency !== '円' ? d.currency + ' ' : '') + _qeFmt(n);
+  document.getElementById('qe-subtotal').textContent = yen(d.subtotal);
+  document.getElementById('qe-tax').textContent = yen(d.tax);
+  document.getElementById('qe-total').textContent = yen(d.total);
+  document.getElementById('qe-breakdown').textContent = d.breakdown.filter(b => b.base).length > 1 || d.breakdown.some(b => b.type !== '外税')
+    ? d.breakdown.filter(b => b.base).map(b => `${b.type === '非課税' ? '非課税' : b.rate + '%対象'}（${b.type}）${_qeFmt(b.base)}・税${_qeFmt(b.tax)}`).join('　') : '';
+}
+// Enter で次の入力欄へ
+function _qeWireEnter() {
+  const page = document.getElementById('page-quoteentry');
+  page.onkeydown = ev => {
+    if (ev.key !== 'Enter' || ev.isComposing || ev.target.tagName === 'TEXTAREA' || !ev.target.classList.contains('qe-in')) return;
+    ev.preventDefault();
+    const list = [...page.querySelectorAll('.qe-in:not([readonly]):not([tabindex="-1"])')].filter(e => e.offsetParent && getComputedStyle(e).visibility !== 'hidden');
+    const idx = list.indexOf(ev.target);
+    const next = list[idx + (ev.shiftKey ? -1 : 1)];
+    if (next) { next.focus(); if (next.select) next.select(); }
+  };
+  if (!page.dataset.unitDl) {
+    page.dataset.unitDl = '1';
+    const dl = document.createElement('datalist'); dl.id = 'qe-dl-unit';
+    dl.innerHTML = ['個', '枚', '台', '式', 'セット', '本', '箱', 'PCS', 'ロット', 'kg', 'm'].map(u => `<option value="${u}">`).join('');
+    page.appendChild(dl);
+  }
+}
+
+// ── 保存 ──
+function qeSave(asRevision) {
+  const d = QE.doc;
+  if (!String(d.client || '').trim()) { showToast('得意先を入力してください', true); document.querySelector('#page-quoteentry [data-f="client"]').focus(); return; }
+  if (!d.lines.some(l => !_qeIsBlank(l))) { showToast('明細を1行以上入力してください', true); return; }
+  if (asRevision && (!d.updatedAt || QE.source !== 'entry')) { showToast('改訂版は一度保存した見積から作成できます', true); return; }
+  if (asRevision && !confirm(`見積No. ${d.quoteNo} の第${(d.revisions || []).reduce((m, r) => Math.max(m, r.rev), 1) + 1}版として保存します。旧版は履歴に残ります。`)) return;
+  const payload = JSON.parse(JSON.stringify(d));
+  payload.billTo = payload.billTo || payload.client;
+  payload.lines = payload.lines.filter(l => !_qeIsBlank(l));
+  _ofApi('qeSave', { doc: payload, asRevision: !!asRevision }, res => {
+    QE.doc = res.doc; QE.source = 'entry'; QE.dirty = false;
+    while (QE.doc.lines.length < 6) QE.doc.lines.push(_qeBlankLine());
+    _qeRender();
+    showToast(`見積No. ${res.doc.quoteNo}（第${res.doc.rev}版）を保存しました`);
+    if (typeof _qolRefresh === 'function') _qolRefresh();
+    if (typeof loadQuoteList === 'function') loadQuoteList();
+    QE.masters = null; _ofApi('qeMasters', {}, r => { QE.masters = r; _qeFillDatalists(); });
+  });
+}
+
+// ── 開く（一覧） ──
+function qeOpenList() {
+  document.getElementById('qe-list-modal').classList.add('open');
+  qeLoadList();
+}
+function qeLoadList() {
+  const body = document.getElementById('qe-list-body');
+  body.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  _ofApi('qeList', { keyword: document.getElementById('qe-list-kw').value, allRevisions: document.getElementById('qe-list-all').checked }, res => {
+    if (!res.items.length) { body.innerHTML = '<div class="loading">見積入力で作成した見積はまだありません</div>'; return; }
+    body.innerHTML = `<div style="max-height:60vh;overflow:auto;"><table class="of-table qe-list"><thead><tr><th>見積No.</th><th>改訂</th><th>見積日</th><th>得意先</th><th>件名</th><th style="text-align:right;">税込合計</th><th>承認</th><th>更新</th></tr></thead><tbody>` +
+      res.items.map(it => `<tr onclick="_qeConfirmDiscard()&&_qeLoad({quoteNo:'${_ofq(it.quoteNo)}',rev:${it.rev}})" style="${it.latest ? '' : 'color:var(--text-muted);'}">
+        <td><b>${_esc(it.quoteNo)}</b></td><td>${it.rev}${it.latest ? '' : '（旧）'}</td><td>${_esc(it.quoteDate)}</td><td>${_esc(it.client)}</td>
+        <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${_esc(it.subject)}</td>
+        <td style="text-align:right;">${_qeFmt(it.total)}</td><td>${it.approved ? '✔' : ''}</td><td style="font-size:11px;">${_esc(it.updatedAt)}</td></tr>`).join('') + '</tbody></table></div>';
+  });
+}
+
+// ── 印刷（御見積書） ──
+const QE_COMPANY_FIELDS = [['name','会社名'],['zip','郵便番号'],['address','住所'],['tel','TEL'],['fax','FAX'],['regNo','登録番号（インボイス）'],['bank','振込先（任意）']];
+function qePrint() {
+  const d = QE.doc;
+  if (!d || !d.lines.some(l => !_qeIsBlank(l))) { showToast('明細を入力してから印刷してください', true); return; }
+  const c = (QE.masters && QE.masters.company) || {};
+  if (!c.name) { _qeOpenCompany(); return; }
+  _qePrintWindow(d, c);
+}
+function _qeOpenCompany() {
+  const c = (QE.masters && QE.masters.company) || {};
+  document.getElementById('qe-company-form').innerHTML = QE_COMPANY_FIELDS.map(([k, l]) =>
+    `<div style="${k === 'address' || k === 'bank' ? 'grid-column:1/-1;' : ''}"><label>${l}</label><input id="qe-co-${k}" value="${_esc(c[k] || '')}"></div>`).join('');
+  document.getElementById('qe-company-modal').classList.add('open');
+}
+function qeSaveCompany() {
+  const company = {}; QE_COMPANY_FIELDS.forEach(([k]) => company[k] = document.getElementById('qe-co-' + k).value.trim());
+  if (!company.name) { showToast('会社名を入力してください', true); return; }
+  _ofApi('qeSaveCompany', { company }, res => {
+    QE.masters.company = res.company;
+    document.getElementById('qe-company-modal').classList.remove('open');
+    _qePrintWindow(QE.doc, res.company);
+  });
+}
+function _qePrintWindow(d, c) {
+  _qeCalc(d);
+  const e = s => _esc(s == null ? '' : s);
+  const cur = d.currency && d.currency !== '円' ? d.currency + ' ' : '¥';
+  const lines = d.lines.filter(l => !_qeIsBlank(l));
+  const rows = lines.map((l, i) => l.kind === '摘要'
+    ? `<tr><td class="c">${i + 1}</td><td colspan="5">${e(l.name)} ${e(l.spec)}</td></tr>`
+    : `<tr><td class="c">${i + 1}</td><td>${l.code ? `<div class="s">${e(l.code)}</div>` : ''}${e(l.name)}${l.kind !== '通常' ? `（${e(l.kind)}）` : ''}${l.spec ? `<div class="s">${e(l.spec)}</div>` : ''}</td>
+        <td class="r">${_qeFmt(l.qty)}</td><td class="c">${e(l.unit)}</td><td class="r">${_qeNum(l.price).toLocaleString(undefined, { maximumFractionDigits: 4 })}</td>
+        <td class="r">${_qeFmt(l.amount)}${l.taxType !== '外税' || l.taxRate !== 10 ? `<div class="s">${l.taxType === '非課税' ? '非課税' : l.taxRate + '%' + (l.taxType === '内税' ? '内税' : '')}</div>` : ''}</td></tr>`).join('');
+  const pad = Math.max(0, 12 - lines.length);
+  const blank = Array.from({ length: pad }, () => '<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td></tr>').join('');
+  const bd = d.breakdown.filter(b => b.base).map(b => `<tr><th>${b.type === '非課税' ? '非課税' : b.rate + '%対象'}</th><td class="r">${cur}${_qeFmt(b.base)}</td><th>消費税</th><td class="r">${cur}${_qeFmt(b.tax)}</td></tr>`).join('');
+  const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>御見積書_${e(d.quoteNo)}</title><style>
+    @page{ size:A4; margin:14mm 12mm; } *{ box-sizing:border-box; }
+    body{ font-family:"Yu Gothic","Hiragino Sans","Meiryo",sans-serif; color:#111; font-size:10.5pt; margin:0; }
+    h1{ text-align:center; font-size:20pt; letter-spacing:.6em; border-bottom:3px double #333; padding-bottom:4px; margin:0 0 14px; }
+    .top{ display:flex; justify-content:space-between; gap:20px; }
+    .to{ flex:1; } .to .n{ font-size:14pt; border-bottom:1px solid #333; padding-bottom:2px; margin-bottom:4px; }
+    .me{ width:42%; font-size:9.5pt; line-height:1.55; } .me .co{ font-size:12pt; font-weight:700; }
+    .kv{ border-collapse:collapse; margin:0 0 6px auto; font-size:9.5pt; } .kv th{ text-align:left; padding:1px 10px 1px 0; font-weight:400; color:#444; }
+    .amt{ display:flex; align-items:center; margin:14px 0 10px; border:2px solid #222; width:70%; }
+    .amt b{ background:#eee; padding:8px 14px; font-size:11pt; } .amt span{ flex:1; text-align:right; padding:6px 14px; font-size:17pt; font-weight:700; }
+    table.t{ width:100%; border-collapse:collapse; margin-top:6px; } .t th,.t td{ border:1px solid #555; padding:4px 6px; vertical-align:top; }
+    .t th{ background:#e8edf5; font-weight:600; font-size:9.5pt; } .r{ text-align:right; white-space:nowrap; } .c{ text-align:center; }
+    .s{ font-size:8.5pt; color:#555; }
+    .terms{ width:100%; border-collapse:collapse; margin-top:8px; font-size:9.5pt; } .terms th{ background:#f3f3f3; width:14%; text-align:left; } .terms th,.terms td{ border:1px solid #999; padding:3px 6px; }
+    .sum{ display:flex; justify-content:space-between; gap:12px; margin-top:8px; } .sum table{ border-collapse:collapse; font-size:9.5pt; } .sum th,.sum td{ border:1px solid #999; padding:3px 8px; } .sum th{ background:#f3f3f3; font-weight:500; }
+    .note{ border:1px solid #999; min-height:40px; padding:6px; margin-top:8px; white-space:pre-wrap; font-size:9.5pt; }
+    @media screen{ body{ max-width:210mm; margin:10mm auto; } }
+  </style></head><body>
+    <h1>御見積書</h1>
+    <div class="top">
+      <div class="to">
+        <div class="n">${e(d.client)}　御中</div>${d.clientPerson ? `<div>${e(d.clientPerson)}${/様$/.test(d.clientPerson) ? '' : '　様'}</div>` : ''}
+        <div style="margin-top:10px;">件名：${e(d.subject)}</div>
+        <div style="margin-top:8px;">下記の通り御見積申し上げます。</div>
+      </div>
+      <div class="me">
+        <table class="kv"><tr><th>見積No.</th><td>${e(d.quoteNo)}${Number(d.rev) > 1 ? '-' + d.rev : ''}</td></tr><tr><th>見積日</th><td>${e(d.quoteDate)}</td></tr></table>
+        <div class="co">${e(c.name)}</div>
+        ${c.zip ? `〒${e(c.zip)}<br>` : ''}${e(c.address)}<br>${c.tel ? 'TEL ' + e(c.tel) : ''}${c.fax ? '　FAX ' + e(c.fax) : ''}
+        ${c.regNo ? `<br>登録番号 ${e(c.regNo)}` : ''}${d.assignee ? `<br>担当：${e(d.dept)} ${e(d.assignee)}` : ''}${d.approved ? '<br>（承認済）' : ''}
+      </div>
+    </div>
+    <div class="amt"><b>御見積金額</b><span>${cur}${_qeFmt(d.total)}－</span><small style="padding-right:10px;">（税込）</small></div>
+    <table class="terms"><tr><th>納入場所</th><td>${e(d.deliveryPlace)}</td><th>納入期限</th><td>${e(d.deliveryTerm)}</td></tr>
+      <tr><th>支払条件</th><td>${e(d.payment)}</td><th>有効期限</th><td>${e(d.validity)}</td></tr></table>
+    <table class="t"><thead><tr><th style="width:5%;">No</th><th>品番／品名／規格</th><th style="width:10%;">数量</th><th style="width:7%;">単位</th><th style="width:13%;">単価</th><th style="width:15%;">金額</th></tr></thead>
+      <tbody>${rows}${blank}</tbody></table>
+    <div class="sum">
+      <table>${bd}</table>
+      <table><tr><th>小計（税抜）</th><td class="r">${cur}${_qeFmt(d.subtotal)}</td></tr><tr><th>消費税</th><td class="r">${cur}${_qeFmt(d.tax)}</td></tr><tr><th><b>合計</b></th><td class="r"><b>${cur}${_qeFmt(d.total)}</b></td></tr></table>
+    </div>
+    ${d.note ? `<div class="note">備考：${e(d.note)}</div>` : ''}${c.bank ? `<div class="note">お振込先：${e(c.bank)}</div>` : ''}
+    <script>window.onload=function(){setTimeout(function(){window.print();},300);};<\/script>
+  </body></html>`;
+  const w = window.open('', '_blank');
+  if (!w) { showToast('ポップアップがブロックされました。許可してから再度お試しください', true); return; }
+  w.document.open(); w.document.write(html); w.document.close();
+}
+</script>

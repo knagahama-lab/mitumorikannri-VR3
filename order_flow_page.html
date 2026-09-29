@@ -1,0 +1,171 @@
+<!-- ============================================================
+     order_flow_page.html
+     受注進捗ボード（31_order_fulfillment.gs）／見積→注文カレンダー（32_quote_order_link.gs）
+     Dashboard.html の #content 内に include される
+     ============================================================ -->
+<style>
+  .of-toolbar{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:12px; }
+  .of-toolbar .search-box{ flex:1; min-width:220px; }
+  .of-seg{ display:inline-flex; border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+  .of-seg button{ border:none; background:#fff; padding:6px 12px; font-size:12px; cursor:pointer; color:var(--text-sub); }
+  .of-seg button.on{ background:var(--primary); color:#fff; }
+  .of-summary{ display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+  .of-sum{ background:var(--card); border:1px solid var(--border); border-radius:8px; padding:8px 14px; font-size:12px; color:var(--text-sub); }
+  .of-sum b{ display:block; font-size:18px; color:var(--text); }
+  .of-sum.warn b{ color:#d97706; } .of-sum.bad b{ color:#dc2626; }
+
+  .of-board{ display:grid; grid-template-columns:repeat(6, minmax(190px, 1fr)); gap:10px; overflow-x:auto; padding-bottom:8px; }
+  .of-col{ background:#eef1f6; border-radius:10px; padding:8px; min-height:200px; display:flex; flex-direction:column; gap:8px; }
+  .of-col.drop{ outline:2px dashed var(--primary); background:var(--primary-light); }
+  .of-col-hd{ display:flex; justify-content:space-between; align-items:center; font-size:12px; font-weight:700; padding:2px 4px 4px; }
+  .of-col-hd span.n{ background:#fff; border-radius:10px; padding:0 8px; font-size:11px; color:var(--text-sub); }
+  .of-card{ background:#fff; border-radius:8px; padding:8px 10px; box-shadow:0 1px 2px rgba(0,0,0,.08); cursor:pointer; font-size:12px; border-left:3px solid var(--primary); }
+  .of-card:hover{ box-shadow:0 2px 8px rgba(0,0,0,.12); }
+  .of-card .no{ font-weight:700; font-size:12px; }
+  .of-card .cl{ color:var(--text-sub); font-size:11px; margin:2px 0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .of-card .sj{ font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .of-card .meta{ display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
+  .of-tag{ display:inline-block; font-size:10px; padding:1px 6px; border-radius:8px; background:#f1f5f9; color:#475569; white-space:nowrap; }
+  .of-tag.warn{ background:#fef3c7; color:#92400e; } .of-tag.bad{ background:#fee2e2; color:#991b1b; }
+  .of-tag.ok{ background:#dcfce7; color:#166534; } .of-tag.info{ background:#e0f2fe; color:#075985; }
+
+  .of-tabs{ display:flex; gap:4px; border-bottom:2px solid var(--border); margin-bottom:14px; }
+  .of-tabs button{ border:none; background:none; padding:8px 14px; font-size:13px; cursor:pointer; color:var(--text-sub); border-bottom:2px solid transparent; margin-bottom:-2px; }
+  .of-tabs button.on{ color:var(--primary); border-bottom-color:var(--primary); font-weight:600; }
+  .of-grid2{ display:grid; grid-template-columns:1fr 1fr; gap:10px 14px; }
+  .of-grid2 label{ display:block; font-size:11px; color:var(--text-sub); margin-bottom:3px; }
+  .of-grid2 input, .of-grid2 select, .of-in{ width:100%; padding:7px 9px; border:1px solid var(--border); border-radius:6px; font-size:13px; box-sizing:border-box; font-family:inherit; }
+  .of-steps{ display:flex; gap:4px; margin:4px 0 14px; }
+  .of-steps div{ flex:1; text-align:center; font-size:11px; padding:6px 2px; background:#f1f5f9; color:var(--text-sub); border-radius:4px; cursor:pointer; }
+  .of-steps div.done{ background:#dbeafe; color:#1e40af; } .of-steps div.cur{ background:var(--primary); color:#fff; font-weight:700; }
+  .of-memo{ border:1px solid var(--border-light); border-radius:8px; padding:8px 10px; margin-bottom:6px; font-size:13px; }
+  .of-memo .hd{ display:flex; justify-content:space-between; font-size:11px; color:var(--text-sub); margin-bottom:3px; }
+  .of-memo .bd{ white-space:pre-wrap; word-break:break-word; }
+  .of-table{ width:100%; border-collapse:collapse; font-size:12px; }
+  .of-table th{ background:#f0f2f5; padding:6px 8px; text-align:left; white-space:nowrap; }
+  .of-table td{ padding:6px 8px; border-bottom:1px solid var(--border-light); }
+
+  /* 見積→注文カレンダー */
+  .qc-legend{ display:flex; gap:12px; flex-wrap:wrap; font-size:12px; color:var(--text-sub); }
+  .qc-legend i{ display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; vertical-align:-1px; }
+  .qc-month{ display:grid; grid-template-columns:repeat(7, 1fr); border:1px solid var(--border); border-radius:10px; overflow:hidden; background:var(--card); }
+  .qc-dow{ background:#f0f2f5; font-size:11px; font-weight:700; text-align:center; padding:6px 0; color:var(--text-sub); }
+  .qc-day{ min-height:96px; border-top:1px solid var(--border-light); border-left:1px solid var(--border-light); padding:4px; display:flex; flex-direction:column; gap:3px; min-width:0; }
+  .qc-day:nth-child(7n+1){ border-left:none; }
+  .qc-day.out{ background:#fafbfc; } .qc-day.today{ background:#fffbeb; }
+  .qc-day .d{ font-size:11px; color:var(--text-sub); font-weight:600; }
+  .qc-chip{ font-size:10.5px; line-height:1.35; border-radius:4px; padding:2px 5px; cursor:pointer; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border-left:3px solid; transition:box-shadow .1s, transform .1s; }
+  .qc-chip.q{ background:#eff6ff; color:#1e3a8a; } .qc-chip.o{ background:#f0fdf4; color:#14532d; }
+  .qc-chip.w{ background:#fffbeb; color:#78350f; } .qc-chip.n{ background:#f1f5f9; color:#334155; }
+  .qc-chip.hl{ box-shadow:0 0 0 2px #0f172a; transform:scale(1.03); position:relative; z-index:2; }
+  .qc-more{ font-size:10px; color:var(--primary); cursor:pointer; }
+  .qc-gantt{ background:var(--card); border:1px solid var(--border); border-radius:10px; overflow-x:auto; margin-top:16px; }
+  .qc-grow{ display:grid; align-items:center; border-bottom:1px solid var(--border-light); min-height:30px; }
+  .qc-grow:hover{ background:#f8fafc; }
+  .qc-glabel{ font-size:11.5px; padding:4px 8px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; position:sticky; left:0; background:inherit; cursor:pointer; }
+  .qc-gtrack{ position:relative; height:22px; }
+  .qc-gbar{ position:absolute; top:5px; height:12px; border-radius:6px; }
+  .qc-gpt{ position:absolute; top:1px; font-size:13px; transform:translateX(-50%); }
+  .qc-ghead{ font-size:10px; color:var(--text-sub); background:#f0f2f5; position:sticky; top:0; }
+  @media (max-width: 760px){
+    .of-board{ grid-template-columns:repeat(6, 78vw); }
+    .of-grid2{ grid-template-columns:1fr; }
+    .qc-day{ min-height:64px; }
+    .qc-chip{ font-size:9.5px; }
+  }
+</style>
+
+<!-- ===== 受注進捗ボード ===== -->
+<div id="page-orderflow" class="page">
+  <div class="page-heading" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
+    <div>
+      <h2>🚚 受注進捗ボード</h2>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">未確認→対応中→生産中→出荷準備→出荷済→納品完了。カードをドラッグしてステータス変更。</div>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;">
+      <button class="btn btn-outline btn-sm" onclick="ofExportCsv()" style="color:#16a34a;border-color:#16a34a;">📥 CSV出力</button>
+      <button class="btn btn-outline btn-sm" onclick="ofOpenCsvImport()">📤 CSV一括更新</button>
+      <button class="btn btn-outline btn-sm" onclick="ofOpenLotMaster()">📏 最低注文数・ロット</button>
+      <button class="btn btn-outline btn-sm" onclick="ofLoad()">🔄</button>
+    </div>
+  </div>
+  <div class="of-summary" id="of-summary"></div>
+  <div class="of-toolbar">
+    <div class="search-box"><input type="text" id="of-search" placeholder="注文番号・見積番号・顧客・件名で検索..." oninput="ofRender()"></div>
+    <label style="font-size:12px;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="of-only-action" onchange="ofRender()"> 要対応のみ</label>
+    <label style="font-size:12px;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="of-hide-done" checked onchange="ofRender()"> 納品完了を隠す</label>
+    <div class="of-seg"><button id="of-view-board" class="on" onclick="ofSetView('board')">ボード</button><button id="of-view-list" onclick="ofSetView('list')">一覧</button></div>
+  </div>
+  <div id="of-container"><div class="loading"><div class="spinner"></div><br>読み込み中...</div></div>
+</div>
+
+<!-- ===== 見積→注文カレンダー ===== -->
+<div id="page-qocal" class="page">
+  <div class="page-heading" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
+    <div>
+      <h2>🗓️ 見積→注文カレンダー</h2>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">見積書の提出日と、対応する注文書の受領日を同じ色で表示。チップにマウスを乗せると対になる予定が強調されます。</div>
+    </div>
+    <div style="display:flex;gap:6px;align-items:center;">
+      <button class="btn btn-outline btn-sm" onclick="qcMove(-1)">‹</button>
+      <strong id="qc-title" style="min-width:110px;text-align:center;font-size:15px;"></strong>
+      <button class="btn btn-outline btn-sm" onclick="qcMove(1)">›</button>
+      <button class="btn btn-outline btn-sm" onclick="qcMove(0)">今月</button>
+    </div>
+  </div>
+  <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
+    <div class="qc-legend">
+      <span><i style="background:#3b82f6"></i>📄 見積提出</span>
+      <span><i style="background:#22c55e"></i>📦 注文受領</span>
+      <span><i style="background:#f59e0b"></i>⏳ 注文待ち</span>
+      <span><i style="background:#94a3b8"></i>❓ 見積不明の注文</span>
+    </div>
+    <div class="of-summary" id="qc-summary" style="margin:0;"></div>
+  </div>
+  <div id="qc-month"><div class="loading"><div class="spinner"></div></div></div>
+  <h3 style="font-size:14px;margin:18px 0 0;">📊 見積→注文 タイムライン（当月）</h3>
+  <div id="qc-gantt"></div>
+</div>
+
+<!-- ===== 受注詳細モーダル ===== -->
+<div class="modal-overlay" id="of-modal" onclick="if(event.target===this)ofCloseModal()">
+  <div class="modal" style="max-width:860px;">
+    <div class="modal-head"><h3 id="of-modal-title">受注詳細</h3><button class="modal-close" onclick="ofCloseModal()">✕</button></div>
+    <div class="modal-body" id="of-modal-body"></div>
+  </div>
+</div>
+
+<!-- ===== CSV一括更新モーダル ===== -->
+<div class="modal-overlay" id="of-csv-modal" onclick="if(event.target===this)ofCloseCsv()">
+  <div class="modal" style="max-width:860px;">
+    <div class="modal-head"><h3>📤 CSV一括更新</h3><button class="modal-close" onclick="ofCloseCsv()">✕</button></div>
+    <div class="modal-body">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+        <label style="font-size:12px;">対象</label>
+        <select id="of-csv-target" class="of-in" style="width:auto;" onchange="ofCsvReset()">
+          <option value="orders">受注案件（注文番号・納期・進捗など）</option>
+          <option value="lot">最低注文数・ロットマスタ</option>
+        </select>
+        <button class="btn btn-outline btn-sm" onclick="ofCsvTemplate()">📄 テンプレートCSV</button>
+      </div>
+      <div id="of-csv-help" style="font-size:12px;color:var(--text-sub);margin-bottom:10px;"></div>
+      <input type="file" id="of-csv-file" accept=".csv,text/csv" onchange="ofCsvRead(this.files[0])">
+      <div id="of-csv-result" style="margin-top:12px;"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 最低注文数・ロット マスタ ===== -->
+<div class="modal-overlay" id="of-lot-modal" onclick="if(event.target===this)ofCloseLot()">
+  <div class="modal" style="max-width:760px;">
+    <div class="modal-head"><h3>📏 最低注文数・ロット設定</h3><button class="modal-close" onclick="ofCloseLot()">✕</button></div>
+    <div class="modal-body">
+      <div style="font-size:12px;color:var(--text-sub);margin-bottom:10px;">注文明細の「品名＋仕様」にキーワードが含まれる品目へ適用します（複数一致時は最も長いキーワードを優先）。数量が最低注文数未満、またはロット単位の倍数でない明細に警告を表示します。</div>
+      <div id="of-lot-body"></div>
+      <div style="display:flex;justify-content:space-between;margin-top:12px;">
+        <button class="btn btn-outline btn-sm" onclick="ofLotAddRow()">＋ 行を追加</button>
+        <button class="btn btn-primary btn-sm" onclick="ofLotSave()">💾 保存</button>
+      </div>
+    </div>
+  </div>
+</div>

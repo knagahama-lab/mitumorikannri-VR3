@@ -257,6 +257,30 @@ function handleApiRequest(action, payload) {
       case 'qsUploadFile':      return _apiQsUploadFile(payload);
       case 'qsGetMachines':     return _apiQsGetMachines();
       case 'qsSearchByAmount':  return _apiQsSearchByAmount(payload);
+      // ★ 受注進捗ボード（31_order_fulfillment.gs）
+      case 'ofList':          return apiOfList();
+      case 'ofSave':          return apiOfSave(payload);
+      case 'ofDetail':        return apiOfDetail(payload);
+      case 'ofMemoList':      return apiOfMemoList(payload);
+      case 'ofMemoAdd':       return apiOfMemoAdd(payload);
+      case 'ofMemoDelete':    return apiOfMemoDelete(payload);
+      case 'ofNoticePreview': return apiOfNoticePreview(payload);
+      case 'ofNoticeDraft':   return apiOfNoticeDraft(payload);
+      case 'ofLotRuleList':   return apiOfLotRuleList();
+      case 'ofLotRuleSave':   return apiOfLotRuleSave(payload);
+      case 'ofCsvColumns':    return apiOfCsvColumns();
+      case 'ofCsvPreview':    return apiOfCsvPreview(payload);
+      case 'ofCsvApply':      return apiOfCsvApply(payload);
+      // ★ 見積⇔注文 対応表示（32_quote_order_link.gs）
+      case 'quoteOrderLinks':    return apiQuoteOrderLinks();
+      case 'quoteOrderCalendar': return apiQuoteOrderCalendar(payload);
+      // ★ 見積入力（33_quote_entry.gs）
+      case 'qeList':        return apiQeList(payload);
+      case 'qeGet':         return apiQeGet(payload);
+      case 'qeSave':        return apiQeSave(payload);
+      case 'qeNextNo':      return apiQeNextNo();
+      case 'qeMasters':     return apiQeMasters();
+      case 'qeSaveCompany': return apiQeSaveCompany(payload);
       default: return { success: false, error: '不明なアクション: ' + action };
     }
     

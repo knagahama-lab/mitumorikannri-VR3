@@ -1,0 +1,706 @@
+<script>
+// ============================================================
+// order_flow_js.html
+//   ・受注進捗ボード（31_order_fulfillment.gs）
+//   ・見積⇔注文の対応バッジ／見積→注文カレンダー（32_quote_order_link.gs）
+// js.html の後に読み込み、メニュー・showPage・一覧描画に差し込む
+// ============================================================
+
+const OF = { items: [], statuses: ['未確認','対応中','生産中','出荷準備','出荷済','納品完了'], view: 'board', dragId: null, detail: null };
+const QOL = { byQuote: {}, byOrder: {}, today: '', loaded: false, filter: 'all' };
+const QC = { y: new Date().getFullYear(), m: new Date().getMonth() + 1, pairs: [], today: '' };
+const OF_CSV_HEADERS = ['管理ID','注文番号','見積番号','件名','顧客名','ステータス','注文種別','発注日','納期','注文金額','機種コード','担当者',
+                        '進捗ステータス','納期回答日','出荷予定日','出荷日','運送会社','送り状番号','通知先メール'];
+const OF_CSV_KEYS    = ['id','orderNo','quoteNo','subject','client','status','orderType','orderDate','deliveryDate','orderAmount','modelCode','assignee',
+                        'progress','answerDate','shipPlanDate','shipDate','carrier','trackingNo','notifyTo'];
+const OF_LOT_HEADERS = ['品名キーワード','最低注文数','ロット単位','備考'];
+const OF_STATUS_COLOR = { '未確認':'#94a3b8', '対応中':'#3b82f6', '生産中':'#8b5cf6', '出荷準備':'#f59e0b', '出荷済':'#10b981', '納品完了':'#16a34a' };
+
+// ── 共通 ──
+function _ofq(s) { return _esc(String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'")); }
+function _ofToday() { const d = new Date(); return d.getFullYear() + '/' + String(d.getMonth()+1).padStart(2,'0') + '/' + String(d.getDate()).padStart(2,'0'); }
+function _ofMd(s) { const m = String(s||'').match(/^\d{4}\/(\d{1,2})\/(\d{1,2})/); return m ? Number(m[1]) + '/' + Number(m[2]) : (s || ''); }
+function _ofInputDate(s) { return String(s||'').replace(/\//g, '-'); }
+function _ofApi(action, payload, ok, ng) {
+  google.script.run
+    .withSuccessHandler(res => { if (res && res.success) ok(res); else { showToast((res && res.error) || '処理に失敗しました', true); if (ng) ng(res); } })
+    .withFailureHandler(err => { showToast('通信エラー: ' + (err.message || err), true); if (ng) ng(err); })
+    .handleApiRequest(action, payload || {});
+}
+
+// ── メニュー・ページ登録 ──
+(function registerPages() {
+  const at = DEFAULT_MENU.findIndex(m => m.id === 'calendar');
+  DEFAULT_MENU.splice(at >= 0 ? at + 1 : DEFAULT_MENU.length, 0,
+    { id:'qocal',     icon:'🗓️', label:'見積→注文カレンダー', section:'営業・進行管理', visible:true },
+    { id:'orderflow', icon:'🚚', label:'受注進捗ボード',      section:'営業・進行管理', visible:true });
+  PAGE_TITLES.qocal = '見積→注文カレンダー';
+  PAGE_TITLES.orderflow = '受注進捗ボード';
+  const origShowPage = showPage;
+  showPage = function(name) {
+    origShowPage(name);
+    if (name === 'orderflow') ofLoad();
+    if (name === 'qocal') qcLoad();
+  };
+})();
+
+// ============================================================
+// 見積 ⇔ 注文 対応バッジ（見積書一覧・注文書一覧に表示）
+// ============================================================
+function _qolRefresh() {
+  clearTimeout(_qolRefresh._t);
+  _qolRefresh._t = setTimeout(() => {
+    google.script.run.withSuccessHandler(res => {
+      if (!res || !res.success) return;
+      QOL.byQuote = res.byQuote || {}; QOL.byOrder = res.byOrder || {}; QOL.today = res.today; QOL.loaded = true;
+      if ((_allQuotes || []).length) applyQuoteFilter();
+      if ((S.all || []).length) _renderTable();
+    }).handleApiRequest('quoteOrderLinks', {});
+  }, 800);
+}
+
+// 件名の前に付ける小バッジ
+function _qolQuoteBadge(r) {
+  const s = QOL.byQuote[(r.quoteNo || '').trim()];
+  if (!s) return '';
+  if (s.state === 'ordered') {
+    const o = s.orders[0];
+    return `<span class="of-tag ok" title="注文書 ${_esc(o.orderNo)} を ${_esc(o.orderDate||'日付不明')} に受領">📦 受注 ${_ofMd(o.orderDate)}</span> `;
+  }
+  if (s.state === 'waiting' && s.waitingDays != null) {
+    const cls = s.waitingDays >= 30 ? 'bad' : s.waitingDays >= 14 ? 'warn' : 'info';
+    return `<span class="of-tag ${cls}" title="${_esc(s.submitDate)} 提出から ${s.waitingDays} 日経過">⏳ ${s.waitingDays}日</span> `;
+  }
+  return '';
+}
+
+// 「紐づけ状況」列の中身
+function _qolQuoteLinkCell(r) {
+  const s = QOL.byQuote[(r.quoteNo || '').trim()];
+  if (!s) {
+    if (!QOL.loaded) return r.linked ? '<span class="badge badge-linked">✓ 注文書あり</span>' : '<span style="font-size:11px;color:var(--text-sub);">…</span>';
+    return '<span style="font-size:11px;color:var(--text-sub);">未受注</span>';
+  }
+  if (s.state === 'ordered') {
+    return s.orders.map(o => {
+      const lead = (s.leadDays != null && o === s.orders[0]) ? `<span style="color:var(--text-sub);">（提出から${s.leadDays}日）</span>` : '';
+      const open = o.mgmtId ? `onclick="event.stopPropagation();openDetail('${_ofq(o.mgmtId)}')" style="cursor:pointer;"` : '';
+      return `<div style="font-size:11px;white-space:nowrap;"><span class="of-tag ok" ${open}>📦 ${_esc(o.orderNo)}</span> ${_ofMd(o.orderDate) || '日付不明'}受領${lead}</div>`;
+    }).join('');
+  }
+  if (s.state === 'lost') return '<span class="of-tag">失注・キャンセル</span>';
+  const wait = s.waitingDays != null ? `${_ofMd(s.submitDate)}提出・${s.waitingDays}日経過` : '提出日未設定';
+  const cand = s.candidates.length
+    ? `<div style="margin-top:3px;"><span class="of-tag warn" style="cursor:pointer;" title="${_esc(s.candidates.map(c => c.orderNo + ' ' + (c.orderDate||'') + ' ' + (c.subject||'')).join('\n'))}" onclick="event.stopPropagation();_qolShowCandidates('${_ofq(r.quoteNo)}','${_ofq(r._fromLedger ? 'LEDGER_' + r._ledgerId : r.id)}')">🔎 候補 ${s.candidates.length}件</span></div>` : '';
+  return `<div style="font-size:11px;white-space:nowrap;color:#92400e;">⏳ 注文待ち</div><div style="font-size:10px;color:var(--text-sub);white-space:nowrap;">${wait}</div>${cand}`;
+}
+
+function _qolShowCandidates(quoteNo, rowId) {
+  const s = QOL.byQuote[quoteNo]; if (!s) return;
+  const html = s.candidates.map(c => `
+    <tr><td><strong>${_esc(c.orderNo)}</strong></td><td>${_esc(c.orderDate||'')}</td><td>${_esc(c.subject||'')}</td>
+      <td style="white-space:nowrap;"><button class="btn btn-outline btn-sm" onclick="openDetail('${_ofq(c.mgmtId)}')">詳細</button></td></tr>`).join('');
+  document.getElementById('of-modal-title').textContent = '🔎 見積 ' + quoteNo + ' に対応しそうな注文書';
+  document.getElementById('of-modal-body').innerHTML = `
+    <div style="font-size:12px;color:var(--text-sub);margin-bottom:10px;">機種コードが一致し、基板名・件名が近い注文書（見積提出日以降）です。正しい注文書が見つかったら「紐づけ」で確定してください。</div>
+    <table class="of-table"><thead><tr><th>注文番号</th><th>発注日</th><th>件名</th><th></th></tr></thead><tbody>${html}</tbody></table>
+    <div style="text-align:right;margin-top:12px;"><button class="btn btn-primary btn-sm" onclick="ofCloseModal();_openQuickLinkQuote('${_ofq(rowId)}')">🔗 注文書番号を入力して紐づけ</button></div>`;
+  document.getElementById('of-modal').classList.add('open');
+}
+
+// 注文書一覧の「紐づき見積No.」列の補足
+function _qolOrderInfo(r) {
+  const o = QOL.byOrder[(r.orderNo || '').trim()];
+  if (!o || !o.quotes.length) return '';
+  const q = o.quotes[0];
+  const lead = q.leadDays != null ? `・${q.leadDays}日` : '';
+  return `<div style="font-size:10px;color:var(--text-sub);white-space:nowrap;margin-top:2px;">📄 ${_ofMd(q.submitDate) || '日付不明'}提出${lead}</div>`;
+}
+
+// 見積書一覧に「受注状況」フィルタを追加
+function _qolFilterBar() {
+  const box = document.getElementById('quotelist-container'); if (!box) return;
+  let bar = document.getElementById('qol-filter-bar');
+  if (!bar) { bar = document.createElement('div'); bar.id = 'qol-filter-bar'; bar.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:0 0 8px;font-size:12px;'; box.parentNode.insertBefore(bar, box); }
+  const qs = Object.values(QOL.byQuote);
+  const n = { all: qs.length, ordered: qs.filter(s => s.state === 'ordered').length, waiting: qs.filter(s => s.state === 'waiting').length,
+              cand: qs.filter(s => s.candidates.length).length, long: qs.filter(s => s.state === 'waiting' && s.waitingDays >= 14).length };
+  const btn = (k, label) => `<button class="btn btn-sm ${QOL.filter === k ? 'btn-primary' : 'btn-outline'}" onclick="QOL.filter='${k}';applyQuoteFilter();">${label}</button>`;
+  bar.innerHTML = '<span style="color:var(--text-sub);">受注状況:</span>' + btn('all', 'すべて') + btn('ordered', `📦 受注済 ${n.ordered}`)
+    + btn('waiting', `⏳ 注文待ち ${n.waiting}`) + btn('long', `⚠ 14日以上待ち ${n.long}`) + btn('cand', `🔎 候補あり ${n.cand}`);
+}
+(function hookLists() {
+  const origApply = applyQuoteFilter;
+  applyQuoteFilter = function() {
+    origApply();
+    if (!QOL.loaded) return;
+    _qolFilterBar();
+    if (QOL.filter !== 'all') {
+      _filteredQuotes = _filteredQuotes.filter(r => {
+        const s = QOL.byQuote[(r.quoteNo || '').trim()];
+        if (!s) return false;
+        if (QOL.filter === 'ordered') return s.state === 'ordered';
+        if (QOL.filter === 'waiting') return s.state === 'waiting';
+        if (QOL.filter === 'long')    return s.state === 'waiting' && s.waitingDays >= 14;
+        if (QOL.filter === 'cand')    return s.candidates.length > 0;
+        return true;
+      });
+      _quotePage = 1; _renderQuoteTable();
+    }
+  };
+  const origLoadData = loadData;
+  loadData = function() { origLoadData.apply(this, arguments); _qolRefresh(); };
+  const origLoadQuoteList = loadQuoteList;
+  loadQuoteList = function() { origLoadQuoteList.apply(this, arguments); _qolRefresh(); };
+})();
+
+// 詳細モーダルに「見積⇔注文」と「社内メモ」を差し込む
+(function hookDetailModals() {
+  const attach = (bodyId, getCtx) => {
+    const body = document.getElementById(bodyId); if (!body) return;
+    new MutationObserver(() => {
+      if (body.querySelector('.spinner') || body.querySelector('.of-detail-slot') || !body.children.length) return;
+      const ctx = getCtx(); if (!ctx || !ctx.mgmtId) return;
+      const slot = document.createElement('div'); slot.className = 'of-detail-slot'; slot.style.marginTop = '18px';
+      const qeBtn = (ctx.quoteNo && typeof qeOpen === 'function')
+        ? `<div style="text-align:right;margin-bottom:10px;"><button class="btn btn-primary btn-sm" onclick="qeOpen({mgmtId:'${_ofq(ctx.mgmtId)}'})">🧾 見積入力で開く（修正・改訂・印刷）</button></div>` : '';
+      slot.innerHTML = qeBtn + _qolDetailHtml(ctx) + '<div class="of-memo-host"></div>';
+      body.appendChild(slot);
+      ofMemoPanel(slot.querySelector('.of-memo-host'), ctx.mgmtId);
+    }).observe(body, { childList: true });
+  };
+  let ctxOrder = null, ctxQuote = null;
+  const origOpenDetail = openDetail;
+  openDetail = function(mgmtId) {
+    const it = (S.all || []).find(r => r.id === mgmtId) || {};
+    ctxOrder = { mgmtId, orderNo: it.orderNo || '', quoteNo: '' };
+    origOpenDetail.apply(this, arguments);
+  };
+  const origOpenQuote = openQuoteDetail;
+  openQuoteDetail = function(mgmtId, quoteNo) {
+    const it = (_allQuotes || []).find(r => r.id === mgmtId) || {};
+    ctxQuote = { mgmtId, quoteNo: it.quoteNo || quoteNo || '', orderNo: '' };
+    origOpenQuote.apply(this, arguments);
+  };
+  window.addEventListener('load', () => {
+    attach('detail-body', () => ctxOrder);
+    attach('quote-detail-body', () => ctxQuote);
+  });
+})();
+
+function _qolDetailHtml(ctx) {
+  const box = (title, inner) => `<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:12px;"><div style="font-weight:700;font-size:13px;margin-bottom:6px;">${title}</div>${inner}</div>`;
+  if (ctx.quoteNo) {
+    const s = QOL.byQuote[ctx.quoteNo.trim()];
+    if (!s) return '';
+    const inner = s.orders.length
+      ? s.orders.map(o => `<div style="font-size:13px;margin:3px 0;">📦 <strong>${_esc(o.orderNo)}</strong>　${_esc(o.orderDate || '日付不明')} 受領 ${o.orderPdfUrl ? `<a class="pdf-link" href="${_esc(o.orderPdfUrl)}" target="_blank">注文PDF</a>` : ''}</div>`).join('')
+        + `<div style="font-size:12px;color:var(--text-sub);">📄 提出 ${_esc(s.submitDate || '—')}${s.leadDays != null ? ` → 受注まで ${s.leadDays} 日` : ''}</div>`
+      : `<div style="font-size:13px;color:#92400e;">⏳ 注文書は未受領（${_esc(s.submitDate || '提出日未設定')}${s.waitingDays != null ? `・${s.waitingDays}日経過` : ''}）</div>`
+        + (s.candidates.length ? `<div style="font-size:12px;margin-top:4px;">🔎 候補: ${s.candidates.map(c => _esc(c.orderNo) + '（' + _esc(c.orderDate || '') + '）').join('、')}</div>` : '');
+    return box('📦 対応する注文書', inner);
+  }
+  if (ctx.orderNo) {
+    const o = QOL.byOrder[ctx.orderNo.trim()];
+    if (!o) return '';
+    const inner = o.quotes.length
+      ? o.quotes.map(q => `<div style="font-size:13px;margin:3px 0;">📄 <strong>${_esc(q.quoteNo)}</strong>　${_esc(q.submitDate || '日付不明')} 提出${q.leadDays != null ? `（受注まで ${q.leadDays} 日）` : ''} ${q.quotePdfUrl ? `<a class="pdf-link" href="${_esc(q.quotePdfUrl)}" target="_blank">見積PDF</a>` : ''}</div>`).join('')
+      : '<div style="font-size:13px;color:var(--text-sub);">❓ 元の見積書が紐づいていません（「紐づき見積No.」から設定できます）</div>';
+    return box('📄 元の見積書', inner);
+  }
+  return '';
+}
+
+window.addEventListener('load', () => _qolRefresh());
+
+// ============================================================
+// ③ 社内メモ パネル（受注詳細・既存の詳細モーダル共通）
+// ============================================================
+function ofMemoPanel(host, mgmtId, preload) {
+  if (!host) return;
+  host.innerHTML = `
+    <div style="font-weight:700;font-size:13px;margin-bottom:6px;">💬 社内メモ <span style="font-weight:400;font-size:11px;color:var(--text-sub);">（社内のみ・取引先には送られません）</span></div>
+    <div style="display:flex;gap:6px;margin-bottom:8px;">
+      <textarea class="of-in of-memo-input" rows="2" placeholder="例）先方の購買 田中様より、初回ロットは10/20着でOKとの回答"></textarea>
+      <button class="btn btn-primary btn-sm" style="align-self:stretch;">投稿</button>
+    </div>
+    <div class="of-memo-list"><div class="loading" style="padding:8px;">読み込み中...</div></div>`;
+  const list = host.querySelector('.of-memo-list');
+  const input = host.querySelector('.of-memo-input');
+  const render = (items, me) => {
+    if (!items.length) { list.innerHTML = '<div style="font-size:12px;color:var(--text-muted);">まだメモはありません</div>'; return; }
+    list.innerHTML = items.map(m => `
+      <div class="of-memo"><div class="hd"><span>👤 ${_esc(m.author)}　${_esc(m.postedAt)}</span>
+        ${(!me || m.author === me) ? `<a href="#" data-del="${_esc(m.id)}" style="color:var(--danger);text-decoration:none;">削除</a>` : ''}</div>
+        <div class="bd">${_esc(m.body)}</div></div>`).join('');
+    list.querySelectorAll('[data-del]').forEach(a => a.onclick = ev => {
+      ev.preventDefault();
+      if (!confirm('このメモを削除しますか？')) return;
+      _ofApi('ofMemoDelete', { memoId: a.dataset.del }, res => { render(res.items, me); _ofBumpMemo(mgmtId, res.items.length); });
+    });
+  };
+  let me = '';
+  host.querySelector('button').onclick = () => {
+    const body = input.value.trim(); if (!body) return;
+    input.disabled = true;
+    _ofApi('ofMemoAdd', { mgmtId, body }, res => { input.value = ''; input.disabled = false; render(res.items, me); _ofBumpMemo(mgmtId, res.items.length); }, () => { input.disabled = false; });
+  };
+  input.onkeydown = ev => { if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) host.querySelector('button').click(); };
+  if (preload) render(preload, '');
+  _ofApi('ofMemoList', { mgmtId }, res => { me = res.me; render(res.items, me); });
+}
+function _ofBumpMemo(mgmtId, n) { const it = OF.items.find(x => x.id === mgmtId); if (it) { it.memoCount = n; if (document.getElementById('page-orderflow').classList.contains('active')) ofRender(); } }
+
+// ============================================================
+// ① 受注進捗ボード
+// ============================================================
+function ofLoad() {
+  const c = document.getElementById('of-container');
+  if (!OF.items.length) c.innerHTML = '<div class="loading"><div class="spinner"></div><br>読み込み中...</div>';
+  _ofApi('ofList', {}, res => { OF.items = res.items || []; OF.statuses = res.statuses || OF.statuses; ofRender(); },
+    () => { c.innerHTML = '<div class="loading" style="color:var(--danger);">読み込みに失敗しました</div>'; });
+}
+function ofSetView(v) {
+  OF.view = v;
+  document.getElementById('of-view-board').classList.toggle('on', v === 'board');
+  document.getElementById('of-view-list').classList.toggle('on', v === 'list');
+  ofRender();
+}
+function _ofIsShipped(it) { return it.progress === '出荷済' || it.progress === '納品完了'; }
+function _ofNeedsAction(it) {
+  const today = _ofToday();
+  return it.progress === '未確認' || (!it.answerDate && !_ofIsShipped(it)) || it.lotWarnings > 0
+      || (it.shipPlanDate && it.shipPlanDate < today && !_ofIsShipped(it));
+}
+function _ofFiltered() {
+  const kws = normalizeSearchText(document.getElementById('of-search').value).split(/\s+/).filter(Boolean);
+  const onlyAction = document.getElementById('of-only-action').checked;
+  const hideDone = document.getElementById('of-hide-done').checked;
+  return OF.items.filter(it => {
+    if (hideDone && it.progress === '納品完了') return false;
+    if (onlyAction && !_ofNeedsAction(it)) return false;
+    if (!kws.length) return true;
+    const t = normalizeSearchText([it.orderNo, it.quoteNo, it.client, it.subject, it.modelCode, it.trackingNo].join(' '));
+    return kws.every(k => t.includes(k));
+  });
+}
+function ofRender() {
+  const today = _ofToday();
+  const all = OF.items;
+  const late = all.filter(it => it.shipPlanDate && it.shipPlanDate < today && !_ofIsShipped(it)).length;
+  const sum = [
+    ['未確認', all.filter(it => it.progress === '未確認').length, 'warn'],
+    ['納期未回答', all.filter(it => !it.answerDate && !_ofIsShipped(it)).length, 'warn'],
+    ['出荷予定超過', late, late ? 'bad' : ''],
+    ['ロット警告', all.filter(it => it.lotWarnings > 0).length, 'warn'],
+    ['出荷済（未納品）', all.filter(it => it.progress === '出荷済').length, ''],
+  ];
+  document.getElementById('of-summary').innerHTML = sum.map(([l, n, c]) => `<div class="of-sum ${n ? c : ''}"><b>${n}</b>${l}</div>`).join('');
+
+  const items = _ofFiltered();
+  const c = document.getElementById('of-container');
+  if (OF.view === 'list') { c.innerHTML = _ofListHtml(items); return; }
+  const hideDone = document.getElementById('of-hide-done').checked;
+  const cols = OF.statuses.filter(s => !(hideDone && s === '納品完了'));
+  c.innerHTML = `<div class="of-board" style="grid-template-columns:repeat(${cols.length}, minmax(190px, 1fr));">` + cols.map(st => {
+    const cards = items.filter(it => it.progress === st);
+    return `<div class="of-col" data-st="${_esc(st)}" ondragover="event.preventDefault();this.classList.add('drop')" ondragleave="this.classList.remove('drop')" ondrop="ofDrop(event,this)">
+      <div class="of-col-hd"><span style="color:${OF_STATUS_COLOR[st]};">● ${_esc(st)}</span><span class="n">${cards.length}</span></div>
+      ${cards.map(_ofCardHtml).join('') || '<div style="font-size:11px;color:var(--text-muted);text-align:center;padding:12px 0;">なし</div>'}
+    </div>`;
+  }).join('') + '</div>';
+}
+function _ofTags(it) {
+  const today = _ofToday(); const t = [];
+  if (it.answerDate) t.push(`<span class="of-tag ${it.answerDate < today && !_ofIsShipped(it) ? 'bad' : 'info'}">📅 納期 ${_ofMd(it.answerDate)}</span>`);
+  else if (!_ofIsShipped(it)) t.push('<span class="of-tag warn">納期未回答</span>');
+  if (it.shipDate) t.push(`<span class="of-tag ok">🚚 出荷 ${_ofMd(it.shipDate)}</span>`);
+  else if (it.shipPlanDate) t.push(`<span class="of-tag ${it.shipPlanDate < today ? 'bad' : ''}">出荷予定 ${_ofMd(it.shipPlanDate)}</span>`);
+  if (it.lotWarnings) t.push(`<span class="of-tag bad">⚠ ロット ${it.lotWarnings}</span>`);
+  if (it.memoCount) t.push(`<span class="of-tag">💬 ${it.memoCount}</span>`);
+  if (it.notifiedType) t.push(`<span class="of-tag ok" title="${_esc(it.notifiedAt)}">📧 ${_esc(it.notifiedType.replace('（下書き）',''))}</span>`);
+  return t.join('');
+}
+function _ofCardHtml(it) {
+  return `<div class="of-card" draggable="true" style="border-left-color:${OF_STATUS_COLOR[it.progress] || '#94a3b8'};"
+      ondragstart="OF.dragId='${_ofq(it.id)}'" onclick="ofOpen('${_ofq(it.id)}')">
+    <div class="no">${_esc(it.orderNo || it.quoteNo || it.id)}${it.orderType ? ` <span class="of-tag">${_esc(it.orderType)}</span>` : ''}</div>
+    <div class="cl">${_esc(it.client || '—')}${it.orderDate ? '・' + _ofMd(it.orderDate) + '受注' : ''}</div>
+    <div class="sj" title="${_esc(it.subject)}">${_esc(it.subject || '')}</div>
+    <div class="meta">${_ofTags(it)}</div>
+  </div>`;
+}
+function _ofListHtml(items) {
+  if (!items.length) return '<div class="loading">該当なし</div>';
+  const opts = st => OF.statuses.map(s => `<option${s === st ? ' selected' : ''}>${s}</option>`).join('');
+  return `<div style="overflow-x:auto;"><table><thead><tr><th>注文番号</th><th>顧客</th><th>件名</th><th>発注日</th><th>進捗</th><th>状況</th><th>送り状</th><th></th></tr></thead><tbody>` +
+    items.map(it => `<tr>
+      <td><strong>${_esc(it.orderNo || it.quoteNo)}</strong></td>
+      <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${_esc(it.client)}</td>
+      <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${_esc(it.subject)}">${_esc(it.subject)}</td>
+      <td style="white-space:nowrap;">${_esc(it.orderDate)}</td>
+      <td><select class="of-in" style="width:auto;padding:3px 6px;font-size:12px;" onchange="ofQuickStatus('${_ofq(it.id)}', this.value)">${opts(it.progress)}</select></td>
+      <td><div class="meta" style="display:flex;flex-wrap:wrap;gap:3px;">${_ofTags(it)}</div></td>
+      <td style="font-size:11px;">${_esc([it.carrier, it.trackingNo].filter(Boolean).join(' '))}</td>
+      <td><button class="btn btn-outline btn-sm" onclick="ofOpen('${_ofq(it.id)}')">詳細</button></td>
+    </tr>`).join('') + '</tbody></table></div>';
+}
+function ofDrop(ev, col) {
+  ev.preventDefault(); col.classList.remove('drop');
+  if (OF.dragId) ofQuickStatus(OF.dragId, col.dataset.st);
+  OF.dragId = null;
+}
+function ofQuickStatus(id, st) {
+  const it = OF.items.find(x => x.id === id); if (!it || it.progress === st) return;
+  const prev = it.progress; it.progress = st; ofRender();
+  _ofApi('ofSave', { mgmtId: id, progress: st }, res => { Object.assign(it, res.item); showToast(`「${it.orderNo || id}」を ${st} に変更しました`); },
+    () => { it.progress = prev; ofRender(); });
+}
+
+// ── 受注詳細モーダル ──
+function ofCloseModal() { document.getElementById('of-modal').classList.remove('open'); }
+function ofOpen(id, tab) {
+  const it = OF.items.find(x => x.id === id) || {};
+  document.getElementById('of-modal-title').textContent = '🚚 ' + (it.orderNo || id) + (it.client ? '　' + it.client : '');
+  document.getElementById('of-modal-body').innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  document.getElementById('of-modal').classList.add('open');
+  _ofApi('ofDetail', { mgmtId: id }, res => { OF.detail = res; _ofRenderDetail(tab || 'progress'); });
+}
+function _ofRenderDetail(tab) {
+  const d = OF.detail; const pg = d.progress; const m = d.mgmt;
+  const warns = d.lines.filter(l => l.warning).length;
+  const tabs = [['progress','📋 進捗・納期'], ['lines', `📦 明細・ロット${warns ? ` <span class="of-tag bad">${warns}</span>` : ''}`], ['memo','💬 社内メモ'], ['notice','📧 取引先へ通知']];
+  let html = `<div class="of-tabs">${tabs.map(([k, l]) => `<button class="${k === tab ? 'on' : ''}" onclick="_ofRenderDetail('${k}')">${l}</button>`).join('')}</div>`;
+  html += `<div style="font-size:12px;color:var(--text-sub);margin-bottom:10px;">注文 ${_esc(m.orderNo || '—')}｜見積 ${_esc(m.quoteNo || '—')}｜発注日 ${_esc(m.orderDate || '—')}｜${m.orderAmount ? Number(m.orderAmount).toLocaleString() + ' 円' : ''}
+    ${m.orderPdfUrl ? `｜<a class="pdf-link" href="${_esc(m.orderPdfUrl)}" target="_blank">注文PDF</a>` : ''}</div>`;
+  if (tab === 'progress') {
+    const cur = OF.statuses.indexOf(pg.progress);
+    html += `<div class="of-steps">${OF.statuses.map((s, i) => `<div class="${i < cur ? 'done' : i === cur ? 'cur' : ''}" onclick="document.getElementById('of-f-progress').value='${s}';this.parentNode.querySelectorAll('div').forEach((e,j)=>e.className=j<${i}?'done':j===${i}?'cur':'')">${s}</div>`).join('')}</div>
+      <input type="hidden" id="of-f-progress" value="${_esc(pg.progress)}">
+      <div class="of-grid2">
+        <div><label>納期回答日（取引先へ回答した納品予定日）</label><input type="date" id="of-f-answer" value="${_ofInputDate(pg.answerDate)}"></div>
+        <div><label>出荷予定日</label><input type="date" id="of-f-shipplan" value="${_ofInputDate(pg.shipPlanDate)}"></div>
+        <div><label>出荷日（入力すると自動で「出荷済」）</label><input type="date" id="of-f-ship" value="${_ofInputDate(pg.shipDate)}"></div>
+        <div><label>運送会社</label><input type="text" id="of-f-carrier" list="of-carriers" value="${_esc(pg.carrier)}"><datalist id="of-carriers"><option>ヤマト運輸</option><option>佐川急便</option><option>日本郵便</option><option>西濃運輸</option><option>福山通運</option><option>自社便</option></datalist></div>
+        <div><label>送り状番号</label><input type="text" id="of-f-tracking" value="${_esc(pg.trackingNo)}"></div>
+      </div>
+      <div style="font-size:11px;color:var(--text-sub);margin-top:10px;">※ 納期回答日は案件の「納期」にも反映され、スケジュール・納期アラートの対象になります。${pg.updatedAt ? `最終更新: ${_esc(pg.updatedAt)}（${_esc(pg.updatedBy)}）` : ''}</div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;">
+        <button class="btn btn-outline btn-sm" onclick="ofSaveDetail('notice')">保存して通知文を作成 →</button>
+        <button class="btn btn-primary btn-sm" onclick="ofSaveDetail()">💾 保存</button>
+      </div>`;
+  } else if (tab === 'lines') {
+    html += d.lines.length ? `<table class="of-table"><thead><tr><th>No</th><th>品名</th><th>仕様</th><th style="text-align:right;">数量</th><th>最低注文数/ロット</th><th>判定</th></tr></thead><tbody>` +
+      d.lines.map(l => `<tr style="${l.warning ? 'background:#fef2f2;' : ''}"><td>${_esc(l.lineNo)}</td><td>${_esc(l.itemName)}</td><td style="font-size:11px;">${_esc(l.spec)}</td>
+        <td style="text-align:right;">${_esc(l.qty)} ${_esc(l.unit)}</td>
+        <td style="font-size:11px;">${l.rule ? `${l.rule.moq ? 'MOQ ' + l.rule.moq : ''}${l.rule.moq && l.rule.lot ? ' / ' : ''}${l.rule.lot ? 'ロット ' + l.rule.lot : ''}<div style="color:var(--text-muted);">「${_esc(l.rule.keyword)}」</div>` : '<span style="color:var(--text-muted);">設定なし</span>'}</td>
+        <td>${l.warning ? `<span class="of-tag bad">⚠ ${_esc(l.warning)}</span>` : l.rule ? '<span class="of-tag ok">OK</span>' : ''}</td></tr>`).join('') + '</tbody></table>'
+      : '<div class="loading">注文明細がありません</div>';
+    html += '<div style="text-align:right;margin-top:10px;"><button class="btn btn-outline btn-sm" onclick="ofOpenLotMaster()">📏 最低注文数・ロットを設定</button></div>';
+  } else if (tab === 'memo') {
+    html += '<div id="of-detail-memo"></div>';
+  } else if (tab === 'notice') {
+    const type = pg.shipDate ? 'ship' : 'answer';
+    html += `<div class="of-grid2">
+        <div><label>通知の種類</label><select id="of-n-type" onchange="ofNoticeRegen()"><option value="answer"${type === 'answer' ? ' selected' : ''}>納期回答</option><option value="ship"${type === 'ship' ? ' selected' : ''}>出荷通知</option></select></div>
+        <div><label>宛先メールアドレス</label><input type="email" id="of-n-to" value="${_esc(pg.notifyTo)}" placeholder="buyer@example.co.jp"></div>
+      </div>
+      <div style="margin-top:10px;"><label style="font-size:11px;color:var(--text-sub);">件名</label><input class="of-in" id="of-n-subject"></div>
+      <div style="margin-top:10px;"><label style="font-size:11px;color:var(--text-sub);">本文</label><textarea class="of-in" id="of-n-body" rows="14" style="font-family:inherit;"></textarea></div>
+      <div style="font-size:11px;color:var(--text-sub);margin-top:6px;">送信はされません。Gmail の「下書き」に保存されるので、内容を確認してから Gmail で送信してください。${pg.notifiedAt ? `<br>前回: ${_esc(pg.notifiedType)} ${_esc(pg.notifiedAt)} → ${_esc(pg.notifyTo)}` : ''}</div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
+        <button class="btn btn-outline btn-sm" onclick="ofNoticeRegen()">↻ 文面を作り直す</button>
+        <button class="btn btn-primary btn-sm" onclick="ofNoticeDraft()">📧 Gmail下書きを作成</button>
+      </div>`;
+  }
+  document.getElementById('of-modal-body').innerHTML = html;
+  if (tab === 'memo') ofMemoPanel(document.getElementById('of-detail-memo'), m.id, d.memos);
+  if (tab === 'notice') ofNoticeRegen();
+}
+function ofSaveDetail(next) {
+  const id = OF.detail.mgmt.id;
+  const p = {
+    mgmtId: id,
+    progress: document.getElementById('of-f-progress').value,
+    answerDate: document.getElementById('of-f-answer').value,
+    shipPlanDate: document.getElementById('of-f-shipplan').value,
+    shipDate: document.getElementById('of-f-ship').value,
+    carrier: document.getElementById('of-f-carrier').value,
+    trackingNo: document.getElementById('of-f-tracking').value,
+  };
+  // 出荷日を新たに入れたのにステータスが出荷前なら出荷済へ
+  if (p.shipDate && OF.statuses.indexOf(p.progress) < OF.statuses.indexOf('出荷済')) p.progress = '出荷済';
+  _ofApi('ofSave', p, res => {
+    OF.detail.progress = Object.assign(OF.detail.progress, res.item);
+    const it = OF.items.find(x => x.id === id); if (it) Object.assign(it, res.item);
+    showToast('保存しました'); ofRender();
+    if (next) _ofRenderDetail(next);
+  });
+}
+function ofNoticeRegen() {
+  const type = document.getElementById('of-n-type').value;
+  _ofApi('ofNoticePreview', { mgmtId: OF.detail.mgmt.id, type }, res => {
+    document.getElementById('of-n-subject').value = res.subject;
+    document.getElementById('of-n-body').value = res.body;
+    const to = document.getElementById('of-n-to'); if (!to.value && res.to) to.value = res.to;
+  });
+}
+function ofNoticeDraft() {
+  const p = {
+    mgmtId: OF.detail.mgmt.id, client: OF.detail.mgmt.client || '',
+    type: document.getElementById('of-n-type').value,
+    to: document.getElementById('of-n-to').value.trim(),
+    subject: document.getElementById('of-n-subject').value, body: document.getElementById('of-n-body').value,
+  };
+  if (!p.to) { showToast('宛先メールアドレスを入力してください', true); return; }
+  _ofApi('ofNoticeDraft', p, res => {
+    showToast('Gmail に下書きを作成しました');
+    window.open(res.gmailUrl, '_blank');
+    ofOpen(p.mgmtId, 'notice'); ofLoad();
+  });
+}
+
+// ============================================================
+// ④ 最低注文数・ロット マスタ
+// ============================================================
+function ofOpenLotMaster() {
+  document.getElementById('of-lot-modal').classList.add('open');
+  const body = document.getElementById('of-lot-body');
+  body.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  _ofApi('ofLotRuleList', {}, res => { OF.lotRules = res.items; _ofLotRender(); });
+}
+function ofCloseLot() { document.getElementById('of-lot-modal').classList.remove('open'); }
+function _ofLotRender() {
+  const rows = OF.lotRules.map((r, i) => `<tr>
+    <td><input class="of-in" data-i="${i}" data-k="keyword" value="${_esc(r.keyword)}" placeholder="例）LED基板 / RC-1234"></td>
+    <td><input class="of-in" type="number" min="0" data-i="${i}" data-k="moq" value="${r.moq || ''}" style="width:90px;"></td>
+    <td><input class="of-in" type="number" min="0" data-i="${i}" data-k="lot" value="${r.lot || ''}" style="width:90px;"></td>
+    <td><input class="of-in" data-i="${i}" data-k="note" value="${_esc(r.note)}"></td>
+    <td><button class="btn btn-danger btn-sm" onclick="OF.lotRules.splice(${i},1);_ofLotRender()">✕</button></td></tr>`).join('');
+  document.getElementById('of-lot-body').innerHTML = `<table class="of-table"><thead><tr><th>品名キーワード</th><th>最低注文数</th><th>ロット単位</th><th>備考</th><th></th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="5" style="color:var(--text-muted);text-align:center;">未設定です。「＋ 行を追加」または CSV一括更新から登録できます。</td></tr>'}</tbody></table>`;
+  document.querySelectorAll('#of-lot-body input').forEach(inp => inp.oninput = () => { OF.lotRules[inp.dataset.i][inp.dataset.k] = inp.value; });
+}
+function ofLotAddRow() { OF.lotRules.push({ keyword: '', moq: '', lot: '', note: '' }); _ofLotRender(); }
+function ofLotSave() {
+  _ofApi('ofLotRuleSave', { items: OF.lotRules }, res => { showToast(`${res.count}件を保存しました`); ofCloseLot(); ofLoad(); });
+}
+
+// ============================================================
+// ⑤ CSV 出力・一括更新
+// ============================================================
+function ofExportCsv() {
+  const rows = _ofFiltered().map(it => OF_CSV_KEYS.map(k => it[k] == null ? '' : it[k]));
+  _downloadCsv('受注進捗_' + _today() + '.csv', OF_CSV_HEADERS, rows);
+}
+function ofOpenCsvImport() { document.getElementById('of-csv-modal').classList.add('open'); ofCsvReset(); }
+function ofCloseCsv() { document.getElementById('of-csv-modal').classList.remove('open'); }
+function ofCsvReset() {
+  const lot = document.getElementById('of-csv-target').value === 'lot';
+  document.getElementById('of-csv-file').value = '';
+  document.getElementById('of-csv-result').innerHTML = '';
+  document.getElementById('of-csv-help').innerHTML = lot
+    ? '見出し：<code>' + OF_LOT_HEADERS.join(', ') + '</code>。既存マスタへ追加・上書き（マージ）するか、丸ごと置き換えるかを取込前に選べます。'
+    : '見出し：<code>' + OF_CSV_HEADERS.join(', ') + '</code><br>「管理ID」で案件を特定します。<b>空欄のセルは変更しません</b>。まず「CSV出力」または「テンプレートCSV」で現在値を書き出し、Excelで編集して取り込むのが確実です。取込前に変更点を確認できます。';
+}
+function ofCsvTemplate() {
+  if (document.getElementById('of-csv-target').value === 'lot') {
+    _ofApi('ofLotRuleList', {}, res => _downloadCsv('発注条件マスタ_' + _today() + '.csv', OF_LOT_HEADERS, res.items.map(r => [r.keyword, r.moq || '', r.lot || '', r.note])));
+  } else {
+    const done = () => _downloadCsv('受注進捗_テンプレート_' + _today() + '.csv', OF_CSV_HEADERS, OF.items.map(it => OF_CSV_KEYS.map(k => it[k] == null ? '' : it[k])));
+    if (OF.items.length) done(); else _ofApi('ofList', {}, res => { OF.items = res.items; done(); });
+  }
+}
+function _ofParseCsv(text) {
+  text = text.replace(/^﻿/, '');
+  const rows = []; let row = [], cell = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (q) {
+      if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; }
+      else cell += ch;
+    } else if (ch === '"') q = true;
+    else if (ch === ',') { row.push(cell); cell = ''; }
+    else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && text[i + 1] === '\n') i++;
+      row.push(cell); cell = ''; if (row.some(v => v !== '')) rows.push(row); row = [];
+    } else cell += ch;
+  }
+  row.push(cell); if (row.some(v => v !== '')) rows.push(row);
+  if (!rows.length) return [];
+  const head = rows.shift().map(h => h.trim());
+  return rows.map(r => { const o = {}; head.forEach((h, i) => { if (h) o[h] = (r[i] || '').trim(); }); return o; });
+}
+function ofCsvRead(file) {
+  if (!file) return;
+  const out = document.getElementById('of-csv-result');
+  out.innerHTML = '<div class="loading"><div class="spinner"></div><br>解析中...</div>';
+  const fr = new FileReader();
+  fr.onload = () => {
+    let text;
+    try { text = new TextDecoder('utf-8', { fatal: true }).decode(fr.result); }
+    catch (e) { text = new TextDecoder('shift_jis').decode(fr.result); } // Excel保存のCSV（Shift_JIS）にも対応
+    const rows = _ofParseCsv(text);
+    if (!rows.length) { out.innerHTML = '<div style="color:var(--danger);">データ行がありません</div>'; return; }
+    if (document.getElementById('of-csv-target').value === 'lot') _ofCsvLotPreview(rows);
+    else _ofCsvOrderPreview(rows);
+  };
+  fr.readAsArrayBuffer(file);
+}
+function _ofCsvErrors(errors) {
+  if (!errors || !errors.length) return '';
+  return `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:8px 10px;font-size:12px;margin-bottom:10px;">
+    <b style="color:#991b1b;">取り込まれない行 ${errors.length}件</b><br>${errors.slice(0, 30).map(e => `${e.rowNo ? e.rowNo + '行目: ' : (e.mgmtId || '') + ': '}${_esc(e.message)}`).join('<br>')}</div>`;
+}
+function _ofCsvOrderPreview(rows) {
+  const out = document.getElementById('of-csv-result');
+  OF.csvRows = rows;
+  _ofApi('ofCsvPreview', { rows }, res => {
+    const ch = res.changes;
+    let html = _ofCsvErrors(res.errors);
+    if (!ch.length) { out.innerHTML = html + '<div class="loading">変更点はありません</div>'; return; }
+    const nDiff = ch.reduce((s, c) => s + c.diffs.length, 0);
+    html += `<div style="font-size:13px;margin-bottom:6px;"><b>${ch.length}件の案件 / ${nDiff}項目</b>を更新します。</div>
+      <div style="max-height:320px;overflow:auto;border:1px solid var(--border);border-radius:6px;"><table class="of-table"><thead><tr><th>案件</th><th>項目</th><th>変更前</th><th>変更後</th></tr></thead><tbody>` +
+      ch.map(c => c.diffs.map((d, i) => `<tr>${i === 0 ? `<td rowspan="${c.diffs.length}" style="vertical-align:top;"><b>${_esc(c.label)}</b><div style="font-size:10px;color:var(--text-muted);">${_esc(c.mgmtId)}</div></td>` : ''}
+        <td>${_esc(d.header)}</td><td style="color:var(--text-sub);text-decoration:line-through;">${_esc(d.before) || '（空）'}</td><td style="color:#166534;font-weight:600;">${_esc(d.after)}</td></tr>`).join('')).join('') +
+      `</tbody></table></div><div style="text-align:right;margin-top:10px;"><button class="btn btn-primary btn-sm" onclick="ofCsvApply()">✅ ${ch.length}件を更新する</button></div>`;
+    out.innerHTML = html;
+  }, () => { out.innerHTML = ''; });
+}
+function ofCsvApply() {
+  const out = document.getElementById('of-csv-result');
+  out.innerHTML = '<div class="loading"><div class="spinner"></div><br>更新中...</div>';
+  _ofApi('ofCsvApply', { rows: OF.csvRows }, res => {
+    out.innerHTML = `<div style="font-size:13px;color:#166534;margin-bottom:8px;">✅ ${res.applied}件を更新しました。</div>` + _ofCsvErrors((res.errors || []).concat(res.failed || []));
+    showToast(res.applied + '件を更新しました');
+    ofLoad(); if (typeof loadData === 'function') loadData();
+  }, () => { out.innerHTML = ''; });
+}
+function _ofCsvLotPreview(rows) {
+  const items = rows.map(r => ({ keyword: r['品名キーワード'] || '', moq: r['最低注文数'] || '', lot: r['ロット単位'] || '', note: r['備考'] || '' })).filter(r => r.keyword);
+  OF.csvLot = items;
+  document.getElementById('of-csv-result').innerHTML = !items.length
+    ? '<div style="color:var(--danger);">「品名キーワード」列が見つからないか、すべて空です</div>'
+    : `<div style="max-height:300px;overflow:auto;border:1px solid var(--border);border-radius:6px;"><table class="of-table"><thead><tr>${OF_LOT_HEADERS.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>` +
+      items.map(r => `<tr><td>${_esc(r.keyword)}</td><td>${_esc(r.moq)}</td><td>${_esc(r.lot)}</td><td>${_esc(r.note)}</td></tr>`).join('') + '</tbody></table></div>' +
+      `<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px;">
+        <button class="btn btn-outline btn-sm" onclick="ofCsvLotApply('replace')">丸ごと置き換え</button>
+        <button class="btn btn-primary btn-sm" onclick="ofCsvLotApply('merge')">✅ ${items.length}件を追加・上書き</button></div>`;
+}
+function ofCsvLotApply(mode) {
+  if (mode === 'replace' && !confirm('既存の最低注文数・ロット設定をすべて置き換えます。よろしいですか？')) return;
+  _ofApi('ofLotRuleSave', { items: OF.csvLot, mode }, res => {
+    document.getElementById('of-csv-result').innerHTML = `<div style="color:#166534;">✅ マスタを保存しました（${res.count}件）</div>`;
+    ofLoad();
+  });
+}
+
+// ============================================================
+// 見積→注文カレンダー
+// ============================================================
+function qcMove(delta) {
+  if (delta === 0) { const d = new Date(); QC.y = d.getFullYear(); QC.m = d.getMonth() + 1; }
+  else { QC.m += delta; if (QC.m < 1) { QC.m = 12; QC.y--; } if (QC.m > 12) { QC.m = 1; QC.y++; } }
+  qcLoad();
+}
+function qcLoad() {
+  document.getElementById('qc-title').textContent = `${QC.y}年${QC.m}月`;
+  document.getElementById('qc-month').innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+  document.getElementById('qc-gantt').innerHTML = '';
+  _ofApi('quoteOrderCalendar', { year: QC.y, month: QC.m }, res => { QC.pairs = res.pairs || []; QC.today = res.today; _qcRender(); });
+}
+function _qcHue(key) { let h = 0; for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) % 360; return h; }
+function _qcPairKey(p) { return (p.quoteNo || '-') + '→' + (p.orderNo || '-'); }
+function _qcDay(s, ym) { return String(s || '').indexOf(ym) === 0 ? Number(String(s).slice(8, 10)) : 0; }
+function _qcOpenQuote(i) {
+  const p = QC.pairs[i];
+  if (p.quoteMgmtId) openQuoteDetail(p.quoteMgmtId, p.quoteNo);
+  else if (p.ledgerId && typeof openLedgerAddModal === 'function') openLedgerAddModal(p.ledgerId);
+}
+function _qcOpenOrder(i) { const p = QC.pairs[i]; if (p.orderMgmtId) openDetail(p.orderMgmtId); }
+function _qcHl(key, on) { document.querySelectorAll('#page-qocal [data-pair]').forEach(el => { if (el.dataset.pair === key) el.classList.toggle('hl', on); }); }
+
+function _qcRender() {
+  const ym = `${QC.y}/${String(QC.m).padStart(2, '0')}`;
+  const days = new Date(QC.y, QC.m, 0).getDate();
+  const first = new Date(QC.y, QC.m - 1, 1).getDay();
+  const byDay = {};
+  const push = (d, html) => { if (!d) return; (byDay[d] = byDay[d] || []).push(html); };
+
+  QC.pairs.forEach((p, i) => {
+    const key = _esc(_qcPairKey(p));
+    const col = `hsl(${_qcHue(_qcPairKey(p))},65%,45%)`;
+    const hov = `data-pair="${key}" onmouseenter="_qcHl(this.dataset.pair,true)" onmouseleave="_qcHl(this.dataset.pair,false)"`;
+    const who = _esc(p.client || '');
+    if (p.submitDate && p.quoteNo) {
+      const cls = p.state === 'ordered' ? 'q' : p.state === 'waiting' ? 'w' : 'n';
+      const tail = p.orderNo ? ` → 📦${_ofMd(p.orderDate)}` : p.state === 'waiting' ? ` ⏳${p.waitingDays != null ? p.waitingDays + '日' : ''}` : '';
+      const tip = `見積 ${p.quoteNo}（${p.submitDate} 提出）\n${p.subject || ''}\n${p.client || ''}\n` + (p.orderNo ? `→ 注文 ${p.orderNo}（${p.orderDate} 受領・${p.leadDays}日後）` : p.state === 'waiting' ? `注文待ち ${p.waitingDays}日経過${p.candidates ? `／候補 ${p.candidates}件` : ''}` : p.state === 'lost' ? '失注・キャンセル' : '');
+      push(_qcDay(p.submitDate, ym), `<div class="qc-chip ${cls}" style="border-left-color:${col};" title="${_esc(tip)}" ${hov} onclick="_qcOpenQuote(${i})">📄 ${_esc(p.quoteNo)} ${who}${tail}</div>`);
+    }
+    if (p.orderNo && p.orderDate) {
+      const tip = `注文 ${p.orderNo}（${p.orderDate} 受領）\n${p.subject || ''}\n${p.client || ''}\n` + (p.quoteNo ? `← 見積 ${p.quoteNo}（${p.submitDate || '提出日不明'} 提出${p.leadDays != null ? '・' + p.leadDays + '日前' : ''}）` : '元の見積書が未紐づけ');
+      const src = p.quoteNo ? ` ← 📄${_esc(p.quoteNo)}${p.submitDate ? '(' + _ofMd(p.submitDate) + ')' : ''}` : ' ❓見積不明';
+      push(_qcDay(p.orderDate, ym), `<div class="qc-chip ${p.quoteNo ? 'o' : 'n'}" style="border-left-color:${p.quoteNo ? col : '#94a3b8'};" title="${_esc(tip)}" ${hov} onclick="_qcOpenOrder(${i})">📦 ${_esc(p.orderNo)}${src}</div>`);
+    }
+  });
+
+  const dow = ['日','月','火','水','木','金','土'];
+  let html = '<div class="qc-month">' + dow.map((d, i) => `<div class="qc-dow" style="${i === 0 ? 'color:#dc2626;' : i === 6 ? 'color:#2563eb;' : ''}">${d}</div>`).join('');
+  for (let i = 0; i < first; i++) html += '<div class="qc-day out"></div>';
+  for (let d = 1; d <= days; d++) {
+    const ds = `${ym}/${String(d).padStart(2, '0')}`;
+    const chips = byDay[d] || [];
+    const MAX = 5;
+    const more = chips.length > MAX ? `<div class="qc-more" onclick="this.parentNode.querySelectorAll('.qc-chip').forEach(c=>c.style.display='');this.remove();">＋${chips.length - MAX}件</div>` : '';
+    html += `<div class="qc-day${ds === QC.today ? ' today' : ''}"><div class="d">${d}</div>${chips.map((c, k) => k >= MAX ? c.replace('class="qc-chip', 'style="display:none;" class="qc-chip') : c).join('')}${more}</div>`;
+  }
+  const tail = (7 - (first + days) % 7) % 7;
+  for (let i = 0; i < tail; i++) html += '<div class="qc-day out"></div>';
+  document.getElementById('qc-month').innerHTML = html + '</div>';
+
+  // サマリー
+  const submitted = QC.pairs.filter(p => p.quoteNo && _qcDay(p.submitDate, ym));
+  const subQ = [...new Set(submitted.map(p => p.quoteNo))];
+  const orderedQ = [...new Set(submitted.filter(p => p.orderNo).map(p => p.quoteNo))];
+  const leads = QC.pairs.filter(p => p.orderNo && _qcDay(p.orderDate, ym) && p.leadDays != null).map(p => p.leadDays);
+  const received = QC.pairs.filter(p => p.orderNo && _qcDay(p.orderDate, ym)).length;
+  document.getElementById('qc-summary').innerHTML = [
+    ['見積提出', subQ.length, ''], ['うち受注', orderedQ.length, ''], ['注文待ち', subQ.length - orderedQ.length, subQ.length - orderedQ.length ? 'warn' : ''],
+    ['注文受領', received, ''], ['平均リードタイム', leads.length ? Math.round(leads.reduce((a, b) => a + b, 0) / leads.length) + '日' : '—', ''],
+  ].map(([l, n, c]) => `<div class="of-sum ${c}" style="padding:4px 10px;"><b style="font-size:15px;">${n}</b>${l}</div>`).join('');
+
+  _qcRenderGantt(ym, days);
+}
+
+function _qcRenderGantt(ym, days) {
+  const W = 26, LABEL = 240;
+  const monthStart = ym + '/01', monthEnd = `${ym}/${String(days).padStart(2, '0')}`;
+  const rows = QC.pairs.filter(p => p.quoteNo && p.submitDate);
+  if (!rows.length) { document.getElementById('qc-gantt').innerHTML = '<div class="loading">当月の見積提出・注文受領はありません</div>'; return; }
+  const cols = `grid-template-columns:${LABEL}px ${days * W}px;`;
+  const pos = s => s < monthStart ? 0 : s > monthEnd ? days * W : (Number(s.slice(8, 10)) - 0.5) * W;
+  let html = `<div class="qc-grow qc-ghead" style="${cols}"><div class="qc-glabel" style="background:#f0f2f5;">見積 → 注文</div><div style="display:flex;">` +
+    Array.from({ length: days }, (_, i) => { const wd = new Date(QC.y, QC.m - 1, i + 1).getDay(); return `<div style="width:${W}px;text-align:center;${wd === 0 ? 'color:#dc2626;' : wd === 6 ? 'color:#2563eb;' : ''}">${i + 1}</div>`; }).join('') + '</div></div>';
+  rows.forEach(p => {
+    const i = QC.pairs.indexOf(p);
+    const end = p.orderDate || (p.state === 'waiting' ? QC.today : p.submitDate);
+    const x1 = pos(p.submitDate), x2 = Math.max(pos(end), x1 + 4);
+    const col = `hsl(${_qcHue(_qcPairKey(p))},65%,45%)`;
+    const bar = p.state === 'ordered' ? `background:linear-gradient(90deg,#93c5fd,${col});`
+              : p.state === 'waiting' ? 'background:repeating-linear-gradient(45deg,#fde68a,#fde68a 5px,#fef3c7 5px,#fef3c7 10px);' : 'background:#e2e8f0;';
+    const label = `${p.quoteNo}${p.orderNo ? ' → ' + p.orderNo : p.state === 'waiting' ? ' ⏳' : ''}　${p.client || ''}`;
+    const tip = `${p.subject || ''}\n提出 ${p.submitDate}` + (p.orderNo ? `\n受領 ${p.orderDate}（${p.leadDays}日）` : p.state === 'waiting' ? `\n注文待ち ${p.waitingDays}日` : '');
+    html += `<div class="qc-grow" style="${cols}background:#fff;" title="${_esc(tip)}">
+      <div class="qc-glabel" onclick="_qcOpenQuote(${i})">${_esc(label)}</div>
+      <div class="qc-gtrack" style="background-image:repeating-linear-gradient(90deg,transparent 0,transparent ${W - 1}px,#f1f5f9 ${W - 1}px,#f1f5f9 ${W}px);">
+        <div class="qc-gbar" style="left:${x1}px;width:${x2 - x1}px;${bar}"></div>
+        ${p.submitDate >= monthStart ? `<span class="qc-gpt" style="left:${x1}px;">📄</span>` : `<span class="qc-gpt" style="left:6px;font-size:10px;">◀</span>`}
+        ${p.orderDate && p.orderDate <= monthEnd ? `<span class="qc-gpt" style="left:${x2}px;cursor:pointer;" onclick="_qcOpenOrder(${i})">📦</span>` : ''}
+        ${p.orderNo && p.leadDays != null ? `<span style="position:absolute;top:4px;left:${x2 + 12}px;font-size:10px;color:var(--text-sub);white-space:nowrap;">${p.leadDays}日</span>` : ''}
+      </div></div>`;
+  });
+  document.getElementById('qc-gantt').innerHTML = html;
+}
+</script>

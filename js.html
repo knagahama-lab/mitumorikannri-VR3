@@ -772,7 +772,7 @@ function _renderTable() {
       </td>
       <td onclick="event.stopPropagation();" style="min-width:120px;">
         ${r.quoteNo
-          ? `<span style="font-size:11px;color:var(--primary);font-weight:600;">${r.quoteNo}</span><button class="btn btn-outline btn-sm" style="margin-left:4px;font-size:10px;padding:2px 6px;" onclick="event.stopPropagation();_openQuickLinkOrder('${r.id}')">変更</button>`
+          ? `<span style="font-size:11px;color:var(--primary);font-weight:600;">${r.quoteNo}</span><button class="btn btn-outline btn-sm" style="margin-left:4px;font-size:10px;padding:2px 6px;" onclick="event.stopPropagation();_openQuickLinkOrder('${r.id}')">変更</button>${typeof _qolOrderInfo==='function' ? _qolOrderInfo(r) : ''}`
           : `<button class="btn btn-outline btn-sm" style="font-size:10px;padding:2px 8px;" onclick="event.stopPropagation();_openQuickLinkOrder('${r.id}')">🔗 見積No.入力</button>`}
       </td>
       <td style="text-align:center; white-space:nowrap;">
@@ -912,7 +912,7 @@ function _renderQuoteTable() {
     return `
     <tr style="border-bottom:1px solid #f0f2f5;${_typeRowBorder(rct)}">
       <td class="editable-cell" onclick="startInlineEdit(event, '${realId}', 'quoteNo', '${_esc(r.quoteNo||'')}', '${editType}')" style="white-space:nowrap;">${_typeBadge(rct)}<strong>${r.quoteNo || '—'}</strong>${ledgerBadge}</td>
-      <td class="editable-cell" onclick="startInlineEdit(event, '${realId}', 'subject', '${_esc(r.subject||'')}', '${editType}')" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.subject || ''}">${r.subject || '—'}</td>
+      <td class="editable-cell" onclick="startInlineEdit(event, '${realId}', 'subject', '${_esc(r.subject||'')}', '${editType}')" style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.subject || ''}">${typeof _qolQuoteBadge==='function' ? _qolQuoteBadge(r) : ''}${r.subject || '—'}</td>
       <td onclick="event.stopPropagation();" style="white-space:nowrap;">${qci.guessed ? _catBadge(qci.value, true) + ' ' : ''}${_catSelectHtml(r.id, r.quoteNo||'', qci.guessed ? '' : qci.value, false)}</td>
       <td class="editable-cell" onclick="startInlineEditDate(event, '${realId}', 'issueDate', '${_esc(r.issueDate||r.quoteDate||"")}', '${editType}')" style="font-size:12px;color:var(--text-sub);white-space:nowrap;">${r.issueDate || r.quoteDate || '<span style=\"color:var(--text-muted);">—</span>'}</td>
       <td class="editable-cell" onclick="startInlineEditAutocomplete(event, '${realId}', '${fromLedger?'machineCode':'modelCode'}', '${_esc(r.modelCode||r.machineCode||'')}', '${editType}')" style="min-width:80px;">${r.modelCode||r.machineCode||'<span style="color:var(--text-muted);">—</span>'}</td>
@@ -920,7 +920,7 @@ function _renderQuoteTable() {
       <td class="editable-cell" onclick="startInlineEdit(event, '${realId}', '${fromLedger?'dest':'client'}', '${_esc(r.destCompany||r.client||'')}', '${editType}')" style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.destCompany||r.client||''}">${r.destCompany || r.client || '—'}</td>
       <td class="editable-cell" onclick="startInlineEdit(event, '${realId}', '${fromLedger?'amount':'quoteAmount'}', '${r.quoteAmount||''}', '${editType}')" style="text-align:right;white-space:nowrap;">${r.quoteAmount ? Number(r.quoteAmount).toLocaleString() + ' 円' : '—'}</td>
       <td onclick="event.stopPropagation();">${_statusSelectHtml(selectId, r.status, fromLedger ? 'ledger' : 'mgmt')}</td>
-      <td>${r.linked ? '<span class="badge badge-linked">✓ 注文書あり</span>' : '<span style="font-size:11px;color:var(--text-sub);">未受注</span>'}</td>
+      <td>${typeof _qolQuoteLinkCell==='function' ? _qolQuoteLinkCell(r) : (r.linked ? '<span class="badge badge-linked">✓ 注文書あり</span>' : '<span style="font-size:11px;color:var(--text-sub);">未受注</span>')}</td>
       <td onclick="event.stopPropagation();" style="min-width:120px;">
         ${r.orderNo
           ? `<span style="font-size:11px;color:var(--danger);font-weight:600;">${r.orderNo}</span><button class="btn btn-outline btn-sm" style="margin-left:4px;font-size:10px;padding:2px 6px;" onclick="event.stopPropagation();_openQuickLinkQuote('${fromLedger ? 'LEDGER_'+r._ledgerId : r.id}')">変更</button>`
@@ -936,7 +936,7 @@ function _renderQuoteTable() {
       </td>
     </tr>`;
   }).join('');
-  document.getElementById('quotelist-container').innerHTML = `<div style="overflow-x:auto;"><table><thead><tr><th>見積No.</th><th>件名（ファイル名）</th><th>🗂️ カテゴリ</th><th>発行日</th><th>機種</th><th>基板名</th><th>宛先</th><th>金額</th><th>ステータス</th><th>紐づけ状況</th><th>注文書番号</th><th>見積PDF</th><th>📎 資料</th><th>🏭 仕入</th><th>注文書PDF</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  document.getElementById('quotelist-container').innerHTML = `<div style="overflow-x:auto;"><table><thead><tr><th>見積No.</th><th>件名（ファイル名）</th><th>🗂️ カテゴリ</th><th>発行日</th><th>機種</th><th>基板名</th><th>宛先</th><th>金額</th><th>ステータス</th><th>受注状況</th><th>注文書番号</th><th>見積PDF</th><th>📎 資料</th><th>🏭 仕入</th><th>注文書PDF</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>`;
   const pages = Math.ceil(total / _quoteLimit); if (pages <= 1) { document.getElementById('qs-pagination').innerHTML = ''; return; }
   let pHtml = ''; for (let i = 1; i <= Math.min(pages, 10); i++) pHtml += `<button class="page-btn ${i === _quotePage ? 'active' : ''}" onclick="goQuotePage(${i})">${i}</button>`; document.getElementById('qs-pagination').innerHTML = pHtml;
 }
