@@ -306,6 +306,11 @@ function handleApiRequest(action, payload) {
       case 'notifyList':     return apiNotifyList(payload);
       case 'notifyMarkRead': return apiNotifyMarkRead(payload);
       case 'notifySetMode':  return apiNotifySetMode(payload);
+      // ★ 仕入先書類の一括インポート（40_supplier_import.gs）
+      case 'sdocImportPdf':    return apiSdocImportPdf(payload);
+      case 'sdocImportFolder': return apiSdocImportFolder(payload);
+      case 'sdocWatchGet':     return apiSdocWatchGet();
+      case 'sdocWatchSet':     return apiSdocWatchSet(payload);
       default: return { success: false, error: '不明なアクション: ' + action };
     }
     

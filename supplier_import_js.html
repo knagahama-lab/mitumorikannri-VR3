@@ -1,0 +1,196 @@
+<style>
+  #si-drop{ border:2px dashed #94a3b8; border-radius:10px; padding:22px; text-align:center; color:#475569; background:#f8fafc; cursor:pointer; }
+  #si-drop.over{ border-color:var(--primary); background:var(--primary-light); }
+  .si-st{ font-size:11px; padding:1px 7px; border-radius:8px; white-space:nowrap; }
+  .si-wait{ background:#f1f5f9; color:#64748b; } .si-run{ background:#dbeafe; color:#1d4ed8; }
+  .si-ok{ background:#dcfce7; color:#166534; } .si-skip{ background:#f1f5f9; color:#475569; } .si-ng{ background:#fee2e2; color:#991b1b; }
+</style>
+<script>
+// ============================================================
+// supplier_import_js.html — 仕入先見積書PDFの一括インポート（40_supplier_import.gs）
+//   ① 複数PDFを選択／ドラッグ＆ドロップして連続インポート（1件ずつOCR登録）
+//   ② Driveフォルダ内の未登録PDFをまとめてインポート
+//   ③ 監視フォルダ：1時間ごとに自動でOCR登録
+// ============================================================
+var SI = { queue: [], running: false, stop: false, tab: 'files' };
+var SI_TYPES = ['仕入先見積書', '商社見積書', '値上げ通知書', '価格改定通知', '単価表', 'その他'];
+var SI_SUPPLIERS = ['岐阜電子工業', 'イードリーム'];
+
+window.addEventListener('load', function () {
+  var btn = document.querySelector('#page-supplierdoc button[onclick="openSupplierDocModal()"]');
+  if (!btn || document.getElementById('si-open-btn')) return;
+  var b = document.createElement('button');
+  b.id = 'si-open-btn'; b.className = 'btn btn-outline btn-sm'; b.textContent = '📥 一括インポート（PDF・Driveフォルダ）';
+  b.onclick = siOpen;
+  btn.before(b);
+});
+
+function _siModal() {
+  var el = document.getElementById('si-modal');
+  if (el) return el;
+  el = document.createElement('div');
+  el.className = 'modal-overlay'; el.id = 'si-modal'; el.style.zIndex = '460';
+  el.addEventListener('click', function (e) { if (e.target === el && !SI.running) el.classList.remove('open'); });
+  el.innerHTML = '<div class="modal" style="max-width:1000px;"><div class="modal-head"><h3>📥 仕入先書類の一括インポート（OCR自動登録）</h3>'
+    + '<button class="modal-close" onclick="if(!SI.running)document.getElementById(\'si-modal\').classList.remove(\'open\')">✕</button></div><div class="modal-body" id="si-body"></div></div>';
+  document.body.appendChild(el);
+  return el;
+}
+function siOpen() { _siModal().classList.add('open'); _siRender(); }
+
+function _siOpts(list, auto) {
+  return (auto ? '<option value="auto">自動判定（OCR）</option>' : '') + list.map(function (x) { return '<option>' + _esc(x) + '</option>'; }).join('');
+}
+function _siRender() {
+  var tab = function (k, l) { return '<button class="btn btn-sm ' + (SI.tab === k ? 'btn-primary' : 'btn-outline') + '" onclick="SI.tab=\'' + k + '\';_siRender()">' + l + '</button>'; };
+  var common = '<div class="of-grid2" style="margin-bottom:10px;">'
+    + '<div><label>仕入先</label><select id="si-supplier"><option value="">自動判定（OCRで発行元を読取）</option>' + _siOpts(SI_SUPPLIERS) + '<option value="__custom">その他（入力）…</option></select>'
+    + '<input id="si-supplier-custom" placeholder="仕入先名" style="display:none;margin-top:4px;"></div>'
+    + '<div><label>書類種別</label><select id="si-type">' + _siOpts(SI_TYPES, true) + '</select></div></div>';
+  var html = '<div style="display:flex;gap:6px;margin-bottom:12px;">' + tab('files', '① PDFを選択（複数可）') + tab('folder', '② Driveフォルダから') + tab('watch', '③ 自動取込（監視フォルダ）') + '</div>';
+  if (SI.tab === 'files') {
+    html += common + '<div id="si-drop" onclick="document.getElementById(\'si-file\').click()">📄 ここにPDFをドラッグ＆ドロップ、またはクリックして選択（複数可）'
+      + '<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">1件ずつPDFを保存 → OCRで仕入先・見積番号・発行日・件名・明細を読み取り → 登録します</div></div>'
+      + '<input type="file" id="si-file" accept="application/pdf,.pdf" multiple style="display:none;" onchange="siAddFiles(this.files);this.value=\'\'">'
+      + '<label style="font-size:12px;display:flex;align-items:center;gap:4px;margin-top:6px;"><input type="checkbox" id="si-force"> 同じファイル名の書類が登録済みでも登録する</label>';
+  } else if (SI.tab === 'folder') {
+    html += common + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'
+      + '<input id="si-folder" class="of-in" style="flex:1;min-width:320px;" placeholder="DriveフォルダのURL（例：https://drive.google.com/drive/folders/…）">'
+      + '<label style="font-size:12px;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="si-recursive"> サブフォルダも含む</label>'
+      + '<button class="btn btn-outline btn-sm" onclick="siFolderCheck()">件数を確認</button></div>'
+      + '<div id="si-folder-info" style="font-size:13px;margin-top:8px;"></div>'
+      + '<div style="font-size:12px;color:var(--text-muted);margin-top:4px;">登録済み（同じファイル・同じファイル名）のPDFは自動でスキップします。PDFはフォルダに置いたまま登録します。</div>';
+  } else {
+    html += '<div id="si-watch">読み込み中...</div>';
+  }
+  html += '<div id="si-queue" style="margin-top:12px;"></div>';
+  document.getElementById('si-body').innerHTML = html;
+  var sup = document.getElementById('si-supplier');
+  if (sup) sup.onchange = function () { document.getElementById('si-supplier-custom').style.display = this.value === '__custom' ? '' : 'none'; };
+  var drop = document.getElementById('si-drop');
+  if (drop) {
+    ['dragenter', 'dragover'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('over'); }); });
+    ['dragleave', 'drop'].forEach(function (ev) { drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('over'); }); });
+    drop.addEventListener('drop', function (e) { siAddFiles(e.dataTransfer.files); });
+  }
+  if (SI.tab === 'watch') _siWatchLoad();
+  _siRenderQueue();
+}
+function _siSupplier() {
+  var v = (document.getElementById('si-supplier') || {}).value || '';
+  return v === '__custom' ? document.getElementById('si-supplier-custom').value.trim() : v;
+}
+function _siType() { return (document.getElementById('si-type') || {}).value || 'auto'; }
+
+// ── ① 連続インポート ──
+function siAddFiles(files) {
+  var list = Array.prototype.filter.call(files || [], function (f) { return /\.pdf$/i.test(f.name) || f.type === 'application/pdf'; });
+  if (!list.length) { showToast('PDFファイルを選択してください', true); return; }
+  var opt = { supplier: _siSupplier(), docType: _siType(), force: !!(document.getElementById('si-force') || {}).checked };
+  list.forEach(function (f) {
+    if (f.size > 25 * 1024 * 1024) { SI.queue.push({ name: f.name, st: 'ng', msg: '25MBを超えるため取り込めません' }); return; }
+    SI.queue.push({ name: f.name, file: f, st: 'wait', opt: opt });
+  });
+  _siRenderQueue();
+  if (!SI.running) _siRunFiles();
+}
+function _siRunFiles() {
+  var next = SI.queue.filter(function (q) { return q.st === 'wait' && q.file; })[0];
+  if (!next || SI.stop) { SI.running = false; SI.stop = false; _siRenderQueue(); _siDone(); return; }
+  SI.running = true; next.st = 'run'; next.msg = 'アップロード・OCR中…'; _siRenderQueue();
+  var fr = new FileReader();
+  fr.addEventListener('load', function () {
+    var b64 = String(fr.result).split(',')[1] || '';
+    google.script.run.withSuccessHandler(function (res) { _siApplyResult(next, res); _siRunFiles(); })
+      .withFailureHandler(function (err) { next.st = 'ng'; next.msg = String(err.message || err); _siRunFiles(); })
+      .handleApiRequest('sdocImportPdf', { base64Data: b64, fileName: next.name, mimeType: 'application/pdf',
+                                           supplier: next.opt.supplier, docType: next.opt.docType, force: next.opt.force });
+  });
+  fr.addEventListener('error', function () { next.st = 'ng'; next.msg = 'ファイルを読み込めません'; _siRunFiles(); });
+  fr.readAsDataURL(next.file);
+}
+function _siApplyResult(q, res) {
+  delete q.file;
+  if (!res || !res.success) { q.st = 'ng'; q.msg = (res && res.error) || '失敗'; return; }
+  if (res.skipped) { q.st = 'skip'; q.msg = res.reason; q.id = res.id; return; }
+  q.st = 'ok'; q.id = res.id; q.supplier = res.supplier; q.subject = res.subject; q.issueDate = res.issueDate;
+  q.docType = res.docType; q.lines = res.lines; q.total = res.total; q.msg = res.ocrOk ? '' : 'OCRできず（ファイルのみ登録）';
+}
+
+// ── ② Driveフォルダ ──
+function siFolderCheck() {
+  var url = document.getElementById('si-folder').value.trim();
+  var info = document.getElementById('si-folder-info');
+  info.innerHTML = '<span class="spinner" style="width:14px;height:14px;display:inline-block;"></span> フォルダを確認中…';
+  _ofApi('sdocImportFolder', { folderUrl: url, recursive: document.getElementById('si-recursive').checked, dryRun: true }, function (res) {
+    info.innerHTML = '📁 <b>' + _esc(res.folderName) + '</b>：PDF ' + res.total + '件（登録済み ' + res.registered + '件）→ <b style="color:#1d4ed8;">未登録 ' + res.pending + '件</b>'
+      + (res.pending ? ' <button class="btn btn-primary btn-sm" onclick="siFolderRun()">▶ ' + res.pending + '件をインポート</button>' : ' ✅ すべて登録済みです');
+  }, function () { info.innerHTML = ''; });
+}
+function siFolderRun() {
+  if (SI.running) { SI.stop = true; return; }
+  var p = { folderUrl: document.getElementById('si-folder').value.trim(), recursive: document.getElementById('si-recursive').checked,
+            supplier: _siSupplier(), docType: _siType(), max: 8 };
+  SI.running = true; SI.stop = false;
+  var info = document.getElementById('si-folder-info');
+  var step = function () {
+    info.innerHTML = '⏳ OCR登録中…（1回に最大8件、終わり次第続けます） <button class="btn btn-outline btn-sm" onclick="SI.stop=true;this.textContent=\'停止します…\'">⏹ 停止</button>';
+    _ofApi('sdocImportFolder', p, function (res) {
+      (res.results || []).forEach(function (r) { var q = { name: r.fileName }; _siApplyResult(q, r); SI.queue.push(q); });
+      _siRenderQueue();
+      if (res.remaining > 0 && res.processed > 0 && !SI.stop) { step(); return; }
+      SI.running = false; SI.stop = false;
+      info.innerHTML = res.remaining ? '⏸ 停止しました（未登録 残り ' + res.remaining + '件）<button class="btn btn-outline btn-sm" onclick="siFolderRun()">▶ 続きを実行</button>' : '✅ フォルダのインポートが完了しました';
+      _siDone();
+    }, function () { SI.running = false; info.innerHTML = '⚠ エラーで中断しました。<button class="btn btn-outline btn-sm" onclick="siFolderRun()">▶ 再開</button>'; });
+  };
+  step();
+}
+
+// ── ③ 監視フォルダ ──
+function _siWatchLoad() {
+  _ofApi('sdocWatchGet', {}, function (w) {
+    document.getElementById('si-watch').innerHTML = '<div style="font-size:13px;line-height:1.8;margin-bottom:8px;">指定したDriveフォルダに入れたPDFを <b>1時間ごと</b> に自動でOCR登録します（登録済みはスキップ）。<br>'
+      + '例：岐阜電子工業・イードリームから届いた見積書PDFをこのフォルダへ保存するだけで登録されます。登録すると 🔔 通知にも表示されます。</div>'
+      + '<div class="of-grid2"><div style="grid-column:1/-1;"><label>監視するDriveフォルダのURL</label><input id="si-w-folder" value="' + _esc(w.folderUrl) + '" placeholder="https://drive.google.com/drive/folders/…"></div>'
+      + '<div><label>仕入先（空欄＝自動判定）</label><input id="si-w-supplier" list="si-dl-sup" value="' + _esc(w.supplier) + '"><datalist id="si-dl-sup">' + SI_SUPPLIERS.map(function (s) { return '<option value="' + _esc(s) + '">'; }).join('') + '</datalist></div>'
+      + '<div style="display:flex;align-items:flex-end;"><label style="font-size:13px;display:flex;align-items:center;gap:6px;margin-bottom:6px;"><input type="checkbox" id="si-w-rec" ' + (w.recursive ? 'checked' : '') + '> サブフォルダも含む</label></div></div>'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;flex-wrap:wrap;gap:8px;">'
+      + '<span style="font-size:13px;">状態：' + (w.enabled ? '<b style="color:#16a34a;">● 自動取込 ON</b>' : '<b style="color:#64748b;">○ OFF</b>') + (w.lastRun ? '　前回 ' + _esc(w.lastRun) + '（' + _esc(w.lastResult) + '）' : '') + '</span>'
+      + '<span>' + (w.enabled ? '<button class="btn btn-outline btn-sm" onclick="siWatchSet(false)">停止</button> ' : '') + '<button class="btn btn-primary btn-sm" onclick="siWatchSet(true)">' + (w.enabled ? '設定を更新' : '自動取込を開始') + '</button></span></div>';
+  });
+}
+function siWatchSet(on) {
+  _ofApi('sdocWatchSet', { enabled: on, folderUrl: document.getElementById('si-w-folder').value.trim(),
+    supplier: document.getElementById('si-w-supplier').value.trim(), recursive: document.getElementById('si-w-rec').checked },
+    function () { showToast(on ? '監視フォルダの自動取込を開始しました' : '自動取込を停止しました'); _siWatchLoad(); });
+}
+
+// ── 結果一覧 ──
+function _siRenderQueue() {
+  var box = document.getElementById('si-queue'); if (!box) return;
+  if (!SI.queue.length) { box.innerHTML = ''; return; }
+  var cnt = function (st) { return SI.queue.filter(function (q) { return q.st === st; }).length; };
+  var label = { wait: ['si-wait', '待機'], run: ['si-run', '処理中'], ok: ['si-ok', '登録済'], skip: ['si-skip', 'スキップ'], ng: ['si-ng', '失敗'] };
+  box.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;font-size:13px;">'
+    + '<span>登録 <b style="color:#166534;">' + cnt('ok') + '</b>　スキップ ' + cnt('skip') + '　失敗 <b style="color:#991b1b;">' + cnt('ng') + '</b>　残り ' + (cnt('wait') + cnt('run')) + '</span>'
+    + '<span>' + (SI.running && SI.tab === 'files' ? '<button class="btn btn-outline btn-sm" onclick="SI.stop=true">⏹ 停止</button> ' : '')
+    + (!SI.running ? '<a href="#" style="font-size:12px;" onclick="event.preventDefault();SI.queue=[];_siRenderQueue()">一覧をクリア</a>' : '') + '</span></div>'
+    + '<div style="max-height:42vh;overflow:auto;border:1px solid var(--border);border-radius:6px;"><table class="of-table"><thead><tr><th>ファイル</th><th>状態</th><th>仕入先</th><th>種別</th><th>件名</th><th>発行日</th><th style="text-align:right;">明細</th><th style="text-align:right;">金額</th><th></th></tr></thead><tbody>'
+    + SI.queue.map(function (q) {
+        var l = label[q.st] || label.wait;
+        return '<tr><td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + _esc(q.name) + '">' + _esc(q.name) + '</td>'
+          + '<td><span class="si-st ' + l[0] + '">' + l[1] + '</span>' + (q.msg ? '<div style="font-size:11px;color:var(--text-sub);">' + _esc(q.msg) + '</div>' : '') + '</td>'
+          + '<td>' + _esc(q.supplier || '') + '</td><td style="font-size:11px;">' + _esc(q.docType || '') + '</td>'
+          + '<td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + _esc(q.subject || '') + '">' + _esc(q.subject || '') + '</td>'
+          + '<td style="white-space:nowrap;">' + _esc(q.issueDate || '') + '</td><td style="text-align:right;">' + (q.lines != null ? q.lines + '行' : '') + '</td>'
+          + '<td style="text-align:right;">' + (q.total ? Number(q.total).toLocaleString() : '') + '</td>'
+          + '<td>' + (q.id ? '<button class="btn btn-outline btn-sm" style="font-size:11px;padding:2px 8px;" onclick="document.getElementById(\'si-modal\').classList.remove(\'open\');openSupplierDocModal(\'' + _ofq(q.id) + '\')">確認・修正</button>' : '') + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+}
+function _siDone() {
+  var ok = SI.queue.filter(function (q) { return q.st === 'ok'; }).length;
+  if (ok) showToast('仕入先書類を ' + ok + '件 登録しました');
+  if (typeof loadSupplierDocs === 'function') loadSupplierDocs();
+}
+</script>
