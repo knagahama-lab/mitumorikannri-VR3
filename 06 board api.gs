@@ -291,6 +291,8 @@ function handleApiRequest(action, payload) {
       case 'cpmLinkQuote': return apiCpmLinkQuote(payload);
       case 'cpmClientFixCandidates': return apiCpmClientFixCandidates();
       case 'cpmClientFix':           return apiCpmClientFix(payload);
+      // ★ 価格一覧表（36_price_table.gs）
+      case 'priceTable':             return apiPriceTable();
       default: return { success: false, error: '不明なアクション: ' + action };
     }
     

@@ -1,0 +1,188 @@
+<style>
+  /* 価格一覧表：罫線入りのぎゅっとした一覧（印刷にも対応） */
+  .pt-bar{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px; }
+  .pt-wrap{ overflow:auto; max-height:calc(100vh - 290px); border:1px solid #333; background:#fff; }
+  table.pt{ border-collapse:collapse; width:100%; font-size:12.5px; font-variant-numeric:tabular-nums; }
+  table.pt th, table.pt td{ border:1px solid #444; padding:3px 7px; white-space:nowrap; }
+  table.pt thead th{ background:#e9edf3; font-weight:800; text-align:center; position:sticky; z-index:2; color:#111; }
+  table.pt thead tr:first-child th{ top:0; }
+  table.pt thead tr:nth-child(2) th{ top:25px; }
+  table.pt th.pt-cur, table.pt td.pt-cur{ background:#fff200; font-weight:800; }
+  table.pt td.num{ text-align:right; font-weight:700; }
+  table.pt td.name{ font-weight:700; max-width:340px; overflow:hidden; text-overflow:ellipsis; }
+  table.pt td.spec{ max-width:180px; overflow:hidden; text-overflow:ellipsis; color:#333; }
+  table.pt tr.pt-sec td{ background:#334155; color:#fff; font-weight:800; letter-spacing:.05em; padding:4px 8px; }
+  table.pt tr:hover td:not(.pt-cur){ background:#f1f5ff; }
+  table.pt .up{ color:#dc2626; font-weight:800; } table.pt .down{ color:#2563eb; font-weight:800; }
+  table.pt .same{ color:#94a3b8; }
+  table.pt a.q{ color:#1d4ed8; text-decoration:none; font-weight:600; } table.pt a.q:hover{ text-decoration:underline; }
+  .pt-code{ font-family:ui-monospace,Consolas,monospace; font-weight:700; }
+  .pt-code.g{ color:#92400e; font-weight:500; }
+  .pt-muted{ color:#94a3b8; font-size:11px; }
+</style>
+<script>
+// ============================================================
+// price_table_js.html — 価格一覧表（36_price_table.gs）
+//   価格表ページに「📋 価格一覧表」タブを追加（既定タブ）
+// ============================================================
+const PT = { rows: [], cat: '', q: '', changedOnly: false, codeOnly: false, client: '', limit: 600 };
+
+(function hookPriceListPage() {
+  const origInit = initPriceListPage;
+  initPriceListPage = function() {
+    origInit.apply(this, arguments);
+    const auto = document.getElementById('pl-tab-auto');
+    if (!auto || document.getElementById('pl-tab-table')) return;
+    const b = document.createElement('button');
+    b.className = 'btn btn-sm'; b.id = 'pl-tab-table'; b.textContent = '📋 価格一覧表';
+    b.onclick = () => _plSwitchPageTab('table');
+    auto.before(b);
+    const panel = document.createElement('div'); panel.id = 'pl-panel-table'; panel.style.display = 'none';
+    panel.innerHTML = `
+      <div class="pt-bar">
+        <div id="pt-cats" style="display:flex;gap:6px;"></div>
+        <input id="pt-search" type="text" placeholder="品名・仕様・客先部品コード・見積番号で検索..." style="flex:1;min-width:220px;padding:7px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;" oninput="clearTimeout(window._ptT);window._ptT=setTimeout(()=>{PT.q=this.value;PT.limit=600;ptRender()},200)">
+        <select id="pt-client" onchange="PT.client=this.value;PT.limit=600;ptRender()" style="padding:7px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;"></select>
+        <label style="font-size:12px;display:flex;align-items:center;gap:4px;"><input type="checkbox" onchange="PT.changedOnly=this.checked;PT.limit=600;ptRender()"> 価格変更ありのみ</label>
+        <label style="font-size:12px;display:flex;align-items:center;gap:4px;"><input type="checkbox" onchange="PT.codeOnly=this.checked;PT.limit=600;ptRender()"> 客先部品コードありのみ</label>
+        <button class="btn btn-outline btn-sm" onclick="ptPrint()">🖨 印刷</button>
+        <button class="btn btn-outline btn-sm" onclick="ptCsv()" style="color:#16a34a;border-color:#16a34a;">📥 CSV</button>
+        <button class="btn btn-outline btn-sm" onclick="ptLoad()">↻</button>
+      </div>
+      <div id="pt-info" style="font-size:12px;color:var(--text-sub);margin-bottom:6px;"></div>
+      <div id="pt-table"><div class="loading"><div class="spinner"></div><br>見積書の明細から集計中...</div></div>`;
+    document.getElementById('pl-panel-auto').before(panel);
+    _plSwitchPageTab('table');
+  };
+  const origSwitch = _plSwitchPageTab;
+  _plSwitchPageTab = function(tab) {
+    const panel = document.getElementById('pl-panel-table'), btn = document.getElementById('pl-tab-table');
+    if (tab === 'table') {
+      ['auto', 'master', 'model'].forEach(t => {
+        const p = document.getElementById('pl-panel-' + t), b = document.getElementById('pl-tab-' + t);
+        if (p) p.style.display = 'none'; if (b) b.className = 'btn btn-sm btn-outline';
+      });
+      if (panel) panel.style.display = ''; if (btn) btn.className = 'btn btn-sm btn-primary';
+      _plPageTab = 'table';
+      if (!PT.rows.length) ptLoad();
+      return;
+    }
+    if (panel) panel.style.display = 'none'; if (btn) btn.className = 'btn btn-sm btn-outline';
+    origSwitch(tab);
+  };
+})();
+
+function ptLoad() {
+  document.getElementById('pt-table').innerHTML = '<div class="loading"><div class="spinner"></div><br>見積書の明細から集計中...</div>';
+  _ofApi('priceTable', {}, res => {
+    PT.rows = res.rows || [];
+    const clients = [...new Set(PT.rows.map(r => r.cur && r.cur.client).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ja'));
+    document.getElementById('pt-client').innerHTML = '<option value="">すべての宛先</option>' + clients.map(c => `<option${c === PT.client ? ' selected' : ''}>${_esc(c)}</option>`).join('');
+    ptRender();
+  });
+}
+function _ptFiltered(ignoreCat) {
+  const kws = normalizeSearchText(PT.q || '').split(/\s+/).filter(Boolean);
+  return PT.rows.filter(r => {
+    if (!ignoreCat && PT.cat && r.category !== PT.cat) return false;
+    if (PT.changedOnly && !r.old) return false;
+    if (PT.codeOnly && !r.codes.length) return false;
+    if (PT.client && (!r.cur || r.cur.client !== PT.client)) return false;
+    if (!kws.length) return true;
+    const t = normalizeSearchText([r.name, r.spec, r.cur && r.cur.quoteNo, r.old && r.old.quoteNo, r.codes.map(c => c.code).join(' ')].join(' '));
+    return kws.every(k => t.includes(k));
+  });
+}
+const _ptYen = n => n || n === 0 ? Number(n).toLocaleString() : '';
+function _ptDiff(r) {
+  if (!r.old) return { html: '<span class="same">—</span>', text: '' };
+  const d = r.cur.price - r.old.price, pct = r.old.price ? Math.round(d / r.old.price * 1000) / 10 : 0;
+  const cls = d > 0 ? 'up' : 'down', sign = d > 0 ? '▲' : '▼';
+  return { html: `<span class="${cls}">${sign}${_ptYen(Math.abs(d))}</span> <span class="${cls}" style="font-weight:500;font-size:11px;">(${d > 0 ? '+' : ''}${pct}%)</span>`,
+           text: `${d > 0 ? '+' : ''}${d} (${d > 0 ? '+' : ''}${pct}%)` };
+}
+function _ptQuoteCell(x) {
+  if (!x) return '<td></td><td></td>';
+  const link = x.mgmtId ? `<a class="q" href="#" onclick="event.preventDefault();openQuoteDetail('${_ofq(x.mgmtId)}','${_ofq(x.quoteNo)}')">${_esc(x.quoteNo)}</a>` : _esc(x.quoteNo);
+  return `<td>${link}${x.pdfUrl ? ` <a href="${_esc(x.pdfUrl)}" target="_blank" title="見積PDF" style="text-decoration:none;">📄</a>` : ''}</td><td>${_esc(x.date)}</td>`;
+}
+function _ptCodes(r) {
+  if (!r.codes.length) return '<span class="pt-muted">—</span>';
+  return r.codes.map(c => `<a href="#" class="pt-code${c.guessed ? ' g' : ''}" title="${_esc(c.client + '｜' + c.name + (c.guessed ? '｜型番一致による推定（見積未紐づけ）' : ''))}" onclick="event.preventDefault();if(typeof cpmOpen==='function')cpmOpen('${_ofq(c.client)}','${_ofq(c.code)}')" style="text-decoration:none;color:inherit;">${_esc(c.code)}${c.guessed ? '?' : ''}</a>`).join('<br>');
+}
+function ptRender() {
+  const all = _ptFiltered(true);
+  const cats = [['', 'すべて'], ['基板', '🔩 基板'], ['PCB', '🟩 PCB'], ['その他', '📦 その他']];
+  document.getElementById('pt-cats').innerHTML = cats.map(([k, l]) => {
+    const n = k ? all.filter(r => r.category === k).length : all.length;
+    return `<button class="btn btn-sm ${PT.cat === k ? 'btn-primary' : 'btn-outline'}" onclick="PT.cat='${k}';PT.limit=600;ptRender()">${l} ${n}</button>`;
+  }).join('');
+  const rows = _ptFiltered();
+  const changed = rows.filter(r => r.old).length;
+  document.getElementById('pt-info').innerHTML = `${rows.length}品目（うち価格変更あり <b style="color:#dc2626;">${changed}</b>）。黄色が現在の単価、旧単価は現在と異なる直近の見積単価です。客先部品コードの <span class="pt-code g">?</span> は型番一致による推定です。`;
+  if (!rows.length) { document.getElementById('pt-table').innerHTML = '<div class="loading">該当なし</div>'; return; }
+  let html = `<div class="pt-wrap"><table class="pt"><thead>
+    <tr><th rowspan="2">品名</th><th rowspan="2">仕様</th><th rowspan="2">客先部品コード</th>
+        <th colspan="3">単価（円）</th><th colspan="2">弊社見積書（現在）</th><th colspan="2">弊社見積書（旧）</th><th rowspan="2">宛先</th><th rowspan="2">見積<br>件数</th></tr>
+    <tr><th>旧単価</th><th class="pt-cur">現在単価</th><th>差額</th><th>見積No.</th><th>見積日</th><th>見積No.</th><th>見積日</th></tr></thead><tbody>`;
+  let lastCat = '';
+  rows.slice(0, PT.limit).forEach(r => {
+    if (r.category !== lastCat) {
+      lastCat = r.category;
+      const n = rows.filter(x => x.category === r.category).length;
+      html += `<tr class="pt-sec"><td colspan="12">■ ${_esc(r.category)}（${n}品目）</td></tr>`;
+    }
+    const d = _ptDiff(r);
+    html += `<tr>
+      <td class="name" title="${_esc(r.name)}">${_esc(r.name)}</td>
+      <td class="spec" title="${_esc(r.spec)}">${_esc(r.spec)}</td>
+      <td>${_ptCodes(r)}</td>
+      <td class="num">${r.old ? _ptYen(r.old.price) : '<span class="same">変更なし</span>'}</td>
+      <td class="num pt-cur">${_ptYen(r.cur.price)}</td>
+      <td class="num">${d.html}</td>
+      ${_ptQuoteCell(r.cur)}${_ptQuoteCell(r.old)}
+      <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;" title="${_esc(r.cur.client)}">${_esc(r.cur.client)}</td>
+      <td class="num" style="font-weight:500;">${r.count}</td></tr>`;
+  });
+  html += '</tbody></table></div>';
+  if (rows.length > PT.limit) html += `<div style="text-align:center;margin:8px;"><button class="btn btn-outline btn-sm" onclick="PT.limit+=1000;ptRender()">さらに表示（残り ${rows.length - PT.limit}品目）</button></div>`;
+  document.getElementById('pt-table').innerHTML = html;
+}
+
+function _ptExportRows() {
+  return _ptFiltered().map(r => [r.category, r.name, r.spec, r.codes.map(c => c.code + (c.guessed ? '(推定)' : '')).join(' / '),
+    r.old ? r.old.price : '', r.cur.price, _ptDiff(r).text, r.cur.quoteNo, r.cur.date, r.old ? r.old.quoteNo : '', r.old ? r.old.date : '', r.cur.client, r.count]);
+}
+function ptCsv() {
+  _downloadCsv('価格一覧表_' + _today() + '.csv',
+    ['分類', '品名', '仕様', '客先部品コード', '旧単価', '現在単価', '差額', '現在見積No', '現在見積日', '旧見積No', '旧見積日', '宛先', '見積件数'], _ptExportRows());
+}
+function ptPrint() {
+  const rows = _ptFiltered();
+  if (rows.length > 3000 && !confirm(`${rows.length}品目を印刷します。分類・検索で絞り込むことをおすすめします。続けますか？`)) return;
+  const e = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  let body = '', lastCat = '';
+  rows.forEach(r => {
+    if (r.category !== lastCat) { lastCat = r.category; body += `<tr class="sec"><td colspan="9">■ ${e(r.category)}</td></tr>`; }
+    const d = r.old ? r.cur.price - r.old.price : 0;
+    body += `<tr><td class="n">${e(r.name)}</td><td>${e(r.spec)}</td><td class="c">${e(r.codes.map(c => c.code + (c.guessed ? '?' : '')).join(' / '))}</td>
+      <td class="r">${r.old ? _ptYen(r.old.price) : ''}</td><td class="r cur">${_ptYen(r.cur.price)}</td>
+      <td class="r ${d > 0 ? 'up' : d < 0 ? 'dn' : ''}">${r.old ? (d > 0 ? '▲' : '▼') + _ptYen(Math.abs(d)) : ''}</td>
+      <td>${e(r.cur.quoteNo)}<br><small>${e(r.cur.date)}</small></td><td>${r.old ? e(r.old.quoteNo) + '<br><small>' + e(r.old.date) + '</small>' : ''}</td><td>${e(r.cur.client)}</td></tr>`;
+  });
+  const title = '価格一覧表' + (PT.cat ? '（' + PT.cat + '）' : '');
+  const w = window.open('', '_blank');
+  if (!w) { showToast('ポップアップがブロックされました', true); return; }
+  w.document.write(`<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>${title}</title><style>
+    @page{ size:A4 landscape; margin:10mm; } body{ font-family:"Yu Gothic","Meiryo",sans-serif; margin:0; }
+    h1{ text-align:center; font-size:20pt; letter-spacing:.3em; margin:0 0 4px; } .meta{ text-align:right; font-size:9pt; margin-bottom:4px; }
+    table{ border-collapse:collapse; width:100%; font-size:8.5pt; } th,td{ border:1px solid #222; padding:2px 5px; }
+    thead{ display:table-header-group; } th{ background:#e5e7eb; } .cur{ background:#fff200; font-weight:700; }
+    .r{ text-align:right; white-space:nowrap; } .c{ font-family:Consolas,monospace; } .n{ font-weight:700; }
+    .up{ color:#c00; } .dn{ color:#00c; } tr.sec td{ background:#333; color:#fff; font-weight:700; } small{ color:#555; } tr{ page-break-inside:avoid; }
+  </style></head><body><h1>${title}</h1><div class="meta">出力日 ${_ofToday()}　${rows.length}品目</div>
+  <table><thead><tr><th>品名</th><th>仕様</th><th>客先部品コード</th><th>旧単価</th><th class="cur">現在単価</th><th>差額</th><th>弊社見積（現在）</th><th>弊社見積（旧）</th><th>宛先</th></tr></thead>
+  <tbody>${body}</tbody></table><script>window.onload=function(){setTimeout(function(){window.print();},300);};<\/script></body></html>`);
+  w.document.close();
+}
+</script>
