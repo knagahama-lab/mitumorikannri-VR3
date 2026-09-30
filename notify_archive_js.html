@@ -1,0 +1,147 @@
+<style>
+  .status-select-inline.st-archived{ background:#f1f5f9 !important; color:#64748b !important; border-color:#cbd5e1 !important; }
+  #nt-bell{ position:relative; }
+  #nt-bell .nt-count{ position:absolute; top:-4px; right:-4px; background:#dc2626; color:#fff; font-size:10px; font-weight:800; border-radius:9px; padding:0 5px; line-height:16px; min-width:16px; text-align:center; }
+  #nt-panel{ position:fixed; top:56px; right:16px; width:min(460px, calc(100vw - 32px)); max-height:72vh; overflow:auto; background:#fff; border:1px solid var(--border); border-radius:10px; box-shadow:0 10px 30px rgba(0,0,0,.18); z-index:500; display:none; }
+  #nt-panel.open{ display:block; }
+  .nt-item{ padding:9px 12px; border-bottom:1px solid var(--border-light); cursor:pointer; font-size:12.5px; white-space:pre-wrap; }
+  .nt-item:hover{ background:#f8fafc; } .nt-item.unread{ background:#fffbeb; } .nt-item.unread:hover{ background:#fef3c7; }
+  .nt-item .t{ font-size:11px; color:var(--text-muted); margin-top:3px; }
+  .ar-toggle{ font-size:12px; padding:5px 10px; border:1px dashed #94a3b8; border-radius:6px; background:#fff; cursor:pointer; color:#475569; white-space:nowrap; }
+  .ar-toggle.on{ background:#f1f5f9; border-style:solid; }
+</style>
+<script>
+// ============================================================
+// notify_archive_js.html
+//   ・🔔 通知（39_notify.gs）：新規品番の注文／見積→受注／要確認／差し替え・キャンセル
+//   ・受注状況に「🆕 新着受注」（7日以内に注文書が届いた見積）
+//   ・アーカイブ（ボツ／旧見積）を一覧から既定で非表示（データは保持）
+// ============================================================
+const ARCHIVE_ST = ['ボツ', '旧見積'];
+const NTF = { items: [], unread: 0, mode: 'newcode', tab: 'all' };
+let _arShow = false; try { _arShow = localStorage.getItem('showArchived') === '1'; } catch (e) {}
+
+// ── アーカイブの非表示 ──
+function _arIsArchived(r) { return ARCHIVE_ST.includes(r && r.status); }
+function _arPicked(selId) { const el = document.getElementById(selId); return !!(el && ARCHIVE_ST.includes(el.value)); } // ステータス絞り込みでボツ等を選んだ時は表示
+function arToggle() { _arShow = !_arShow; try { localStorage.setItem('showArchived', _arShow ? '1' : '0'); } catch (e) {} applyQuoteFilter(); applyFilters(); if (typeof applyLedgerFilter === 'function') applyLedgerFilter(); }
+function _arButton(anchorId, count) {
+  const anchor = document.getElementById(anchorId); if (!anchor) return;
+  let b = document.getElementById(anchorId + '-ar');
+  if (!b) { b = document.createElement('button'); b.id = anchorId + '-ar'; b.onclick = arToggle; anchor.after(b); }
+  b.className = 'ar-toggle' + (_arShow ? ' on' : '');
+  b.title = 'ステータスが「ボツ」「旧見積」の見積（アーカイブ）を表示／非表示';
+  b.textContent = _arShow ? `🗄 アーカイブ表示中（${count}）` : `🗄 アーカイブ ${count}件を表示`;
+}
+(function hookArchive() {
+  const oq = _renderQuoteTable;
+  _renderQuoteTable = function() {
+    if (!_arShow && !_arPicked('qs-filter-status')) _filteredQuotes = _filteredQuotes.filter(r => !_arIsArchived(r));
+    _arButton('qs-filter-status', (_allQuotes || []).filter(_arIsArchived).length);
+    return oq.apply(this, arguments);
+  };
+  const ot = _renderTable;
+  _renderTable = function() {
+    if (!_arShow && !_arPicked('filter-status')) S.filtered = S.filtered.filter(r => !_arIsArchived(r));
+    _arButton('filter-status', (S.all || []).filter(_arIsArchived).length);
+    return ot.apply(this, arguments);
+  };
+  ['_renderLedgerTree', '_renderLedgerFlat'].forEach(fn => {
+    const o = window[fn];
+    window[fn] = function(items) {
+      if (!_arShow && !_arPicked('ledger-filter-status')) items = (items || []).filter(r => !_arIsArchived(r));
+      _arButton('ledger-filter-status', (_allLedgerItems || []).filter(_arIsArchived).length);
+      return o.call(this, items);
+    };
+  });
+})();
+
+// ── 🔔 通知 ──
+function _ntInject() {
+  const search = document.querySelector('.topbar-btn[onclick="showPage(\'drivesearch\')"]');
+  if (!search || document.getElementById('nt-bell')) return;
+  const b = document.createElement('button');
+  b.id = 'nt-bell'; b.className = 'topbar-btn'; b.title = '通知（新規品番の注文・見積の受注など）';
+  b.innerHTML = '🔔 通知<span class="nt-count" style="display:none;"></span>';
+  b.onclick = e => { e.stopPropagation(); ntToggle(); };
+  search.before(b);
+  const p = document.createElement('div'); p.id = 'nt-panel'; p.onclick = e => e.stopPropagation();
+  document.body.appendChild(p);
+  document.addEventListener('click', () => p.classList.remove('open'));
+}
+function ntLoad(first) {
+  google.script.run.withSuccessHandler(res => {
+    if (!res || !res.success) return;
+    const before = NTF.unread;
+    Object.assign(NTF, { items: res.items, unread: res.unread, mode: res.mode });
+    const c = document.querySelector('#nt-bell .nt-count');
+    if (c) { c.style.display = NTF.unread ? '' : 'none'; c.textContent = NTF.unread > 99 ? '99+' : NTF.unread; }
+    const newCode = NTF.items.filter(i => !i.read && i.type === '新規品番').length;
+    const ordered = NTF.items.filter(i => !i.read && i.type === '見積→受注').length;
+    if ((first && (newCode || ordered)) || (!first && NTF.unread > before)) {
+      showToast([newCode ? `🆕 新規品番の注文 ${newCode}件` : '', ordered ? `📦 見積の受注 ${ordered}件` : ''].filter(Boolean).join('・') + '（🔔 通知を確認）');
+    }
+    if (document.getElementById('nt-panel').classList.contains('open')) _ntRender();
+  }).handleApiRequest('notifyList', {});
+}
+function ntToggle() { const p = document.getElementById('nt-panel'); p.classList.toggle('open'); if (p.classList.contains('open')) _ntRender(); }
+const NT_ICON = { '新規品番': '🆕', '見積→受注': '📦', '要確認': '⚠', '差し替え': '✏', 'キャンセル': '✖' };
+function _ntRender() {
+  const tabs = [['all', 'すべて'], ['新規品番', '🆕 新規品番'], ['見積→受注', '📦 見積→受注'], ['要確認', '⚠ 要確認']];
+  const list = NTF.items.filter(i => NTF.tab === 'all' || i.type === NTF.tab);
+  document.getElementById('nt-panel').innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid var(--border);position:sticky;top:0;background:#fff;">
+      <b style="font-size:14px;">🔔 通知 ${NTF.unread ? `<span style="color:#dc2626;">（未読 ${NTF.unread}）</span>` : ''}</b>
+      <a href="#" style="font-size:12px;" onclick="event.preventDefault();ntMarkRead([],true)">すべて既読</a></div>
+    <div style="display:flex;gap:4px;flex-wrap:wrap;padding:8px 12px;border-bottom:1px solid var(--border-light);">
+      ${tabs.map(([k, l]) => { const n = NTF.items.filter(i => !i.read && (k === 'all' || i.type === k)).length;
+        return `<button class="btn btn-sm ${NTF.tab === k ? 'btn-primary' : 'btn-outline'}" style="font-size:11px;padding:2px 8px;" onclick="NTF.tab='${k}';_ntRender()">${l}${n ? ` ${n}` : ''}</button>`; }).join('')}</div>
+    ${list.length ? list.map(i => `<div class="nt-item ${i.read ? '' : 'unread'}" onclick="ntOpen('${_ofq(i.id)}')">
+        <div>${_esc(i.body || (NT_ICON[i.type] || '') + ' ' + i.type)}</div>
+        <div class="t">${_esc(i.at)}　${_esc(i.client)}</div></div>`).join('')
+      : '<div style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px;">通知はありません</div>'}
+    <div style="padding:8px 12px;border-top:1px solid var(--border);font-size:12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;background:#f8fafc;">
+      Chat／メール通知：
+      <select onchange="ntSetMode(this.value)" style="font-size:12px;padding:2px 4px;">
+        <option value="newcode" ${NTF.mode === 'newcode' ? 'selected' : ''}>新規品番（客先部品コード未登録）の注文のみ</option>
+        <option value="all" ${NTF.mode === 'all' ? 'selected' : ''}>すべての注文書</option>
+        <option value="off" ${NTF.mode === 'off' ? 'selected' : ''}>送らない（画面の通知のみ）</option>
+      </select></div>`;
+}
+function ntOpen(id) {
+  const i = NTF.items.find(x => x.id === id); if (!i) return;
+  if (!i.read) ntMarkRead([id]);
+  document.getElementById('nt-panel').classList.remove('open');
+  if (i.type === '見積→受注' && i.quoteMgmtId) openQuoteDetail(i.quoteMgmtId, i.quoteNo);
+  else if (i.mgmtId) openDetail(i.mgmtId);
+}
+function ntMarkRead(ids, all) {
+  NTF.items.forEach(i => { if (all || ids.includes(i.id)) i.read = true; });
+  NTF.unread = NTF.items.filter(i => !i.read).length;
+  const c = document.querySelector('#nt-bell .nt-count'); if (c) { c.style.display = NTF.unread ? '' : 'none'; c.textContent = NTF.unread; }
+  _ntRender();
+  google.script.run.handleApiRequest('notifyMarkRead', { ids, all: !!all });
+}
+function ntSetMode(mode) { _ofApi('notifySetMode', { mode }, () => { NTF.mode = mode; showToast('通知の設定を変更しました'); }); }
+window.addEventListener('load', () => { _ntInject(); ntLoad(true); setInterval(() => ntLoad(false), 5 * 60 * 1000); });
+
+// ── 受注状況：7日以内に注文書が届いた見積に 🆕、アーカイブ表示 ──
+(function hookQolCells() {
+  const ob = _qolQuoteBadge;
+  _qolQuoteBadge = function(r) {
+    const s = QOL.byQuote[(r.quoteNo || '').trim()];
+    let h = ob(r);
+    if (s && s.state === 'ordered' && s.orders[0] && s.orders[0].orderDate) {
+      const days = (Date.now() - new Date(String(s.orders[0].orderDate).replace(/-/g, '/')).getTime()) / 86400000;
+      if (days <= 7) h = '<span class="of-tag bad" title="7日以内に注文書を受領">🆕 新着受注</span> ' + h;
+    }
+    return h;
+  };
+  const oc = _qolQuoteLinkCell;
+  _qolQuoteLinkCell = function(r) {
+    const s = QOL.byQuote[(r.quoteNo || '').trim()];
+    if (s && s.state === 'archived') return `<span class="of-tag">🗄 アーカイブ（${_esc(s.status)}）</span>`;
+    return oc(r);
+  };
+})();
+</script>

@@ -515,7 +515,7 @@ function _checkStagnantCases() {
     var ignoreStatuses = [
       CONFIG.STATUS.ORDERED, CONFIG.STATUS.DELIVERED,
       CONFIG.STATUS.CANCELLED, '\u30ad\u30e3\u30f3\u30bb\u30eb', '\u5931\u6ce8',
-    ];
+    ].concat(typeof ARCHIVE_STATUSES !== 'undefined' ? ARCHIVE_STATUSES : []);
 
     rawData.forEach(function(row, i) {
       var status  = String(row[MGMT_COLS.STATUS    - 1] || '');
@@ -581,7 +581,7 @@ function _checkDeliveryDates() {
       var subject      = String(row[MGMT_COLS.SUBJECT      - 1] || '');
 
       if (!deliveryDate || !orderNo) return;
-      if (status === CONFIG.STATUS.DELIVERED || status === CONFIG.STATUS.CANCELLED) return;
+      if (status === CONFIG.STATUS.DELIVERED || status === CONFIG.STATUS.CANCELLED || ARCHIVE_STATUSES.indexOf(status) >= 0) return;
 
       var days = 9999;
       var deliveryStr = '';
@@ -660,7 +660,7 @@ function checkOrderDeadlines() {
       var delivery = row[MGMT_COLS.DELIVERY_DATE            - 1];
 
       if (!orderNo || !deadline) return;
-      if (status === CONFIG.STATUS.DELIVERED || status === CONFIG.STATUS.CANCELLED) return;
+      if (status === CONFIG.STATUS.DELIVERED || status === CONFIG.STATUS.CANCELLED || ARCHIVE_STATUSES.indexOf(status) >= 0) return;
 
       var days = 9999;
       var deadlineStr = '';

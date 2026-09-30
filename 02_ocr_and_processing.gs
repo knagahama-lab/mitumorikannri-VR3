@@ -366,8 +366,10 @@ function _saveOrderData(ocr, orderType, pdfUrl, folderUrl, msgId, fallbackSubjec
     }
   }
 
-  // Chat通知
-  _sendChatNotification(finalMgmtId, 'order', action);
+  // ★ 通知（39_notify.gs）：新規品番（客先部品コード未登録）・差し替え・キャンセルのみ Chat／メール。
+  //   見積→受注・要確認は画面のベル通知へ記録。失敗時は従来の通知にフォールバック。
+  try { cpmNotifyOrder(finalMgmtId, action, (typeof cpm !== 'undefined') ? cpm : null, ocr); }
+  catch(e) { Logger.log('[NOTIFY ERROR] ' + e.message); _sendChatNotification(finalMgmtId, 'order', action); }
 
   return finalMgmtId;
 }

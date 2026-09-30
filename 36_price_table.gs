@@ -29,7 +29,7 @@ function apiPriceTable() {
     var dead = {};
     getAllMgmtData().forEach(function(r) {
       var st = String(r[MGMT_COLS.STATUS - 1] || '');
-      if (st === 'キャンセル' || st === '失注') dead[String(r[MGMT_COLS.ID - 1])] = true;
+      if (st === 'キャンセル' || st === '失注' || ARCHIVE_STATUSES.indexOf(st) >= 0) dead[String(r[MGMT_COLS.ID - 1])] = true;
     });
 
     var groups = {};

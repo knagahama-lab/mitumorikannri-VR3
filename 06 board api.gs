@@ -302,6 +302,10 @@ function handleApiRequest(action, payload) {
       case 'cpmReocrPending':   return apiCpmReocrPending(payload);
       case 'cpmManualAdd':      return apiCpmManualAdd(payload);
       case 'cpmSetLineCode':    return apiCpmSetLineCode(payload);
+      // ★ 通知（39_notify.gs）
+      case 'notifyList':     return apiNotifyList(payload);
+      case 'notifyMarkRead': return apiNotifyMarkRead(payload);
+      case 'notifySetMode':  return apiNotifySetMode(payload);
       default: return { success: false, error: '不明なアクション: ' + action };
     }
     
@@ -566,6 +570,8 @@ function _mgmtStatusToLedgerStatus(mgmtStatus) {
     'キャンセル':'キャンセル',
     '失注':      'キャンセル',
     '保留':      null,   // 台帳に相当するステータスなし → 変更しない
+    'ボツ':      'ボツ',
+    '旧見積':    '旧見積',
   };
   return map.hasOwnProperty(mgmtStatus) ? map[mgmtStatus] : null;
 }
@@ -578,6 +584,8 @@ function _ledgerStatusToMgmtStatus(ledgerStatus) {
     '送信済み':  '送信済み',
     '受注済み':  '受注済み',
     'キャンセル':'キャンセル',
+    'ボツ':      'ボツ',
+    '旧見積':    '旧見積',
   };
   return map.hasOwnProperty(ledgerStatus) ? map[ledgerStatus] : null;
 }
@@ -637,7 +645,7 @@ function _syncMgmtStatusFromLedger(ss, quoteNo, ledgerStatus) {
 // ============================================================
 function _apiUpdateStatus(p) {
   if (!p.mgmtId || !p.newStatus) return { success: false, error: '管理IDとステータスが必要' };
-  var valid = CONFIG.STATUS_LIST || ['作成予定','送信済み','受領','受注済み','保留','キャンセル','失注','納品済み'];
+  var valid = (CONFIG.STATUS_LIST || ['作成予定','送信済み','受領','差し替え依頼中','受注済み','保留','キャンセル','失注','納品済み']).concat(ARCHIVE_STATUSES);
   if (valid.indexOf(p.newStatus) < 0) return { success: false, error: '無効なステータス' };
   var ss    = getSpreadsheet();
   var sheet = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT);

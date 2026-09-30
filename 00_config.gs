@@ -54,6 +54,8 @@ var CONFIG = {
     DELIVERED: '納品済み',
     CANCELLED: 'キャンセル',
     REVISED:   '受領（差し替え）',
+    BOTSU:     'ボツ',       // アーカイブ：採用されなかった見積（非表示・データは保持）
+    OLD_PRICE: '旧見積',     // アーカイブ：価格改定などで置き換わった旧見積（非表示・データは保持）
   },
   ORDER_TYPE: { TRIAL: '試作', MASS: '量産' },
 };
@@ -181,6 +183,9 @@ var LEDGER_COLS = {
   COMPOSITION_TYPE: 16,
 };
 
+// ★ アーカイブ扱い（一覧では既定で非表示、アラート・受注待ち・現在単価の対象外）
+var ARCHIVE_STATUSES = ['ボツ', '旧見積'];
+
 // ★ 見積カテゴリ（見積台帳シート E列 / LEDGER_COLS.CATEGORY）
 var LEDGER_CATEGORIES = ['仕掛基板', 'PCB', '組立費', 'ROM・RAM', '単品部品'];
 
@@ -257,7 +262,7 @@ function _setupLedgerSheet(ss) {
   sheet.getRange(2,5,1000,1).setDataValidation(
     SpreadsheetApp.newDataValidation().requireValueInList(LEDGER_CATEGORIES,true).build());
   sheet.getRange(2,7,1000,1).setDataValidation(
-    SpreadsheetApp.newDataValidation().requireValueInList(['作成予定','作成中','送信済み','キャンセル'],true).build());
+    SpreadsheetApp.newDataValidation().requireValueInList(['作成予定','作成中','送信済み','受注済み','キャンセル'].concat(ARCHIVE_STATUSES),true).build());
 }
 
 // ★ 既存の見積台帳シートに「見積カテゴリ」を適用するメンテナンス関数。

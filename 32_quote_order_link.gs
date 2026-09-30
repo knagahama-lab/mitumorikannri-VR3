@@ -176,13 +176,14 @@ function _qolSummary(q, orders, linkedOrderNos, today) {
   }).sort(function(a, b) { return String(a.orderDate).localeCompare(String(b.orderDate)); });
   var submit = q.submitDate || q.quoteDate || '';
   var first  = list.length ? list[0].orderDate : '';
-  var cancelled = q.status === 'キャンセル' || q.status === '失注';
+  var archived = ARCHIVE_STATUSES.indexOf(q.status) >= 0;
+  var cancelled = q.status === 'キャンセル' || q.status === '失注' || archived;
   return {
     quoteMgmtId: q.mgmtId, ledgerId: q.ledgerId || '', quoteNo: q.quoteNo, subject: q.subject, client: q.client,
     modelCode: q.modelCode, boardName: q.boardName, quoteAmount: q.quoteAmount, quotePdfUrl: q.quotePdfUrl,
     submitDate: submit, submitFromLedger: !!q.submitDate, status: q.status,
     orders: list,
-    state: list.length ? 'ordered' : cancelled ? 'lost' : 'waiting',
+    state: list.length ? 'ordered' : archived ? 'archived' : cancelled ? 'lost' : 'waiting',
     leadDays: (submit && first) ? _qolDays(submit, first) : null,             // 提出→受注の日数
     waitingDays: (!list.length && submit) ? _qolDays(submit, today) : null,   // 注文待ち経過日数
     candidates: (!list.length && !cancelled) ? _qolCandidates(q, orders, linkedOrderNos) : [],
@@ -237,6 +238,7 @@ function apiQuoteOrderCalendar(p) {
     var pairs = [];
     Object.keys(links.byQuote).forEach(function(qno) {
       var s = links.byQuote[qno];
+      if (s.state === 'archived') return; // ボツ・旧見積はカレンダーに出さない
       var base = {
         quoteNo: qno, quoteMgmtId: s.quoteMgmtId, ledgerId: s.ledgerId, subject: s.subject, client: s.client,
         modelCode: s.modelCode, submitDate: s.submitDate, quotePdfUrl: s.quotePdfUrl, state: s.state,

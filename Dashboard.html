@@ -7,7 +7,7 @@
 <script>
 // ★ スクリプト読込エラーの見える化：構文エラーでスクリプトが丸ごと無効になった場合に画面上部へ表示
 //   （ボタンが「反応しない」原因をコンソールを開かずに特定するため）
-window.__APP_BUILD__ = '2026-10-01a';
+window.__APP_BUILD__ = '2026-10-01b';
 console.log('%c[見積・注文管理] build ' + window.__APP_BUILD__, 'color:#2563eb;font-weight:bold');
 window.addEventListener('error', function (e) {
   var msg = String(e.message || '');
@@ -375,7 +375,7 @@ tr:hover td{background:#f8fafc;}
         </div>
         <div class="filter-bar">
           <div class="search-box"><input type="text" id="search-input" placeholder="発注番号・機種・顧客・件名で検索..." oninput="debounceSearch()"></div>
-          <select id="filter-status" onchange="applyFilters()"><option value="">すべてのステータス</option><option value="作成予定">作成予定</option><option value="送信済み">送信済み</option><option value="受領">受領</option><option value="受注済み">受注済み</option><option value="納品済み">納品済み</option><option value="キャンセル">キャンセル</option></select>
+          <select id="filter-status" onchange="applyFilters()"><option value="">すべてのステータス</option><option value="作成予定">作成予定</option><option value="送信済み">送信済み</option><option value="受領">受領</option><option value="受注済み">受注済み</option><option value="納品済み">納品済み</option><option value="キャンセル">キャンセル</option><option value="ボツ">🗄 ボツ</option><option value="旧見積">🗄 旧見積</option></select>
           <select id="filter-order-type" onchange="applyFilters()"><option value="">すべての種別</option><option value="試作">試作</option><option value="量産">量産</option></select>
           <select id="filter-month" onchange="applyFilters()"><option value="">すべての月</option></select>
           <input type="number" id="amount-search" placeholder="💴 金額・単価で検索" oninput="debounceSearch()" title="合計金額または明細単価で検索（注文書の単価で見積を探せます）" style="width:160px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;">
@@ -405,7 +405,7 @@ tr:hover td{background:#f8fafc;}
         </div>
         <div class="filter-bar">
           <div class="search-box"><input type="text" id="qs-search" placeholder="見積番号・宛先・担当者で検索..." oninput="applyQuoteFilter()"></div>
-          <select id="qs-filter-status" onchange="applyQuoteFilter()"><option value="">すべてのステータス</option><option value="送信済み">送信済み</option><option value="受領">受領</option><option value="作成予定">作成予定</option><option value="作成中">作成中</option><option value="納品済み">納品済み</option></select>
+          <select id="qs-filter-status" onchange="applyQuoteFilter()"><option value="">すべてのステータス</option><option value="送信済み">送信済み</option><option value="受領">受領</option><option value="作成予定">作成予定</option><option value="作成中">作成中</option><option value="納品済み">納品済み</option><option value="キャンセル">キャンセル</option><option value="ボツ">🗄 ボツ</option><option value="旧見積">🗄 旧見積</option></select>
           <select id="qs-filter-category" onchange="setQuoteCatTab(this.value)" title="見積カテゴリで絞り込み"><option value="all">🗂️ すべてのカテゴリ</option><option value="仕掛基板">🔩 仕掛基板</option><option value="PCB">🟩 PCB</option><option value="組立費">🛠️ 組立費</option><option value="ROM・RAM">💾 ROM・RAM</option><option value="単品部品">📦 単品部品</option><option value="__none__">⬜ 未分類</option></select>
           <select id="qs-filter-linked" onchange="applyQuoteFilter()"><option value="">紐づき状況</option><option value="linked">注文書あり</option><option value="unlinked">注文書なし</option></select>
           <input type="number" id="qs-amount-search" placeholder="💴 金額・単価で検索" oninput="applyQuoteFilter()" title="見積合計金額または明細単価で検索（注文書の単価で見積を探せます）" style="width:160px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;">
@@ -462,6 +462,8 @@ tr:hover td{background:#f8fafc;}
           <option value="作成中">作成中</option>
           <option value="送信済み">送信済み</option>
           <option value="キャンセル">キャンセル</option>
+          <option value="ボツ">🗄 ボツ</option>
+          <option value="旧見積">🗄 旧見積</option>
         </select>
         <select id="ledger-sort-key" onchange="setLedgerSort(this.value)" title="並び順の基準" style="font-size:12px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:#fff;cursor:pointer;">
           <option value="issueDate">📅 発行日</option>
@@ -1309,7 +1311,7 @@ tr:hover td{background:#f8fafc;}
       <div class="form-row"><div class="form-field"><label>納品書番号 (New)</label><input type="text" id="edit-delivery-slip-no" placeholder="例: D-2026-001"></div><div class="form-field"><label>機種コード</label><input type="text" id="edit-model-code"></div></div>
       <div class="form-field" style="margin-bottom:12px;"><label>顧客名</label><input type="text" id="edit-client"></div>
       <div class="form-row">
-        <div class="form-field"><label>ステータス</label><select id="edit-status"><option value="作成予定">作成予定</option><option value="送信済み">送信済み</option><option value="受領">受領</option><option value="受注済み">受注済み</option><option value="納品済み">納品済み</option><option value="キャンセル">キャンセル</option></select></div>
+        <div class="form-field"><label>ステータス</label><select id="edit-status"><option value="作成予定">作成予定</option><option value="送信済み">送信済み</option><option value="受領">受領</option><option value="受注済み">受注済み</option><option value="納品済み">納品済み</option><option value="キャンセル">キャンセル</option><option value="ボツ">🗄 ボツ</option><option value="旧見積">🗄 旧見積</option></select></div>
         <div class="form-field"><label>注文種別</label><select id="edit-order-type"><option value="">（未設定）</option><option value="試作">試作</option><option value="量産">量産</option></select></div>
       </div>
       <div class="form-row"><div class="form-field"><label>発注日</label><input type="date" id="edit-order-date"></div><div class="form-field"><label>納期</label><input type="date" id="edit-delivery-date"></div></div>
@@ -1518,6 +1520,7 @@ tr:hover td{background:#f8fafc;}
 <?!= include("price_table_js") ?>
 <?!= include("quote_partcodes_js") ?>
 <?!= include("partcode_capture_js") ?>
+<?!= include("notify_archive_js") ?>
 
 <!-- ============ カスタム書類 ページ ============ -->
 <div id="page-customdoc" class="page">
