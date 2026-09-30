@@ -185,4 +185,63 @@ function ptPrint() {
   <tbody>${body}</tbody></table><script>window.onload=function(){setTimeout(function(){window.print();},300);};<\/script></body></html>`);
   w.document.close();
 }
+
+// ============================================================
+// 価格表の他タブ（見積から自動集計／基板PCB価格マスタ／機種基板構成）も
+// 「価格一覧表」と同じ罫線入りのコンパクトな表にそろえる（描画後に見た目だけ整える）
+// ============================================================
+(function compactOtherPriceTables() {
+  const WRAPS = ['pl-table-wrap', 'pl-master-table-wrap', 'pl-model-table-wrap'];
+  const isNum = t => /^[¥￥\-+▲▼]?\s?[\d,]+(\.\d+)?\s?(円|%|％)?$/.test(t);
+  const isDash = t => t === '—' || t === '-' || t === '－' || t === '';
+  function enhance(table, wrapId) {
+    if (table.dataset.ptx) return;
+    table.dataset.ptx = '1';
+    table.classList.add('pt', 'ptx');
+    if (!table.parentElement.classList.contains('pt-wrap')) {
+      const w = document.createElement('div'); w.className = 'pt-wrap ptx-wrap';
+      table.parentElement.insertBefore(w, table); w.appendChild(table);
+    }
+    // 価格の列（公表単価・見積単価）を黄色で強調
+    const heads = [...table.querySelectorAll('thead tr:first-child th')].map(th => th.textContent.trim());
+    const curCols = heads.map((h, i) => (/公表単価|見積単価/.test(h) ? i : -1)).filter(i => i >= 0);
+    curCols.forEach(i => { const th = table.querySelectorAll('thead tr:first-child th')[i]; if (th) th.classList.add('pt-cur'); });
+    const grpCol = wrapId === 'pl-master-table-wrap' && /グループ/.test(heads[0] || '') ? 0 : -1;
+    table.querySelectorAll('tbody tr').forEach(tr => {
+      const cells = [...tr.children];
+      cells.forEach((td, i) => {
+        if (td.querySelector('input,select,textarea,button')) return;
+        const t = td.textContent.trim();
+        if (isDash(t)) td.classList.add('ptx-dash');
+        else if (isNum(t)) td.classList.add('num');
+        if (curCols.includes(i) && !isDash(t)) td.classList.add('pt-cur');
+      });
+      if (grpCol >= 0 && cells[grpCol]) {
+        const g = cells[grpCol].textContent.trim();
+        if (!isDash(g)) { tr.classList.add('ptx-grp'); cells[grpCol].classList.add('name'); }
+      }
+    });
+  }
+  function scan() {
+    WRAPS.forEach(id => { const w = document.getElementById(id); if (w) w.querySelectorAll('table').forEach(t => enhance(t, id)); });
+  }
+  window.addEventListener('load', () => {
+    const root = document.getElementById('pricelist-wrap'); if (!root) return;
+    new MutationObserver(scan).observe(root, { childList: true, subtree: true });
+  });
+})();
 </script>
+<style>
+  /* 他タブの表：インライン指定の余白・最小幅を上書きしてコンパクトに */
+  .ptx-wrap{ max-height:calc(100vh - 300px); }
+  table.pt.ptx{ min-width:0 !important; width:auto !important; font-size:12.5px !important; }
+  table.pt.ptx th, table.pt.ptx td{ padding:3px 8px !important; border:1px solid #444 !important; white-space:nowrap; }
+  table.pt.ptx thead th{ background:#e9edf3 !important; color:#111 !important; font-weight:800 !important; font-size:12px !important; text-align:center !important; top:0; }
+  table.pt.ptx td.num{ text-align:right !important; font-weight:700; }
+  table.pt.ptx td.num a{ font-weight:700; }
+  table.pt.ptx td.ptx-dash{ color:#cbd5e1 !important; text-align:center !important; }
+  table.pt.ptx tr.ptx-grp td{ border-top:2px solid #111 !important; }
+  table.pt.ptx tr.ptx-grp td.name{ background:#f1f5f9; }
+  table.pt.ptx input, table.pt.ptx select{ padding:2px 6px !important; font-size:12px !important; height:auto !important; }
+  table.pt.ptx td.pt-cur{ background:#fff200 !important; }
+</style>
