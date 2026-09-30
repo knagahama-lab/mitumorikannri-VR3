@@ -407,3 +407,177 @@ function apiCpmForOrder(p) {
     return { success: false, error: e.message };
   }
 }
+
+// ============================================================
+// Excel / CSV インポート
+//   ・キー「取引先 × 客先部品コード」が既に登録済みの行は登録せずスキップ（既存データは変更しない）
+//   ・ファイル内で同じキーが重複する場合は最初の行のみ採用
+//   ・p.dryRun=true で登録せずに判定結果だけ返す（プレビュー）
+// ============================================================
+var CPM_IMPORT_ALIASES = {
+  client:     ['取引先', '得意先', '顧客名', '客先', '取引先名'],
+  code:       ['客先部品コード', '部品コード', '客先品番', '品番', '部品番号', 'パーツコード'],
+  name:       ['客先品名', '品名', '部品名', '名称'],
+  drawing:    ['図番', '型式', '型番'],
+  modelCode:  ['機種コード', '機種'],
+  variant:    ['区分'],
+  quoteNo:    ['弊社見積No', '弊社見積No.', '見積No', '見積No.', '見積番号'],
+  quotePrice: ['見積単価'],
+  boardName:  ['弊社基板名', '弊社品名', '基板名'],
+  lastPrice:  ['前回単価', '単価'],
+  lastQty:    ['前回数量', '数量'],
+  lastDate:   ['前回発注日', '発注日'],
+  lastOrderNo:['前回発注書No', '前回発注書No.', '発注書No', '注文番号'],
+  note:       ['備考'],
+};
+
+function _cpmPick(row, key) {
+  var names = CPM_IMPORT_ALIASES[key];
+  for (var i = 0; i < names.length; i++) {
+    if (row[names[i]] !== undefined && String(row[names[i]]).trim() !== '') return String(row[names[i]]).trim();
+  }
+  return '';
+}
+function _cpmNum(v) { var n = Number(String(v || '').replace(/[,¥円\s]/g, '')); return isNaN(n) ? 0 : n; }
+
+/** 見積No.→{mgmtId, price} を一括解決する関数を返す（行ごとにシートを読まないためのキャッシュ） */
+function _cpmQuoteResolver() {
+  var byNo = {};
+  getAllMgmtData().map(_rowToObject).forEach(function(o) {
+    if (o.quoteNo && !(o.orderNo && !o.quotePdfUrl) && !byNo[o.quoteNo]) byNo[o.quoteNo] = o.id;
+  });
+  var linesById = null;
+  return function(quoteNo, drawing) {
+    quoteNo = String(quoteNo || '').trim();
+    if (!quoteNo) return { quoteNo: '', mgmtId: '', price: 0 };
+    var id = byNo[quoteNo] || '';
+    if (!id) return { quoteNo: quoteNo, mgmtId: '', price: 0 };
+    if (!linesById) {
+      linesById = {};
+      var qs = getSpreadsheet().getSheetByName(CONFIG.SHEET_QUOTES);
+      if (qs && qs.getLastRow() > 1) {
+        qs.getRange(2, 1, qs.getLastRow() - 1, QUOTE_COLS.UNIT_PRICE).getValues().forEach(function(r) {
+          var k = String(r[QUOTE_COLS.MGMT_ID - 1]); (linesById[k] = linesById[k] || []).push(r);
+        });
+      }
+    }
+    var lines = linesById[id] || [];
+    var key = _cpmCode(drawing || '');
+    var hit = lines.filter(function(r) { return key && _cpmCode(r[QUOTE_COLS.ITEM_NAME - 1] + r[QUOTE_COLS.SPEC - 1]).indexOf(key) >= 0; })[0]
+           || (lines.length === 1 ? lines[0] : null);
+    return { quoteNo: quoteNo, mgmtId: id, price: hit ? Number(hit[QUOTE_COLS.UNIT_PRICE - 1]) || 0 : 0 };
+  };
+}
+
+/**
+ * @param {{rows:Object[], defaultClient:string, confirmed:boolean, dryRun:boolean}} p
+ *   rows は見出し→値 のオブジェクト配列（Excel/CSVの1行目が見出し）
+ */
+function apiCpmImport(p) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+    var rows = (p && p.rows) || [];
+    if (!rows.length) return { success: false, error: '取り込む行がありません' };
+    if (rows.length > 5000) return { success: false, error: '一度に取り込めるのは5,000行までです（' + rows.length + '行）' };
+    var sh = _cpmSheet();
+    var existing = _cpmIndex(_cpmRows());
+    var resolve = _cpmQuoteResolver();
+    var seen = {}, adds = [], newItems = [], skipped = [], errors = [];
+    var now = nowJST();
+
+    rows.forEach(function(row, i) {
+      var rowNo = (Number(row.__rowNo) || i + 2);
+      var code = _cpmCode(_cpmPick(row, 'code'));
+      var clientRaw = _cpmPick(row, 'client') || (p.defaultClient || '');
+      if (!code) { errors.push({ rowNo: rowNo, message: '部品コードが空です' }); return; }
+      if (!clientRaw) { errors.push({ rowNo: rowNo, code: code, message: '取引先が空です（列が無い場合は取込画面で取引先を選択）' }); return; }
+      var clientKey = _cpmClientKey(clientRaw);
+      var key = clientKey + '|' + code;
+      var name = _cpmHalf(_cpmPick(row, 'name')).replace(/\s+/g, ' ').trim();
+      if (existing[key] !== undefined) { skipped.push({ rowNo: rowNo, client: clientKey, code: code, name: name, reason: '登録済み' }); return; }
+      if (seen[key]) { skipped.push({ rowNo: rowNo, client: clientKey, code: code, name: name, reason: 'ファイル内で重複（' + seen[key] + '行目を採用）' }); return; }
+      seen[key] = rowNo;
+
+      var sp = _cpmSplit({ itemName: name, partCode: code, drawingNo: _cpmPick(row, 'drawing') });
+      var quoteNo = _cpmPick(row, 'quoteNo');
+      var q = quoteNo ? resolve(quoteNo, sp.drawing) : { quoteNo: '', mgmtId: '', price: 0 };
+      var qPrice = _cpmNum(_cpmPick(row, 'quotePrice')) || q.price || '';
+      var lastDate = _ofDate(_cpmPick(row, 'lastDate'));
+      var r = new Array(CPM_HEADERS.length).fill('');
+      r[CPM.CLIENT] = clientKey; r[CPM.CODE] = code; r[CPM.NAME] = sp.name; r[CPM.DRAWING] = sp.drawing;
+      r[CPM.MODEL] = _cpmPick(row, 'modelCode'); r[CPM.VARIANT] = _cpmPick(row, 'variant') || sp.variant;
+      r[CPM.QUOTE_NO] = q.quoteNo; r[CPM.QUOTE_ID] = q.mgmtId; r[CPM.QUOTE_PRICE] = qPrice;
+      r[CPM.LAST_PRICE] = _cpmNum(_cpmPick(row, 'lastPrice')) || ''; r[CPM.LAST_QTY] = _cpmNum(_cpmPick(row, 'lastQty')) || '';
+      r[CPM.LAST_DATE] = lastDate; r[CPM.LAST_ORDER_NO] = _cpmPick(row, 'lastOrderNo');
+      r[CPM.COUNT] = r[CPM.LAST_ORDER_NO] || lastDate ? 1 : 0; r[CPM.FIRST_DATE] = lastDate;
+      r[CPM.CONFIRMED] = p.confirmed ? 'TRUE' : 'FALSE'; r[CPM.NOTE] = _cpmPick(row, 'note');
+      r[CPM.UPDATED_AT] = now; r[CPM.BOARD] = _cpmPick(row, 'boardName');
+      adds.push(r);
+      newItems.push({ rowNo: rowNo, client: clientKey, code: code, name: sp.name, quoteNo: q.quoteNo, quoteFound: !quoteNo || !!q.mgmtId, quotePrice: qPrice });
+    });
+
+    if (!p.dryRun && adds.length) {
+      var start = sh.getLastRow() + 1;
+      sh.getRange(start, 1, adds.length, CPM_HEADERS.length).setNumberFormat('@').setValues(adds);
+    }
+    return {
+      success: true, dryRun: !!p.dryRun,
+      added: adds.length, skippedCount: skipped.length, errorCount: errors.length,
+      newItems: newItems.slice(0, 500), skipped: skipped.slice(0, 500), errors: errors.slice(0, 200),
+    };
+  } catch (e) {
+    Logger.log('[apiCpmImport] ' + e.message + '\n' + e.stack);
+    return { success: false, error: e.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ============================================================
+// 弊社見積の紐づけ登録（見積番号入力／見積書検索から）
+//   p.quoteNo : 見積番号（空＋p.unlink=true で解除）
+//   p.items   : [{client, code}]  複数の部品コードへまとめて登録可
+// ============================================================
+function apiCpmLinkQuote(p) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(20000);
+    var quoteNo = String((p && p.quoteNo) || '').trim();
+    var items = (p && p.items) || [];
+    if (!items.length) return { success: false, error: '対象の部品コードがありません' };
+    if (!quoteNo && !p.unlink) return { success: false, error: '見積番号を入力してください' };
+
+    var resolve = _cpmQuoteResolver();
+    if (quoteNo) {
+      var probe = resolve(quoteNo, '');
+      var inLedger = !probe.mgmtId && getAllLedgerData().some(function(r) {
+        return String(r[LEDGER_COLS.QUOTE_NO - 1] || '').trim() === quoteNo;
+      });
+      if (!probe.mgmtId && !inLedger) return { success: false, error: '見積番号「' + quoteNo + '」が見積書一覧・見積台帳に見つかりません' };
+    }
+
+    var sh = _cpmSheet(); var rows = _cpmRows(); var idx = _cpmIndex(rows);
+    var now = nowJST(), updated = [];
+    items.forEach(function(it) {
+      var k = it.client + '|' + _cpmCode(it.code);
+      if (idx[k] === undefined) return;
+      var r = rows[idx[k]];
+      if (quoteNo) {
+        var q = resolve(quoteNo, r[CPM.DRAWING]);
+        r[CPM.QUOTE_NO] = quoteNo; r[CPM.QUOTE_ID] = q.mgmtId; r[CPM.QUOTE_PRICE] = q.price || '';
+      } else {
+        r[CPM.QUOTE_NO] = ''; r[CPM.QUOTE_ID] = ''; r[CPM.QUOTE_PRICE] = '';
+      }
+      r[CPM.UPDATED_AT] = now;
+      sh.getRange(idx[k] + 2, 1, 1, CPM_HEADERS.length).setValues([r]);
+      updated.push(_cpmToObj(r, idx[k] + 2));
+    });
+    if (!updated.length) return { success: false, error: 'マスタに該当する部品コードがありません' };
+    return { success: true, items: updated };
+  } catch (e) {
+    return { success: false, error: e.message };
+  } finally {
+    lock.releaseLock();
+  }
+}

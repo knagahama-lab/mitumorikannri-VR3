@@ -70,7 +70,9 @@ function cpmRender() {
         <td style="font-size:11px;">${_esc(m.drawing)}</td>
         <td>${_esc(m.modelCode)}</td>
         <td>${m.variant ? `<span class="of-tag ${m.variant === '量産' ? 'ok' : 'info'}">${_esc(m.variant)}</span>` : ''}</td>
-        <td>${m.quoteNo ? `<b>${_esc(m.quoteNo)}</b> <span style="font-size:11px;color:var(--text-sub);">${_cpmYen(m.quotePrice)}</span>` : '<span class="of-tag warn">未紐づけ</span>'}</td>
+        <td onclick="event.stopPropagation();">${m.quoteNo
+          ? `<b>${_esc(m.quoteNo)}</b> <span style="font-size:11px;color:var(--text-sub);">${_cpmYen(m.quotePrice)}</span> <a href="#" title="見積を変更" onclick="event.preventDefault();cpmOpenQuotePicker('${_ofq(m.client)}','${_ofq(m.code)}')" style="text-decoration:none;">✎</a>`
+          : `<button class="btn btn-outline btn-sm" style="font-size:11px;padding:2px 8px;color:#b45309;border-color:#f59e0b;" onclick="cpmOpenQuotePicker('${_ofq(m.client)}','${_ofq(m.code)}')">＋ 見積を紐づけ</button>`}</td>
         <td style="font-size:12px;">${_esc(m.lastDate)} <span style="color:var(--text-sub);">No.${_esc(m.lastOrderNo)}</span></td>
         <td style="text-align:right;">${m.lastQty || ''}</td>
         <td style="text-align:right;" class="${priceDiff ? 'cpm-diff' : ''}" title="${priceDiff ? '見積単価 ' + _cpmYen(m.quotePrice) + ' と異なる' : ''}">${_cpmYen(m.lastPrice)}</td>
@@ -121,9 +123,16 @@ function _cpmRenderDetail() {
     <div style="font-size:13px;margin-bottom:10px;"><b>${_esc(m.name)}</b>
       <div style="font-size:12px;color:var(--text-sub);margin-top:2px;">${_esc(m.client)}｜図番 ${_esc(m.drawing || '—')}｜機種 ${_esc(m.modelCode || '—')}｜初回 ${_esc(m.firstDate)}｜発注 ${m.count}回</div></div>
     <div class="of-grid2">
-      <div><label>弊社見積No.</label><input id="cpm-f-quote" list="cpm-dl-quotes" value="${_esc(m.quoteNo)}" placeholder="例）Q-2026-0123">
-        ${suggest ? `<div style="font-size:11px;margin-top:3px;">候補（注文で紐づいた見積）: <a href="#" onclick="event.preventDefault();document.getElementById('cpm-f-quote').value='${_ofq(suggest)}'">${_esc(suggest)} を使う</a></div>` : ''}</div>
-      <div><label>見積単価（空欄なら見積書から自動取得）</label><input id="cpm-f-qprice" inputmode="decimal" value="${m.quotePrice || ''}"></div>
+      <div style="grid-column:1/-1;"><label>弊社見積</label>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;border:1px solid var(--border);border-radius:6px;padding:8px 10px;">
+          ${m.quoteNo ? `<b>${_esc(m.quoteNo)}</b><span style="font-size:12px;color:var(--text-sub);">${_esc(_cpmQuoteLabel(m.quoteNo))}</span>` : '<span class="of-tag warn">未紐づけ</span>'}
+          <span style="flex:1;"></span>
+          <button class="btn btn-outline btn-sm" onclick="cpmOpenQuotePicker('${_ofq(m.client)}','${_ofq(m.code)}','no')">🔢 見積番号で登録</button>
+          <button class="btn btn-primary btn-sm" onclick="cpmOpenQuotePicker('${_ofq(m.client)}','${_ofq(m.code)}','search')">🔍 見積書を検索して登録</button>
+          ${m.quoteNo ? `<button class="btn btn-outline btn-sm" style="color:var(--danger);" onclick="cpmUnlinkQuote()">解除</button>` : ''}
+        </div>
+        ${suggest ? `<div style="font-size:11px;margin-top:3px;">候補（注文で紐づいた見積）: <a href="#" onclick="event.preventDefault();cpmLinkQuote('${_ofq(suggest)}',[{client:'${_ofq(m.client)}',code:'${_ofq(m.code)}'}])">${_esc(suggest)} を登録</a></div>` : ''}</div>
+      <div><label>見積単価（見積登録時に見積書から自動取得。手修正可）</label><input id="cpm-f-qprice" inputmode="decimal" value="${m.quotePrice || ''}"></div>
       <div><label>弊社基板名・品名</label><input id="cpm-f-board" value="${_esc(m.boardName)}"></div>
       <div><label>区分</label><select id="cpm-f-variant">${['', '見本機', '量産', '試作'].map(v => `<option${v === m.variant ? ' selected' : ''}>${v}</option>`).join('')}</select></div>
       <div style="grid-column:1/-1;"><label>備考</label><input id="cpm-f-note" value="${_esc(m.note)}"></div>
@@ -147,10 +156,10 @@ function _cpmRenderDetail() {
 function cpmSave() {
   const m = CPMS.cur.master;
   const p = { client: m.client, code: m.code,
-    quoteNo: document.getElementById('cpm-f-quote').value.trim(), quotePrice: document.getElementById('cpm-f-qprice').value.trim(),
+    quotePrice: document.getElementById('cpm-f-qprice').value.trim(),
     boardName: document.getElementById('cpm-f-board').value.trim(), variant: document.getElementById('cpm-f-variant').value,
     note: document.getElementById('cpm-f-note').value.trim(), confirmed: document.getElementById('cpm-f-conf').checked };
-  if (p.quoteNo !== m.quoteNo && String(p.quotePrice) === String(m.quotePrice || '')) p.quotePrice = ''; // 見積を変えたら単価は再取得
+  // 見積の紐づけ自体は「見積番号で登録」「見積書を検索して登録」（cpmLinkQuote）で行う
   _ofApi('cpmSave', p, res => {
     showToast('保存しました');
     const i = CPMS.items.findIndex(x => x.client === m.client && x.code === m.code); if (i >= 0) CPMS.items[i] = res.item;

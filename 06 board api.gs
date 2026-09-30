@@ -287,6 +287,8 @@ function handleApiRequest(action, payload) {
       case 'cpmSave':     return apiCpmSave(payload);
       case 'cpmRebuild':  return apiCpmRebuild();
       case 'cpmForOrder': return apiCpmForOrder(payload);
+      case 'cpmImport':   return apiCpmImport(payload);
+      case 'cpmLinkQuote': return apiCpmLinkQuote(payload);
       default: return { success: false, error: '不明なアクション: ' + action };
     }
     

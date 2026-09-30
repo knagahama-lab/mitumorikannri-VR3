@@ -1,0 +1,360 @@
+<script>
+// ============================================================
+// custparts_ext_js.html
+//   ・客先部品コードに弊社見積を紐づけ登録（① 見積番号入力 ② 見積書検索）
+//       検索は「同名基板（品名から抽出した基板名・型番）」「ジャンル（PCB・仕掛基板…）」
+//       「取引先」「機種」「キーワード」で絞り込み
+//   ・客先部品コードの Excel / CSV 取込（登録済みはスキップ）
+// custparts_js.html の後に読み込む
+// ============================================================
+
+// ── 共通 ──
+const _cpmNorm = s => String(s == null ? '' : s).normalize('NFKC').toUpperCase().replace(/[\s　]/g, '');
+function _cpmEnsureModal(id, title, width) {
+  let el = document.getElementById(id);
+  if (el) return el;
+  el = document.createElement('div');
+  el.className = 'modal-overlay'; el.id = id; el.style.zIndex = '460';
+  el.onclick = e => { if (e.target === el) el.classList.remove('open'); };
+  el.innerHTML = `<div class="modal" style="max-width:${width || 980}px;"><div class="modal-head"><h3 class="cpm-mt">${title}</h3>
+    <button class="modal-close" onclick="document.getElementById('${id}').classList.remove('open')">✕</button></div><div class="modal-body"></div></div>`;
+  document.body.appendChild(el);
+  return el;
+}
+function _cpmQuotes() { return (typeof _allQuotes !== 'undefined' && _allQuotes) ? _allQuotes.filter(q => q.quoteNo) : []; }
+function _cpmFindQuote(no) { no = String(no || '').trim(); return no ? _cpmQuotes().find(q => q.quoteNo === no) : null; }
+function _cpmQuoteLabel(no) {
+  const q = _cpmFindQuote(no); if (!q) return '';
+  return [q.issueDate || q.quoteDate, q.subject, q.quoteAmount ? Number(q.quoteAmount).toLocaleString() + '円' : ''].filter(Boolean).join('　');
+}
+// 見積書一覧のデータが未読込なら読み込んでから実行
+function _cpmWithQuotes(fn) {
+  if (_cpmQuotes().length) { fn(); return; }
+  showToast('見積書一覧を読み込み中...');
+  if (typeof loadQuoteList === 'function') loadQuoteList();
+  let n = 0;
+  const t = setInterval(() => { if (_cpmQuotes().length || ++n > 40) { clearInterval(t); fn(); } }, 500);
+}
+
+// ── 紐づけ登録（サーバー保存） ──
+function cpmLinkQuote(quoteNo, items, done) {
+  _ofApi('cpmLinkQuote', { quoteNo, items }, res => {
+    res.items.forEach(it => { const i = CPMS.items.findIndex(x => x.client === it.client && x.code === it.code); if (i >= 0) CPMS.items[i] = it; });
+    showToast(`見積 ${quoteNo} を ${res.items.length}件の部品コードに登録しました`);
+    cpmRender();
+    const cur = CPMS.cur && CPMS.cur.master;
+    if (cur && document.getElementById('cpm-modal').classList.contains('open') && res.items.some(x => x.client === cur.client && x.code === cur.code)) cpmOpen(cur.client, cur.code);
+    if (done) done();
+  });
+}
+function cpmUnlinkQuote() {
+  const m = CPMS.cur.master;
+  if (!confirm(`部品コード ${m.code} から見積 ${m.quoteNo} の紐づけを解除しますか？`)) return;
+  _ofApi('cpmLinkQuote', { quoteNo: '', unlink: true, items: [{ client: m.client, code: m.code }] }, res => {
+    const i = CPMS.items.findIndex(x => x.client === m.client && x.code === m.code); if (i >= 0) CPMS.items[i] = res.items[0];
+    showToast('紐づけを解除しました'); cpmRender(); cpmOpen(m.client, m.code);
+  });
+}
+
+// ============================================================
+// 見積書ピッカー
+// ============================================================
+const QP = { target: null, tokens: [], selTokens: new Set(), genre: 'all', sameClient: true, sameModel: false, kw: '', bulk: new Set() };
+
+// 客先品名から「同名基板」の候補語を抽出：型番（FJ+M2503A, SNB52163, E2301B…）と日本語の基板名（液晶演出制御基板…）
+function _cpmBoardTokens(m) {
+  const src = String(m.name || '').normalize('NFKC') + ' ' + String(m.drawing || '');
+  const set = new Map();
+  (src.match(/[A-Z0-9][A-Z0-9+\-]*[0-9][A-Z0-9+\-]*/gi) || []).forEach(t => {
+    t = t.replace(/^[-+]+|[-+]+$/g, '');
+    if (t.length >= 4 && !/^\d{1,4}$/.test(t)) set.set(_cpmNorm(t), t);
+  });
+  (src.match(/[぀-ヿ一-鿿ｦ-ﾟ]{0,12}基板/g) || []).forEach(t => { if (t.length >= 3) set.set(_cpmNorm(t), t); });
+  if (m.modelCode && m.modelCode !== '***') set.delete(_cpmNorm(m.modelCode)); // 機種は別フィルタ
+  return [...set.values()];
+}
+function _cpmQuoteText(q) { return _cpmNorm([q.subject, q.boardName, q.modelCode, q.machineCode, q.detailText, q.quoteNo].join(' ')); }
+function _cpmGenreOf(q) { return (typeof _quoteCategoryInfo === 'function') ? _quoteCategoryInfo(q).value : (q.category || ''); }
+
+function cpmOpenQuotePicker(client, code, mode) {
+  const m = CPMS.items.find(x => x.client === client && x.code === code) || (CPMS.cur && CPMS.cur.master);
+  if (!m) return;
+  _cpmWithQuotes(() => {
+    QP.target = m; QP.kw = ''; QP.bulk = new Set(); QP.sameModel = false;
+    QP.sameClient = _cpmQuotes().some(q => _cpmClientMatch(q, m.client));
+    QP.tokens = _cpmBoardTokens(m);
+    // 初期値：結果が出る範囲で最も具体的な基板名／推定ジャンルを選択
+    QP.selTokens = new Set(); QP.genre = 'all';
+    const best = QP.tokens.filter(t => /[0-9]/.test(t)).sort((a, b) => b.length - a.length).find(t => _qpResults({ tokens: [t] }).length);
+    if (best) QP.selTokens.add(best);
+    const g = typeof _guessQuoteCategory === 'function' ? _guessQuoteCategory({ subject: m.name }) : '';
+    if (g && _qpResults({ genre: g }).length) QP.genre = g;
+    const el = _cpmEnsureModal('cpm-qp-modal', '🔗 弊社見積の紐づけ登録', 1080);
+    el.querySelector('.cpm-mt').textContent = `🔗 弊社見積の紐づけ登録 — ${m.code}`;
+    el.querySelector('.modal-body').innerHTML = _qpShell(m);
+    el.classList.add('open');
+    _qpRenderFilters(); _qpRenderResults();
+    const noInput = document.getElementById('qp-no');
+    if (mode === 'no') setTimeout(() => noInput.focus(), 50); else setTimeout(() => document.getElementById('qp-kw').focus(), 50);
+  });
+}
+function _cpmClientMatch(q, clientKey) {
+  const c = _cpmNorm(q.destCompany || q.client || q.dest || '');
+  return !!clientKey && c.includes(_cpmNorm(clientKey));
+}
+function _qpShell(m) {
+  return `
+    <div style="font-size:13px;margin-bottom:10px;padding:8px 10px;background:#fdf2f8;border:1px solid #fbcfe8;border-radius:6px;">
+      <span class="cpm-code">${_esc(m.code)}</span>　${_esc(m.name)}
+      <span style="font-size:12px;color:var(--text-sub);">｜${_esc(m.client)}｜機種 ${_esc(m.modelCode || '—')}｜前回 ${_esc(m.lastDate)} ${_cpmYen(m.lastPrice)}</span>
+      ${m.quoteNo ? `<div style="font-size:12px;margin-top:3px;">現在の紐づけ: <b>${_esc(m.quoteNo)}</b>（変更すると上書きされます）</div>` : ''}
+    </div>
+    <div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:12px;">
+      <div style="font-weight:700;font-size:13px;margin-bottom:6px;">🔢 見積番号で登録</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <input id="qp-no" class="of-in" style="max-width:260px;" list="cpm-dl-quotes" placeholder="見積番号を入力" oninput="_qpNoPreview()" onkeydown="if(event.key==='Enter')_qpLinkByNo()">
+        <button class="btn btn-primary btn-sm" onclick="_qpLinkByNo()">登録</button>
+        <span id="qp-no-preview" style="font-size:12px;color:var(--text-sub);"></span>
+      </div>
+    </div>
+    <div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;">
+      <div style="font-weight:700;font-size:13px;margin-bottom:8px;">🔍 見積書を検索して登録</div>
+      <div id="qp-filters"></div>
+      <div id="qp-results" style="margin-top:8px;"></div>
+      <div id="qp-bulk" style="margin-top:10px;"></div>
+    </div>`;
+}
+function _qpNoPreview() {
+  const v = document.getElementById('qp-no').value.trim();
+  const q = _cpmFindQuote(v);
+  document.getElementById('qp-no-preview').innerHTML = !v ? '' : q
+    ? `✅ ${_esc([q.issueDate || q.quoteDate, q.destCompany || q.client, q.subject].filter(Boolean).join('｜'))}`
+    : '<span style="color:#b45309;">見積書一覧に見つかりません（見積台帳のみの見積なら登録時にサーバーで確認します）</span>';
+}
+function _qpTargets() {
+  return [{ client: QP.target.client, code: QP.target.code }].concat([...QP.bulk].map(code => ({ client: QP.target.client, code })));
+}
+function _qpLinkByNo() {
+  const v = document.getElementById('qp-no').value.trim();
+  if (!v) { showToast('見積番号を入力してください', true); return; }
+  cpmLinkQuote(v, _qpTargets(), () => document.getElementById('cpm-qp-modal').classList.remove('open'));
+}
+function _qpPick(quoteNo) {
+  const n = QP.bulk.size;
+  if (!confirm(`見積 ${quoteNo} を部品コード ${QP.target.code}${n ? ` ほか${n}件` : ''} に登録します。よろしいですか？`)) return;
+  cpmLinkQuote(quoteNo, _qpTargets(), () => document.getElementById('cpm-qp-modal').classList.remove('open'));
+}
+
+// 絞り込み（opts で一時的に条件を上書きして件数確認にも使う）
+function _qpResults(opts) {
+  opts = opts || {};
+  const m = QP.target;
+  const tokens = (opts.tokens || [...QP.selTokens]).map(_cpmNorm);
+  const genre = opts.genre || QP.genre;
+  const kws = _cpmNorm(opts.kw != null ? opts.kw : QP.kw) ? String(opts.kw != null ? opts.kw : QP.kw).split(/\s+/).map(_cpmNorm).filter(Boolean) : [];
+  const sameClient = opts.sameClient != null ? opts.sameClient : QP.sameClient;
+  const sameModel = opts.sameModel != null ? opts.sameModel : QP.sameModel;
+  return _cpmQuotes().filter(q => {
+    if (sameClient && !_cpmClientMatch(q, m.client)) return false;
+    if (sameModel && m.modelCode && m.modelCode !== '***' && !_cpmNorm(q.modelCode || q.machineCode).includes(_cpmNorm(m.modelCode))) return false;
+    if (genre !== 'all') { const g = _cpmGenreOf(q); if (genre === '__none__' ? !!g : g !== genre) return false; }
+    const t = _cpmQuoteText(q);
+    return tokens.every(k => t.includes(k)) && kws.every(k => t.includes(k));
+  }).sort((a, b) => String(b.issueDate || b.quoteDate || '').localeCompare(String(a.issueDate || a.quoteDate || '')));
+}
+function _qpRenderFilters() {
+  const m = QP.target;
+  const chip = (on, label, onclick, count) => `<button class="btn btn-sm ${on ? 'btn-primary' : 'btn-outline'}" style="font-size:11px;padding:3px 9px;" onclick="${onclick}">${label}${count != null ? ` <span style="opacity:.75;">${count}</span>` : ''}</button>`;
+  const genres = [['all', 'すべて']].concat(QUOTE_CATEGORIES.map(c => [c, ((_QCAT_MAP[c] || {}).icon || '') + ' ' + c])).concat([['__none__', '未分類']]);
+  document.getElementById('qp-filters').innerHTML = `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
+      <input id="qp-kw" class="of-in" style="flex:1;min-width:220px;" placeholder="キーワード（件名・基板名・見積番号）" value="${_esc(QP.kw)}" oninput="QP.kw=this.value;clearTimeout(window._qpT);window._qpT=setTimeout(()=>{_qpRenderFilters();_qpRenderResults();document.getElementById('qp-kw').focus();const i=document.getElementById('qp-kw');i.setSelectionRange(i.value.length,i.value.length);},250)">
+      <label style="font-size:12px;display:flex;align-items:center;gap:4px;"><input type="checkbox" ${QP.sameClient ? 'checked' : ''} onchange="QP.sameClient=this.checked;_qpRenderFilters();_qpRenderResults()"> 同じ取引先（${_esc(m.client)}）</label>
+      ${m.modelCode && m.modelCode !== '***' ? `<label style="font-size:12px;display:flex;align-items:center;gap:4px;"><input type="checkbox" ${QP.sameModel ? 'checked' : ''} onchange="QP.sameModel=this.checked;_qpRenderFilters();_qpRenderResults()"> 同じ機種（${_esc(m.modelCode)}）</label>` : ''}
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px;">
+      <span style="font-size:12px;color:var(--text-sub);min-width:64px;">同名基板:</span>
+      ${QP.tokens.length ? QP.tokens.map(t => chip(QP.selTokens.has(t), '🔬 ' + _esc(t), `_qpToggleToken('${_ofq(t)}')`,
+          _qpResults({ tokens: [...new Set([...QP.selTokens, t])] }).length)).join('') : '<span style="font-size:12px;color:var(--text-muted);">品名から基板名を抽出できませんでした（キーワードで検索してください）</span>'}
+      ${QP.selTokens.size ? `<a href="#" style="font-size:11px;" onclick="event.preventDefault();QP.selTokens.clear();_qpRenderFilters();_qpRenderResults()">解除</a>` : ''}
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+      <span style="font-size:12px;color:var(--text-sub);min-width:64px;">ジャンル:</span>
+      ${genres.map(([k, l]) => chip(QP.genre === k, l, `QP.genre='${k}';_qpRenderFilters();_qpRenderResults()`, _qpResults({ genre: k }).length)).join('')}
+    </div>`;
+}
+function _qpToggleToken(t) { QP.selTokens.has(t) ? QP.selTokens.delete(t) : QP.selTokens.add(t); _qpRenderFilters(); _qpRenderResults(); }
+function _qpRenderResults() {
+  const list = _qpResults();
+  const box = document.getElementById('qp-results');
+  if (!list.length) {
+    box.innerHTML = '<div class="loading" style="padding:16px;">該当する見積書がありません。同名基板・ジャンルの条件を外すか、キーワードを変えてください。</div>';
+  } else {
+    const hl = s => _esc(s || '');
+    box.innerHTML = `<div style="font-size:12px;color:var(--text-sub);margin-bottom:4px;">${list.length}件${list.length > 200 ? '（新しい順に200件表示）' : ''}</div>
+      <div style="max-height:46vh;overflow:auto;border:1px solid var(--border);border-radius:6px;"><table class="of-table"><thead><tr>
+        <th>ジャンル</th><th>見積No.</th><th>発行日</th><th>宛先</th><th>件名</th><th>基板名</th><th>機種</th><th style="text-align:right;">金額</th><th>PDF</th><th></th></tr></thead><tbody>` +
+      list.slice(0, 200).map(q => { const ci = typeof _quoteCategoryInfo === 'function' ? _quoteCategoryInfo(q) : { value: q.category }; const cur = QP.target.quoteNo === q.quoteNo; return `
+        <tr style="${cur ? 'background:#ecfdf5;' : ''}">
+          <td>${typeof _catBadge === 'function' ? _catBadge(ci.value, ci.guessed) : _esc(ci.value)}</td>
+          <td style="white-space:nowrap;"><b>${_esc(q.quoteNo)}</b>${cur ? ' <span class="of-tag ok">現在</span>' : ''}</td>
+          <td style="white-space:nowrap;">${_esc(q.issueDate || q.quoteDate || '')}</td>
+          <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${_esc(q.destCompany || q.client || '')}</td>
+          <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${_esc(q.subject)}">${hl(q.subject)}</td>
+          <td style="white-space:nowrap;">${hl(q.boardName)}</td>
+          <td>${_esc(q.modelCode || q.machineCode || '')}</td>
+          <td style="text-align:right;white-space:nowrap;">${q.quoteAmount ? Number(q.quoteAmount).toLocaleString() : ''}</td>
+          <td>${q.quotePdfUrl ? `<a class="pdf-link" href="${_esc(q.quotePdfUrl)}" target="_blank">PDF</a>` : ''}</td>
+          <td><button class="btn btn-primary btn-sm" style="white-space:nowrap;" onclick="_qpPick('${_ofq(q.quoteNo)}')">この見積を登録</button></td>
+        </tr>`; }).join('') + '</tbody></table></div>';
+  }
+  _qpRenderBulk();
+}
+// 同名基板の未紐づけ品番（同じ取引先）にもまとめて登録
+function _qpRenderBulk() {
+  const m = QP.target; const toks = [...QP.selTokens].map(_cpmNorm);
+  const box = document.getElementById('qp-bulk');
+  if (!toks.length) { box.innerHTML = ''; return; }
+  const others = CPMS.items.filter(x => x.client === m.client && x.code !== m.code && !x.quoteNo && toks.every(t => _cpmNorm(x.name + ' ' + x.drawing).includes(t)));
+  if (!others.length) { box.innerHTML = ''; return; }
+  box.innerHTML = `<details ${QP.bulk.size ? 'open' : ''}><summary style="font-size:12px;cursor:pointer;">📎 同じ基板名の未紐づけ品番 ${others.length}件にもまとめて登録する（任意・${QP.bulk.size}件選択中）</summary>
+    <div style="max-height:160px;overflow:auto;margin-top:6px;">${others.map(x => `<label style="display:flex;gap:6px;align-items:center;font-size:12px;padding:2px 0;">
+      <input type="checkbox" ${QP.bulk.has(x.code) ? 'checked' : ''} onchange="this.checked?QP.bulk.add('${_ofq(x.code)}'):QP.bulk.delete('${_ofq(x.code)}');_qpRenderBulk()">
+      <span class="cpm-code">${_esc(x.code)}</span> ${_esc(x.name)} <span style="color:var(--text-sub);">${_esc(x.variant || '')} ${_esc(x.lastDate)}</span></label>`).join('')}</div></details>`;
+}
+
+// ============================================================
+// Excel / CSV 取込（登録済みの部品コードはスキップ）
+// ============================================================
+const CPM_IMP = { wb: null, rows: [] };
+const CPM_TEMPLATE_HEADERS = ['取引先','客先部品コード','客先品名','図番','機種コード','区分','弊社見積No','見積単価','弊社基板名','前回単価','前回数量','前回発注日','前回発注書No','備考'];
+const CPM_CODE_HEADERS = ['客先部品コード','部品コード','客先品番','品番','部品番号','パーツコード'];
+
+function cpmOpenImport() {
+  const el = _cpmEnsureModal('cpm-import-modal', '📤 客先部品コード Excel/CSV取込', 920);
+  const clients = new Set(Object.keys(CPMS.clients || {}));
+  (typeof _clientMasterList !== 'undefined' ? _clientMasterList : []).forEach(c => { if (!c.isFallback && c.name) clients.add(c.name); });
+  el.querySelector('.modal-body').innerHTML = `
+    <div style="font-size:12px;color:var(--text-sub);line-height:1.7;margin-bottom:10px;">
+      1行目を見出しにしてください。<b>必須：客先部品コード</b>（「部品コード」「品番」も可）。<br>
+      任意：取引先・客先品名・図番・機種コード・区分・弊社見積No・見積単価・弊社基板名・前回単価・前回数量・前回発注日・前回発注書No・備考<br>
+      <b>同じ取引先で既に登録済みの部品コードは登録せずスキップ</b>します（既存データは変更しません）。「CSV出力」したファイルもそのまま取り込めます。<br>
+      ※ Excelで部品コードの先頭の0が消えている場合は、セルの書式を「文字列」にしてから保存してください。
+    </div>
+    <div class="of-grid2">
+      <div><label>取引先（ファイルに「取引先」列が無い行に適用）</label><input id="cpm-imp-client" list="cpm-dl-clients" placeholder="例）藤商事" value="${_esc(CPMS.tab !== 'all' ? CPMS.tab : '')}">
+        <datalist id="cpm-dl-clients">${[...clients].map(c => `<option value="${_esc(c)}">`).join('')}</datalist></div>
+      <div><label>ファイル（.xlsx / .xls / .csv）</label><input type="file" id="cpm-imp-file" accept=".xlsx,.xls,.csv,text/csv" onchange="cpmImportRead(this.files[0])"></div>
+      <div id="cpm-imp-sheet-wrap" style="display:none;"><label>シート</label><select id="cpm-imp-sheet" onchange="cpmImportParseSheet()"></select></div>
+      <div style="display:flex;align-items:flex-end;"><label style="font-size:13px;display:flex;align-items:center;gap:6px;margin:0 0 6px;"><input type="checkbox" id="cpm-imp-conf" checked> 取り込んだ品番を「確認済」にする</label></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
+      <button class="btn btn-outline btn-sm" onclick="cpmImportTemplate()">📄 テンプレートCSV</button>
+      <button class="btn btn-outline btn-sm" id="cpm-imp-recheck" style="display:none;" onclick="cpmImportPreview()">↻ 取引先を変えて再判定</button>
+    </div>
+    <div id="cpm-imp-result" style="margin-top:12px;"></div>`;
+  CPM_IMP.wb = null; CPM_IMP.rows = [];
+  el.classList.add('open');
+}
+function cpmImportTemplate() {
+  _downloadCsv('客先部品コード_取込テンプレート.csv', CPM_TEMPLATE_HEADERS,
+    [['藤商事', '2601156062', 'A84C 液晶演出制御基板(SNB52163A-00/E2301B)(完)(見本機)', 'SNB52163A-00/E2301B', 'A84C', '見本機', '', '', '', '2275', '23', '2026/09/29', '206424', '']]);
+}
+// SheetJS は取込時にだけ読み込む
+function _cpmLoadXlsx() {
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  return new Promise((ok, ng) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload = () => ok(window.XLSX); s.onerror = () => ng(new Error('Excel読込ライブラリを取得できませんでした（ネットワークを確認してください）'));
+    document.head.appendChild(s);
+  });
+}
+function cpmImportRead(file) {
+  if (!file) return;
+  const out = document.getElementById('cpm-imp-result');
+  out.innerHTML = '<div class="loading"><div class="spinner"></div><br>ファイルを読み込み中...</div>';
+  const isCsv = /\.csv$/i.test(file.name);
+  const fr = new FileReader();
+  fr.onload = () => {
+    _cpmLoadXlsx().then(XLSX => {
+      if (isCsv) {
+        let text;
+        try { text = new TextDecoder('utf-8', { fatal: true }).decode(fr.result); }
+        catch (e) { text = new TextDecoder('shift_jis').decode(fr.result); } // Excel保存のCSV（Shift_JIS）
+        CPM_IMP.wb = XLSX.read(text.replace(/^﻿/, ''), { type: 'string', raw: true }); // raw: 部品コードを数値化しない
+      } else {
+        CPM_IMP.wb = XLSX.read(new Uint8Array(fr.result), { type: 'array', cellDates: true });
+      }
+      const sel = document.getElementById('cpm-imp-sheet');
+      sel.innerHTML = CPM_IMP.wb.SheetNames.map(n => `<option>${_esc(n)}</option>`).join('');
+      document.getElementById('cpm-imp-sheet-wrap').style.display = CPM_IMP.wb.SheetNames.length > 1 ? '' : 'none';
+      const best = CPM_IMP.wb.SheetNames.find(n => _cpmSheetRows(CPM_IMP.wb.Sheets[n]).header >= 0);
+      if (best) sel.value = best;
+      cpmImportParseSheet();
+    }).catch(e => { out.innerHTML = `<div style="color:var(--danger);">${_esc(e.message)}</div>`; });
+  };
+  fr.readAsArrayBuffer(file);
+}
+// 見出し行は先頭20行から「部品コード」系の列を含む行を探す
+function _cpmSheetRows(ws) {
+  const arr = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: '', dateNF: 'yyyy/mm/dd', blankrows: false });
+  const norm = v => String(v || '').replace(/[\s　]/g, '');
+  const header = arr.slice(0, 20).findIndex(r => r.some(c => CPM_CODE_HEADERS.includes(norm(c))));
+  if (header < 0) return { header: -1, rows: [] };
+  const heads = arr[header].map(norm);
+  const rows = arr.slice(header + 1).map((r, i) => {
+    const o = { __rowNo: header + i + 2 };
+    heads.forEach((h, j) => { if (h) o[h] = String(r[j] == null ? '' : r[j]).trim(); });
+    return o;
+  }).filter(o => Object.keys(o).some(k => k !== '__rowNo' && o[k] !== ''));
+  return { header, rows };
+}
+function cpmImportParseSheet() {
+  const out = document.getElementById('cpm-imp-result');
+  const parsed = _cpmSheetRows(CPM_IMP.wb.Sheets[document.getElementById('cpm-imp-sheet').value]);
+  if (parsed.header < 0) {
+    out.innerHTML = '<div style="color:var(--danger);">「客先部品コード」（または「部品コード」「品番」）の見出しが見つかりません。先頭20行以内に見出し行を置いてください。</div>';
+    CPM_IMP.rows = []; return;
+  }
+  CPM_IMP.rows = parsed.rows;
+  cpmImportPreview();
+}
+function _cpmImportPayload(dryRun) {
+  return { rows: CPM_IMP.rows, defaultClient: document.getElementById('cpm-imp-client').value.trim(),
+           confirmed: document.getElementById('cpm-imp-conf').checked, dryRun };
+}
+function cpmImportPreview() {
+  const out = document.getElementById('cpm-imp-result');
+  if (!CPM_IMP.rows.length) { out.innerHTML = '<div class="loading">取り込む行がありません</div>'; return; }
+  out.innerHTML = `<div class="loading"><div class="spinner"></div><br>${CPM_IMP.rows.length}行を判定中...</div>`;
+  document.getElementById('cpm-imp-recheck').style.display = '';
+  _ofApi('cpmImport', _cpmImportPayload(true), res => { out.innerHTML = _cpmImportResultHtml(res, true); }, () => { out.innerHTML = ''; });
+}
+function cpmImportApply() {
+  const out = document.getElementById('cpm-imp-result');
+  out.innerHTML = '<div class="loading"><div class="spinner"></div><br>登録中...</div>';
+  _ofApi('cpmImport', _cpmImportPayload(false), res => {
+    out.innerHTML = _cpmImportResultHtml(res, false);
+    showToast(`${res.added}件を登録しました（登録済み等でスキップ ${res.skippedCount}件）`);
+    cpmLoad();
+  }, () => { out.innerHTML = ''; });
+}
+function _cpmImportResultHtml(res, preview) {
+  const sum = [['新規登録' + (preview ? '予定' : ''), res.added, 'ok'], ['スキップ（登録済み・重複）', res.skippedCount, ''], ['エラー', res.errorCount, res.errorCount ? 'bad' : '']]
+    .map(([l, n, c]) => `<div class="of-sum ${n ? c : ''}" style="padding:4px 12px;"><b style="font-size:16px;">${n}</b>${l}</div>`).join('');
+  const tbl = (head, body) => `<div style="max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:6px;margin-top:6px;"><table class="of-table"><thead><tr>${head.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table></div>`;
+  let html = `<div class="of-summary" style="margin-bottom:6px;">${sum}</div>`;
+  if (res.newItems.length) html += `<div style="font-size:13px;font-weight:700;margin-top:8px;">🆕 ${preview ? '登録される' : '登録した'}品番</div>` + tbl(['行', '取引先', '部品コード', '品名', '弊社見積'],
+    res.newItems.map(x => `<tr><td>${x.rowNo}</td><td>${_esc(x.client)}</td><td class="cpm-code">${_esc(x.code)}</td><td>${_esc(x.name)}</td>
+      <td>${x.quoteNo ? _esc(x.quoteNo) + (x.quoteFound ? ` ${_cpmYen(x.quotePrice)}` : ' <span class="of-tag warn">見積が見つかりません</span>') : '—'}</td></tr>`).join(''));
+  if (res.skipped.length) html += `<details style="margin-top:8px;"><summary style="font-size:13px;cursor:pointer;">⏭ スキップ ${res.skippedCount}件（登録済みのため登録しません）</summary>` + tbl(['行', '取引先', '部品コード', '品名', '理由'],
+    res.skipped.map(x => `<tr style="color:var(--text-sub);"><td>${x.rowNo}</td><td>${_esc(x.client)}</td><td class="cpm-code">${_esc(x.code)}</td><td>${_esc(x.name)}</td><td>${_esc(x.reason)}</td></tr>`).join('')) + '</details>';
+  if (res.errors.length) html += `<div style="font-size:13px;font-weight:700;margin-top:8px;color:#991b1b;">⚠ 取り込めない行</div>` + tbl(['行', '内容'],
+    res.errors.map(e => `<tr><td>${e.rowNo}</td><td>${_esc((e.code ? e.code + '：' : '') + e.message)}</td></tr>`).join(''));
+  html += preview
+    ? `<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">${res.added ? `<button class="btn btn-primary btn-sm" onclick="cpmImportApply()">✅ 新規 ${res.added}件を登録する</button>` : '<span style="font-size:13px;color:var(--text-sub);">新規に登録する品番はありません</span>'}</div>`
+    : `<div style="text-align:right;margin-top:12px;"><button class="btn btn-outline btn-sm" onclick="document.getElementById('cpm-import-modal').classList.remove('open')">閉じる</button></div>`;
+  return html;
+}
+</script>
