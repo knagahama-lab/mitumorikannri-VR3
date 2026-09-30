@@ -297,6 +297,11 @@ function handleApiRequest(action, payload) {
       case 'cpqList':       return apiCpqList();
       case 'cpqRegister':   return apiCpqRegister(payload);
       case 'cpqUnregister': return apiCpqUnregister(payload);
+      // ★ 客先部品コードの取りこぼし対策（38_partcode_capture.gs）
+      case 'cpmCaptureStatus':  return apiCpmCaptureStatus();
+      case 'cpmReocrPending':   return apiCpmReocrPending(payload);
+      case 'cpmManualAdd':      return apiCpmManualAdd(payload);
+      case 'cpmSetLineCode':    return apiCpmSetLineCode(payload);
       default: return { success: false, error: '不明なアクション: ' + action };
     }
     

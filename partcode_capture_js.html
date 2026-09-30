@@ -1,0 +1,111 @@
+<script>
+// ============================================================
+// partcode_capture_js.html — 客先部品コードの登録を増やす（38_partcode_capture.gs）
+//   ・取得状況（注文明細のうち部品コード取得済みの割合）を表示
+//   ・＋ 手動登録
+//   ・部品コード未取得の注文PDFを再読取（OCR）して補完
+// custparts_ext_js.html の後に読み込む
+// ============================================================
+const CAP = { status: null, running: false, stop: false };
+
+(function hookCustPartsPage() {
+  const origLoad = cpmLoad;
+  cpmLoad = function() { origLoad.apply(this, arguments); _capInjectButtons(); _capLoadStatus(); };
+  const origRender = cpmRender;
+  cpmRender = function() { origRender.apply(this, arguments); _capRenderStatus(); };
+})();
+
+function _capInjectButtons() {
+  const rebuild = document.querySelector('#page-custparts button[onclick="cpmRebuild()"]');
+  if (!rebuild || document.getElementById('cap-btn-add')) return;
+  const add = document.createElement('button');
+  add.id = 'cap-btn-add'; add.className = 'btn btn-primary btn-sm'; add.textContent = '＋ 手動登録';
+  add.onclick = capOpenManualAdd;
+  rebuild.before(add);
+}
+function _capLoadStatus() {
+  google.script.run.withSuccessHandler(res => { if (res && res.success) { CAP.status = res; _capRenderStatus(); } }).handleApiRequest('cpmCaptureStatus', {});
+}
+function _capRenderStatus() {
+  const s = CAP.status; const sum = document.getElementById('cpm-summary');
+  if (!s || !sum) return;
+  let el = document.getElementById('cap-status');
+  if (!el) { el = document.createElement('div'); el.id = 'cap-status'; sum.after(el); }
+  const pct = s.lines ? Math.round(s.withCode / s.lines * 100) : 0;
+  el.innerHTML = `<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;border:1px solid var(--border);background:#fff;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:13px;">
+    <span>📦 注文明細 <b>${s.lines.toLocaleString()}</b>行中、部品コード取得済み <b>${s.withCode.toLocaleString()}</b>行（<b>${pct}%</b>）</span>
+    <div style="flex:1;min-width:120px;max-width:260px;height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden;"><div style="width:${pct}%;height:100%;background:#16a34a;"></div></div>
+    ${s.pendingOrders ? `<span style="color:#b45309;">未取得の注文 <b>${s.pendingOrders}</b>件（${s.pendingLines}行）</span>
+      <button class="btn btn-outline btn-sm" id="cap-reocr-btn" onclick="capReocr()">🔍 注文書PDFを再読取して補完</button>` : '<span style="color:#16a34a;">未取得の注文はありません ✅</span>'}
+    ${s.confirmedNone ? `<span style="color:var(--text-muted);font-size:12px;">（コード無しと確認済み ${s.confirmedNone}行）</span>` : ''}
+    <span id="cap-progress" style="font-size:12px;"></span></div>`;
+}
+
+// ── 再読取（OCR）：10件ずつ繰り返し実行。途中で止められる ──
+function capReocr() {
+  if (CAP.running) { CAP.stop = true; document.getElementById('cap-progress').textContent = '停止します…（実行中の分が終わり次第）'; return; }
+  const s = CAP.status;
+  if (!confirm(`部品コード未取得の注文 ${s.pendingOrders}件のPDFを新しい注文から順にOCRで再読取し、部品コードを補完します。\n\n・AI（Gemini）の読取を注文1件につき1回使います\n・10件ずつ自動で続けて実行し、途中で「停止」できます\n・部品コードが見つからなかった明細は「コード無し」として記録し、次回以降は対象外になります\n\n開始しますか？`)) return;
+  CAP.running = true; CAP.stop = false;
+  let total = { processed: 0, found: 0, created: 0, failed: 0 };
+  const btn = document.getElementById('cap-reocr-btn'); if (btn) btn.textContent = '⏹ 停止';
+  const step = () => {
+    _ofApi('cpmReocrPending', { max: 10 }, res => {
+      total.processed += res.processed; total.found += res.found; total.created += res.created; total.failed += res.failed.length;
+      const pg = document.getElementById('cap-progress');
+      if (pg) pg.innerHTML = `再読取 ${total.processed}件 → 部品コード <b>${total.found}</b>行を取得、マスタ新規 <b>${total.created}</b>件${total.failed ? `、読取失敗 ${total.failed}件` : ''}／残り ${res.remaining}件`;
+      if (res.remaining > 0 && res.processed > 0 && !CAP.stop) { step(); return; }
+      CAP.running = false;
+      showToast(`再読取完了：部品コード ${total.found}行を取得、マスタ新規 ${total.created}件`);
+      cpmLoad();
+    }, () => { CAP.running = false; cpmLoad(); });
+  };
+  step();
+}
+
+// ── 手動登録 ──
+function capOpenManualAdd() {
+  const el = _cpmEnsureModal('cap-add-modal', '＋ 客先部品コードの手動登録', 720);
+  const clients = new Set(Object.keys(CPMS.clients || {}).filter(c => !(typeof _CFX_BAD === 'function' && _CFX_BAD(c))));
+  (typeof _clientMasterList !== 'undefined' ? _clientMasterList : []).forEach(c => { if (!c.isFallback && c.name) clients.add(c.name); });
+  el.querySelector('.modal-body').innerHTML = `
+    <div class="of-grid2">
+      <div><label>取引先 <span style="color:var(--danger);">*</span></label><input id="cap-client" list="cap-dl-clients" value="${_esc(CPMS.tab !== 'all' ? CPMS.tab : '')}" placeholder="例）藤商事">
+        <datalist id="cap-dl-clients">${[...clients].map(c => `<option value="${_esc(c)}">`).join('')}</datalist></div>
+      <div><label>客先部品コード <span style="color:var(--danger);">*</span></label><input id="cap-code" style="font-family:monospace;" placeholder="例）2601156062" oninput="_capCheckDup()"></div>
+      <div style="grid-column:1/-1;"><label>客先品名</label><input id="cap-name" placeholder="例）A84C 液晶演出制御基板(SNB52163A-00/E2301B)(完)(見本機)"></div>
+      <div><label>図番</label><input id="cap-drawing"></div>
+      <div><label>機種コード</label><input id="cap-model"></div>
+      <div><label>区分</label><select id="cap-variant"><option></option><option>見本機</option><option>量産</option><option>試作</option></select></div>
+      <div><label>弊社基板名</label><input id="cap-board"></div>
+      <div><label>弊社見積No.</label><input id="cap-quote" list="cpm-dl-quotes" placeholder="任意（後から紐づけも可）"></div>
+      <div><label>見積単価</label><input id="cap-qprice" inputmode="decimal" placeholder="空欄なら見積書から自動取得"></div>
+      <div style="grid-column:1/-1;"><label>備考</label><input id="cap-note"></div>
+    </div>
+    <div id="cap-dup" style="font-size:12px;margin-top:6px;"></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;">
+      <span style="font-size:12px;color:var(--text-sub);">まとめて登録する場合は「📤 Excel/CSV取込」をご利用ください</span>
+      <div style="display:flex;gap:6px;"><button class="btn btn-outline btn-sm" onclick="capManualAdd(true)">登録して続けて入力</button><button class="btn btn-primary btn-sm" onclick="capManualAdd(false)">登録</button></div>
+    </div>`;
+  el.classList.add('open');
+  setTimeout(() => document.getElementById(document.getElementById('cap-client').value ? 'cap-code' : 'cap-client').focus(), 50);
+}
+function _capCheckDup() {
+  const code = document.getElementById('cap-code').value.replace(/\s/g, '').toUpperCase();
+  const hit = code && CPMS.items.filter(m => m.code.toUpperCase() === code);
+  document.getElementById('cap-dup').innerHTML = hit && hit.length
+    ? `<span style="color:#b45309;">⚠ 登録済み：${hit.map(m => _esc(m.client + '｜' + m.name)).join('、')}（同じ取引先では登録されません）</span>` : '';
+}
+function capManualAdd(cont) {
+  const v = id => document.getElementById(id).value.trim();
+  const p = { client: v('cap-client'), code: v('cap-code'), name: v('cap-name'), drawing: v('cap-drawing'), modelCode: v('cap-model'),
+              variant: v('cap-variant'), boardName: v('cap-board'), quoteNo: v('cap-quote'), quotePrice: v('cap-qprice'), note: v('cap-note') };
+  if (!p.client || !p.code) { showToast('取引先と客先部品コードは必須です', true); return; }
+  _ofApi('cpmManualAdd', p, () => {
+    showToast(`部品コード ${p.code} を登録しました`);
+    cpmLoad();
+    if (cont) { ['cap-code', 'cap-name', 'cap-drawing', 'cap-board', 'cap-quote', 'cap-qprice', 'cap-note'].forEach(id => document.getElementById(id).value = ''); document.getElementById('cap-dup').innerHTML = ''; document.getElementById('cap-code').focus(); }
+    else document.getElementById('cap-add-modal').classList.remove('open');
+  });
+}
+</script>

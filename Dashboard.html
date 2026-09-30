@@ -7,7 +7,7 @@
 <script>
 // ★ スクリプト読込エラーの見える化：構文エラーでスクリプトが丸ごと無効になった場合に画面上部へ表示
 //   （ボタンが「反応しない」原因をコンソールを開かずに特定するため）
-window.__APP_BUILD__ = '2026-09-30b';
+window.__APP_BUILD__ = '2026-10-01a';
 console.log('%c[見積・注文管理] build ' + window.__APP_BUILD__, 'color:#2563eb;font-weight:bold');
 window.addEventListener('error', function (e) {
   var msg = String(e.message || '');
@@ -1517,6 +1517,7 @@ tr:hover td{background:#f8fafc;}
 <?!= include("custparts_ext_js") ?>
 <?!= include("price_table_js") ?>
 <?!= include("quote_partcodes_js") ?>
+<?!= include("partcode_capture_js") ?>
 
 <!-- ============ カスタム書類 ページ ============ -->
 <div id="page-customdoc" class="page">

@@ -179,22 +179,48 @@ function cpmSave() {
       const slot = document.createElement('div'); slot.className = 'cpm-slot';
       body.insertBefore(slot, body.firstChild);
       const id = curId;
-      _ofApi('cpmForOrder', { mgmtId: id }, res => { if (id === curId) slot.innerHTML = _cpmOrderBox(res.items); });
+      _ofApi('cpmForOrder', { mgmtId: id }, res => { if (id === curId) slot.innerHTML = _cpmOrderBox(res.items, id); });
     }).observe(body, { childList: true });
   });
 })();
-function _cpmOrderBox(items) {
-  const withCode = items.filter(x => x.code);
-  if (!withCode.length) return '';
-  const rows = withCode.map(x => {
+function _cpmOrderBox(items, mgmtId) {
+  if (!items.length) return '';
+  const rows = items.map(x => {
     const m = x.master, p = x.prev;
-    const kind = !p ? '<span class="of-tag info">🆕 初回</span>' : `<span class="of-tag ok">🔁 リピート${m && m.count >= 2 ? ` ${m.count}回目` : ''}</span>`;
+    const inp = `cpm-line-${_esc(mgmtId)}-${x.lineNo}`;
+    if (!x.code) {
+      // 部品コード未取得の行：その場で入力してマスタへ登録
+      return `<tr style="background:#fffbeb;"><td>${x.lineNo}</td>
+        <td colspan="1"><input id="${inp}" class="of-in" style="width:130px;padding:3px 6px;font-size:12px;font-family:monospace;" placeholder="部品コード" onkeydown="if(event.key==='Enter')cpmSetLineCode('${_ofq(mgmtId)}',${x.lineNo})"></td>
+        <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${_esc(x.name)}">${_esc(x.name)}</td>
+        <td style="text-align:right;">${x.qty}</td><td style="text-align:right;">${_cpmYen(x.price)}</td>
+        <td colspan="3" style="font-size:12px;"><span class="of-tag warn">部品コード未取得</span>
+          <button class="btn btn-primary btn-sm" style="font-size:11px;padding:2px 8px;" onclick="cpmSetLineCode('${_ofq(mgmtId)}',${x.lineNo})">登録</button>
+          <a href="#" style="font-size:11px;margin-left:6px;" onclick="event.preventDefault();cpmSetLineCode('${_ofq(mgmtId)}',${x.lineNo},true)" title="この明細には部品コードが無いことを記録（再読取の対象外にする）">コード無し</a></td></tr>`;
+    }
+    const kind = !m ? '<span class="of-tag warn">マスタ未登録</span>'
+      : !p ? '<span class="of-tag info">🆕 初回</span>' : `<span class="of-tag ok">🔁 リピート${m.count >= 2 ? ` ${m.count}回目` : ''}</span>`;
     const prev = p ? `${_esc(p.orderDate)} No.${_esc(p.orderNo)}<br>${p.qty}個 ${_cpmYen(p.price)}${p.price && x.price && p.price !== x.price ? ` <span class="cpm-diff">⚠ 単価変更</span>` : ''}` : '—';
-    const quote = m && m.quoteNo ? `<b>${_esc(m.quoteNo)}</b> ${_cpmYen(m.quotePrice)}${m.quotePrice && x.price && m.quotePrice !== x.price ? ' <span class="cpm-diff">⚠ 見積と相違</span>' : ''}` : '<span class="of-tag warn">未紐づけ</span>';
-    return `<tr><td>${x.lineNo}</td><td class="cpm-code"><a href="#" onclick="event.preventDefault();cpmOpen('${_ofq(x.clientKey)}','${_ofq(x.code)}')">${_esc(x.code)}</a></td>
+    const quote = !m ? `<button class="btn btn-outline btn-sm" style="font-size:11px;padding:2px 8px;" onclick="cpmSetLineCode('${_ofq(mgmtId)}',${x.lineNo},false,'${_ofq(x.code)}')">マスタに登録</button>`
+      : m.quoteNo ? `<b>${_esc(m.quoteNo)}</b> ${_cpmYen(m.quotePrice)}${m.quotePrice && x.price && m.quotePrice !== x.price ? ' <span class="cpm-diff">⚠ 見積と相違</span>' : ''}`
+      : `<button class="btn btn-outline btn-sm" style="font-size:11px;padding:2px 8px;color:#b45309;border-color:#f59e0b;" onclick="if(typeof cpmOpenQuotePicker==='function')cpmOpenQuotePicker('${_ofq(m.client)}','${_ofq(m.code)}')">＋ 見積を紐づけ</button>`;
+    return `<tr><td>${x.lineNo}</td><td class="cpm-code"><a href="#" onclick="event.preventDefault();cpmOpen('${_ofq(m ? m.client : x.clientKey)}','${_ofq(x.code)}')">${_esc(x.code)}</a></td>
       <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${_esc(x.name)}">${_esc(x.name)}</td>
       <td style="text-align:right;">${x.qty}</td><td style="text-align:right;">${_cpmYen(x.price)}</td><td>${kind}</td><td style="font-size:12px;">${prev}</td><td style="font-size:12px;">${quote}</td></tr>`;
   }).join('');
-  return `<div class="cpm-box"><h4>🔖 客先部品コード照合</h4><div style="overflow-x:auto;"><table class="of-table"><thead><tr><th>行</th><th>部品コード</th><th>品名</th><th style="text-align:right;">数量</th><th style="text-align:right;">単価</th><th>判定</th><th>前回発注</th><th>弊社見積</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  const missing = items.filter(x => !x.code).length;
+  return `<div class="cpm-box"><h4>🔖 客先部品コード照合${missing ? ` <span class="of-tag warn">未取得 ${missing}行</span>` : ''}</h4><div style="overflow-x:auto;"><table class="of-table"><thead><tr><th>行</th><th>部品コード</th><th>品名</th><th style="text-align:right;">数量</th><th style="text-align:right;">単価</th><th>判定</th><th>前回発注</th><th>弊社見積</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+}
+// 注文明細の1行に部品コードを設定（none=true は「コード無し」を記録）
+function cpmSetLineCode(mgmtId, lineNo, none, code) {
+  const el = document.getElementById(`cpm-line-${mgmtId}-${lineNo}`);
+  code = code || (el ? el.value.trim() : '');
+  if (!none && !code) { showToast('部品コードを入力してください', true); if (el) el.focus(); return; }
+  _ofApi('cpmSetLineCode', { mgmtId, lineNo, code, none: !!none }, res => {
+    showToast(none ? 'コード無しとして記録しました' : `部品コード ${code} を登録しました${res.created ? '（マスタに新規登録）' : ''}`);
+    const slot = document.querySelector('#detail-body .cpm-slot');
+    if (slot) _ofApi('cpmForOrder', { mgmtId }, r => { slot.innerHTML = _cpmOrderBox(r.items, mgmtId); });
+    if (typeof CPMS !== 'undefined' && CPMS.items.length) cpmLoad();
+  });
 }
 </script>

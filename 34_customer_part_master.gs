@@ -67,15 +67,38 @@ function _cpmClientKey(client) {
  * 明細から 部品コード・品名・図番・区分 を取り出す。
  * OCR の partCode を優先し、無ければ品名先頭の「数字5桁以上を含む英数字トークン」をコードとみなす。
  */
+/** 文字列から部品コードらしいトークンを探す：8〜12桁の数字、または数字6桁以上を含む英数字（先頭優先） */
+function _cpmFindCodeIn(text) {
+  var t = _cpmHalf(text || '');
+  var m = t.match(/(^|[^0-9A-Za-z])([0-9]{8,12})(?![0-9])/);
+  if (m) return m[2];
+  var toks = t.match(/[0-9A-Z][0-9A-Z\-]{5,24}/gi) || [];
+  for (var i = 0; i < toks.length; i++) {
+    if ((toks[i].match(/[0-9]/g) || []).length >= 6 && !/^\d{4}[\/\-]/.test(toks[i])) return toks[i];
+  }
+  return '';
+}
+
 function _cpmSplit(item) {
   var name = _cpmHalf(item.itemName || '').replace(/\s+/g, ' ').trim();
-  var code = _cpmCode(item.partCode || '');
+  var pc = String(item.partCode || '').trim();
+  var code = (pc === '-') ? '' : _cpmCode(pc); // '-' は「再読取しても部品コード無し」の印
   var m = name.match(/^([0-9A-Z][0-9A-Z\-]{4,24})\s+(.+)$/i);
   if (m && (m[1].match(/[0-9]/g) || []).length >= 5) {
     if (!code) code = _cpmCode(m[1]);
     if (_cpmCode(m[1]) === code) name = m[2];
   } else if (code && _cpmCode(name).indexOf(code) === 0) {
     name = name.substring(code.length).trim();
+  }
+  // 先頭以外（品名の途中・末尾）→ 仕様 → 備考 の順に探す
+  if (!code) {
+    var inName = _cpmFindCodeIn(name);
+    if (inName && /^[0-9]{8,12}$/.test(inName)) { code = _cpmCode(inName); name = name.replace(inName, ' ').replace(/\s+/g, ' ').trim(); }
+  }
+  // 仕様・備考は図番（SNB52163A-00 等）が入りやすいので、8〜12桁の数字だけを部品コードとみなす
+  if (!code) {
+    var num = function(t) { var x = _cpmFindCodeIn(t); return /^[0-9]{8,12}$/.test(x) ? x : ''; };
+    code = _cpmCode(num(item.spec) || num(item.remarks) || '');
   }
   var drawing = String(item.drawingNo || '').trim();
   if (!drawing) {
@@ -162,6 +185,11 @@ function cpmOnOrderSaved(mgmtId, ocr, written) {
       var qty = Number(item.qty) || 0, price = Number(item.unitPrice) || 0;
       var key = clientKey + '|' + sp.code;
       var res = { lineNo: lineNo, code: sp.code, name: sp.name, qty: qty, price: price };
+      // 取引先が自社・不明で登録されていた同じコードがあれば、正しい取引先へ移して同一品番として扱う
+      if (idx[key] === undefined && typeof _cpmFindLooseIdx === 'function') {
+        var li = _cpmFindLooseIdx(rows, sp.code, clientKey);
+        if (li >= 0) { rows[li][CPM.CLIENT] = clientKey; idx[key] = li; }
+      }
 
       if (idx[key] !== undefined) {
         var r = rows[idx[key]];
@@ -244,11 +272,13 @@ function _cpmOrderLines() {
   var mg = {};
   getAllMgmtData().forEach(function(r) { var o = _rowToObject(r); mg[o.id] = o; });
   return os.getRange(2, 1, os.getLastRow() - 1, width).getValues().map(function(r, i) {
-    var item = { itemName: r[ORDER_COLS.ITEM_NAME - 1], partCode: r[CPM_ORDER_CODE_COL - 1] };
+    var item = { itemName: r[ORDER_COLS.ITEM_NAME - 1], partCode: r[CPM_ORDER_CODE_COL - 1],
+                 spec: r[ORDER_COLS.SPEC - 1], remarks: r[ORDER_COLS.REMARKS - 1] };
     var sp = _cpmSplit(item);
     var m = mg[String(r[ORDER_COLS.MGMT_ID - 1])] || {};
+    var stored = String(r[CPM_ORDER_CODE_COL - 1] || '');
     return {
-      row: i + 2, storedCode: String(r[CPM_ORDER_CODE_COL - 1] || ''), code: sp.code, name: sp.name, drawing: sp.drawing, variant: sp.variant,
+      row: i + 2, storedCode: stored === '-' ? '' : stored, reocrDone: stored === '-', code: sp.code, name: sp.name, drawing: sp.drawing, variant: sp.variant,
       mgmtId: String(r[ORDER_COLS.MGMT_ID - 1]), orderNo: String(r[ORDER_COLS.ORDER_NO - 1] || m.orderNo || ''),
       orderDate: _ofDate(r[ORDER_COLS.ORDER_DATE - 1] || m.orderDate), modelCode: String(r[ORDER_COLS.MODEL_CODE - 1] || m.modelCode || ''),
       lineNo: Number(r[ORDER_COLS.LINE_NO - 1]) || 0, qty: Number(r[ORDER_COLS.QTY - 1]) || 0, price: Number(r[ORDER_COLS.UNIT_PRICE - 1]) || 0,
@@ -273,17 +303,28 @@ function apiCpmRebuild() {
 
     // 注文書シート21列目にコードを書き戻し（空のものだけ）
     var filled = 0;
-    var colVals = lines.map(function(l) { if (!l.storedCode && l.code) { filled++; return [l.code]; } return [l.storedCode]; });
+    var colVals = lines.map(function(l) { if (!l.storedCode && l.code) { filled++; return [l.code]; } return [l.reocrDone && !l.code ? '-' : l.storedCode]; });
     if (filled) os.getRange(2, CPM_ORDER_CODE_COL, colVals.length, 1).setNumberFormat('@').setValues(colVals);
 
+    var sh = _cpmSheet(); var rows = _cpmRows(); var idx = _cpmIndex(rows);
+    // 正しい取引先で登録済みのコード（取引先が自社・不明の注文はこちらへ寄せる）
+    var goodClientOf = {};
+    lines.forEach(function(l) {
+      if (l.code && l.clientKey !== '(取引先不明)') goodClientOf[l.code] = goodClientOf[l.code] || l.clientKey;
+    });
+    rows.forEach(function(r) {
+      var c = _cpmCode(r[CPM.CODE]);
+      var bad = (typeof _cpmIsBadClient === 'function') ? _cpmIsBadClient(r[CPM.CLIENT]) : r[CPM.CLIENT] === '(取引先不明)';
+      if (c && !bad && !goodClientOf[c]) goodClientOf[c] = r[CPM.CLIENT];
+    });
     // キーごとに集計
     var groups = {};
     lines.forEach(function(l) {
       if (!l.code) return;
+      if (l.clientKey === '(取引先不明)' && goodClientOf[l.code]) l.clientKey = goodClientOf[l.code];
       var k = l.clientKey + '|' + l.code;
       (groups[k] = groups[k] || []).push(l);
     });
-    var sh = _cpmSheet(); var rows = _cpmRows(); var idx = _cpmIndex(rows);
     var created = 0, updated = 0, now = nowJST();
     Object.keys(groups).forEach(function(k) {
       var g = groups[k].sort(function(a, b) { return String(a.orderDate).localeCompare(String(b.orderDate)) || a.row - b.row; });
@@ -340,9 +381,11 @@ function apiCpmLookup(p) {
   try {
     var code = _cpmCode(p.code);
     var clientKey = p.client ? _cpmClientKey(p.client) : '';
-    var master = _cpmRows().map(function(r, i) { return _cpmToObj(r, i + 2); })
-      .filter(function(m) { return _cpmCode(m.code) === code && (!clientKey || m.client === clientKey); })[0] || null;
-    var history = _cpmOrderLines().filter(function(l) { return l.code === code && (!master || l.clientKey === master.client); })
+    var sameCode = _cpmRows().map(function(r, i) { return _cpmToObj(r, i + 2); })
+      .filter(function(m) { return _cpmCode(m.code) === code; });
+    // 取引先が一致しない（自社・不明で登録されている）場合もコードが一意なら同一品番とみなす
+    var master = sameCode.filter(function(m) { return !clientKey || m.client === clientKey; })[0] || (sameCode.length === 1 ? sameCode[0] : null);
+    var history = _cpmOrderLines().filter(function(l) { return l.code === code; })
       .sort(function(a, b) { return String(b.orderDate).localeCompare(String(a.orderDate)); })
       .map(function(l) { return { orderDate: l.orderDate, orderNo: l.orderNo, mgmtId: l.mgmtId, qty: l.qty, price: l.price, name: l.name, linkedQuote: l.linkedQuote, orderPdfUrl: l.orderPdfUrl }; });
     var quote = null;
@@ -391,12 +434,15 @@ function apiCpmForOrder(p) {
     var lines = _cpmOrderLines().filter(function(l) { return l.mgmtId === String(p.mgmtId); });
     var seen = {};
     lines = lines.filter(function(l) { var k = l.lineNo + '|' + l.code; if (seen[k]) return false; seen[k] = true; return true; });
-    var master = {};
-    _cpmRows().forEach(function(r, i) { var m = _cpmToObj(r, i + 2); master[m.client + '|' + _cpmCode(m.code)] = m; });
+    var master = {}, byCode = {};
+    _cpmRows().forEach(function(r, i) {
+      var m = _cpmToObj(r, i + 2); var c = _cpmCode(m.code);
+      master[m.client + '|' + c] = m; (byCode[c] = byCode[c] || []).push(m);
+    });
     var all = _cpmOrderLines();
     var items = lines.map(function(l) {
-      var m = l.code ? master[l.clientKey + '|' + l.code] : null;
-      var prev = all.filter(function(x) { return x.code && x.code === l.code && x.clientKey === l.clientKey && x.mgmtId !== l.mgmtId && String(x.orderDate) <= String(l.orderDate); })
+      var m = l.code ? (master[l.clientKey + '|' + l.code] || ((byCode[l.code] || []).length === 1 ? byCode[l.code][0] : null)) : null;
+      var prev = all.filter(function(x) { return x.code && x.code === l.code && x.mgmtId !== l.mgmtId && String(x.orderDate) <= String(l.orderDate); })
         .sort(function(a, b) { return String(b.orderDate).localeCompare(String(a.orderDate)); })[0] || null;
       return {
         lineNo: l.lineNo, code: l.code, name: l.name, qty: l.qty, price: l.price, clientKey: l.clientKey,
