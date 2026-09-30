@@ -146,6 +146,10 @@ function _cpqPreview() {
 }
 function _cpqRenderCands() {
   const r = CPQ.cur;
+  if (typeof _cpmBoardTokens !== 'function') { // 候補抽出の部品が読めない場合でも登録自体はできるようにする
+    document.getElementById('cpq-cands').innerHTML = '<div style="font-size:12px;color:var(--text-muted);">候補を表示できません（部品コードを直接入力してください）</div>';
+    return;
+  }
   const qTokens = _cpmBoardTokens({ name: [r.subject, r.boardName].join(' '), drawing: '', modelCode: r.modelCode || '' }).map(_cpmNorm);
   const dest = _cpmNorm(r.destCompany || r.client || '');
   const cands = CPQ.all.filter(m => !m.quoteNo && (!dest || dest.includes(_cpmNorm(m.client))))

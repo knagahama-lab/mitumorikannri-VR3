@@ -7,7 +7,7 @@
 <script>
 // ★ スクリプト読込エラーの見える化：構文エラーでスクリプトが丸ごと無効になった場合に画面上部へ表示
 //   （ボタンが「反応しない」原因をコンソールを開かずに特定するため）
-window.__APP_BUILD__ = '2026-10-01b';
+window.__APP_BUILD__ = '2026-10-01c';
 console.log('%c[見積・注文管理] build ' + window.__APP_BUILD__, 'color:#2563eb;font-weight:bold');
 window.addEventListener('error', function (e) {
   var msg = String(e.message || '');
@@ -25,6 +25,19 @@ window.addEventListener('error', function (e) {
     bar.textContent += '\n' + msg + '  [line ' + e.lineno + ']  ' + line;
   };
   if (document.body) show(); else document.addEventListener('DOMContentLoaded', show);
+});
+// 構文エラーのあるスクリプトを特定（行番号と該当行・スクリプト冒頭を表示）
+document.addEventListener('DOMContentLoaded', function () {
+  var bar = document.getElementById('js-load-errors'); if (!bar) return;
+  [].forEach.call(document.scripts, function (sc, i) {
+    if (sc.src) return;
+    try { new Function(sc.textContent); } catch (err) {
+      var m = String(err.stack || '').match(/<anonymous>:(\d+)/); var ln = m ? Number(m[1]) - 2 : 0;
+      var src = sc.textContent.split('\n');
+      bar.textContent += '\n→ script#' + i + ' : ' + err.message + (ln > 0 ? ' / line ' + ln + ': ' + String(src[ln - 1] || '').trim().slice(0, 140) : '')
+        + '\n   冒頭: ' + sc.textContent.replace(/\s+/g, ' ').trim().slice(0, 100);
+    }
+  });
 });
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1516,6 +1529,7 @@ tr:hover td{background:#f8fafc;}
 <?!= include("order_flow_js") ?>
 <?!= include("quote_entry_js") ?>
 <?!= include("custparts_js") ?>
+<?!= include("custparts_xlsx_js") ?>
 <?!= include("custparts_ext_js") ?>
 <?!= include("price_table_js") ?>
 <?!= include("quote_partcodes_js") ?>

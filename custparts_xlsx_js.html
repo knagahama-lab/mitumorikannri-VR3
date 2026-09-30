@@ -1,0 +1,16 @@
+<script>
+// ============================================================
+// custparts_xlsx_js.html — 客先部品コードの Excel 取込用ライブラリ（SheetJS）をその場で読み込む
+//   ※ 他の画面スクリプトに影響しないよう独立ファイルにしている
+// ============================================================
+function _cpmLoadXlsx() {
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  return new Promise(function (ok, ng) {
+    var s = document.createElement('script');
+    s.src = ['https:', '', 'cdnjs.cloudflare.com', 'ajax', 'libs', 'xlsx', '0.18.5', 'xlsx.full.min.js'].join('/');
+    s.addEventListener('load', function () { ok(window.XLSX); });
+    s.addEventListener('error', function () { ng(new Error('Excel\u8aad\u8fbc\u30e9\u30a4\u30d6\u30e9\u30ea\u3092\u53d6\u5f97\u3067\u304d\u307e\u305b\u3093\u3067\u3057\u305f')); });
+    document.head.appendChild(s);
+  });
+}
+</script>

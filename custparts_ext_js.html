@@ -8,19 +8,7 @@
 // custparts_js.html の後に読み込む
 // ============================================================
 
-// ── 共通 ──
-const _cpmNorm = s => String(s == null ? '' : s).normalize('NFKC').toUpperCase().replace(/[\s　]/g, '');
-function _cpmEnsureModal(id, title, width) {
-  let el = document.getElementById(id);
-  if (el) return el;
-  el = document.createElement('div');
-  el.className = 'modal-overlay'; el.id = id; el.style.zIndex = '460';
-  el.onclick = e => { if (e.target === el) el.classList.remove('open'); };
-  el.innerHTML = `<div class="modal" style="max-width:${width || 980}px;"><div class="modal-head"><h3 class="cpm-mt">${title}</h3>
-    <button class="modal-close" onclick="document.getElementById('${id}').classList.remove('open')">✕</button></div><div class="modal-body"></div></div>`;
-  document.body.appendChild(el);
-  return el;
-}
+// ── 共通（_cpmNorm / _cpmEnsureModal は custparts_js.html、Excelローダーは custparts_xlsx_js.html） ──
 function _cpmQuotes() { return (typeof _allQuotes !== 'undefined' && _allQuotes) ? _allQuotes.filter(q => q.quoteNo) : []; }
 function _cpmFindQuote(no) { no = String(no || '').trim(); return no ? _cpmQuotes().find(q => q.quoteNo === no) : null; }
 function _cpmQuoteLabel(no) {
@@ -260,16 +248,6 @@ function cpmOpenImport() {
 function cpmImportTemplate() {
   _downloadCsv('客先部品コード_取込テンプレート.csv', CPM_TEMPLATE_HEADERS,
     [['藤商事', '2601156062', 'A84C 液晶演出制御基板(SNB52163A-00/E2301B)(完)(見本機)', 'SNB52163A-00/E2301B', 'A84C', '見本機', '', '', '', '2275', '23', '2026/09/29', '206424', '']]);
-}
-// SheetJS は取込時にだけ読み込む
-function _cpmLoadXlsx() {
-  if (window.XLSX) return Promise.resolve(window.XLSX);
-  return new Promise((ok, ng) => {
-    const s = document.createElement('script');
-    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
-    s.onload = () => ok(window.XLSX); s.onerror = () => ng(new Error('Excel読込ライブラリを取得できませんでした（ネットワークを確認してください）'));
-    document.head.appendChild(s);
-  });
 }
 function cpmImportRead(file) {
   if (!file) return;

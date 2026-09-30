@@ -3,6 +3,20 @@
 // custparts_js.html — 客先部品コードマスタ（34_customer_part_master.gs）
 // ============================================================
 const CPMS = { items: [], clients: {}, tab: 'all', cur: null };
+// ── 共通ヘルパー（custparts_ext_js / quote_partcodes_js / partcode_capture_js からも利用） ──
+var _cpmNorm = function (s) { return String(s == null ? '' : s).normalize('NFKC').toUpperCase().replace(/[\s\u3000]/g, ''); };
+function _cpmEnsureModal(id, title, width) {
+  let el = document.getElementById(id);
+  if (el) return el;
+  el = document.createElement('div');
+  el.className = 'modal-overlay'; el.id = id; el.style.zIndex = '460';
+  el.onclick = e => { if (e.target === el) el.classList.remove('open'); };
+  el.innerHTML = `<div class="modal" style="max-width:${width || 980}px;"><div class="modal-head"><h3 class="cpm-mt">${title}</h3>
+    <button class="modal-close" onclick="document.getElementById('${id}').classList.remove('open')">✕</button></div><div class="modal-body"></div></div>`;
+  document.body.appendChild(el);
+  return el;
+}
+
 
 (function registerCustParts() {
   const at = DEFAULT_MENU.findIndex(m => m.id === 'board');
