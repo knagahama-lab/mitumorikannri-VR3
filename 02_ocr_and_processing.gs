@@ -272,6 +272,8 @@ function _processOrderPdf(attachment, gmailMsg, msgId, orderType) {
 }
 
 function _saveOrderData(ocr, orderType, pdfUrl, folderUrl, msgId, fallbackSubject) {
+  // ★ 取引先が自社（宛先）になっていたら発行元・保存フォルダ名から補正（35_client_fix.gs）
+  try { cpmFixOrderClient(ocr, pdfUrl); } catch(e) { Logger.log('[CLIENT FIX ERROR] ' + e.message); }
   var ss        = getSpreadsheet();
   var mgmtSheet = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT);
 
@@ -478,7 +480,8 @@ function _buildOcrPrompt(docType) {
       ' "reason": "差し替えやキャンセルの理由（あれば。なければ空文字）",\n' +
       ' "documentNo": "発注書番号",\n' +
       ' "documentDate": "発注日(YYYY/MM/DD)",\n' +
-      ' "clientName": "発注先企業名",\n' +
+      ' "clientName": "発注元の企業名（この発注書を発行した会社＝顧客。宛先の「殿」「御中」側の会社（受注者）ではない）",\n' +
+      ' "issuerName": "発行元の企業名（社名ロゴ・住所・印がある側）",\n' +
       ' "subject": "件名",\n' +
       ' "modelCode": "機種コード",\n' +
       ' "orderSlipNo": "発注伝票番号",\n' +
@@ -491,6 +494,7 @@ function _buildOcrPrompt(docType) {
       '   {"partCode":"部品コード・品番（客先の部品番号。品名の上や左にある数字/英数字コード。なければ空文字）","itemName":"品名（部品コードは含めない）","drawingNo":"図番・型式（品名の括弧内の型番。なければ空文字）","spec":"仕様","firstDelivery":"初回納入日(YYYY/MM/DD)","deliveryDest":"納入先","qty":数量,"unit":"単位","unitPrice":単価,"amount":金額,"remarks":"備考"}\n' +
       ' ]\n' +
       '}\n' +
+      '※取引先(clientName)は発注書を発行した会社。「' + (PropertiesService.getScriptProperties().getProperty('SELF_COMPANY_NAMES') || 'サン電子').split(',')[0] + '」など宛先（殿・御中）の会社は受注者なので clientName にしないこと。\n' +
       '※部品コードは品名と同じ枠に上下で書かれていることが多い。必ず partCode に分けて入れ、itemName に含めないこと。\n' +
       '※重要: 書類内に「差し替え」「訂正」「版数更新」等の文言があればrevision、「中止」「取消」「キャンセル」等があればcancellationと判定。\n' +
       'ルール: 有効なJSONのみ。金額は数値。不明は空文字か0。合計行はlineItemsに含めない。';

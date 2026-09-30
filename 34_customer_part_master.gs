@@ -55,6 +55,7 @@ function _cpmCode(s) { return _cpmHalf(s).replace(/\s+/g, '').toUpperCase(); }
 /** 取引先キー：取引先マスタの分類名（藤商事/コナミ…）、未分類なら社名の正規化 */
 function _cpmClientKey(client) {
   var name = String(client || '').trim();
+  if (!name || (typeof _cpmIsSelf === 'function' && _cpmIsSelf(name))) return '(取引先不明)'; // 自社（受注側）は取引先にしない
   try {
     var c = classifyClientName(name);
     if (c && !c.isFallback) return c.name;

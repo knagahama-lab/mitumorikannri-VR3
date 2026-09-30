@@ -357,4 +357,95 @@ function _cpmImportResultHtml(res, preview) {
     : `<div style="text-align:right;margin-top:12px;"><button class="btn btn-outline btn-sm" onclick="document.getElementById('cpm-import-modal').classList.remove('open')">閉じる</button></div>`;
   return html;
 }
+
+// ============================================================
+// 取引先の付け替え（取引先が自社・不明になっている注文 → 正しい取引先へ）
+// ============================================================
+const CFX = { items: [], clients: [] };
+const _CFX_BAD = k => k === '(取引先不明)' || /サン電子/.test(k);
+
+(function hookBanner() {
+  const orig = cpmRender;
+  cpmRender = function() {
+    orig();
+    const bad = Object.keys(CPMS.clients || {}).filter(_CFX_BAD);
+    let el = document.getElementById('cfx-banner');
+    if (!bad.length) { if (el) el.remove(); return; }
+    if (!el) { el = document.createElement('div'); el.id = 'cfx-banner'; document.getElementById('cpm-tabs').before(el); }
+    const n = bad.reduce((s, k) => s + CPMS.clients[k], 0);
+    el.innerHTML = `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:13px;">
+      ⚠ 取引先が <b>${bad.map(_esc).join('・')}</b> になっている品番が <b>${n}件</b> あります（注文書の宛先＝自社を取引先として読み取ったもの）。リピート判定が正しく効かないため、正しい取引先に付け替えてください。
+      <button class="btn btn-primary btn-sm" onclick="cpmOpenClientFix()">🏢 取引先を付け替える</button></div>`;
+  };
+})();
+
+function cpmOpenClientFix() {
+  const el = _cpmEnsureModal('cpm-cfx-modal', '🏢 取引先の付け替え（自社・不明 → 正しい取引先）', 1100);
+  el.querySelector('.modal-body').innerHTML = '<div class="loading"><div class="spinner"></div><br>候補を調べています…（注文書PDFの保存フォルダ名を確認するため、件数により1〜2分かかります）</div>';
+  el.classList.add('open');
+  _ofApi('cpmClientFixCandidates', {}, res => {
+    CFX.items = res.items.map(it => Object.assign(it, { to: it.suggest, on: !!it.suggest }));
+    CFX.clients = res.clients;
+    _cfxRender(res);
+  }, () => el.querySelector('.modal-body').innerHTML = '<div class="loading" style="color:var(--danger);">候補の取得に失敗しました</div>');
+}
+function _cfxRender(res) {
+  res = res || CFX.lastRes; CFX.lastRes = res;
+  const body = document.querySelector('#cpm-cfx-modal .modal-body');
+  if (!CFX.items.length) { body.innerHTML = '<div class="loading">取引先が自社・空欄の注文はありません。✅</div>'; return; }
+  const opts = cur => ['<option value="">— 選択 —</option>'].concat(CFX.clients.map(c => `<option${c === cur ? ' selected' : ''}>${_esc(c)}</option>`)).join('');
+  const sel = CFX.items.filter(it => it.on && it.to).length;
+  const noSug = CFX.items.filter(it => !it.suggest).length;
+  body.innerHTML = `
+    <div style="font-size:12px;color:var(--text-sub);line-height:1.7;margin-bottom:10px;">
+      取引先が自社（${_esc((res && res.selfNames || []).join('・') || 'サン電子')}）または空欄の注文 <b>${CFX.items.length}件</b>。
+      付け替え先の候補は「同じ部品コードが既に登録されている取引先」→「注文書PDFの保存フォルダ名」→「件名」から推定しています${noSug ? `（候補なし ${noSug}件は手で選んでください）` : ''}。<br>
+      実行すると ① 案件の顧客名を更新 ② 客先部品コードマスタを再集計します。登録済みの弊社見積No.・見積単価・弊社基板名・備考・確認済は部品コード単位で引き継ぎます。
+      ${res && res.driveSkipped ? `<br><span style="color:#b45309;">※ 実行時間の都合で ${res.driveSkipped}件はフォルダ名を確認できませんでした。付け替え後にもう一度開くと続きを確認します。</span>` : ''}
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+      <label style="font-size:12px;">選択した行をまとめて</label>
+      <select id="cfx-bulk" class="of-in" style="width:auto;">${opts('')}</select>
+      <button class="btn btn-outline btn-sm" onclick="_cfxBulk()">に設定</button>
+      <span style="flex:1;"></span>
+      <a href="#" style="font-size:12px;" onclick="event.preventDefault();CFX.items.forEach(i=>i.on=!!i.to);_cfxRender()">候補ありを全選択</a>
+      <a href="#" style="font-size:12px;" onclick="event.preventDefault();CFX.items.forEach(i=>i.on=false);_cfxRender()">全解除</a>
+    </div>
+    <div style="max-height:52vh;overflow:auto;border:1px solid var(--border);border-radius:6px;"><table class="of-table"><thead><tr>
+      <th></th><th>注文番号</th><th>発注日</th><th>件名</th><th>機種</th><th style="text-align:right;">品番数</th><th>現在</th><th>付け替え先</th><th>推定の根拠</th><th>PDF</th></tr></thead><tbody>` +
+    CFX.items.map((it, i) => `<tr style="${it.on ? '' : 'color:var(--text-sub);'}">
+      <td><input type="checkbox" ${it.on ? 'checked' : ''} onchange="CFX.items[${i}].on=this.checked;_cfxRender()"></td>
+      <td><b>${_esc(it.orderNo)}</b></td><td style="white-space:nowrap;">${_esc(it.orderDate)}</td>
+      <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${_esc(it.subject)}">${_esc(it.subject)}</td>
+      <td>${_esc(it.modelCode)}</td><td style="text-align:right;">${it.codes}</td>
+      <td style="font-size:12px;">${_esc(it.client || '（空欄）')}</td>
+      <td><select class="of-in" style="width:auto;padding:3px 6px;font-size:12px;${it.to ? '' : 'border-color:#f59e0b;'}" onchange="CFX.items[${i}].to=this.value;CFX.items[${i}].on=!!this.value;_cfxRender()">${opts(it.to)}</select></td>
+      <td style="font-size:11px;color:var(--text-sub);">${_esc(it.via || '—')}</td>
+      <td>${it.orderPdfUrl ? `<a class="pdf-link" href="${_esc(it.orderPdfUrl)}" target="_blank">PDF</a>` : ''}</td></tr>`).join('') +
+    `</tbody></table></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;">
+      <button class="btn btn-primary btn-sm" ${sel ? '' : 'disabled'} onclick="_cfxApply()">✅ ${sel}件を付け替えてマスタを再集計</button>
+    </div>`;
+
+}
+function _cfxBulk() {
+  const v = document.getElementById('cfx-bulk').value; if (!v) return;
+  CFX.items.forEach(it => { if (it.on) it.to = v; });
+  _cfxRender(CFX.lastRes);
+}
+function _cfxApply() {
+  const items = CFX.items.filter(it => it.on && it.to).map(it => ({ mgmtId: it.mgmtId, client: it.to }));
+  if (!confirm(`${items.length}件の注文の取引先を付け替え、客先部品コードマスタを再集計します。よろしいですか？`)) return;
+  const body = document.querySelector('#cpm-cfx-modal .modal-body');
+  body.innerHTML = '<div class="loading"><div class="spinner"></div><br>付け替え・再集計中…</div>';
+  _ofApi('cpmClientFix', { items }, res => {
+    body.innerHTML = `<div style="font-size:14px;line-height:1.9;">✅ 注文 <b>${res.fixedOrders}件</b> の取引先を付け替えました。<br>
+      客先部品コードマスタを再集計：新規 ${res.created}件・更新 ${res.updated}件、見積紐づけ等の引き継ぎ ${res.carried}件<br>
+      ${res.remaining ? `<span style="color:#b45309;">取引先が自社・不明の品番が ${res.remaining}件 残っています。もう一度「取引先を付け替える」から残りを処理してください。</span>` : '取引先が自社・不明の品番はなくなりました。'}</div>
+      <div style="text-align:right;margin-top:12px;"><button class="btn btn-outline btn-sm" onclick="document.getElementById('cpm-cfx-modal').classList.remove('open')">閉じる</button></div>`;
+    showToast(`${res.fixedOrders}件の取引先を付け替えました`);
+    cpmLoad();
+    if (typeof loadData === 'function') loadData();
+  }, () => _cfxRender(CFX.lastRes));
+}
 </script>
