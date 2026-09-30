@@ -69,7 +69,8 @@ function _cpmBoardTokens(m) {
     t = t.replace(/^[-+]+|[-+]+$/g, '');
     if (t.length >= 4 && !/^\d{1,4}$/.test(t)) set.set(_cpmNorm(t), t);
   });
-  (src.match(/[぀-ヿ一-鿿ｦ-ﾟ]{0,12}基板/g) || []).forEach(t => { if (t.length >= 3) set.set(_cpmNorm(t), t); });
+  // 文字範囲は必ず \u エスケープで書く（生の範囲文字はGAS配信時に化けて正規表現エラー→スクリプト全体が無効になる）
+  (src.match(new RegExp('[\\u3041-\\u30FF\\u4E00-\\u9FFF\\uFF66-\\uFF9F]{0,12}基板', 'g')) || []).forEach(t => { if (t.length >= 3) set.set(_cpmNorm(t), t); });
   if (m.modelCode && m.modelCode !== '***') set.delete(_cpmNorm(m.modelCode)); // 機種は別フィルタ
   return [...set.values()];
 }
