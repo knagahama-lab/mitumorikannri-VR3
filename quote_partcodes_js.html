@@ -1,0 +1,183 @@
+<script>
+// ============================================================
+// quote_partcodes_js.html — 見積書一覧の「客先部品コード」列（37_quote_partcodes.gs）
+//   ・見積ごとに客先部品コードを登録（直接入力／候補から選択）
+//   ・コードごとに「見積発行日以降に注文があるか」を表示（注文書発行チェック）
+//   ・一覧のキーワード検索で部品コードでも見積を探せる
+// custparts_ext_js.html の後に読み込む（_cpmBoardTokens / _cpmNorm を利用）
+// ============================================================
+const CPQ = { byQuote: {}, all: [], loaded: false, filter: 'all', cur: null };
+
+function _cpqLoad() {
+  clearTimeout(_cpqLoad._t);
+  _cpqLoad._t = setTimeout(() => {
+    google.script.run.withSuccessHandler(res => {
+      if (!res || !res.success) return;
+      CPQ.byQuote = res.byQuote || {}; CPQ.all = res.all || []; CPQ.loaded = true;
+      if ((typeof _allQuotes !== 'undefined') && _allQuotes.length) applyQuoteFilter();
+    }).handleApiRequest('cpqList', {});
+  }, 600);
+}
+window.addEventListener('load', _cpqLoad);
+
+(function hookQuoteList() {
+  const origLoad = loadQuoteList;
+  loadQuoteList = function() { origLoad.apply(this, arguments); _cpqLoad(); };
+  const origApply = applyQuoteFilter;
+  applyQuoteFilter = function() {
+    // 部品コードを見積データに載せてからフィルタ（キーワード検索は行データ全体が対象）
+    (_allQuotes || []).forEach(r => {
+      const list = CPQ.byQuote[(r.quoteNo || '').trim()] || [];
+      r._partCodes = list.map(c => c.code + ' ' + c.name).join(' ');
+    });
+    origApply();
+    if (!CPQ.loaded) return;
+    _cpqFilterBar();
+    if (CPQ.filter !== 'all') {
+      _filteredQuotes = _filteredQuotes.filter(r => {
+        const st = _cpqState(r);
+        if (CPQ.filter === 'has') return st.codes.length > 0;
+        if (CPQ.filter === 'none') return !st.codes.length;
+        if (CPQ.filter === 'noorder') return st.codes.length > 0 && !st.ordered;
+        return true;
+      });
+      _quotePage = 1; _renderQuoteTable();
+    }
+  };
+})();
+
+function _cpqQuoteDate(r) { return String(r.issueDate || r.quoteDate || '').replace(/-/g, '/'); }
+// 見積に登録された各コードの発注状況
+function _cpqState(r) {
+  const base = _cpqQuoteDate(r);
+  const codes = (CPQ.byQuote[(r.quoteNo || '').trim()] || []).map(c => {
+    const after = c.orders.filter(o => !base || !o.orderDate || String(o.orderDate) >= base);
+    return Object.assign({}, c, { after, before: c.orders.length - after.length });
+  });
+  return { codes, ordered: codes.some(c => c.after.length) };
+}
+
+function _cpqFilterBar() {
+  const box = document.getElementById('quotelist-container'); if (!box) return;
+  let bar = document.getElementById('cpq-filter-bar');
+  if (!bar) { bar = document.createElement('div'); bar.id = 'cpq-filter-bar'; bar.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:0 0 8px;font-size:12px;'; box.parentNode.insertBefore(bar, box); }
+  const qs = (_allQuotes || []).filter(r => r.quoteNo);
+  const st = qs.map(_cpqState);
+  const n = { has: st.filter(s => s.codes.length).length, none: st.filter(s => !s.codes.length).length, noorder: st.filter(s => s.codes.length && !s.ordered).length };
+  const btn = (k, l) => `<button class="btn btn-sm ${CPQ.filter === k ? 'btn-primary' : 'btn-outline'}" onclick="CPQ.filter='${k}';applyQuoteFilter();">${l}</button>`;
+  bar.innerHTML = '<span style="color:var(--text-sub);">客先部品コード:</span>' + btn('all', 'すべて') + btn('has', `🔖 登録済 ${n.has}`)
+    + btn('noorder', `⏳ 登録済・未発注 ${n.noorder}`) + btn('none', `未登録 ${n.none}`)
+    + '<span style="color:var(--text-muted);margin-left:6px;">※ キーワード欄に部品コードを入れると該当の見積を検索できます</span>';
+}
+
+// 見積書一覧の「客先部品コード」セル
+function cpqCell(r) {
+  if (!r.quoteNo) return '<span style="font-size:11px;color:var(--text-muted);">見積No.なし</span>';
+  const st = _cpqState(r);
+  const rowKey = _ofq(r._fromLedger ? 'LEDGER_' + r._ledgerId : r.id);
+  const chips = st.codes.map(c => {
+    const o = c.after[0];
+    const status = o
+      ? `<span class="of-tag ok" title="${_esc(c.after.map(x => x.orderDate + ' No.' + x.orderNo + ' ' + x.qty + '個 ¥' + Number(x.price || 0).toLocaleString()).join('\n'))}">📦 ${_ofMd(o.orderDate)} No.${_esc(o.orderNo)}${c.after.length > 1 ? ` 他${c.after.length - 1}` : ''}</span>`
+      : `<span class="of-tag warn" title="${c.before ? '見積発行日より前の注文が ' + c.before + '件あります' : ''}">未発注${c.before ? `（見積前 ${c.before}件）` : ''}</span>`;
+    return `<div style="white-space:nowrap;margin:1px 0;"><a href="#" onclick="event.preventDefault();if(typeof cpmOpen==='function')cpmOpen('${_ofq(c.client)}','${_ofq(c.code)}')" title="${_esc(c.name)}"
+      style="font-family:ui-monospace,Consolas,monospace;font-weight:700;font-size:11.5px;text-decoration:none;color:#9d174d;">${_esc(c.code)}</a> ${status}</div>`;
+  }).join('');
+  return chips + `<button class="btn btn-outline btn-sm" style="font-size:10px;padding:2px 8px;margin-top:2px;color:#9d174d;border-color:#f9a8d4;" onclick="event.stopPropagation();cpqOpenRegister('${rowKey}')">＋ 部品コード</button>`;
+}
+
+// ── 登録ダイアログ ──
+function cpqOpenRegister(rowKey) {
+  const r = (_allQuotes || []).find(x => (x._fromLedger ? 'LEDGER_' + x._ledgerId : x.id) === rowKey);
+  if (!r) return;
+  CPQ.cur = r;
+  const el = _cpmEnsureModal('cpq-modal', '🔖 客先部品コードの登録', 880);
+  el.querySelector('.cpm-mt').textContent = `🔖 客先部品コードの登録 — 見積 ${r.quoteNo}`;
+  const clients = [...new Set(CPQ.all.map(m => m.client).filter(c => c && c !== '(取引先不明)'))];
+  const guessClient = clients.find(c => _cpmNorm(r.destCompany || r.client || '').includes(_cpmNorm(c))) || (r.destCompany || r.client || '');
+  el.querySelector('.modal-body').innerHTML = `
+    <div style="font-size:13px;margin-bottom:10px;padding:8px 10px;background:#f8fafc;border:1px solid var(--border);border-radius:6px;">
+      <b>${_esc(r.quoteNo)}</b>　${_esc(_cpqQuoteDate(r))}　${_esc(r.destCompany || r.client || '')}<br>
+      <span style="color:var(--text-sub);">${_esc(r.subject || '')}${r.boardName ? '｜基板名 ' + _esc(r.boardName) : ''}${r.modelCode ? '｜機種 ' + _esc(r.modelCode) : ''}</span>
+    </div>
+    <div id="cpq-current"></div>
+    <div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin:10px 0;">
+      <div style="font-weight:700;font-size:13px;margin-bottom:6px;">✏️ 部品コードを入力して登録</div>
+      <div class="of-grid2">
+        <div><label>客先部品コード</label><input id="cpq-code" list="cpq-dl-codes" placeholder="例）2601156062" oninput="_cpqPreview()" onkeydown="if(event.key==='Enter')cpqRegister()"></div>
+        <div><label>取引先</label><input id="cpq-client" list="cpq-dl-clients" value="${_esc(guessClient)}" oninput="_cpqPreview()"></div>
+        <div style="grid-column:1/-1;" id="cpq-name-wrap"><label>客先品名（マスタに無い新しいコードの場合）</label><input id="cpq-name" placeholder="例）A84C 液晶演出制御基板(SNB52163A-00/E2301B)(完)(見本機)"></div>
+      </div>
+      <datalist id="cpq-dl-codes">${CPQ.all.slice(0, 3000).map(m => `<option value="${_esc(m.code)}">${_esc(m.client + '｜' + m.name + (m.quoteNo ? '｜見積 ' + m.quoteNo : ''))}</option>`).join('')}</datalist>
+      <datalist id="cpq-dl-clients">${clients.map(c => `<option value="${_esc(c)}">`).join('')}</datalist>
+      <div id="cpq-preview" style="font-size:12px;margin-top:6px;"></div>
+      <div style="text-align:right;margin-top:8px;"><button class="btn btn-primary btn-sm" onclick="cpqRegister()">登録</button></div>
+    </div>
+    <div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;">
+      <div style="font-weight:700;font-size:13px;margin-bottom:6px;">💡 候補（見積の件名・基板名と型番/基板名が一致する、見積未登録の部品コード）</div>
+      <div id="cpq-cands"></div>
+    </div>`;
+  el.classList.add('open');
+  _cpqRenderCurrent(); _cpqRenderCands(); _cpqPreview();
+  setTimeout(() => document.getElementById('cpq-code').focus(), 50);
+}
+function _cpqRenderCurrent() {
+  const st = _cpqState(CPQ.cur);
+  document.getElementById('cpq-current').innerHTML = !st.codes.length ? '' :
+    `<div style="font-size:13px;font-weight:700;margin-bottom:4px;">登録済みの部品コード</div><table class="of-table"><thead><tr><th>部品コード</th><th>客先品名</th><th>発注状況（見積発行日以降）</th><th></th></tr></thead><tbody>` +
+    st.codes.map(c => `<tr><td style="font-family:monospace;font-weight:700;">${_esc(c.code)}</td><td style="font-size:12px;">${_esc(c.name)}</td>
+      <td style="font-size:12px;">${c.after.length ? c.after.map(o => `📦 ${_esc(o.orderDate)} No.${_esc(o.orderNo)} ${o.qty}個 ¥${Number(o.price || 0).toLocaleString()}`).join('<br>') : '<span class="of-tag warn">未発注</span>'}</td>
+      <td><button class="btn btn-outline btn-sm" style="color:var(--danger);" onclick="cpqUnregister('${_ofq(c.client)}','${_ofq(c.code)}')">解除</button></td></tr>`).join('') + '</tbody></table>';
+}
+function _cpqFindMaster(code, client) {
+  const k = _cpmNorm(code); if (!k) return null;
+  const hits = CPQ.all.filter(m => _cpmNorm(m.code) === k);
+  return hits.find(m => client && _cpmNorm(client).includes(_cpmNorm(m.client))) || hits[0] || null;
+}
+function _cpqPreview() {
+  const code = document.getElementById('cpq-code').value.trim(), client = document.getElementById('cpq-client').value.trim();
+  const m = _cpqFindMaster(code, client);
+  document.getElementById('cpq-name-wrap').style.display = (code && !m) ? '' : 'none';
+  const pv = document.getElementById('cpq-preview');
+  if (!code) { pv.innerHTML = ''; return; }
+  if (!m) { pv.innerHTML = '<span style="color:#0369a1;">🆕 マスタに無いコードです。客先品名を入れて登録すると、客先部品コードマスタにも新規登録されます。</span>'; return; }
+  pv.innerHTML = `✅ ${_esc(m.client)}｜${_esc(m.name)}` + (m.quoteNo && m.quoteNo !== CPQ.cur.quoteNo
+    ? `<br><span style="color:#b45309;">⚠ 現在は見積 <b>${_esc(m.quoteNo)}</b> に登録されています。登録するとこの見積に付け替わります。</span>` : '');
+}
+function _cpqRenderCands() {
+  const r = CPQ.cur;
+  const qTokens = _cpmBoardTokens({ name: [r.subject, r.boardName].join(' '), drawing: '', modelCode: r.modelCode || '' }).map(_cpmNorm);
+  const dest = _cpmNorm(r.destCompany || r.client || '');
+  const cands = CPQ.all.filter(m => !m.quoteNo && (!dest || dest.includes(_cpmNorm(m.client))))
+    .map(m => { const t = _cpmBoardTokens(m).map(_cpmNorm); return { m, score: t.filter(x => qTokens.includes(x)).length }; })
+    .filter(x => x.score > 0).sort((a, b) => b.score - a.score).slice(0, 15);
+  document.getElementById('cpq-cands').innerHTML = !cands.length
+    ? '<div style="font-size:12px;color:var(--text-muted);">候補はありません（部品コードを直接入力してください）</div>'
+    : '<table class="of-table"><tbody>' + cands.map(({ m }) => `<tr><td style="font-family:monospace;font-weight:700;">${_esc(m.code)}</td><td style="font-size:12px;">${_esc(m.name)}</td>
+        <td style="font-size:11px;">${_esc(m.variant || '')}</td><td><button class="btn btn-primary btn-sm" onclick="cpqRegister('${_ofq(m.code)}','${_ofq(m.client)}')">この見積に登録</button></td></tr>`).join('') + '</tbody></table>';
+}
+function cpqRegister(code, client) {
+  code = code || document.getElementById('cpq-code').value.trim();
+  client = client || document.getElementById('cpq-client').value.trim();
+  if (!code) { showToast('客先部品コードを入力してください', true); return; }
+  const m = _cpqFindMaster(code, client);
+  const name = m ? '' : document.getElementById('cpq-name').value.trim();
+  if (!m && !name && !confirm('客先品名が空です。部品コードだけで新規登録しますか？')) return;
+  _ofApi('cpqRegister', { quoteNo: CPQ.cur.quoteNo, client: m ? m.client : client, code, name }, res => {
+    showToast(`部品コード ${code} を見積 ${CPQ.cur.quoteNo} に登録しました${res.created ? '（マスタに新規登録）' : ''}`);
+    _cpqReload(() => { document.getElementById('cpq-code').value = ''; _cpqRenderCurrent(); _cpqRenderCands(); _cpqPreview(); });
+  });
+}
+function cpqUnregister(client, code) {
+  if (!confirm(`部品コード ${code} の登録を解除しますか？`)) return;
+  _ofApi('cpqUnregister', { client, code }, () => { showToast('解除しました'); _cpqReload(() => { _cpqRenderCurrent(); _cpqRenderCands(); }); });
+}
+function _cpqReload(done) {
+  _ofApi('cpqList', {}, res => {
+    CPQ.byQuote = res.byQuote || {}; CPQ.all = res.all || [];
+    applyQuoteFilter();
+    if (typeof _qolRefresh === 'function') _qolRefresh(); // 受注状況（部品コード一致の受注）も再計算
+    if (done) done();
+  });
+}
+</script>

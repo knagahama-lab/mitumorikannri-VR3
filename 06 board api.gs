@@ -293,6 +293,10 @@ function handleApiRequest(action, payload) {
       case 'cpmClientFix':           return apiCpmClientFix(payload);
       // ★ 価格一覧表（36_price_table.gs）
       case 'priceTable':             return apiPriceTable();
+      // ★ 見積書⇔客先部品コード（37_quote_partcodes.gs）
+      case 'cpqList':       return apiCpqList();
+      case 'cpqRegister':   return apiCpqRegister(payload);
+      case 'cpqUnregister': return apiCpqUnregister(payload);
       default: return { success: false, error: '不明なアクション: ' + action };
     }
     

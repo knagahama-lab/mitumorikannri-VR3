@@ -113,6 +113,34 @@ function _qolBuild() {
     });
   } catch (e) { Logger.log('[_qolBuild ledger] ' + e.message); }
 
+  // D. 客先部品コード：見積に登録した部品コードが、見積提出日以降の注文明細に出てきたら受注とみなす
+  try {
+    if (typeof _cpmRows === 'function' && typeof _cpmOrderLines === 'function') {
+      var codesByQuote = {};
+      _cpmRows().forEach(function(r) {
+        var qno = String(r[CPM.QUOTE_NO] || '').trim();
+        if (qno && quotes[qno]) (codesByQuote[qno] = codesByQuote[qno] || []).push(r[CPM.CLIENT] + '|' + _cpmCode(r[CPM.CODE]));
+      });
+      if (Object.keys(codesByQuote).length) {
+        var linesByKey = {};
+        _cpmOrderLines().forEach(function(l) {
+          if (l.code && l.orderNo) (linesByKey[l.clientKey + '|' + l.code] = linesByKey[l.clientKey + '|' + l.code] || []).push(l);
+        });
+        Object.keys(codesByQuote).forEach(function(qno) {
+          var q = quotes[qno];
+          var base = String(q.submitDate || q.quoteDate || '');
+          codesByQuote[qno].forEach(function(key) {
+            (linesByKey[key] || []).forEach(function(l) {
+              if (base && l.orderDate && String(l.orderDate) < base) return; // 見積より前の注文は対象外
+              q.orderNos[l.orderNo] = q.orderNos[l.orderNo] || 'D';
+              if (orders[l.orderNo]) orders[l.orderNo].quoteNos[qno] = orders[l.orderNo].quoteNos[qno] || 'D';
+            });
+          });
+        });
+      }
+    }
+  } catch (e) { Logger.log('[_qolBuild partcode] ' + e.message); }
+
   return { quotes: quotes, orders: orders };
 }
 
