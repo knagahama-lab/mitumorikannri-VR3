@@ -4,6 +4,29 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>見積・注文 管理システム</title>
+<script>
+// ★ スクリプト読込エラーの見える化：構文エラーでスクリプトが丸ごと無効になった場合に画面上部へ表示
+//   （ボタンが「反応しない」原因をコンソールを開かずに特定するため）
+window.__APP_BUILD__ = '2026-09-30b';
+console.log('%c[見積・注文管理] build ' + window.__APP_BUILD__, 'color:#2563eb;font-weight:bold');
+window.addEventListener('error', function (e) {
+  var msg = String(e.message || '');
+  if (!/SyntaxError|Unexpected|Invalid|already been declared|out of order/i.test(msg)) return;
+  var line = '';
+  try { line = (document.documentElement.outerHTML.split('\n')[e.lineno - 1] || '').trim().slice(0, 120); } catch (x) {}
+  var show = function () {
+    var bar = document.getElementById('js-load-errors');
+    if (!bar) {
+      bar = document.createElement('div'); bar.id = 'js-load-errors';
+      bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#b91c1c;color:#fff;font:12px/1.5 monospace;padding:6px 12px;white-space:pre-wrap;max-height:40vh;overflow:auto;';
+      bar.textContent = '⚠ スクリプト読込エラー（この画面を管理者に送ってください）build ' + window.__APP_BUILD__;
+      document.body.appendChild(bar);
+    }
+    bar.textContent += '\n' + msg + '  [line ' + e.lineno + ']  ' + line;
+  };
+  if (document.body) show(); else document.addEventListener('DOMContentLoaded', show);
+});
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js'></script>
