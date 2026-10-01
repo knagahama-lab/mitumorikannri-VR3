@@ -196,6 +196,7 @@ function cpmOnOrderSaved(mgmtId, ocr, written) {
         var m = _cpmToObj(r, idx[key] + 2);
         res.type = 'repeat';
         res.prev = { date: m.lastDate, orderNo: m.lastOrderNo, qty: m.lastQty, price: m.lastPrice, name: m.name };
+        res.firstOrder = !m.lastOrderNo; // 見積時に事前登録しただけで、注文はこれが初めて
         res.quoteNo = m.quoteNo; res.quotePrice = m.quotePrice;
         if (m.lastPrice && price && m.lastPrice !== price) res.priceChanged = true;
         if (m.quotePrice && price && m.quotePrice !== price) res.quoteDiff = true;

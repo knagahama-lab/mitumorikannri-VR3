@@ -71,12 +71,24 @@ function cpmNotifyOrder(mgmtId, action, cpm, ocr) {
   var noCode = Math.max(0, lineCount - results.length);
 
   // 見積に紐づいた注文（見積書の注文書が発行された）
-  var quotes = [];
+  var quotes = [], links = null;
   try {
-    var links = apiQuoteOrderLinks();
+    links = apiQuoteOrderLinks();
     var bo = links.success && links.byOrder[orderNo];
     if (bo) quotes = bo.quotes || [];
   } catch (e) { Logger.log('[notify links] ' + e.message); }
+
+  // 🎉 初回注文：その見積に初めて届いた注文／事前登録した部品コードで初めての注文
+  var firstQuotes = quotes.filter(function(q) {
+    var s = links && links.byQuote && links.byQuote[q.quoteNo];
+    return s && s.orders && s.orders.length && s.orders[0].orderNo === orderNo;
+  });
+  var firstCodes = results.filter(function(r) { return r.type === 'repeat' && r.firstOrder; });
+  var firstLines = firstQuotes.map(function(q) {
+    return '・見積 ' + q.quoteNo + '（' + (q.submitDate || '提出日不明') + ' 提出' + (q.leadDays != null ? '／提出から' + q.leadDays + '日' : '') + '）';
+  }).concat(firstCodes.map(function(r) {
+    return '・部品コード ' + r.code + '　' + r.name + '　' + r.qty + '個 ' + yen(r.price) + (r.quoteNo ? '（見積 ' + r.quoteNo + '）' : '');
+  }));
 
   var external = null;
   if (action === 'cancellation' || action === 'revision') {
@@ -92,9 +104,17 @@ function cpmNotifyOrder(mgmtId, action, cpm, ocr) {
     else external.lines = external.lines.concat(['', '【新規品番】']).concat(nl);
   }
   quotes.forEach(function(q) {
+    var first = firstQuotes.indexOf(q) >= 0;
     _ntLog('見積→受注', { mgmtId: mgmtId, orderNo: orderNo, quoteNo: q.quoteNo, quoteMgmtId: q.quoteMgmtId, client: client,
-      body: '📦 見積 ' + q.quoteNo + '（' + (q.submitDate || '提出日不明') + ' 提出）の注文書 ' + orderNo + ' を受領' + (q.leadDays != null ? '（提出から' + q.leadDays + '日）' : '') });
+      body: (first ? '🎉 初回注文：' : '📦 ') + '見積 ' + q.quoteNo + '（' + (q.submitDate || '提出日不明') + ' 提出）の注文書 ' + orderNo + ' を受領' + (q.leadDays != null ? '（提出から' + q.leadDays + '日）' : '') });
   });
+  if (firstLines.length && action === 'new') {
+    if (!external) external = { title: '🎉 初回注文書を受領しました', lines: head.concat(['', '【初回注文】']).concat(firstLines) };
+    else {
+      if (newOnes.length) external.title = '🎉 初回注文書を受領しました（新規品番あり）';
+      external.lines = external.lines.concat(['', '【初回注文】']).concat(firstLines);
+    }
+  }
   if (external && quotes.length) external.lines.push('', '【紐づいた弊社見積】', quotes.map(function(q) { return '・' + q.quoteNo; }).join(' '));
   if (noCode && action === 'new') {
     _ntLog('要確認', { mgmtId: mgmtId, orderNo: orderNo, client: client, body: '⚠ 注文 ' + orderNo + ' の ' + noCode + '行で客先部品コードを読み取れませんでした（新規品番か確認してください）' });
@@ -107,7 +127,86 @@ function cpmNotifyOrder(mgmtId, action, cpm, ocr) {
     else if (typeof _sendChatNotification === 'function') _sendChatNotification(mgmtId, 'order', action); // それ以外は従来の通知
     return;
   }
-  if (external) _ntSendExternal(external.title, external.lines); // newcode：新規品番・差し替え・キャンセルのみ
+  if (external) _ntSendExternal(external.title, external.lines); // newcode：新規品番・初回注文・差し替え・キャンセル
+}
+
+// ============================================================
+// 注文待ちリマインド（毎週：提出から一定日数、注文書が届いていない見積の一覧）
+//   設定はスクリプトプロパティ REMIND_WAITING（JSON: {days, weekday, hour}）
+// ============================================================
+var REMIND_PROP = 'REMIND_WAITING';
+var REMIND_WEEKDAYS = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+var REMIND_WEEKDAY_JA = ['日', '月', '火', '水', '木', '金', '土'];
+
+function _remindCfg() {
+  var c = {};
+  try { c = JSON.parse(PropertiesService.getScriptProperties().getProperty(REMIND_PROP) || '{}'); } catch (e) {}
+  return { days: Number(c.days) || 30, weekday: c.weekday != null ? Number(c.weekday) : 1, hour: c.hour != null ? Number(c.hour) : 8,
+           lastRun: c.lastRun || '', lastCount: c.lastCount != null ? c.lastCount : '' };
+}
+
+/** 注文待ちの見積（提出から cfg.days 日以上、受注・アーカイブ・失注を除く） */
+function _remindWaitingQuotes(days) {
+  var links = apiQuoteOrderLinks();
+  if (!links.success) throw new Error(links.error);
+  return Object.keys(links.byQuote).map(function(k) { return links.byQuote[k]; })
+    .filter(function(s) { return s.state === 'waiting' && s.waitingDays != null && s.waitingDays >= days; })
+    .sort(function(a, b) { return b.waitingDays - a.waitingDays; });
+}
+
+/** 時間主導トリガーから呼ぶ（手動の「今すぐ送信」からも使う） */
+function weeklyQuoteWaitingReminder() {
+  var cfg = _remindCfg();
+  var list = _remindWaitingQuotes(cfg.days);
+  var props = PropertiesService.getScriptProperties();
+  var saved = {}; try { saved = JSON.parse(props.getProperty(REMIND_PROP) || '{}'); } catch (e) {}
+  saved.lastRun = nowJST(); saved.lastCount = list.length;
+  props.setProperty(REMIND_PROP, JSON.stringify(saved));
+  if (!list.length) return { sent: false, count: 0 };
+  var lines = list.slice(0, 60).map(function(s) {
+    return '・' + s.waitingDays + '日　' + s.quoteNo + '　' + (s.client || '') + '　' + (s.subject || '').substring(0, 40) +
+      '（' + (s.submitDate || '') + ' 提出）' + (s.candidates && s.candidates.length ? '　🔎候補あり' : '');
+  });
+  if (list.length > 60) lines.push('…ほか ' + (list.length - 60) + '件');
+  var title = '⏳ 注文待ちの見積 ' + list.length + '件（提出から' + cfg.days + '日以上）';
+  _ntSendExternal(title, ['注文書がまだ届いていない見積の一覧です（長く待っている順）。', '不要になった見積はステータスを「ボツ」「旧見積」にすると次回から除外されます。', ''].concat(lines));
+  _ntLog('注文待ち', { body: title + '\n' + lines.slice(0, 15).join('\n') + (list.length > 15 ? '\n…ほか ' + (list.length - 15) + '件' : '') });
+  return { sent: true, count: list.length };
+}
+
+function apiRemindGet() {
+  try {
+    var cfg = _remindCfg();
+    cfg.enabled = ScriptApp.getProjectTriggers().some(function(t) { return t.getHandlerFunction() === 'weeklyQuoteWaitingReminder'; });
+    cfg.weekdayJa = REMIND_WEEKDAY_JA[cfg.weekday];
+    cfg.preview = _remindWaitingQuotes(cfg.days).length;
+    return Object.assign({ success: true }, cfg);
+  } catch (e) { return { success: false, error: e.message }; }
+}
+
+/** p: { enabled, days, weekday(0-6), hour(0-23) } */
+function apiRemindSet(p) {
+  try {
+    p = p || {};
+    var props = PropertiesService.getScriptProperties();
+    var saved = {}; try { saved = JSON.parse(props.getProperty(REMIND_PROP) || '{}'); } catch (e) {}
+    if (p.days != null) saved.days = Math.max(1, Number(p.days) || 30);
+    if (p.weekday != null) saved.weekday = Math.min(6, Math.max(0, Number(p.weekday)));
+    if (p.hour != null) saved.hour = Math.min(23, Math.max(0, Number(p.hour)));
+    props.setProperty(REMIND_PROP, JSON.stringify(saved));
+    ScriptApp.getProjectTriggers().forEach(function(t) { if (t.getHandlerFunction() === 'weeklyQuoteWaitingReminder') ScriptApp.deleteTrigger(t); });
+    if (p.enabled) {
+      var c = _remindCfg();
+      ScriptApp.newTrigger('weeklyQuoteWaitingReminder').timeBased()
+        .onWeekDay(ScriptApp.WeekDay[REMIND_WEEKDAYS[c.weekday]]).atHour(c.hour).create();
+    }
+    return apiRemindGet();
+  } catch (e) { return { success: false, error: e.message }; }
+}
+
+function apiRemindRunNow() {
+  try { var r = weeklyQuoteWaitingReminder(); return { success: true, sent: r.sent, count: r.count }; }
+  catch (e) { return { success: false, error: e.message }; }
 }
 
 // ============================================================

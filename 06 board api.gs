@@ -306,6 +306,9 @@ function handleApiRequest(action, payload) {
       case 'notifyList':     return apiNotifyList(payload);
       case 'notifyMarkRead': return apiNotifyMarkRead(payload);
       case 'notifySetMode':  return apiNotifySetMode(payload);
+      case 'remindGet':      return apiRemindGet();
+      case 'remindSet':      return apiRemindSet(payload);
+      case 'remindRunNow':   return apiRemindRunNow();
       // ★ 仕入先書類の一括インポート（40_supplier_import.gs）
       case 'sdocImportPdf':    return apiSdocImportPdf(payload);
       case 'sdocImportFolder': return apiSdocImportFolder(payload);

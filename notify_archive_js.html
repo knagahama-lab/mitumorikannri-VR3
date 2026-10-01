@@ -85,9 +85,9 @@ function ntLoad(first) {
   }).handleApiRequest('notifyList', {});
 }
 function ntToggle() { const p = document.getElementById('nt-panel'); p.classList.toggle('open'); if (p.classList.contains('open')) _ntRender(); }
-const NT_ICON = { '新規品番': '🆕', '見積→受注': '📦', '要確認': '⚠', '差し替え': '✏', 'キャンセル': '✖' };
+const NT_ICON = { '新規品番': '🆕', '見積→受注': '📦', '要確認': '⚠', '差し替え': '✏', 'キャンセル': '✖', '注文待ち': '⏳', '仕入先見積': '📥' };
 function _ntRender() {
-  const tabs = [['all', 'すべて'], ['新規品番', '🆕 新規品番'], ['見積→受注', '📦 見積→受注'], ['要確認', '⚠ 要確認']];
+  const tabs = [['all', 'すべて'], ['新規品番', '🆕 新規品番'], ['見積→受注', '📦 見積→受注'], ['注文待ち', '⏳ 注文待ち'], ['要確認', '⚠ 要確認']];
   const list = NTF.items.filter(i => NTF.tab === 'all' || i.type === NTF.tab);
   document.getElementById('nt-panel').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border-bottom:1px solid var(--border);position:sticky;top:0;background:#fff;">
@@ -103,10 +103,38 @@ function _ntRender() {
     <div style="padding:8px 12px;border-top:1px solid var(--border);font-size:12px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;background:#f8fafc;">
       Chat／メール通知：
       <select onchange="ntSetMode(this.value)" style="font-size:12px;padding:2px 4px;">
-        <option value="newcode" ${NTF.mode === 'newcode' ? 'selected' : ''}>新規品番（客先部品コード未登録）の注文のみ</option>
+        <option value="newcode" ${NTF.mode === 'newcode' ? 'selected' : ''}>新規品番・初回注文の注文書のみ</option>
         <option value="all" ${NTF.mode === 'all' ? 'selected' : ''}>すべての注文書</option>
         <option value="off" ${NTF.mode === 'off' ? 'selected' : ''}>送らない（画面の通知のみ）</option>
-      </select></div>`;
+      </select></div>
+    <div id="nt-remind" style="padding:8px 12px;border-top:1px solid var(--border-light);font-size:12px;background:#f8fafc;">⏳ 注文待ちリマインド：読み込み中…</div>`;
+  _ntRemindLoad();
+}
+// ── 注文待ちリマインド（毎週、提出から○日以上注文書が届いていない見積を Chat／メールで一覧送信） ──
+function _ntRemindLoad() {
+  google.script.run.withSuccessHandler(r => { if (r && r.success) { NTF.remind = r; _ntRemindRender(); } }).handleApiRequest('remindGet', {});
+}
+function _ntRemindRender() {
+  const r = NTF.remind, el = document.getElementById('nt-remind'); if (!el || !r) return;
+  const wd = ['日', '月', '火', '水', '木', '金', '土'].map((d, i) => `<option value="${i}" ${i === r.weekday ? 'selected' : ''}>${d}曜</option>`).join('');
+  const hr = Array.from({ length: 24 }, (_, i) => `<option value="${i}" ${i === r.hour ? 'selected' : ''}>${i}時</option>`).join('');
+  el.innerHTML = `<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+      <b>⏳ 注文待ちリマインド</b> ${r.enabled ? '<span style="color:#16a34a;font-weight:700;">● ON</span>' : '<span style="color:#64748b;">○ OFF</span>'}
+      <span>毎週</span><select id="nt-r-wd" style="font-size:12px;">${wd}</select><select id="nt-r-hr" style="font-size:12px;">${hr}</select>
+      <span>・提出から</span><input id="nt-r-days" type="number" min="1" value="${r.days}" style="width:52px;font-size:12px;padding:1px 4px;"><span>日以上</span></div>
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:6px;">
+      <span style="color:var(--text-sub);">現在の対象 <b>${r.preview}</b>件${r.lastRun ? `｜前回 ${_esc(r.lastRun)}（${r.lastCount}件）` : ''}</span><span style="flex:1;"></span>
+      <button class="btn btn-outline btn-sm" style="font-size:11px;padding:2px 8px;" onclick="ntRemindRunNow()">今すぐ送信</button>
+      ${r.enabled ? '<button class="btn btn-outline btn-sm" style="font-size:11px;padding:2px 8px;" onclick="ntRemindSet(false)">停止</button>' : ''}
+      <button class="btn btn-primary btn-sm" style="font-size:11px;padding:2px 8px;" onclick="ntRemindSet(true)">${r.enabled ? '設定を保存' : 'ONにする'}</button></div>`;
+}
+function ntRemindSet(on) {
+  _ofApi('remindSet', { enabled: on, weekday: Number(document.getElementById('nt-r-wd').value), hour: Number(document.getElementById('nt-r-hr').value),
+    days: Number(document.getElementById('nt-r-days').value) || 30 }, r => { NTF.remind = r; _ntRemindRender(); showToast(on ? '注文待ちリマインドを設定しました' : 'リマインドを停止しました'); });
+}
+function ntRemindRunNow() {
+  if (!confirm('注文待ちの見積一覧を、今すぐ Chat／メールで送信しますか？')) return;
+  _ofApi('remindRunNow', {}, r => { showToast(r.sent ? `注文待ち ${r.count}件の一覧を送信しました` : '対象の見積はありません'); _ntRemindLoad(); ntLoad(false); });
 }
 function ntOpen(id) {
   const i = NTF.items.find(x => x.id === id); if (!i) return;

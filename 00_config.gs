@@ -304,7 +304,9 @@ function _getOrderHeaders() {
 }
 
 function _registerTriggers() {
-  ScriptApp.getProjectTriggers().forEach(function(t) { ScriptApp.deleteTrigger(t); });
+  // 自分が作る3つのトリガーだけ作り直す（注文待ちリマインド・仕入先フォルダ監視などは残す）
+  var own = ['processNewEmails', 'processDriveImports', 'autoMatchNewOrders'];
+  ScriptApp.getProjectTriggers().forEach(function(t) { if (own.indexOf(t.getHandlerFunction()) >= 0) ScriptApp.deleteTrigger(t); });
   ScriptApp.newTrigger('processNewEmails').timeBased().everyMinutes(15).create();
   ScriptApp.newTrigger('processDriveImports').timeBased().everyMinutes(5).create();
   ScriptApp.newTrigger('autoMatchNewOrders').timeBased().everyHours(1).create();
