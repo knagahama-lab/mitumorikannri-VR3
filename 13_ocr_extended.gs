@@ -216,7 +216,7 @@ function _geminiStructureText(text, docType) {
   var prompt = _buildTextStructurePrompt(docType, text);
   var body   = {
     contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: { temperature: 0.0, responseMimeType: 'application/json', maxOutputTokens: 2048 },
+    generationConfig: { temperature: 0.0, responseMimeType: 'application/json', maxOutputTokens: 8192 },
   };
   var options = {
     method: 'post', contentType: 'application/json',
@@ -258,7 +258,7 @@ function _geminiVisionOcr(driveFile, docType, apiKey) {
         { text: _buildOcrPrompt(docType) },
         { inline_data: { mime_type: 'application/pdf', data: base64 } },
       ]}],
-      generationConfig: { temperature: 0.05, responseMimeType: 'application/json', maxOutputTokens: 2048 },
+      generationConfig: { temperature: 0.05, responseMimeType: 'application/json', maxOutputTokens: 8192 },
     };
     var options = {
       method: 'post', contentType: 'application/json',
@@ -301,7 +301,8 @@ function _geminiVisionOcr(driveFile, docType, apiKey) {
 // テキスト構造化プロンプト（短いテキスト入力用）
 // ============================================================
 function _buildTextStructurePrompt(docType, text) {
-  var truncated = text.length > 3000 ? text.substring(0, 3000) + '\n...(以下省略)' : text;
+  var limit = docType === 'quote' ? 3000 : 15000;
+  var truncated = text.length > limit ? text.substring(0, limit) + '\n...(以下省略)' : text;
 
   if (docType === 'quote') {
     return [
@@ -320,21 +321,10 @@ function _buildTextStructurePrompt(docType, text) {
       truncated,
     ].join('\n');
   } else {
-    return [
-      '以下は発注書・注文書から抽出したテキストです。このテキストを解析して、指定のJSON形式のみで返してください。',
-      '説明文不要。JSONのみ出力。',
-      '',
-      '## 出力JSON形式',
-      '{"actionType":"new/revision/cancellation","reason":"","documentNo":"注文番号","documentDate":"発注日YYYY/MM/DD","clientName":"発注者","subject":"件名","modelCode":"機種コード","orderSlipNo":"伝票番号","linkedQuoteNo":"見積番号","orderType":"試作/量産/空","subtotal":数値,"tax":数値,"totalAmount":数値,"lineItems":[{"itemName":"品名","spec":"仕様","firstDelivery":"納入日","deliveryDest":"納入先","qty":数量,"unit":"単位","unitPrice":単価,"amount":金額,"remarks":"備考"}]}',
-      '',
-      '## ルール',
-      '- 金額は必ず数値型',
-      '- 合計行はlineItemsに含めない',
-      '- 差し替え/訂正→revision、取消→cancellation、それ以外→new',
-      '',
-      '## 注文書テキスト',
-      truncated,
-    ].join('\n');
+    return _ocrOrderSpec(
+      '以下は発注書・注文書から抽出したテキストです。このテキストを解析して、指定のJSON形式のみで返してください。説明文不要。JSONのみ出力。',
+      '## 共通ルール\n- 金額は必ず数値型\n- 合計行・消費税行はlineItemsに含めない'
+    ) + '\n\n## 注文書テキスト\n' + truncated;
   }
 }
 
@@ -456,36 +446,10 @@ function _buildOcrPrompt(docType) {
       '- 「一式」「式」は unit に設定し qty=1 にする',
     ].join('\n');
   } else {
-    return [
+    return _ocrOrderSpec(
       'あなたは高精度OCR専門AIです。添付の発注書・注文書PDFを解析し、以下のJSON形式のみで返してください。',
-      '',
-      '{',
-      '  "actionType": "new / revision / cancellation",',
-      '  "reason": "差し替えやキャンセルの理由（新規なら空文字）",',
-      '  "documentNo": "発注書番号・注文番号",',
-      '  "documentDate": "発注日 YYYY/MM/DD",',
-      '  "clientName": "発注者（注文を出した会社名）",',
-      '  "subject": "件名",',
-      '  "modelCode": "機種コード・型番（なければ空文字）",',
-      '  "orderSlipNo": "発注伝票番号（なければ空文字）",',
-      '  "linkedQuoteNo": "対応する見積番号（記載があれば。なければ空文字）",',
-      '  "orderType": "試作 または 量産（不明なら空文字）",',
-      '  "subtotal": 小計(数値),',
-      '  "tax": 消費税(数値),',
-      '  "totalAmount": 税込合計(数値),',
-      '  "lineItems": [',
-      '    {"itemName":"品名","spec":"仕様","firstDelivery":"初回納入日YYYY/MM/DD","deliveryDest":"納入先","qty":数量,"unit":"単位","unitPrice":単価,"amount":金額,"remarks":"備考"}',
-      '  ]',
-      '}',
-      '',
-      commonRules,
-      '',
-      '## actionType判定基準',
-      '- 「差し替え」「訂正」「版数更新」→ revision',
-      '- 「中止」「取消」「キャンセル」→ cancellation',
-      '- それ以外 → new',
-      '- 取消線が引かれた行は remarks に「キャンセル」と記載しamount=0',
-    ].join('\n');
+      commonRules + '\n- 取消線が引かれた行は remarks に「キャンセル」と記載しamount=0'
+    );
   }
 }
 
@@ -532,7 +496,13 @@ function _ocr_normalize(data, docType) {
     data.lineItems = [];
   }
 
-  if (docType === 'order') data.actionType = data.actionType || 'new';
+  if (docType === 'order') {
+    data.actionType = data.actionType || 'new';
+    // 同じPDF内の2件目以降の発注書（41_ocr_order_spec.gs の additionalOrders）も同じ正規化をかける
+    data.additionalOrders = (Array.isArray(data.additionalOrders) ? data.additionalOrders : [])
+      .map(function(x) { var c = {}; Object.keys(x || {}).forEach(function(k) { c[k] = x[k]; }); c.additionalOrders = []; return _ocr_normalize(c, 'order'); })
+      .filter(function(x) { return x && (x.documentNo || (x.lineItems || []).length); });
+  }
   return data;
 }
 

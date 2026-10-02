@@ -499,34 +499,9 @@ function _buildOcrPrompt(docType) {
       '}\n' +
       'ルール: 有効なJSONのみ。金額は数値。不明は空文字か0。合計行はlineItemsに含めない。';
   } else {
-    return 'あなたはOCR専門家であり、業務フローの判定官です。添付PDF（発注書・注文書）を解析し、以下のJSON形式のみで返してください。\n' +
-      '{\n' +
-      ' "actionType": "new" または "revision" または "cancellation",\n' +
-      ' "reason": "差し替えやキャンセルの理由（あれば。なければ空文字）",\n' +
-      ' "documentNo": "発注書番号",\n' +
-      ' "documentDate": "発注日(YYYY/MM/DD)",\n' +
-      ' "clientName": "発注元の企業名（この発注書を発行した会社＝顧客。宛先の「殿」「御中」側の会社（受注者）ではない）",\n' +
-      ' "issuerName": "発行元の企業名（社名ロゴ・住所・印がある側）",\n' +
-      ' "subject": "件名",\n' +
-      ' "modelCode": "機種コード",\n' +
-      ' "orderSlipNo": "発注伝票番号",\n' +
-      ' "linkedQuoteNo": "紐づく見積番号（なければ空文字）",\n' +
-      ' "orderType": "試作 または 量産（「試作購買」「試作」の記載は試作。不明なら空文字）",\n' +
-      ' "subtotal": 小計(数値),\n' +
-      ' "tax": 消費税(数値),\n' +
-      ' "totalAmount": 合計(数値),\n' +
-      ' "lineItems": [\n' +
-      '   {"lineNo":"明細の行番号・項目番号（00010 など）","partCode":"部品コード・品番・品目コード（客先の部品番号。品名の上や左にある数字/英数字コード、または品目欄の英数字コード。なければ空文字）","itemName":"品名（部品コードは含めない。品目欄にコードしか無ければコードをそのまま）","drawingNo":"図番・型式（品名の括弧内の型番。なければ空文字）","spec":"仕様","firstDelivery":"初回納入日・納期(YYYY/MM/DD)","deliveryDest":"納入先","qty":数量,"unit":"単位","unitPrice":単価,"amount":金額,"quoteRef":"この明細が参照する見積番号（明細ごとに記載がある場合。なければ空文字）","remarks":"備考"}\n' +
-      ' ],\n' +
-      ' "additionalOrders": [ ／* 同じPDF内に発注番号の異なる発注書が他にもある場合のみ、2件目以降を上と同じ形式（documentNo, documentDate, orderSlipNo, modelCode, linkedQuoteNo, subtotal, tax, totalAmount, lineItems）で入れる。1件だけなら空配列 *／ ]\n' +
-      '}\n' +
-      '※1つのPDFに複数ページ・複数の発注番号（例: 4503164225, 4503164227…）の発注書がある場合は、1件目をトップレベル、2件目以降を additionalOrders に1件ずつ分けること。合算しないこと。\n' +
-      '※明細の行番号・項目番号（00010, 00020 など）は partCode ではない。lineNo に入れること。\n' +
-      '※納期・納入期日が書類全体に1つだけの場合も、各明細の firstDelivery に入れること。\n' +
-      '※取引先(clientName)は発注書を発行した会社。「' + (PropertiesService.getScriptProperties().getProperty('SELF_COMPANY_NAMES') || 'サン電子').split(',')[0] + '」など宛先（殿・御中）の会社は受注者なので clientName にしないこと。\n' +
-      '※部品コードは品名と同じ枠に上下で書かれていることが多い。必ず partCode に分けて入れ、itemName に含めないこと。\n' +
-      '※重要: 書類内に「差し替え」「訂正」「版数更新」等の文言があればrevision、「中止」「取消」「キャンセル」等があればcancellationと判定。\n' +
-      'ルール: 有効なJSONのみ。金額は数値。不明は空文字か0。合計行はlineItemsに含めない。';
+    // ★ 注文書の形式・ルールは 41_ocr_order_spec.gs に一本化（13_ocr_extended.gs の同名関数が優先されるため）
+    return _ocrOrderSpec('あなたはOCR専門家です。添付PDF（発注書・注文書）を解析し、以下のJSON形式のみで返してください。',
+      'ルール: 有効なJSONのみ。金額は数値。不明は空文字か0。合計行はlineItemsに含めない。');
   }
 }
 
