@@ -88,8 +88,12 @@ function _cpmSplit(item) {
     if (!code) code = _cpmCode(m[1]);
     if (_cpmCode(m[1]) === code) name = m[2];
   } else if (code && _cpmCode(name).indexOf(code) === 0) {
-    name = name.substring(code.length).trim();
+    var rest = name.substring(code.length).trim();
+    // 品目欄がコードだけ（KAM1121A）や、残りが括弧書きだけ（SNB52163A(テスト)）の場合は品名をそのまま残す
+    if (rest && !/^[（(][^）)]*[)）]$/.test(rest)) name = rest;
   }
+  // 品名全体が1つのコード（英字＋数字3桁以上。例: KAM1130A）なら部品コードとみなす
+  if (!code && /^[A-Z]{2,}[0-9]{3,}[A-Z0-9\-]*$/i.test(name) && name.length <= 20) code = _cpmCode(name);
   // 先頭以外（品名の途中・末尾）→ 仕様 → 備考 の順に探す
   if (!code) {
     var inName = _cpmFindCodeIn(name);

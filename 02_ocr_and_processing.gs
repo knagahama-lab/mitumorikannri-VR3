@@ -272,6 +272,15 @@ function _processOrderPdf(attachment, gmailMsg, msgId, orderType) {
 }
 
 function _saveOrderData(ocr, orderType, pdfUrl, folderUrl, msgId, fallbackSubject) {
+  // ★ 1つのPDFに複数の発注書（発注番号が異なる）がある場合は、2件目以降を別の注文として後で登録する
+  var extraOrders = (ocr.additionalOrders || []).filter(function(x) { return x && (x.documentNo || (x.lineItems || []).length); });
+  if (extraOrders.length) ocr._multi = true;
+  ocr.additionalOrders = [];
+  // 明細ごとの見積参照が全行同じなら、注文の紐づけ見積番号として使う
+  if (!ocr.linkedQuoteNo) {
+    var refs = (ocr.lineItems || []).map(function(it) { return String(it.quoteRef || '').trim(); }).filter(String);
+    if (refs.length && refs.every(function(r) { return r === refs[0]; })) ocr.linkedQuoteNo = refs[0];
+  }
   // ★ 取引先が自社（宛先）になっていたら発行元・保存フォルダ名から補正（35_client_fix.gs）
   try { cpmFixOrderClient(ocr, pdfUrl); } catch(e) { Logger.log('[CLIENT FIX ERROR] ' + e.message); }
   var ss        = getSpreadsheet();
@@ -284,7 +293,8 @@ function _saveOrderData(ocr, orderType, pdfUrl, folderUrl, msgId, fallbackSubjec
   var mgmtRow = -1;
   if (action === 'revision' || action === 'cancellation') {
     mgmtRow = _findExistingMgmtRowForOrder(ss, ocr.documentNo, ocr.subject || fallbackSubject);
-  } else if (linkedQuoteNo) {
+  } else if (linkedQuoteNo && !ocr._multi) {
+    // 複数注文のPDFは見積の行に合流させない（同じ見積を参照する注文同士が上書きし合うため）。見積は明細の紐づけで管理
     mgmtRow = findMgmtRowByQuoteNo(linkedQuoteNo);
   }
 
@@ -371,6 +381,19 @@ function _saveOrderData(ocr, orderType, pdfUrl, folderUrl, msgId, fallbackSubjec
   try { cpmNotifyOrder(finalMgmtId, action, (typeof cpm !== 'undefined') ? cpm : null, ocr); }
   catch(e) { Logger.log('[NOTIFY ERROR] ' + e.message); _sendChatNotification(finalMgmtId, 'order', action); }
 
+  // ★ 同じPDF内の2件目以降の発注書を、それぞれ別の注文として登録（取引先・種別などは1件目を引き継ぐ）
+  extraOrders.forEach(function(ex, i) {
+    try {
+      var child = {};
+      Object.keys(ocr).forEach(function(k) { if (k !== 'lineItems') child[k] = ocr[k]; });
+      Object.keys(ex).forEach(function(k) { if (ex[k] !== '' && ex[k] !== null && ex[k] !== undefined) child[k] = ex[k]; });
+      child.lineItems = ex.lineItems || [];
+      child.linkedQuoteNo = ex.linkedQuoteNo || '';
+      child.additionalOrders = []; child._multi = true;
+      _saveOrderData(child, orderType, pdfUrl, folderUrl, msgId ? msgId + '#' + (i + 2) : '', fallbackSubject);
+    } catch (e2) { Logger.log('[MULTI ORDER ERROR] ' + (ex.documentNo || i) + ': ' + e2.message); }
+  });
+
   return finalMgmtId;
 }
 
@@ -390,7 +413,7 @@ function _writeOrderLines(ss, mgmtSheet, mgmtRow, mgmtId, ocr, orderType, pdfUrl
   var os    = ss.getSheetByName(CONFIG.SHEET_ORDERS);
   var lines = ocr.lineItems.map(function(item, idx) {
     return [
-      mgmtId, ocr.documentNo || '', ocr.linkedQuoteNo || '', orderType,
+      mgmtId, ocr.documentNo || '', item.quoteRef || ocr.linkedQuoteNo || '', orderType,
       ocr.documentDate || '', ocr.modelCode || '', ocr.orderSlipNo || '',
       idx + 1,
       item.itemName || '', item.spec || '',
@@ -488,14 +511,18 @@ function _buildOcrPrompt(docType) {
       ' "modelCode": "機種コード",\n' +
       ' "orderSlipNo": "発注伝票番号",\n' +
       ' "linkedQuoteNo": "紐づく見積番号（なければ空文字）",\n' +
-      ' "orderType": "試作 または 量産（不明なら空文字）",\n' +
+      ' "orderType": "試作 または 量産（「試作購買」「試作」の記載は試作。不明なら空文字）",\n' +
       ' "subtotal": 小計(数値),\n' +
       ' "tax": 消費税(数値),\n' +
       ' "totalAmount": 合計(数値),\n' +
       ' "lineItems": [\n' +
-      '   {"partCode":"部品コード・品番（客先の部品番号。品名の上や左にある数字/英数字コード。なければ空文字）","itemName":"品名（部品コードは含めない）","drawingNo":"図番・型式（品名の括弧内の型番。なければ空文字）","spec":"仕様","firstDelivery":"初回納入日(YYYY/MM/DD)","deliveryDest":"納入先","qty":数量,"unit":"単位","unitPrice":単価,"amount":金額,"remarks":"備考"}\n' +
-      ' ]\n' +
+      '   {"lineNo":"明細の行番号・項目番号（00010 など）","partCode":"部品コード・品番・品目コード（客先の部品番号。品名の上や左にある数字/英数字コード、または品目欄の英数字コード。なければ空文字）","itemName":"品名（部品コードは含めない。品目欄にコードしか無ければコードをそのまま）","drawingNo":"図番・型式（品名の括弧内の型番。なければ空文字）","spec":"仕様","firstDelivery":"初回納入日・納期(YYYY/MM/DD)","deliveryDest":"納入先","qty":数量,"unit":"単位","unitPrice":単価,"amount":金額,"quoteRef":"この明細が参照する見積番号（明細ごとに記載がある場合。なければ空文字）","remarks":"備考"}\n' +
+      ' ],\n' +
+      ' "additionalOrders": [ ／* 同じPDF内に発注番号の異なる発注書が他にもある場合のみ、2件目以降を上と同じ形式（documentNo, documentDate, orderSlipNo, modelCode, linkedQuoteNo, subtotal, tax, totalAmount, lineItems）で入れる。1件だけなら空配列 *／ ]\n' +
       '}\n' +
+      '※1つのPDFに複数ページ・複数の発注番号（例: 4503164225, 4503164227…）の発注書がある場合は、1件目をトップレベル、2件目以降を additionalOrders に1件ずつ分けること。合算しないこと。\n' +
+      '※明細の行番号・項目番号（00010, 00020 など）は partCode ではない。lineNo に入れること。\n' +
+      '※納期・納入期日が書類全体に1つだけの場合も、各明細の firstDelivery に入れること。\n' +
       '※取引先(clientName)は発注書を発行した会社。「' + (PropertiesService.getScriptProperties().getProperty('SELF_COMPANY_NAMES') || 'サン電子').split(',')[0] + '」など宛先（殿・御中）の会社は受注者なので clientName にしないこと。\n' +
       '※部品コードは品名と同じ枠に上下で書かれていることが多い。必ず partCode に分けて入れ、itemName に含めないこと。\n' +
       '※重要: 書類内に「差し替え」「訂正」「版数更新」等の文言があればrevision、「中止」「取消」「キャンセル」等があればcancellationと判定。\n' +

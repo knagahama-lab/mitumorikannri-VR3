@@ -3527,6 +3527,7 @@ function _queueRetry(jobId){
 // ----- OCR確認パネル -----
 function _openOcrReviewModal(res){
   const ocr=res.ocrResult||{}; const quality=res.quality||0; const warns=res.warnings||[];
+  if((ocr.additionalOrders||[]).length) warns.push({level:'warn', msg:'📑 このPDFには他に '+ocr.additionalOrders.length+'件の注文書（発注番号 '+ocr.additionalOrders.map(x=>x.documentNo||'?').join('、')+'）が含まれます。承認すると、それぞれ別の注文として登録します。'});
   const isQuote=S.docType==='quote';
   const qColor=quality>=75?'#16a34a':quality>=50?'#d97706':'#dc2626';
   const qLabel=quality>=75?'高精度':quality>=50?'要確認':'低精度';
