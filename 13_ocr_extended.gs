@@ -24,16 +24,19 @@ function extractPdfData(driveFile, docType) {
   Logger.log('[OCR HYBRID] 開始: ' + docType + ' / ' + driveFile.getName());
 
   var text = _extractTextFromPdf(driveFile);
+  var textResult = null;
 
   if (text && text.trim().length >= 30) {
     Logger.log('[OCR HYBRID] テキスト抽出成功: ' + text.length + '文字 → Gemini構造化');
     var result = _geminiStructureText(text, docType);
-    if (result && (result.documentNo || result.totalAmount)) {
+    if (result) { result._textHint = String(text).substring(0, 4000); textResult = result; } // 取引先の推定に使う
+    // 番号・会社名・明細がそろっていればテキスト読取を採用。欠けていれば画像読取も試す
+    if (result && _ocrCompleteness(result, docType) >= 3) {
       _logOcrResult(driveFile.getName(), 'success', null,
         (docType==='quote'?'見積書':'注文書') + 'テキスト+Gemini構造化: ' + (result.documentNo||'?'));
       return result;
     }
-    Logger.log('[OCR HYBRID] テキスト構造化が不十分 → Visionへフォールバック');
+    Logger.log('[OCR HYBRID] テキスト構造化が不十分（会社名・明細の不足など） → Visionも試行');
   }
 
   Logger.log('[OCR HYBRID] Gemini Vision(画像解析)試行');
@@ -44,14 +47,28 @@ function extractPdfData(driveFile, docType) {
   }
 
   var visionResult = _geminiVisionOcr(driveFile, docType, apiKey);
-  if (visionResult) {
+  if (visionResult && (!textResult || _ocrCompleteness(visionResult, docType) >= _ocrCompleteness(textResult, docType))) {
+    if (textResult && textResult._textHint) visionResult._textHint = textResult._textHint;
     _logOcrResult(driveFile.getName(), 'success', null,
       (docType==='quote'?'見積書':'注文書') + 'Vision OCR: ' + (visionResult.documentNo||'?'));
     return visionResult;
   }
+  if (textResult && (textResult.documentNo || textResult.totalAmount)) {
+    _logOcrResult(driveFile.getName(), 'success', null,
+      (docType==='quote'?'見積書':'注文書') + 'テキスト+Gemini構造化（一部不足）: ' + (textResult.documentNo||'?'));
+    return textResult;
+  }
 
   _logOcrResult(driveFile.getName(), 'ocr_failed', null, '全OCR手法失敗。手動入力してください。');
   return null;
+}
+
+/** OCR結果のそろい具合（番号・会社名・明細・金額 各1点） */
+function _ocrCompleteness(r, docType) {
+  if (!r) return 0;
+  var company = docType === 'quote' ? (r.destCompany || r.clientName) : (r.clientName || r.issuerName);
+  return (r.documentNo ? 1 : 0) + (String(company || '').trim() ? 1 : 0) +
+         ((r.lineItems || []).length ? 1 : 0) + ((r.totalAmount || r.subtotal) ? 1 : 0);
 }
 
 // ============================================================

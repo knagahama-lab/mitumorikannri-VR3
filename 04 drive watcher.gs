@@ -71,6 +71,9 @@ function _watchFolder(importFolderId, saveFolderId, docType, orderType, processe
           try { _logOcrResult(file.getName(), 'ocr_failed', null, 'Driveインポート：OCR失敗'); } catch(e) {}
         }
 
+        // ★ 注文書は取引先が空・自社なら、PDF本文・部品コードから取引先を補う（保存先が「未分類」にならないように）
+        if (docType !== 'quote') { try { cpmFixOrderClient(ocr, ''); } catch(fe) { Logger.log('[DRIVE WATCH CLIENT FIX] ' + fe.message); } }
+
         // 保存先フォルダへコピー
         // ★ 取引先マスタ（管理コンソール「取引先管理」）にDriveフォルダURLが
         //   設定されている場合は、その取引先専用フォルダへ保存する。
@@ -106,12 +109,14 @@ function _watchFolder(importFolderId, saveFolderId, docType, orderType, processe
         } else {
           var finalType = orderType || ocr.orderType || '';
           finalMgmtId = _saveOrderData(ocr, finalType, pdfUrl, folderUrl, mockMsgId, file.getName());
+          // ★ 見積との紐づけ（部品コード優先＋AI）と通知は _saveOrderData 内で実施済み。
+          //   ここで再度 AI 紐づけすると部品コードによる紐づけを上書きしてしまうため行わない。
+          //   従来の登録通知は「すべての注文書」モードの時だけ送る（既定は新規品番・初回注文のみ：39_notify.gs）
           try {
-            if (finalMgmtId) {
-              var lr = aiLinkOrderToQuote(finalMgmtId);
-              _sendOrderRegistrationToChat(finalMgmtId, { documentNo: ocr.documentNo || file.getName(), orderType: finalType }, lr);
+            if (finalMgmtId && typeof _ntMode === 'function' && _ntMode() === 'all') {
+              _sendOrderRegistrationToChat(finalMgmtId, { documentNo: ocr.documentNo || file.getName(), orderType: finalType }, null);
             }
-          } catch(le) { Logger.log('[DRIVE WATCH LINK ERROR] ' + le.message); }
+          } catch(le) { Logger.log('[DRIVE WATCH NOTIFY ERROR] ' + le.message); }
         }
 
         _markFileAsProcessed(fileId);

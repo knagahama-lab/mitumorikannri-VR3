@@ -96,11 +96,25 @@ function cpmFixOrderClient(ocr, pdfUrl) {
   var self = _cpmSelfNames();
   if (!_cpmIsBadClient(ocr.clientName, self)) return ocr;
   var original = ocr.clientName || '';
+  var canonOf = function(c) { return _cpmCanonicalClientNames()[c.name] || c.name; };
   if (ocr.issuerName && !_cpmIsSelf(ocr.issuerName, self)) {
     ocr.clientName = ocr.issuerName;
   } else {
-    var g = _cpmClientFromPdf(pdfUrl);
-    ocr.clientName = g ? (_cpmCanonicalClientNames()[g.client.name] || g.client.name) : '';
+    // ① PDF本文（テキスト読取の結果）に取引先マスタのキーワード（例：コナミ、藤商事）があるか
+    var t = ocr._textHint ? _cpmMatchClientMaster(ocr._textHint) : null;
+    // ② 明細の部品コードが、すでにどこかの取引先で登録されているか
+    var byCode = null;
+    if (!t && typeof _cpmRows === 'function') {
+      var codes = (ocr.lineItems || []).map(function(it) { return _cpmSplit(it).code; }).filter(String);
+      if (codes.length) {
+        var hit = _cpmRows().filter(function(r) { return codes.indexOf(_cpmCode(r[CPM.CODE])) >= 0 && !_cpmIsBadClient(r[CPM.CLIENT], self); })[0];
+        if (hit) byCode = _cpmMatchClientMaster(hit[CPM.CLIENT]) || { name: hit[CPM.CLIENT] };
+      }
+    }
+    // ③ PDFの保存フォルダ名
+    var g = (!t && !byCode && pdfUrl) ? _cpmClientFromPdf(pdfUrl) : null;
+    var found = t || byCode || (g && g.client);
+    ocr.clientName = found ? canonOf(found) : '';
   }
   Logger.log('[cpmFixOrderClient] 取引先を補正: "' + original + '" → "' + ocr.clientName + '"');
   return ocr;
