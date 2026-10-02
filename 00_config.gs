@@ -775,13 +775,19 @@ var CLIENT_MASTER_OTHER_ID  = 'default_other';
  * 未設定の場合は「藤商事」「コナミ」「その他」の初期セットを返す
  * （Driveフォルダは未設定＝従来どおりの保存先フォルダを使用）。
  */
+// ★ 取引先が増えた時はここに追加する。保存済みの取引先マスタに無ければ「1回だけ」自動で追加する
+//   （管理コンソールで削除した場合は再追加しない）
+var CLIENT_MASTER_ADDITIONS = [
+  { id: 'default_excite', name: 'エキサイト', keywords: ['エキサイト', 'EXCITE', 'Excite', 'excite'], driveFolderUrl: '' },
+];
+
 function getClientMasterList() {
   var props = PropertiesService.getScriptProperties();
   var raw   = props.getProperty(CLIENT_MASTER_PROP_KEY);
   if (raw) {
     try {
       var list = JSON.parse(raw);
-      if (Array.isArray(list) && list.length) return list;
+      if (Array.isArray(list) && list.length) return _ensureClientMasterAdditions(list, props);
     } catch (e) {
       Logger.log('[getClientMasterList] JSON parse error: ' + e.message);
     }
@@ -789,8 +795,27 @@ function getClientMasterList() {
   return [
     { id: 'default_fuji',   name: '藤商事', keywords: ['藤商事'],           driveFolderUrl: '' },
     { id: 'default_konami', name: 'コナミ', keywords: ['コナミ', 'KONAMI'], driveFolderUrl: '' },
+  ].concat(CLIENT_MASTER_ADDITIONS).concat([
     { id: CLIENT_MASTER_OTHER_ID, name: 'その他', keywords: [], driveFolderUrl: '', isFallback: true },
-  ];
+  ]);
+}
+
+/** 保存済みの取引先マスタに CLIENT_MASTER_ADDITIONS を「その他」の前へ1回だけ追加して保存 */
+function _ensureClientMasterAdditions(list, props) {
+  var changed = false;
+  CLIENT_MASTER_ADDITIONS.forEach(function (add) {
+    var flag = 'CLIENT_MASTER_ADDED_' + add.id;
+    if (props.getProperty(flag)) return; // 追加済み（その後に削除された場合も再追加しない）
+    var exists = list.some(function (c) { return c.id === add.id || c.name === add.name; });
+    if (!exists) {
+      var at = list.map(function (c) { return !!c.isFallback; }).indexOf(true);
+      list.splice(at >= 0 ? at : list.length, 0, JSON.parse(JSON.stringify(add)));
+      changed = true;
+    }
+    props.setProperty(flag, nowJST());
+  });
+  if (changed) props.setProperty(CLIENT_MASTER_PROP_KEY, JSON.stringify(list));
+  return list;
 }
 
 /**
