@@ -76,6 +76,7 @@
         var up = function () {
           document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up);
           h.classList.remove('active'); document.body.classList.remove('cr-dragging'); save();
+          var rbtn = document.getElementById('cr-reset-' + id); if (rbtn) rbtn.style.display = '';
         };
         document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
       });
