@@ -1,0 +1,111 @@
+<style>
+  .cr-handle{ position:absolute; top:0; right:-4px; width:9px; height:100%; cursor:col-resize; z-index:3; user-select:none; }
+  .cr-handle::after{ content:''; position:absolute; top:20%; bottom:20%; left:4px; width:2px; border-radius:1px; background:transparent; }
+  th:hover > .cr-handle::after{ background:#93c5fd; }
+  .cr-handle.active::after{ background:#2563eb !important; }
+  body.cr-dragging, body.cr-dragging *{ cursor:col-resize !important; user-select:none !important; }
+  .cr-reset{ font-size:11px; color:var(--text-sub); background:none; border:1px dashed #cbd5e1; border-radius:5px; padding:2px 8px; cursor:pointer; margin:0 0 6px auto; display:block; }
+  .cr-reset:hover{ color:var(--primary); border-color:var(--primary); }
+</style>
+<script>
+// ============================================================
+// colresize_js.html — 一覧表の列幅を手動で調整（ドラッグ）・保存
+//   見出しの右端をドラッグ → 幅が変わる／ダブルクリック → その列を元に戻す
+//   幅は一覧ごとにブラウザへ保存（次回も同じ幅）。「列幅を元に戻す」で全列リセット
+//   列幅を広げると、件名など「…」で省略されていた文字が表示される
+// ============================================================
+(function () {
+  // 対象の一覧（表を描画するコンテナのID）
+  var TARGETS = ['quotelist-container', 'table-container', 'ledger-flat-container', 'ledger-tree-container',
+                 'cpm-container', 'pt-table', 'of-container', 'pl-table-wrap', 'pl-master-table-wrap', 'pl-model-table-wrap'];
+  var KEY = 'colWidths.v1';
+  var store = {};
+  try { store = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) {}
+  var save = function () { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {} };
+
+  function headCells(table) {
+    var row = table.tHead && table.tHead.rows[table.tHead.rows.length - 1];
+    return row ? [].slice.call(row.cells) : [];
+  }
+  // 見出しが1段の表だけ対象（2段見出しは列位置がずれるため列番号ではなく見出し名で管理）
+  function colIndexOf(th) {
+    var idx = 0, c = th;
+    while ((c = c.previousElementSibling)) idx += c.colSpan || 1;
+    return idx;
+  }
+  function styleEl(id) {
+    var el = document.getElementById('cr-style-' + id);
+    if (!el) { el = document.createElement('style'); el.id = 'cr-style-' + id; document.head.appendChild(el); }
+    return el;
+  }
+  // 保存済みの幅をCSSとして反映（インラインの max-width 等を上書きするため !important）
+  function applyCss(id) {
+    var w = store[id] || {};
+    var css = Object.keys(w).map(function (i) {
+      var n = Number(i) + 1, px = w[i] + 'px';
+      return '#' + id + ' table:not(.cr-skip) > thead > tr:last-child > th:nth-child(' + n + '),' +
+             '#' + id + ' table:not(.cr-skip) > tbody > tr > td:nth-child(' + n + ')' +
+             '{width:' + px + ' !important;min-width:' + px + ' !important;max-width:' + px + ' !important;overflow:hidden;text-overflow:ellipsis;}';
+    }).join('\n');
+    styleEl(id).textContent = css;
+  }
+  function addHandles(id, table) {
+    if (table.dataset.cr) return;
+    table.dataset.cr = '1';
+    var heads = headCells(table);
+    if (!heads.length || (table.tHead.rows.length > 1)) { table.classList.add('cr-skip'); return; }
+    heads.forEach(function (th) {
+      if ((th.colSpan || 1) > 1) return;
+      if (getComputedStyle(th).position === 'static') th.style.position = 'relative';
+      var h = document.createElement('div');
+      h.className = 'cr-handle'; h.title = 'ドラッグで列幅を変更／ダブルクリックで元に戻す';
+      h.addEventListener('click', function (e) { e.stopPropagation(); e.preventDefault(); });
+      h.addEventListener('dblclick', function (e) {
+        e.stopPropagation(); e.preventDefault();
+        var i = colIndexOf(th);
+        if (store[id]) { delete store[id][i]; save(); applyCss(id); }
+      });
+      h.addEventListener('mousedown', function (e) {
+        e.stopPropagation(); e.preventDefault();
+        var i = colIndexOf(th), startX = e.clientX, startW = th.getBoundingClientRect().width;
+        h.classList.add('active'); document.body.classList.add('cr-dragging');
+        var move = function (ev) {
+          var w = Math.max(40, Math.round(startW + ev.clientX - startX));
+          store[id] = store[id] || {}; store[id][i] = w; applyCss(id);
+        };
+        var up = function () {
+          document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up);
+          h.classList.remove('active'); document.body.classList.remove('cr-dragging'); save();
+        };
+        document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
+      });
+      th.appendChild(h);
+    });
+    // 「列幅を元に戻す」ボタン（調整済みの一覧だけ表示）
+    var box = document.getElementById(id);
+    if (box && !document.getElementById('cr-reset-' + id)) {
+      var b = document.createElement('button');
+      b.id = 'cr-reset-' + id; b.className = 'cr-reset'; b.textContent = '↔ 列幅を元に戻す';
+      b.onclick = function () { delete store[id]; save(); applyCss(id); b.style.display = 'none'; };
+      box.parentNode.insertBefore(b, box);
+    }
+    var rb = document.getElementById('cr-reset-' + id);
+    if (rb) rb.style.display = store[id] && Object.keys(store[id]).length ? '' : 'none';
+  }
+  function scan() {
+    TARGETS.forEach(function (id) {
+      var box = document.getElementById(id); if (!box) return;
+      box.querySelectorAll('table').forEach(function (t) { addHandles(id, t); });
+      var rb = document.getElementById('cr-reset-' + id);
+      if (rb) rb.style.display = store[id] && Object.keys(store[id]).length ? '' : 'none';
+    });
+  }
+  window.addEventListener('load', function () {
+    TARGETS.forEach(applyCss);
+    var t = null;
+    new MutationObserver(function () { clearTimeout(t); t = setTimeout(scan, 50); })
+      .observe(document.getElementById('content') || document.body, { childList: true, subtree: true });
+    scan();
+  });
+})();
+</script>
