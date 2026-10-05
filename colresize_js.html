@@ -4,109 +4,244 @@
   th:hover > .cr-handle::after{ background:#93c5fd; }
   .cr-handle.active::after{ background:#2563eb !important; }
   body.cr-dragging, body.cr-dragging *{ cursor:col-resize !important; user-select:none !important; }
-  .cr-reset{ font-size:11px; color:var(--text-sub); background:none; border:1px dashed #cbd5e1; border-radius:5px; padding:2px 8px; cursor:pointer; margin:0 0 6px auto; display:block; }
-  .cr-reset:hover{ color:var(--primary); border-color:var(--primary); }
+  .cr-tools{ display:flex; justify-content:flex-end; gap:6px; margin:0 0 6px; }
+  .cr-tools button{ font-size:11px; color:var(--text-sub); background:#fff; border:1px dashed #cbd5e1; border-radius:5px; padding:2px 8px; cursor:pointer; }
+  .cr-tools button:hover{ color:var(--primary); border-color:var(--primary); }
+  th.cr-movable{ cursor:grab; }
+  th.cr-drop-before{ box-shadow:inset 3px 0 0 #2563eb; }
+  th.cr-drop-after{ box-shadow:inset -3px 0 0 #2563eb; }
+  th.cr-dragsrc{ opacity:.45; }
+  .cr-list{ list-style:none; margin:0; padding:0; border:1px solid var(--border); border-radius:8px; max-height:58vh; overflow:auto; }
+  .cr-list li{ display:flex; align-items:center; gap:8px; padding:6px 10px; border-bottom:1px solid var(--border-light); font-size:13px; background:#fff; }
+  .cr-list li:last-child{ border-bottom:none; }
+  .cr-list li.off .cr-name{ color:#94a3b8; text-decoration:line-through; }
+  .cr-list .cr-name{ flex:1; }
+  .cr-list button{ border:1px solid var(--border); background:#fff; border-radius:4px; width:26px; height:24px; cursor:pointer; font-size:12px; }
+  .cr-list button:disabled{ opacity:.3; cursor:default; }
 </style>
 <script>
 // ============================================================
-// colresize_js.html — 一覧表の列幅を手動で調整（ドラッグ）・保存
-//   見出しの右端をドラッグ → 幅が変わる／ダブルクリック → その列を元に戻す
-//   幅は一覧ごとにブラウザへ保存（次回も同じ幅）。「列幅を元に戻す」で全列リセット
-//   列幅を広げると、件名など「…」で省略されていた文字が表示される
+// colresize_js.html — 一覧表の「列幅」と「列の並び順・表示／非表示」を調整・保存
+//   列幅   ：見出しの右端をドラッグ（ダブルクリックでその列を元に戻す）
+//   並び順 ：見出しをドラッグして別の位置へ／「⇄ 列の並び替え」で ↑↓ と表示切替
+//   保存   ：一覧ごとにブラウザへ保存（見出し名で管理するので並べ替えても幅がずれない）
 // ============================================================
 (function () {
-  // 対象の一覧（表を描画するコンテナのID）
   var TARGETS = ['quotelist-container', 'table-container', 'ledger-flat-container', 'ledger-tree-container',
                  'cpm-container', 'pt-table', 'of-container', 'pl-table-wrap', 'pl-master-table-wrap', 'pl-model-table-wrap'];
-  var KEY = 'colWidths.v1';
-  var store = {};
-  try { store = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch (e) {}
-  var save = function () { try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {} };
+  var NAMES = { 'quotelist-container': '見積書一覧', 'table-container': '注文書一覧', 'ledger-flat-container': '見積台帳',
+                'ledger-tree-container': '見積台帳', 'cpm-container': '客先部品コード', 'of-container': '受注進捗',
+                'pl-table-wrap': '価格表（自動集計）', 'pl-master-table-wrap': '基板PCB価格マスタ', 'pl-model-table-wrap': '機種基板構成' };
+  var load = function (k) { try { return JSON.parse(localStorage.getItem(k) || '{}'); } catch (e) { return {}; } };
+  var put = function (k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+  var widths = load('colWidths.v2');   // { 一覧ID: { 見出し名: px } }
+  var orders = load('colOrder.v1');    // { 一覧ID: [見出し名…] }
+  var hidden = load('colHidden.v1');   // { 一覧ID: [見出し名…] }
+  var oldWidths = load('colWidths.v1'); // 旧形式（列番号）→ 見出し名へ移行
 
-  function headCells(table) {
-    var row = table.tHead && table.tHead.rows[table.tHead.rows.length - 1];
-    return row ? [].slice.call(row.cells) : [];
+  var labelOf = function (th) {
+    var c = th.cloneNode(true); c.querySelectorAll('.cr-handle').forEach(function (h) { h.remove(); });
+    return c.textContent.replace(/\s+/g, ' ').trim();
+  };
+  var headRow = function (table) { return table.tHead && table.tHead.rows.length === 1 ? table.tHead.rows[0] : null; };
+  function labels(table) { var r = headRow(table); return r ? [].slice.call(r.cells).map(labelOf) : []; }
+
+  // ── 並び順・表示の適用（表を描くたびに呼ぶ） ──
+  function arrange(id, table) {
+    var r = headRow(table); if (!r || table.dataset.cro) return;
+    table.dataset.cro = '1';
+    var cur = labels(table);
+    if ([].some.call(r.cells, function (c) { return (c.colSpan || 1) > 1; })) return;
+    // 旧形式の列幅（列番号）を見出し名へ移行
+    if (oldWidths[id]) {
+      widths[id] = widths[id] || {};
+      Object.keys(oldWidths[id]).forEach(function (i) { if (cur[i] && !widths[id][cur[i]]) widths[id][cur[i]] = oldWidths[id][i]; });
+      delete oldWidths[id]; put('colWidths.v1', oldWidths); put('colWidths.v2', widths);
+    }
+    var want = orders[id];
+    if (want && want.length) {
+      // 保存済みの順 → まだ保存されていない新しい列は元の位置関係のまま末尾側へ
+      var idx = want.filter(function (l) { return cur.indexOf(l) >= 0; }).map(function (l) { return cur.indexOf(l); });
+      cur.forEach(function (l, i) { if (idx.indexOf(i) < 0) idx.push(i); });
+      var same = idx.every(function (v, i) { return v === i; });
+      if (!same) {
+        [].slice.call(table.rows).forEach(function (row) {
+          if (row.cells.length !== cur.length) return; // 「該当なし」等の結合行はそのまま
+          var cells = [].slice.call(row.cells);
+          idx.forEach(function (i) { row.appendChild(cells[i]); });
+        });
+      }
+    }
   }
-  // 見出しが1段の表だけ対象（2段見出しは列位置がずれるため列番号ではなく見出し名で管理）
-  function colIndexOf(th) {
-    var idx = 0, c = th;
-    while ((c = c.previousElementSibling)) idx += c.colSpan || 1;
-    return idx;
-  }
+
+  // ── 列幅・非表示のCSS（見出し名 → 現在の列番号） ──
   function styleEl(id) {
     var el = document.getElementById('cr-style-' + id);
     if (!el) { el = document.createElement('style'); el.id = 'cr-style-' + id; document.head.appendChild(el); }
     return el;
   }
-  // 保存済みの幅をCSSとして反映（インラインの max-width 等を上書きするため !important）
   function applyCss(id) {
-    var w = store[id] || {};
-    var css = Object.keys(w).map(function (i) {
-      var n = Number(i) + 1, px = w[i] + 'px';
-      return '#' + id + ' table:not(.cr-skip) > thead > tr:last-child > th:nth-child(' + n + '),' +
-             '#' + id + ' table:not(.cr-skip) > tbody > tr > td:nth-child(' + n + ')' +
-             '{width:' + px + ' !important;min-width:' + px + ' !important;max-width:' + px + ' !important;overflow:hidden;text-overflow:ellipsis;}';
-    }).join('\n');
-    styleEl(id).textContent = css;
+    var box = document.getElementById(id);
+    var table = box && [].filter.call(box.querySelectorAll('table'), function (t) { return headRow(t); })[0];
+    if (!table) return;
+    var cur = labels(table), w = widths[id] || {}, hid = hidden[id] || [];
+    var sel = function (n) { return '#' + id + ' table > thead > tr > th:nth-child(' + n + '),#' + id + ' table > tbody > tr > td:nth-child(' + n + ')'; };
+    var css = [];
+    cur.forEach(function (l, i) {
+      if (hid.indexOf(l) >= 0) css.push(sel(i + 1) + '{display:none !important;}');
+      else if (w[l]) { var px = w[l] + 'px'; css.push(sel(i + 1) + '{width:' + px + ' !important;min-width:' + px + ' !important;max-width:' + px + ' !important;overflow:hidden;text-overflow:ellipsis;}'); }
+    });
+    styleEl(id).textContent = css.join('\n');
   }
-  function addHandles(id, table) {
-    if (table.dataset.cr) return;
+
+  // ── 列幅ハンドル＋見出しドラッグでの並べ替え ──
+  function decorate(id, table) {
+    var r = headRow(table); if (!r || table.dataset.cr) return;
     table.dataset.cr = '1';
-    var heads = headCells(table);
-    if (!heads.length || (table.tHead.rows.length > 1)) { table.classList.add('cr-skip'); return; }
-    heads.forEach(function (th) {
-      if ((th.colSpan || 1) > 1) return;
+    if ([].some.call(r.cells, function (c) { return (c.colSpan || 1) > 1; })) return;
+    [].slice.call(r.cells).forEach(function (th) {
       if (getComputedStyle(th).position === 'static') th.style.position = 'relative';
+      // 列幅
       var h = document.createElement('div');
       h.className = 'cr-handle'; h.title = 'ドラッグで列幅を変更／ダブルクリックで元に戻す';
       h.addEventListener('click', function (e) { e.stopPropagation(); e.preventDefault(); });
       h.addEventListener('dblclick', function (e) {
         e.stopPropagation(); e.preventDefault();
-        var i = colIndexOf(th);
-        if (store[id]) { delete store[id][i]; save(); applyCss(id); }
+        if (widths[id]) { delete widths[id][labelOf(th)]; put('colWidths.v2', widths); applyCss(id); }
       });
       h.addEventListener('mousedown', function (e) {
         e.stopPropagation(); e.preventDefault();
-        var i = colIndexOf(th), startX = e.clientX, startW = th.getBoundingClientRect().width;
+        var l = labelOf(th), startX = e.clientX, startW = th.getBoundingClientRect().width;
         h.classList.add('active'); document.body.classList.add('cr-dragging');
-        var move = function (ev) {
-          var w = Math.max(40, Math.round(startW + ev.clientX - startX));
-          store[id] = store[id] || {}; store[id][i] = w; applyCss(id);
-        };
+        var move = function (ev) { widths[id] = widths[id] || {}; widths[id][l] = Math.max(40, Math.round(startW + ev.clientX - startX)); applyCss(id); };
         var up = function () {
           document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up);
-          h.classList.remove('active'); document.body.classList.remove('cr-dragging'); save();
-          var rbtn = document.getElementById('cr-reset-' + id); if (rbtn) rbtn.style.display = '';
+          h.classList.remove('active'); document.body.classList.remove('cr-dragging'); put('colWidths.v2', widths); tools(id);
         };
         document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
       });
       th.appendChild(h);
+      // 並べ替え（見出しをドラッグ）
+      th.draggable = true; th.classList.add('cr-movable');
+      th.title = (th.title ? th.title + '\n' : '') + '見出しをドラッグすると列の順番を変えられます';
+      th.addEventListener('dragstart', function (e) { th.classList.add('cr-dragsrc'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', 'cr:' + labelOf(th)); });
+      th.addEventListener('dragend', function () { th.classList.remove('cr-dragsrc'); clearMarks(r); });
+      th.addEventListener('dragover', function (e) {
+        e.preventDefault(); clearMarks(r);
+        var rc = th.getBoundingClientRect(), right = e.clientX > rc.left + rc.width / 2;
+        th.classList.add(right ? 'cr-drop-after' : 'cr-drop-before');
+      });
+      th.addEventListener('dragleave', function () { th.classList.remove('cr-drop-before', 'cr-drop-after'); });
+      th.addEventListener('drop', function (e) {
+        e.preventDefault();
+        var data = e.dataTransfer.getData('text/plain'); clearMarks(r);
+        if (data.indexOf('cr:') !== 0) return;
+        var from = data.slice(3), to = labelOf(th); if (from === to) return;
+        var rc2 = th.getBoundingClientRect(), after = e.clientX > rc2.left + rc2.width / 2;
+        var list = labels(table).filter(function (l) { return l !== from; });
+        var at = list.indexOf(to) + (after ? 1 : 0);
+        list.splice(at, 0, from);
+        setOrder(id, list);
+      });
     });
-    // 「列幅を元に戻す」ボタン（調整済みの一覧だけ表示）
+  }
+  function clearMarks(r) { [].forEach.call(r.cells, function (c) { c.classList.remove('cr-drop-before', 'cr-drop-after'); }); }
+
+  // 並び順を保存して、今表示中の表にも反映
+  function setOrder(id, list) {
+    orders[id] = list; put('colOrder.v1', orders);
     var box = document.getElementById(id);
-    if (box && !document.getElementById('cr-reset-' + id)) {
-      var b = document.createElement('button');
-      b.id = 'cr-reset-' + id; b.className = 'cr-reset'; b.textContent = '↔ 列幅を元に戻す';
-      b.onclick = function () { delete store[id]; save(); applyCss(id); b.style.display = 'none'; };
-      box.parentNode.insertBefore(b, box);
+    if (box) box.querySelectorAll('table').forEach(function (t) { delete t.dataset.cro; arrange(id, t); });
+    applyCss(id); tools(id);
+  }
+
+  // ── 「⇄ 列の並び替え」「↔ 列幅を元に戻す」ボタン ──
+  function tools(id) {
+    var box = document.getElementById(id); if (!box) return;
+    var table = [].filter.call(box.querySelectorAll('table'), function (t) { return headRow(t); })[0];
+    var bar = document.getElementById('cr-tools-' + id);
+    if (!table) { if (bar) bar.style.display = 'none'; return; }
+    if (!bar) {
+      bar = document.createElement('div'); bar.id = 'cr-tools-' + id; bar.className = 'cr-tools';
+      bar.innerHTML = '<button data-a="order">⇄ 列の並び替え・表示</button><button data-a="reset">↔ 列幅を元に戻す</button>';
+      bar.querySelector('[data-a="order"]').onclick = function () { openDialog(id); };
+      bar.querySelector('[data-a="reset"]').onclick = function () { delete widths[id]; put('colWidths.v2', widths); applyCss(id); tools(id); };
+      box.parentNode.insertBefore(bar, box);
     }
-    var rb = document.getElementById('cr-reset-' + id);
-    if (rb) rb.style.display = store[id] && Object.keys(store[id]).length ? '' : 'none';
+    bar.style.display = '';
+    bar.querySelector('[data-a="reset"]').style.display = widths[id] && Object.keys(widths[id]).length ? '' : 'none';
   }
-  function scan() {
-    TARGETS.forEach(function (id) {
-      var box = document.getElementById(id); if (!box) return;
-      box.querySelectorAll('table').forEach(function (t) { addHandles(id, t); });
-      var rb = document.getElementById('cr-reset-' + id);
-      if (rb) rb.style.display = store[id] && Object.keys(store[id]).length ? '' : 'none';
-    });
+
+  // ── 並び替えダイアログ（↑↓・表示切替・元に戻す） ──
+  function openDialog(id) {
+    var box = document.getElementById(id);
+    var table = [].filter.call(box.querySelectorAll('table'), function (t) { return headRow(t); })[0];
+    if (!table) return;
+    var list = labels(table), hid = (hidden[id] || []).slice();
+    var el = document.getElementById('cr-dialog');
+    if (!el) {
+      el = document.createElement('div'); el.id = 'cr-dialog'; el.className = 'modal-overlay'; el.style.zIndex = '470';
+      el.addEventListener('click', function (e) { if (e.target === el) el.classList.remove('open'); });
+      document.body.appendChild(el);
+    }
+    var render = function () {
+      el.innerHTML = '<div class="modal" style="max-width:460px;"><div class="modal-head"><h3>⇄ 列の並び替え・表示（' + (NAMES[id] || '一覧') + '）</h3>'
+        + '<button class="modal-close" data-a="close">✕</button></div><div class="modal-body">'
+        + '<div style="font-size:12px;color:var(--text-sub);margin-bottom:8px;">↑↓で順番を変更、チェックを外すと非表示になります。一覧の見出しを直接ドラッグして並べ替えることもできます。</div>'
+        + '<ul class="cr-list">' + list.map(function (l, i) {
+            var off = hid.indexOf(l) >= 0;
+            return '<li class="' + (off ? 'off' : '') + '"><input type="checkbox" data-i="' + i + '" ' + (off ? '' : 'checked') + ' title="表示する">'
+              + '<span class="cr-name">' + (l || '（見出しなし）').replace(/</g, '&lt;') + '</span>'
+              + '<button data-up="' + i + '" ' + (i === 0 ? 'disabled' : '') + '>↑</button><button data-down="' + i + '" ' + (i === list.length - 1 ? 'disabled' : '') + '>↓</button></li>';
+          }).join('') + '</ul>'
+        + '<div style="display:flex;justify-content:space-between;margin-top:12px;"><button class="btn btn-outline btn-sm" data-a="reset">元の並び・全表示に戻す</button>'
+        + '<button class="btn btn-primary btn-sm" data-a="ok">保存</button></div></div></div>';
+      el.querySelector('[data-a="close"]').onclick = function () { el.classList.remove('open'); };
+      el.querySelectorAll('[data-up]').forEach(function (b) { b.onclick = function () { var i = +b.dataset.up; list.splice(i - 1, 0, list.splice(i, 1)[0]); render(); }; });
+      el.querySelectorAll('[data-down]').forEach(function (b) { b.onclick = function () { var i = +b.dataset.down; list.splice(i + 1, 0, list.splice(i, 1)[0]); render(); }; });
+      el.querySelectorAll('input[data-i]').forEach(function (c) { c.onchange = function () { var l = list[+c.dataset.i]; if (c.checked) hid = hid.filter(function (x) { return x !== l; }); else if (hid.indexOf(l) < 0) hid.push(l); render(); }; });
+      el.querySelector('[data-a="reset"]').onclick = function () {
+        delete orders[id]; delete hidden[id]; put('colOrder.v1', orders); put('colHidden.v1', hidden);
+        el.classList.remove('open');
+        if (typeof showToast === 'function') showToast('列の並びを元に戻しました。一覧を再表示します');
+        rerender(id);
+      };
+      el.querySelector('[data-a="ok"]').onclick = function () {
+        hidden[id] = hid; put('colHidden.v1', hidden); setOrder(id, list); el.classList.remove('open');
+        if (typeof showToast === 'function') showToast('列の並びを保存しました');
+      };
+    };
+    render(); el.classList.add('open');
   }
+  // 元の並びに戻す時は表を描き直す
+  function rerender(id) {
+    if (id === 'quotelist-container' && typeof _renderQuoteTable === 'function') _renderQuoteTable();
+    else if (id === 'table-container' && typeof _renderTable === 'function') _renderTable();
+    else if (typeof applyLedgerFilter === 'function' && /ledger/.test(id)) applyLedgerFilter();
+    else location.reload();
+  }
+
+  function processBox(id) {
+    var box = document.getElementById(id); if (!box) return;
+    box.querySelectorAll('table').forEach(function (t) { arrange(id, t); decorate(id, t); });
+    applyCss(id); tools(id);
+  }
+  window._crProcess = processBox;
+
   window.addEventListener('load', function () {
-    TARGETS.forEach(applyCss);
+    // 見積書一覧・注文書一覧は描画直後に並べ替える（元の順番が一瞬見えないように）
+    if (typeof _renderQuoteTable === 'function') {
+      var oq = _renderQuoteTable;
+      _renderQuoteTable = function () { var r = oq.apply(this, arguments); processBox('quotelist-container'); return r; };
+    }
+    if (typeof _renderTable === 'function') {
+      var ot = _renderTable;
+      _renderTable = function () { var r = ot.apply(this, arguments); processBox('table-container'); return r; };
+    }
     var t = null;
-    new MutationObserver(function () { clearTimeout(t); t = setTimeout(scan, 50); })
+    new MutationObserver(function () { clearTimeout(t); t = setTimeout(function () { TARGETS.forEach(processBox); }, 50); })
       .observe(document.getElementById('content') || document.body, { childList: true, subtree: true });
-    scan();
+    TARGETS.forEach(processBox);
   });
 })();
 </script>
