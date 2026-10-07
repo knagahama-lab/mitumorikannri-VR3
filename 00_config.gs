@@ -260,7 +260,7 @@ function _setupLedgerSheet(ss) {
   var sheet = _createOrSetupSheet(ss, CONFIG.SHEET_LEDGER, headers, '#FFF3E0');
   // ★ 見積カテゴリ（仕掛基板 / PCB / 組立費 / ROM・RAM / 単品部品）
   sheet.getRange(2,5,1000,1).setDataValidation(
-    SpreadsheetApp.newDataValidation().requireValueInList(LEDGER_CATEGORIES,true).build());
+    SpreadsheetApp.newDataValidation().requireValueInList(typeof getQuoteCategoryNames === 'function' ? getQuoteCategoryNames() : LEDGER_CATEGORIES,true).build());
   sheet.getRange(2,7,1000,1).setDataValidation(
     SpreadsheetApp.newDataValidation().requireValueInList(['作成予定','作成中','送信済み','受注済み','キャンセル'].concat(ARCHIVE_STATUSES),true).build());
 }
@@ -275,8 +275,8 @@ function updateLedgerCategoryColumn() {
   sheet.getRange(1, LEDGER_COLS.COMPOSITION_TYPE).setValue('構成タイプ');
   var rows = Math.max(sheet.getMaxRows() - 1, 1);
   sheet.getRange(2, LEDGER_COLS.CATEGORY, rows, 1).setDataValidation(
-    SpreadsheetApp.newDataValidation().requireValueInList(LEDGER_CATEGORIES, true).build());
-  Logger.log('見積カテゴリ列を更新しました: ' + LEDGER_CATEGORIES.join(' / '));
+    SpreadsheetApp.newDataValidation().requireValueInList(getQuoteCategoryNames(), true).build());
+  Logger.log('見積カテゴリ列を更新しました: ' + getQuoteCategoryNames().join(' / '));
   return true;
 }
 

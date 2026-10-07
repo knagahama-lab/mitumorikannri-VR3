@@ -293,6 +293,9 @@ function handleApiRequest(action, payload) {
       case 'cpmClientFix':           return apiCpmClientFix(payload);
       // ★ 価格一覧表（36_price_table.gs）
       case 'priceTable':             return apiPriceTable();
+      // ★ 見積カテゴリ管理（42_quote_categories.gs）
+      case 'categoryList':           return apiCategoryList();
+      case 'categorySave':           return apiCategorySave(payload);
       // ★ 見積書⇔客先部品コード（37_quote_partcodes.gs）
       case 'cpqList':       return apiCpqList();
       case 'cpqRegister':   return apiCpqRegister(payload);
@@ -1211,7 +1214,7 @@ function _apiQuoteCategorySave(p) {
     var ledgerId = String(p.ledgerId || '').trim();
     var category = (p.category === undefined || p.category === null) ? '' : String(p.category);
     if (!ledgerId && !quoteNo) return { success: false, error: '見積番号が指定されていません' };
-    if (category && LEDGER_CATEGORIES.indexOf(category) < 0) {
+    if (category && (typeof getQuoteCategoryNames === 'function' ? getQuoteCategoryNames() : LEDGER_CATEGORIES).indexOf(category) < 0) {
       return { success: false, error: '不正なカテゴリです: ' + category };
     }
 

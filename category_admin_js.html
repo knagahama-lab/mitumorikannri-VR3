@@ -1,0 +1,141 @@
+<script>
+// ============================================================
+// category_admin_js.html — 見積カテゴリの管理（42_quote_categories.gs）
+//   ・起動時にサーバーのカテゴリ設定を読み込み、一覧のカテゴリ選択・絞り込み・バッジ・自動推定に反映
+//   ・管理コンソールに「🗂️ 見積カテゴリ」タブ：追加／名前・アイコン・色・推定キーワードの変更／並べ替え／削除
+// ============================================================
+var QCAT_PALETTES = {
+  indigo: { label: '藍',   bg: '#e0e7ff', color: '#3730a3', border: '#6366f1' },
+  green:  { label: '緑',   bg: '#dcfce7', color: '#166534', border: '#22c55e' },
+  amber:  { label: '橙',   bg: '#fef3c7', color: '#92400e', border: '#f59e0b' },
+  purple: { label: '紫',   bg: '#f3e8ff', color: '#6b21a8', border: '#a855f7' },
+  sky:    { label: '水色', bg: '#e0f2fe', color: '#075985', border: '#0ea5e9' },
+  rose:   { label: '赤',   bg: '#ffe4e6', color: '#9f1239', border: '#f43f5e' },
+  teal:   { label: '青緑', bg: '#ccfbf1', color: '#115e59', border: '#14b8a6' },
+  slate:  { label: '灰',   bg: '#f1f5f9', color: '#334155', border: '#94a3b8' },
+};
+var QCAT_ADMIN = { items: [], usage: {}, origNames: [] };
+var _QCAT_BUILTIN_RULES = (typeof _QCAT_RULES !== 'undefined') ? _QCAT_RULES.slice() : [];
+
+// ── サーバーの設定を画面全体に反映 ──
+function _qcatApply(items) {
+  // カテゴリ名一覧（const 配列なので中身を入れ替える）
+  QUOTE_CATEGORIES.splice(0, QUOTE_CATEGORIES.length);
+  items.forEach(function (c) { QUOTE_CATEGORIES.push(c.name); });
+  // アイコン・色
+  Object.keys(_QCAT_MAP).forEach(function (k) { delete _QCAT_MAP[k]; });
+  items.forEach(function (c) {
+    var p = QCAT_PALETTES[c.palette] || QCAT_PALETTES.slate;
+    _QCAT_MAP[c.name] = { icon: c.icon || '🏷', bg: p.bg, color: p.color, border: p.border };
+  });
+  // 自動推定ルール：登録したキーワード → 既定の推定ルール（存在するカテゴリのみ）
+  var esc = function (s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); };
+  var rules = [];
+  items.forEach(function (c) { if ((c.keywords || []).length) rules.push([c.name, new RegExp('(' + c.keywords.map(esc).join('|') + ')', 'i')]); });
+  _QCAT_BUILTIN_RULES.forEach(function (r) { if (QUOTE_CATEGORIES.indexOf(r[0]) >= 0) rules.push(r); });
+  _QCAT_RULES.splice(0, _QCAT_RULES.length);
+  rules.forEach(function (r) { _QCAT_RULES.push(r); });
+  // 絞り込みプルダウンを作り直す（選択中の値は維持）
+  var opt = function (v, label) { return '<option value="' + _esc(v) + '">' + _esc(label) + '</option>'; };
+  var cats = items.map(function (c) { return opt(c.name, (c.icon || '🏷') + ' ' + c.name); }).join('');
+  [['qs-filter-category', 'all'], ['ledger-filter-category', '']].forEach(function (x) {
+    var el = document.getElementById(x[0]); if (!el) return;
+    var cur = el.value;
+    el.innerHTML = opt(x[1], '🗂️ すべてのカテゴリ') + cats + opt('__none__', '⬜ 未分類');
+    el.value = [].some.call(el.options, function (o) { return o.value === cur; }) ? cur : x[1];
+  });
+  // 表示中の一覧を描き直す
+  try { if (typeof renderQuoteCategoryTabs === 'function') renderQuoteCategoryTabs(); } catch (e) {}
+  try { if ((_allQuotes || []).length) applyQuoteFilter(); } catch (e) {}
+  try { if ((_allLedgerItems || []).length && typeof applyLedgerFilter === 'function') applyLedgerFilter(); } catch (e) {}
+}
+function qcatLoad(cb) {
+  google.script.run.withSuccessHandler(function (res) {
+    if (!res || !res.success) return;
+    QCAT_ADMIN.items = res.items; QCAT_ADMIN.usage = res.usage || {};
+    _qcatApply(res.items);
+    if (cb) cb();
+  }).handleApiRequest('categoryList', {});
+}
+window.addEventListener('load', function () { qcatLoad(); _qcatInjectAdminTab(); });
+
+// ── 管理コンソールのタブ ──
+function _qcatInjectAdminTab() {
+  var anchor = document.getElementById('atab-clients');
+  if (!anchor || document.getElementById('atab-qcat')) return;
+  var b = document.createElement('button');
+  b.className = 'admin-tab'; b.id = 'atab-qcat'; b.textContent = '🗂️ 見積カテゴリ';
+  b.onclick = function () { switchAdminTab('qcat'); };
+  anchor.after(b);
+  var content = document.createElement('div');
+  content.id = 'admin-tab-qcat'; content.className = 'admin-tab-content';
+  var after = document.getElementById('admin-tab-clients');
+  (after ? after.parentNode : anchor.parentNode.parentNode).insertBefore(content, after ? after.nextSibling : null);
+  var orig = switchAdminTab;
+  switchAdminTab = function (tab) { orig(tab); if (tab === 'qcat') qcatLoad(qcatRenderAdmin); };
+}
+
+function qcatRenderAdmin() {
+  var box = document.getElementById('admin-tab-qcat'); if (!box) return;
+  if (!QCAT_ADMIN.editing) {
+    QCAT_ADMIN.editing = QCAT_ADMIN.items.map(function (c) { return { name: c.name, orig: c.name, icon: c.icon, palette: c.palette || 'slate', keywords: (c.keywords || []).join(', ') }; });
+  }
+  var rows = QCAT_ADMIN.editing;
+  var palOpts = function (cur) { return Object.keys(QCAT_PALETTES).map(function (k) { return '<option value="' + k + '"' + (k === cur ? ' selected' : '') + '>' + QCAT_PALETTES[k].label + '</option>'; }).join(''); };
+  box.innerHTML = '<div class="card" style="padding:16px 18px;">'
+    + '<h3 style="margin:0 0 4px;font-size:15px;">🗂️ 見積カテゴリ</h3>'
+    + '<div style="font-size:12px;color:var(--text-sub);line-height:1.7;margin-bottom:12px;">見積書一覧・見積台帳で選ぶカテゴリです（全員共通）。名前を変更すると、そのカテゴリが付いている見積も新しい名前に付け替わります。<br>'
+    + '「推定キーワード」を入れると、カテゴリ未設定の見積の件名・基板名にその語が含まれる場合に「推定?」として表示します（カンマ区切り）。</div>'
+    + '<table class="of-table" style="width:100%;"><thead><tr><th style="width:56px;">順番</th><th style="width:70px;">アイコン</th><th>カテゴリ名</th><th style="width:90px;">色</th><th>推定キーワード</th><th style="width:70px;text-align:right;">使用件数</th><th style="width:60px;">表示</th><th style="width:44px;"></th></tr></thead><tbody>'
+    + rows.map(function (c, i) {
+        var p = QCAT_PALETTES[c.palette] || QCAT_PALETTES.slate;
+        var used = c.orig ? (QCAT_ADMIN.usage[c.orig] || 0) : 0;
+        return '<tr>'
+          + '<td style="white-space:nowrap;"><button class="btn btn-outline btn-sm" style="padding:1px 6px;" ' + (i === 0 ? 'disabled' : '') + ' onclick="qcatMove(' + i + ',-1)">↑</button><button class="btn btn-outline btn-sm" style="padding:1px 6px;" ' + (i === rows.length - 1 ? 'disabled' : '') + ' onclick="qcatMove(' + i + ',1)">↓</button></td>'
+          + '<td><input class="of-in" style="width:52px;text-align:center;padding:3px;" maxlength="4" value="' + _esc(c.icon) + '" oninput="QCAT_ADMIN.editing[' + i + '].icon=this.value;qcatPreview(' + i + ')"></td>'
+          + '<td><input class="of-in" style="padding:3px 6px;" maxlength="20" value="' + _esc(c.name) + '" placeholder="例）治具" oninput="QCAT_ADMIN.editing[' + i + '].name=this.value;qcatPreview(' + i + ')">'
+          + (c.orig && c.orig !== c.name ? '<div style="font-size:11px;color:#b45309;">「' + _esc(c.orig) + '」から変更（' + used + '件を付け替え）</div>' : '') + '</td>'
+          + '<td><select class="of-in" style="padding:3px;" onchange="QCAT_ADMIN.editing[' + i + '].palette=this.value;qcatPreview(' + i + ')">' + palOpts(c.palette) + '</select></td>'
+          + '<td><input class="of-in" style="padding:3px 6px;" value="' + _esc(c.keywords) + '" placeholder="例）治具, ジグ, 冶具" oninput="QCAT_ADMIN.editing[' + i + '].keywords=this.value"></td>'
+          + '<td style="text-align:right;">' + (c.orig ? used : '<span style="color:var(--text-muted);">新規</span>') + '</td>'
+          + '<td id="qcat-pv-' + i + '"><span style="display:inline-block;background:' + p.bg + ';color:' + p.color + ';border:1px solid ' + p.border + ';border-radius:4px;padding:1px 7px;font-size:10px;font-weight:700;white-space:nowrap;">' + _esc(c.icon) + ' ' + _esc(c.name || '（名前）') + '</span></td>'
+          + '<td><button class="btn btn-danger btn-sm" style="padding:2px 8px;" onclick="qcatRemove(' + i + ')">✕</button></td></tr>';
+      }).join('')
+    + '</tbody></table>'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;flex-wrap:wrap;gap:8px;">'
+    + '<button class="btn btn-outline btn-sm" onclick="qcatAdd()">＋ カテゴリを追加</button>'
+    + '<span><button class="btn btn-outline btn-sm" onclick="QCAT_ADMIN.editing=null;qcatRenderAdmin()">変更を取り消す</button> '
+    + '<button class="btn btn-primary btn-sm" onclick="qcatSave()">💾 保存</button></span></div></div>';
+}
+function qcatPreview(i) {
+  var c = QCAT_ADMIN.editing[i], p = QCAT_PALETTES[c.palette] || QCAT_PALETTES.slate, el = document.getElementById('qcat-pv-' + i);
+  if (el) el.innerHTML = '<span style="display:inline-block;background:' + p.bg + ';color:' + p.color + ';border:1px solid ' + p.border + ';border-radius:4px;padding:1px 7px;font-size:10px;font-weight:700;white-space:nowrap;">' + _esc(c.icon) + ' ' + _esc(c.name || '（名前）') + '</span>';
+}
+function qcatMove(i, d) { var r = QCAT_ADMIN.editing; r.splice(i + d, 0, r.splice(i, 1)[0]); qcatRenderAdmin(); }
+function qcatAdd() { QCAT_ADMIN.editing.push({ name: '', orig: '', icon: '🏷', palette: 'slate', keywords: '' }); qcatRenderAdmin(); }
+function qcatRemove(i) {
+  var c = QCAT_ADMIN.editing[i], used = c.orig ? (QCAT_ADMIN.usage[c.orig] || 0) : 0;
+  if (used && !confirm('「' + c.orig + '」は ' + used + '件の見積で使われています。削除しますか？\n（保存時に、その見積を未分類に戻すか選べます）')) return;
+  QCAT_ADMIN.editing.splice(i, 1); qcatRenderAdmin();
+}
+function qcatSave() {
+  var items = QCAT_ADMIN.editing.map(function (c) { return { name: String(c.name || '').trim(), orig: c.orig, icon: c.icon, palette: c.palette, keywords: c.keywords }; });
+  if (items.some(function (c) { return !c.name; })) { showToast('カテゴリ名が空の行があります', true); return; }
+  var keep = items.map(function (c) { return c.orig || c.name; });
+  var deleted = QCAT_ADMIN.items.map(function (c) { return c.name; }).filter(function (n) { return keep.indexOf(n) < 0; });
+  var usedDeleted = deleted.filter(function (n) { return QCAT_ADMIN.usage[n]; });
+  var clearDeleted = false;
+  if (usedDeleted.length) {
+    clearDeleted = confirm('削除するカテゴリ「' + usedDeleted.join('」「') + '」が付いている見積があります（'
+      + usedDeleted.map(function (n) { return QCAT_ADMIN.usage[n]; }).reduce(function (a, b) { return a + b; }, 0) + '件）。\n\n'
+      + 'OK：その見積を「未分類」に戻す\nキャンセル：見積に付いたカテゴリ名はそのまま残す（一覧では選択肢に無いカテゴリとして表示）');
+  }
+  _ofApi('categorySave', { items: items, clearDeleted: clearDeleted }, function (res) {
+    QCAT_ADMIN.items = res.items; QCAT_ADMIN.editing = null;
+    _qcatApply(res.items);
+    showToast('見積カテゴリを保存しました' + (res.changedRows ? '（見積 ' + res.changedRows + '件のカテゴリを更新）' : ''));
+    if (res.changedRows && typeof loadLedger === 'function') { try { loadLedger(); } catch (e) {} }
+    qcatLoad(qcatRenderAdmin);
+  });
+}
+</script>
