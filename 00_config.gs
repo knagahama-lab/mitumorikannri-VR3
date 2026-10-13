@@ -15,8 +15,10 @@ var CONFIG = {
   SPREADSHEET_ID: PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID') || '',
   GEMINI_API_KEY: '',  // 必ず getGeminiApiKey() を使うこと
 
-  GEMINI_PRIMARY_MODEL:  'gemini-1.5-flash-latest',
-  GEMINI_FALLBACK_MODEL: 'gemini-1.5-flash-8b',
+  // ★ モデルは提供終了で使えなくなるため固定しない（_geminiModelList 参照）。
+  //   旧: gemini-1.5-flash-latest / gemini-1.5-flash-8b は 2026年時点で提供終了（404）
+  GEMINI_PRIMARY_MODEL:  _geminiModel(0),
+  GEMINI_FALLBACK_MODEL: _geminiModel(1),
   GEMINI_API_ENDPOINT:   'https://generativelanguage.googleapis.com/v1beta/models/',
 
   WEB_UPLOAD_FOLDER_ID:  '1sB42xntGKL31GeT9OjOKTxVJwj9IQz-h',
@@ -59,6 +61,57 @@ var CONFIG = {
   },
   ORDER_TYPE: { TRIAL: '試作', MASS: '量産' },
 };
+
+// ============================================================
+// Gemini モデルの選択
+//   ① スクリプトプロパティ GEMINI_MODELS（カンマ区切り。例: gemini-2.5-flash,gemini-2.5-flash-lite）
+//   ② 自動検出の結果 GEMINI_MODELS_CACHE（404 が返った時に Google の一覧から使えるモデルを取得して保存）
+//   ③ 既定値
+// ============================================================
+function _geminiModelList() {
+  var props = PropertiesService.getScriptProperties();
+  var list = [];
+  var override = props.getProperty('GEMINI_MODELS');
+  if (override) list = override.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+  if (!list.length) {
+    try { var c = JSON.parse(props.getProperty('GEMINI_MODELS_CACHE') || 'null'); if (c && c.list && c.list.length) list = c.list; } catch (e) {}
+  }
+  if (!list.length) list = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3-flash-preview'];
+  return list;
+}
+function _geminiModel(i) { var l = _geminiModelList(); return l[i] || l[l.length - 1]; }
+
+/** Google のモデル一覧から、generateContent が使える Flash 系モデルを新しい順に取得して保存 */
+function refreshGeminiModels(apiKey) {
+  apiKey = apiKey || (typeof getGeminiApiKey === 'function' ? getGeminiApiKey() : '');
+  if (!apiKey) return [];
+  try {
+    var res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200&key=' + apiKey, { muteHttpExceptions: true });
+    if (res.getResponseCode() !== 200) { Logger.log('[GEMINI MODELS] 一覧取得失敗: HTTP ' + res.getResponseCode()); return []; }
+    var models = (JSON.parse(res.getContentText()).models || []).filter(function (m) {
+      var n = String(m.name || '').replace(/^models\//, '');
+      return (m.supportedGenerationMethods || []).indexOf('generateContent') >= 0 &&
+             /^gemini-[0-9.]+-flash/.test(n) && !/(image|tts|audio|live|embedding|thinking|exp)/i.test(n);
+    }).map(function (m) { return String(m.name).replace(/^models\//, ''); });
+    var ver = function (n) { var v = (n.match(/^gemini-([0-9.]+)/) || [])[1] || '0'; return parseFloat(v); };
+    var score = function (n) { return (/preview/.test(n) ? 0 : 100) + (/lite/.test(n) ? 0 : 10) + ver(n); }; // 正式版 > プレビュー、Flash > Flash-Lite、新しい版
+    models.sort(function (a, b) { return score(b) - score(a) || a.length - b.length; });
+    var list = models.slice(0, 4);
+    if (list.length) {
+      PropertiesService.getScriptProperties().setProperty('GEMINI_MODELS_CACHE', JSON.stringify({ at: new Date().toISOString(), list: list }));
+      Logger.log('[GEMINI MODELS] 使用モデルを更新: ' + list.join(', '));
+      CONFIG.GEMINI_PRIMARY_MODEL = list[0]; CONFIG.GEMINI_FALLBACK_MODEL = list[1] || list[0];
+    }
+    return list;
+  } catch (e) { Logger.log('[GEMINI MODELS] ' + e.message); return []; }
+}
+
+/** 失敗したモデルの代わりに使うモデル（一覧を取り直して、失敗したもの以外の先頭） */
+function _geminiNextModel(failedModel, apiKey) {
+  var list = refreshGeminiModels(apiKey);
+  if (!list.length) list = _geminiModelList();
+  return list.filter(function (m) { return m !== failedModel; })[0] || '';
+}
 
 // ============================================================
 // 列定義

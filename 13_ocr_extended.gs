@@ -223,12 +223,9 @@ function _geminiStructureText(text, docType) {
   var apiKey = getGeminiApiKey();
   if (!apiKey) return null;
 
-  var modelsToTry = [
-    'gemini-3.1-flash-lite-preview',
-    'gemini-2.0-flash-lite-001',
-    'gemini-3-flash-preview',
-    'gemini-2.5-flash',
-  ];
+  var modelsToTry = _geminiModelList().concat([
+    'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.1-flash-lite-preview',
+  ]).filter(function (m, i, a) { return a.indexOf(m) === i; });
 
   var prompt = _buildTextStructurePrompt(docType, text);
   var body   = {
@@ -282,12 +279,9 @@ function _geminiVisionOcr(driveFile, docType, apiKey) {
       payload: JSON.stringify(body), muteHttpExceptions: true,
     };
 
-    var modelsToTry = [
-      'gemini-3.1-flash-lite-preview',
-      'gemini-2.0-flash-lite-001',
-      'gemini-3-flash-preview',
-      'gemini-2.5-flash',
-    ];
+    var modelsToTry = _geminiModelList().concat([
+      'gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3-flash-preview', 'gemini-3.1-flash-lite-preview',
+    ]).filter(function (m, i, a) { return a.indexOf(m) === i; });
 
     for (var i = 0; i < modelsToTry.length; i++) {
       var model = modelsToTry[i];

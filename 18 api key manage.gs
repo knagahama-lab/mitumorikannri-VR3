@@ -64,6 +64,8 @@ var API_KEY_MANAGER_CONFIG = {
  * Gemini APIを呼び出す（複数キー対応・レート制限自動回避版）
  * 02_ocr_and_processing.gs の同名関数をオーバーライドする
  */
+var _GEMINI_404_DEPTH = 0;
+
 function _callGeminiApi(model, body) {
   var keys = _getAvailableApiKeys();
 
@@ -122,6 +124,16 @@ function _callGeminiApi(model, body) {
           Logger.log('[API_MANAGER] ' + keyName + ' サーバーエラー(' + code + ')。' + (retry + 1) + '回目リトライ...');
           Utilities.sleep(5000 * (retry + 1));
           continue;
+        }
+
+        if (code === 404 && (typeof _GEMINI_404_DEPTH === 'undefined' || _GEMINI_404_DEPTH < 1)) {
+          // モデルが提供終了・存在しない：使えるモデルを Google の一覧から探して、そのモデルでやり直す
+          var alt = _geminiNextModel(model, apiKey);
+          if (alt) {
+            Logger.log('[API_MANAGER] モデル ' + model + ' は使用できません(404)。' + alt + ' でやり直します。');
+            _GEMINI_404_DEPTH = 1;
+            try { return _callGeminiApi(alt, body); } finally { _GEMINI_404_DEPTH = 0; }
+          }
         }
 
         // その他のエラー
@@ -369,7 +381,7 @@ function testAllApiKeys() {
     return;
   }
 
-  var model = CONFIG.GEMINI_PRIMARY_MODEL || 'gemini-1.5-flash';
+  var model = CONFIG.GEMINI_PRIMARY_MODEL || _geminiModel(0);
   keys.forEach(function(key, idx) {
     var url = CONFIG.GEMINI_API_ENDPOINT + model + ':generateContent?key=' + key;
     try {
