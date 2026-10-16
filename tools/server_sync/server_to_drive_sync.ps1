@@ -16,7 +16,7 @@
     初回      : .\server_to_drive_sync.ps1 -InitialDays 0      … 既存のPDFは「コピー済み」として記録だけする（以後の新しいPDFだけ送る）
                 .\server_to_drive_sync.ps1 -InitialDays 14     … 直近14日以内に保存されたPDFだけ送り、それより前は記録だけ
     確認だけ  : .\server_to_drive_sync.ps1 -WhatIf             … コピーせず、対象ファイルを表示
-    定期実行  : install_task.ps1 でタスクスケジューラに登録（10分ごと）
+    定期実行  : install_task.ps1 でタスクスケジューラに登録（見張り＋平日30分おき、画面は出ない）
 #>
 param(
   [switch]$WhatIf,
@@ -28,7 +28,9 @@ param(
 $ErrorActionPreference = 'Stop'
 # 見張り（watch_server_folders.ps1）と定期実行が同時に動いても記録が壊れないよう、1つずつ実行
 $syncMutex = New-Object System.Threading.Mutex($false, 'Local\MitsumoriServerSyncRun')
-if (-not $syncMutex.WaitOne([TimeSpan]::FromMinutes(5))) { exit 0 }
+try {
+  if (-not $syncMutex.WaitOne([TimeSpan]::FromMinutes(5))) { exit 0 }
+} catch [System.Threading.AbandonedMutexException] { }   # 前の実行が強制終了されていても続ける
 $stateDir  = $StateDir
 $statePath = Join-Path $stateDir 'state.json'
 $logPath   = Join-Path $stateDir 'sync.log'

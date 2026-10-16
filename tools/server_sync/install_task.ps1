@@ -9,11 +9,13 @@
 #>
 $user = "$env:USERDOMAIN\$env:USERNAME"
 $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
-$ps = 'powershell.exe'
+# 黒い画面を出さないため、wscript.exe（画面なし）経由で PowerShell を起動する（run_hidden.vbs）
+$wsh = 'wscript.exe'
+$vbs = Join-Path $PSScriptRoot 'run_hidden.vbs'
 
 # ① 常駐の見張り
 $watchName = '見積管理_サーバー監視（常駐）'
-$watchAct  = New-ScheduledTaskAction -Execute $ps -Argument ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}"' -f (Join-Path $PSScriptRoot 'watch_server_folders.ps1'))
+$watchAct  = New-ScheduledTaskAction -Execute $wsh -Argument ('"{0}" "{1}"' -f $vbs, (Join-Path $PSScriptRoot 'watch_server_folders.ps1'))
 $watchTrg  = New-ScheduledTaskTrigger -AtLogOn -User $user
 $watchSet  = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
              -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1)
@@ -22,7 +24,7 @@ Register-ScheduledTask -TaskName $watchName -Action $watchAct -Trigger $watchTrg
 
 # ② 平日30分おき（7:00〜21:00）
 $syncName = '見積管理_サーバー定期送信（平日30分）'
-$syncAct  = New-ScheduledTaskAction -Execute $ps -Argument ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}"' -f (Join-Path $PSScriptRoot 'server_to_drive_sync.ps1'))
+$syncAct  = New-ScheduledTaskAction -Execute $wsh -Argument ('"{0}" "{1}"' -f $vbs, (Join-Path $PSScriptRoot 'server_to_drive_sync.ps1'))
 $syncTrg  = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday, Tuesday, Wednesday, Thursday, Friday -At '07:00'
 $syncTrg.Repetition = (New-ScheduledTaskTrigger -Once -At '07:00' -RepetitionInterval (New-TimeSpan -Minutes 30) -RepetitionDuration (New-TimeSpan -Hours 14)).Repetition
 $syncSet  = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `

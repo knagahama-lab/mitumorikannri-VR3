@@ -13,7 +13,7 @@ param(
 )
 
 $mutex = New-Object System.Threading.Mutex($false, 'Local\MitsumoriServerWatch')
-if (-not $mutex.WaitOne(0)) { exit 0 } # 既に起動している
+try { if (-not $mutex.WaitOne(0)) { exit 0 } } catch [System.Threading.AbandonedMutexException] { } # 既に起動している
 
 $syncScript = Join-Path $PSScriptRoot 'server_to_drive_sync.ps1'
 $logPath = Join-Path $StateDir 'sync.log'
