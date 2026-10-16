@@ -8,7 +8,8 @@
   ・対象：SourceRoot 直下の「○○注文書」フォルダ（例：藤商事注文書、コナミ注文書、エキサイト注文書）の
           「試作注文書」「量産注文書」以下のPDF（サブフォルダも含む）
   ・コピー先のファイル名：[取引先名]元のファイル名.pdf（例：[藤商事]発注書206424.pdf）
-  ・一度コピーしたファイルは記録し、二度コピーしない（ファイルが更新された場合は差し替えとして再コピー）
+  ・一度コピーしたファイルは「取引先＋試作/量産＋ファイル名＋サイズ」で記録し、二度コピーしない
+    （担当者フォルダ → 完了 → 済 のように移動しても再コピーしない。内容が変わってサイズが変われば差し替えとして再コピー）
   ・保存直後（1分以内）のファイルは書き込み中の可能性があるため次回に回す
 
   使い方：
@@ -20,11 +21,12 @@
 param(
   [switch]$WhatIf,
   [int]$InitialDays = -1,
-  [string]$ConfigPath = (Join-Path $PSScriptRoot 'sync_config.json')
+  [string]$ConfigPath = (Join-Path $PSScriptRoot 'sync_config.json'),
+  [string]$StateDir = (Join-Path $env:LOCALAPPDATA 'MitsumoriServerSync')   # 記録・ログの保存先（テスト用に変更可）
 )
 
 $ErrorActionPreference = 'Stop'
-$stateDir  = Join-Path $env:LOCALAPPDATA 'MitsumoriServerSync'
+$stateDir  = $StateDir
 $statePath = Join-Path $stateDir 'state.json'
 $logPath   = Join-Path $stateDir 'sync.log'
 New-Item -ItemType Directory -Force -Path $stateDir | Out-Null
@@ -69,7 +71,7 @@ Get-ChildItem -LiteralPath $sourceRoot -Directory | Where-Object { $_.Name -like
     $src = Join-Path $clientDir.FullName $cat.Source
     if (-not (Test-Path -LiteralPath $src)) { continue }
     Get-ChildItem -LiteralPath $src -Recurse -File -Filter '*.pdf' -ErrorAction SilentlyContinue | ForEach-Object {
-      $targets += [pscustomobject]@{ File = $_; Client = $client; Dest = (Join-Path $destRoot $cat.Dest) }
+      $targets += [pscustomobject]@{ File = $_; Client = $client; Dest = (Join-Path $destRoot $cat.Dest); Cat = $cat.Dest }
     }
   }
 }
@@ -77,9 +79,10 @@ Get-ChildItem -LiteralPath $sourceRoot -Directory | Where-Object { $_.Name -like
 $copied = 0; $baselined = 0; $pending = 0; $failed = 0
 foreach ($t in $targets) {
   $f = $t.File
-  $key = $f.FullName
-  $sig = '{0}|{1}' -f $f.Length, $f.LastWriteTimeUtc.Ticks
-  if ($state.ContainsKey($key) -and $state[$key] -eq $sig) { continue }
+  # 記録のキーは場所ではなく「種別｜取引先｜ファイル名｜サイズ」（フォルダ移動では再コピーしない）
+  $key = '{0}|{1}|{2}|{3}' -f $t.Cat, $t.Client, $f.Name.ToLowerInvariant(), $f.Length
+  $sig = $f.FullName
+  if ($state.ContainsKey($key)) { continue }
 
   # 初回：InitialDays より前のファイルは「コピー済み」として記録だけ
   if (-not $initialized -and $f.LastWriteTime -lt $now.AddDays(-$InitialDays)) { $state[$key] = $sig; $baselined++; continue }
@@ -92,14 +95,14 @@ foreach ($t in $targets) {
   while (Test-Path -LiteralPath $destPath) {
     $destPath = Join-Path $t.Dest ('[{0}]{1}_{2}{3}' -f $t.Client, $f.BaseName, $n, $f.Extension); $n++
   }
-  if ($WhatIf) { Write-Host ('[確認] {0}  →  {1}' -f $key, $destPath); continue }
+  if ($WhatIf) { Write-Host ('[確認] {0}  →  {1}' -f $f.FullName, $destPath); continue }
   try {
     New-Item -ItemType Directory -Force -Path $t.Dest | Out-Null
-    Copy-Item -LiteralPath $key -Destination $destPath -ErrorAction Stop
+    Copy-Item -LiteralPath $f.FullName -Destination $destPath -ErrorAction Stop
     $state[$key] = $sig; $copied++
-    Write-Log ('コピー: {0}  →  {1}' -f $key, $destPath)
+    Write-Log ('コピー: {0}  →  {1}' -f $f.FullName, $destPath)
   } catch {
-    $failed++; Write-Log ('失敗: {0}  ({1})' -f $key, $_.Exception.Message)
+    $failed++; Write-Log ('失敗: {0}  ({1})' -f $f.FullName, $_.Exception.Message)
   }
 }
 
