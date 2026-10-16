@@ -1,0 +1,10 @@
+{
+  "SourceRoot": "\\\\halo\\ac-work\\04_業務用ﾜｰｸ\\05_営業\\09_販売管理",
+  "DestRoot": "G:\\マイドライブ\\見積管理_自動取込",
+  "ClientFolderPattern": "*注文書",
+  "ClientNameStrip": "注文書$",
+  "Categories": [
+    { "Source": "試作注文書", "Dest": "注文書(試作)" },
+    { "Source": "量産注文書", "Dest": "注文書(量産)" }
+  ]
+}

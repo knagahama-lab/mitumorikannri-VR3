@@ -33,6 +33,8 @@ function processDriveImports() {
     processed += _watchFolder(CONFIG.IMPORT_QUOTE_FOLDER_ID, CONFIG.QUOTE_FOLDER_ID, 'quote', '', CONFIG.PROCESSED_QUOTE_FOLDER_ID || '');
     processed += _watchFolder(CONFIG.IMPORT_ORDER_TRIAL_FOLDER_ID, CONFIG.ORDER_TRIAL_FOLDER_ID, 'order', CONFIG.ORDER_TYPE.TRIAL, CONFIG.PROCESSED_ORDER_TRIAL_FOLDER_ID || '');
     processed += _watchFolder(CONFIG.IMPORT_ORDER_MASS_FOLDER_ID, CONFIG.ORDER_MASS_FOLDER_ID, 'order', CONFIG.ORDER_TYPE.MASS, CONFIG.PROCESSED_ORDER_MASS_FOLDER_ID || '');
+    // ★ 会社サーバーから自動コピーされる「見積管理_自動取込」フォルダ（43_server_sync.gs）
+    try { processed += processServerSyncImports(); } catch(se) { Logger.log('[SERVER SYNC ERROR] ' + se.message); }
 
     Logger.log('[DRIVE WATCH] 完了。処理ファイル数: ' + processed);
     return processed;
@@ -72,6 +74,9 @@ function _watchFolder(importFolderId, saveFolderId, docType, orderType, processe
         }
 
         // ★ 注文書は取引先が空・自社なら、PDF本文・部品コードから取引先を補う（保存先が「未分類」にならないように）
+        //   ファイル名の先頭 [取引先名]（会社サーバーからの自動コピー）も手がかりにする
+        var nameClient = (typeof _serverSyncClientFromName === 'function') ? _serverSyncClientFromName(file.getName()) : '';
+        if (nameClient) ocr._textHint = nameClient + ' ' + (ocr._textHint || '');
         if (docType !== 'quote') { try { cpmFixOrderClient(ocr, ''); } catch(fe) { Logger.log('[DRIVE WATCH CLIENT FIX] ' + fe.message); } }
 
         // 保存先フォルダへコピー
