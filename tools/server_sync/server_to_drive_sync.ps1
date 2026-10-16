@@ -62,6 +62,7 @@ if (Test-Path -LiteralPath $statePath) {
 }
 if (-not $initialized -and $InitialDays -lt 0) {
   Write-Log '初回実行です。-InitialDays を指定してください（0 = 既存は記録のみ、14 = 直近14日分だけ送る）。'
+  Write-Log ('  [診断] 記録ファイル: {0} 存在={1} 内容={2}' -f $statePath, (Test-Path -LiteralPath $statePath), ((Get-Content -LiteralPath $statePath -Raw -ErrorAction SilentlyContinue) -replace '\s+', ' '))
   exit 1
 }
 

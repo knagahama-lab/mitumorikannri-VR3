@@ -33,5 +33,10 @@ Register-ScheduledTask -TaskName $syncName -Action $syncAct -Trigger $syncTrg -S
 # 旧版のタスク（10分おき）があれば削除
 Unregister-ScheduledTask -TaskName '見積管理_サーバーからDriveへ自動コピー' -Confirm:$false -ErrorAction SilentlyContinue
 
+# 初回の記録が無ければ作る（今あるPDFは送らず、これから保存される分だけ送る）
+if (-not (Test-Path (Join-Path $env:LOCALAPPDATA 'MitsumoriServerSync\state.json'))) {
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'server_to_drive_sync.ps1') -InitialDays 0
+}
+
 Start-ScheduledTask -TaskName $watchName
 Write-Host "登録しました: $watchName／$syncName（見張りを開始しました）"
