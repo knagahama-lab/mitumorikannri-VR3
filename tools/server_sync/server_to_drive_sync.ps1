@@ -5,8 +5,8 @@
   コピーされたPDFは Googleドライブが自動でアップロードし、見積・注文管理システム（GAS）が
   5分ごとに読み取って登録する（43_server_sync.gs）。
 
-  ・対象：SourceRoot 直下の「○○注文書」フォルダ（例：藤商事注文書、コナミ注文書、エキサイト注文書）の
-          「試作注文書」「量産注文書」以下のPDF（サブフォルダも含む）
+  ・対象：sync_config.json の Sources に書いたフォルダのPDF（例：藤商事注文書\試作注文書\１．西宮）
+          ※ Sources が無い場合は SourceRoot 直下の「○○注文書」の「試作注文書」「量産注文書」以下すべて
   ・コピー先のファイル名：[取引先名]元のファイル名.pdf（例：[藤商事]発注書206424.pdf）
   ・一度コピーしたファイルは「取引先＋試作/量産＋ファイル名＋サイズ」で記録し、二度コピーしない
     （担当者フォルダ → 完了 → 済 のように移動しても再コピーしない。内容が変わってサイズが変われば差し替えとして再コピー）
@@ -26,6 +26,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# 見張り（watch_server_folders.ps1）と定期実行が同時に動いても記録が壊れないよう、1つずつ実行
+$syncMutex = New-Object System.Threading.Mutex($false, 'Local\MitsumoriServerSyncRun')
+if (-not $syncMutex.WaitOne([TimeSpan]::FromMinutes(5))) { exit 0 }
 $stateDir  = $StateDir
 $statePath = Join-Path $stateDir 'state.json'
 $logPath   = Join-Path $stateDir 'sync.log'
@@ -45,7 +48,8 @@ function Write-Log([string]$msg) {
 $cfg = Get-Content -Path $ConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $sourceRoot = $cfg.SourceRoot
 $destRoot   = $cfg.DestRoot
-if (-not (Test-Path -LiteralPath $sourceRoot)) { Write-Log "会社サーバーに接続できません（スキップ）: $sourceRoot"; exit 0 }
+$checkPath  = if ($cfg.Sources) { $cfg.Sources[0].Path } else { $sourceRoot }
+if (-not (Test-Path -LiteralPath $checkPath)) { Write-Log "会社サーバーに接続できません（スキップ）: $checkPath"; exit 0 }
 if (-not (Test-Path -LiteralPath (Split-Path $destRoot -Parent))) { Write-Log "Googleドライブ（パソコン版）が見つかりません。起動・ログインを確認してください: $destRoot"; exit 0 }
 
 # ── 状態（コピー済みファイルの記録） ──
@@ -64,6 +68,15 @@ if (-not $initialized -and $InitialDays -lt 0) {
 # ── 対象ファイルを集める ──
 $now = Get-Date
 $targets = @()
+if ($cfg.Sources) {
+  # 指定フォルダ方式：保存先のフォルダ（担当者フォルダ）だけを見る
+  foreach ($s in $cfg.Sources) {
+    if (-not (Test-Path -LiteralPath $s.Path)) { Write-Log "フォルダが見つかりません（スキップ）: $($s.Path)"; continue }
+    Get-ChildItem -LiteralPath $s.Path -Recurse -File -Filter '*.pdf' -ErrorAction SilentlyContinue | ForEach-Object {
+      $targets += [pscustomobject]@{ File = $_; Client = $s.Client; Dest = (Join-Path $destRoot $s.Dest); Cat = $s.Dest }
+    }
+  }
+} else {
 Get-ChildItem -LiteralPath $sourceRoot -Directory | Where-Object { $_.Name -like $cfg.ClientFolderPattern } | ForEach-Object {
   $clientDir = $_
   $client = $clientDir.Name -replace $cfg.ClientNameStrip, ''
@@ -74,6 +87,7 @@ Get-ChildItem -LiteralPath $sourceRoot -Directory | Where-Object { $_.Name -like
       $targets += [pscustomobject]@{ File = $_; Client = $client; Dest = (Join-Path $destRoot $cat.Dest); Cat = $cat.Dest }
     }
   }
+}
 }
 
 $copied = 0; $baselined = 0; $pending = 0; $failed = 0
