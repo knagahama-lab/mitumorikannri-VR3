@@ -16,7 +16,11 @@ $vbs = Join-Path $PSScriptRoot 'run_hidden.vbs'
 # ① 常駐の見張り
 $watchName = '見積管理_サーバー監視（常駐）'
 $watchAct  = New-ScheduledTaskAction -Execute $wsh -Argument ('"{0}" "{1}"' -f $vbs, (Join-Path $PSScriptRoot 'watch_server_folders.ps1'))
-$watchTrg  = New-ScheduledTaskTrigger -AtLogOn -User $user
+$watchTrg  = @(
+  (New-ScheduledTaskTrigger -AtLogOn -User $user),
+  # スリープ復帰などで見張りが止まっていても、30分以内に起動し直す（動いていれば二重起動しない）
+  (New-ScheduledTaskTrigger -Once -At (Get-Date).Date -RepetitionInterval (New-TimeSpan -Minutes 30))
+)
 $watchSet  = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
              -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1)
 Register-ScheduledTask -TaskName $watchName -Action $watchAct -Trigger $watchTrg -Settings $watchSet -Principal $principal `
