@@ -8,14 +8,15 @@
 //   PC側（tools/server_sync/drive_to_server_export.ps1・金曜17時）：Googleドライブ パソコン版の同フォルダから
 //       件名・取引先・基板名で振り分け先を決めて会社サーバーへコピーし、済んだものは「送信済み」へ移す。
 //
-//   ・初めて動いた時点より前の見積書は対象外（これから登録される分だけ）
+//   ・2026/10/20 以降に追加された見積書だけが対象（過去の分は保存しない）
 //   ・一度書き出した見積は「サーバー保存履歴」シートに記録し、二度書き出さない
 //   ・トリガーは processDriveImports（5分ごと）から自動で作成される（手動設定は不要）
 // ============================================================
 
 var SERVER_EXPORT_ROOT_NAME = '見積管理_サーバー保存';
 var SERVER_EXPORT_HIST_SHEET = 'サーバー保存履歴';
-var SERVER_EXPORT_BASELINE_PROP = 'SERVER_EXPORT_BASELINE';
+var SERVER_EXPORT_BASELINE_PROP = 'SERVER_EXPORT_START_OVERRIDE';   // 変更したい時だけプロパティに ISO 日時を設定
+var SERVER_EXPORT_START = '2026-10-20T00:00:00+09:00';          // この日以降に追加された見積書から保存する
 var SERVER_EXPORT_TRIGGER_CHECK_PROP = 'SERVER_EXPORT_TRIGGER_CHECKED';
 
 /** processDriveImports から呼ぶ：週1回のトリガーが無ければ作る（1日1回だけ確認） */
@@ -29,9 +30,6 @@ function ensureServerExportTrigger() {
     if (!has) {
       ScriptApp.newTrigger('exportQuotesForServer').timeBased().onWeekDay(ScriptApp.WeekDay.FRIDAY).atHour(15).create();
       Logger.log('[SERVER EXPORT] 週1回（金曜15時）のトリガーを作成しました');
-    }
-    if (!props.getProperty(SERVER_EXPORT_BASELINE_PROP)) {
-      props.setProperty(SERVER_EXPORT_BASELINE_PROP, new Date().toISOString()); // これより前の見積は対象外
     }
   } catch (e) { Logger.log('[ensureServerExportTrigger] ' + e.message); }
 }
@@ -77,9 +75,7 @@ function exportQuotesForServer() {
   if (!lock.tryLock(30000)) return { success: false, error: '他の処理が実行中です' };
   try {
     var props = PropertiesService.getScriptProperties();
-    var baseIso = props.getProperty(SERVER_EXPORT_BASELINE_PROP);
-    if (!baseIso) { baseIso = new Date().toISOString(); props.setProperty(SERVER_EXPORT_BASELINE_PROP, baseIso); }
-    var base = new Date(baseIso);
+    var base = new Date(props.getProperty(SERVER_EXPORT_BASELINE_PROP) || SERVER_EXPORT_START);
 
     var hist = _serverExportHistSheet();
     var done = {};
