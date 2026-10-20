@@ -19,6 +19,9 @@
   <基板のフォルダ>は、既存のサブフォルダ名（先頭の「26-003 」等の番号を除いた部分）が件名・基板名・機種コードに
   含まれるものを選ぶ（複数あれば名前の長いもの→新しいもの）。見つからない時は各フォルダ内の「_自動保存(振分け未定)」へ。
 
+  ※ 会社サーバーに対して行うのは「フォルダの新規作成」と「同名の無いファイルの新規コピー」だけ。
+     既存のファイル・フォルダの上書き・編集・名前変更・移動・削除は一切しない。
+
   使い方：
     確認だけ        : .\drive_to_server_export.ps1 -WhatIf
     既存で振分け検証: .\drive_to_server_export.ps1 -TestExisting   … サーバーにある見積書PDFで、振分け結果と実際の場所を比べる
@@ -136,6 +139,8 @@ if ($TestExisting) {
 if (-not (Test-Path -LiteralPath $root)) { Write-Log "会社サーバーに接続できません（スキップ）: $root"; exit 0 }
 if (-not (Test-Path -LiteralPath $src)) { Write-Log "書き出しフォルダがまだありません: $src"; exit 0 }
 $sentDir = Join-Path $src '送信済み'
+# 安全確認：移動（送信済みへ）するのは Googleドライブ側のファイルだけ。会社サーバー側は新規コピー以外しない
+if ((Norm $src).StartsWith((Norm $root)) -or (Norm $root).StartsWith((Norm $src))) { Write-Log '設定エラー：DriveFolder と ServerRoot が重なっています（中止）'; exit 1 }
 $saved = 0; $waiting = 0; $failed = 0
 Get-ChildItem -LiteralPath $src -File -Filter '_manifest_*.json' | Sort-Object Name | ForEach-Object {
   $mf = $_
@@ -154,7 +159,11 @@ Get-ChildItem -LiteralPath $src -File -Filter '_manifest_*.json' | Sort-Object N
     try {
       New-Item -ItemType Directory -Force -Path $destDir | Out-Null
       if (Test-Path -LiteralPath $dest) { Write-Log ('同名ファイルがあるため上書きせずスキップ: {0}' -f $dest) }
-      else { Copy-Item -LiteralPath $pdf -Destination $dest -ErrorAction Stop; $saved++; Write-Log ('保存: {0}  →  {1}' -f $e.file, $destDir) }
+      else {
+        # 会社サーバーのファイルは絶対に上書き・編集・削除しない（新規コピーのみ。同名があれば例外で止まる）
+        [System.IO.File]::Copy($pdf, $dest, $false)
+        $saved++; Write-Log ('保存: {0}  →  {1}' -f $e.file, $destDir)
+      }
       New-Item -ItemType Directory -Force -Path $sentDir | Out-Null
       Move-Item -LiteralPath $pdf -Destination (Join-Path $sentDir $e.file) -Force
     } catch {
