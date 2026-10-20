@@ -1,0 +1,14 @@
+{
+  "_説明": "見積書を会社サーバーへ保存する設定。DriveFolder = Googleドライブ パソコン版の書き出しフォルダ、ServerRoot = 会社サーバーの見積書フォルダ。Folders は ServerRoot 内のフォルダ名。",
+  "DriveFolder": "G:\\マイドライブ\\見積管理_サーバー保存",
+  "ServerRoot": "\\\\halo\\ac-work\\04_業務用ﾜｰｸ\\05_営業\\10_F社関連\\販売管理\\見積書",
+  "Folders": {
+    "FMass": "見積書（F社量産）",
+    "FDev": "見積書（F社開発）",
+    "Circuit": "見積書（回路設計）",
+    "PriceRevision": "価格改定案内",
+    "KAM": "見積書（KAM）",
+    "Excite": "見積書（EXCITE）",
+    "Other": "その他(Ｆ社以外)"
+  }
+}

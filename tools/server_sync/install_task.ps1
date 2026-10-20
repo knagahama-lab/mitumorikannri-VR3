@@ -3,6 +3,7 @@
   タスクスケジューラに2つ登録する（現在のユーザー・ログオン中に実行）
     ① 見積管理_サーバー監視（常駐）      … ログオン時に watch_server_folders.ps1 を起動。PDFが保存されたら約1分後に送る
     ② 見積管理_サーバー定期送信（平日30分） … 月〜金 7:00〜21:00 に30分おきに server_to_drive_sync.ps1（見張りの取りこぼし対策）
+    ③ 見積管理_見積書サーバー保存（週1回）  … 金曜17:00 に drive_to_server_export.ps1（見積書PDF → 会社サーバー）
   削除する時：
     Unregister-ScheduledTask -TaskName '見積管理_サーバー監視（常駐）' -Confirm:$false
     Unregister-ScheduledTask -TaskName '見積管理_サーバー定期送信（平日30分）' -Confirm:$false
@@ -36,6 +37,15 @@ $syncSet  = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatt
 Register-ScheduledTask -TaskName $syncName -Action $syncAct -Trigger $syncTrg -Settings $syncSet -Principal $principal `
   -Description '会社サーバーの注文書PDFを Googleドライブ「見積管理_自動取込」へ送る（平日30分おき・見張りの取りこぼし対策）' -Force | Out-Null
 
+# ③ 週1回（金曜17:00）：システムが書き出した見積書PDFを会社サーバーの見積書フォルダへ保存
+$expName = '見積管理_見積書サーバー保存（週1回）'
+$expAct  = New-ScheduledTaskAction -Execute $wsh -Argument ('"{0}" "{1}"' -f $vbs, (Join-Path $PSScriptRoot 'drive_to_server_export.ps1'))
+$expTrg  = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Friday -At '17:00'
+$expSet  = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+           -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
+Register-ScheduledTask -TaskName $expName -Action $expAct -Trigger $expTrg -Settings $expSet -Principal $principal `
+  -Description '見積管理システムが Googleドライブ「見積管理_サーバー保存」に書き出した見積書PDFを、会社サーバーの見積書フォルダへ振り分けて保存する（金曜17時）' -Force | Out-Null
+
 # 旧版のタスク（10分おき）があれば削除
 Unregister-ScheduledTask -TaskName '見積管理_サーバーからDriveへ自動コピー' -Confirm:$false -ErrorAction SilentlyContinue
 
@@ -45,4 +55,4 @@ if (-not (Test-Path (Join-Path $env:LOCALAPPDATA 'MitsumoriServerSync\state.json
 }
 
 Start-ScheduledTask -TaskName $watchName
-Write-Host "登録しました: $watchName／$syncName（見張りを開始しました）"
+Write-Host "登録しました: $watchName／$syncName／$expName（見張りを開始しました）"

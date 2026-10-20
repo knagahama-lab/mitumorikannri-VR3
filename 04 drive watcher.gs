@@ -35,6 +35,7 @@ function processDriveImports() {
     processed += _watchFolder(CONFIG.IMPORT_ORDER_MASS_FOLDER_ID, CONFIG.ORDER_MASS_FOLDER_ID, 'order', CONFIG.ORDER_TYPE.MASS, CONFIG.PROCESSED_ORDER_MASS_FOLDER_ID || '');
     // ★ 会社サーバーから自動コピーされる「見積管理_自動取込」フォルダ（43_server_sync.gs）
     try { processed += processServerSyncImports(); } catch(se) { Logger.log('[SERVER SYNC ERROR] ' + se.message); }
+    try { ensureServerExportTrigger(); } catch(ee) { Logger.log('[SERVER EXPORT ERROR] ' + ee.message); }
 
     Logger.log('[DRIVE WATCH] 完了。処理ファイル数: ' + processed);
     return processed;
