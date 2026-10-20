@@ -10,7 +10,8 @@
       ・番号がD / 件名に「回路設計」「保守」 → 見積書（回路設計）\<年度>年度（4月始まり）
       ・番号がP（開発・試作）               → 見積書（F社開発）\<基板のフォルダ>
       ・件名に「注残」                      → 見積書（F社量産）\03_注残処理
-      ・件名に「仕掛基板」                  → 見積書（F社量産）\02_仕掛基板
+      ・件名に【A__】等（機種共通基板）     → 見積書（F社量産）\組立_共通見積書
+      ・件名に「仕掛基板」「PCB」          → 見積書（F社量産）\02_仕掛基板
       ・それ以外（M・N…量産）              → 見積書（F社量産）\<機種・基板のフォルダ>（送料・部品などは 99_機種以外）
     取引先がコナミ → 見積書（KAM）（件名に「試作」→ 試作見積、「ケース」→ ケース見積）
     取引先がエキサイト → 見積書（EXCITE）
@@ -97,6 +98,8 @@ function Get-Destination($e) {
       return (Join-Path $F.FDev $(if ($sub) { $sub } else { $unsorted }))
     }
     if ($s -match '注残') { return (Join-Path $F.FMass '03_注残処理') }
+    # 【A__】【E__】… は頭文字の機種に共通する見積（機種共通基板）→ 組立_共通見積書
+    if ((Norm $s) -match '(?<![A-Z0-9])[A-Z]{1,2}__') { return (Join-Path $F.FMass '組立_共通見積書') }
     if ($s -match '仕掛基板|PCB') { return (Join-Path $F.FMass '02_仕掛基板') }
     $sub = Find-Sub (Join-Path $root $F.FMass) $texts
     if ($sub) { return (Join-Path $F.FMass $sub) }
