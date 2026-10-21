@@ -27,6 +27,7 @@
 function processDriveImports() {
   try {
     Logger.log('[DRIVE WATCH] 監視開始 ' + nowJST());
+    _DW_DEADLINE = Date.now() + 4 * 60 * 1000; // 4分を超えたら残りは次回（5分ごとの実行が重ならないように）
     try { _updateTriggerHealth(); } catch(e) {}
 
     var processed = 0;
@@ -36,6 +37,7 @@ function processDriveImports() {
     // ★ 会社サーバーから自動コピーされる「見積管理_自動取込」フォルダ（43_server_sync.gs）
     try { processed += processServerSyncImports(); } catch(se) { Logger.log('[SERVER SYNC ERROR] ' + se.message); }
     try { ensureServerExportTrigger(); } catch(ee) { Logger.log('[SERVER EXPORT ERROR] ' + ee.message); }
+    try { if (typeof _oriCheckReimportDone === 'function') _oriCheckReimportDone(); } catch(re) {}
 
     Logger.log('[DRIVE WATCH] 完了。処理ファイル数: ' + processed);
     return processed;
@@ -48,6 +50,7 @@ function processDriveImports() {
 /**
  * 指定フォルダを監視し、未処理PDFを処理して保存先へ移動する
  */
+var _DW_DEADLINE = 0;
 function _watchFolder(importFolderId, saveFolderId, docType, orderType, processedFolderId) {
   var processedIds = _getProcessedFileIds();
   var count = 0;
@@ -55,6 +58,7 @@ function _watchFolder(importFolderId, saveFolderId, docType, orderType, processe
     var folder = DriveApp.getFolderById(importFolderId);
     var files  = folder.getFilesByType(MimeType.PDF);
     while (files.hasNext()) {
+      if (_DW_DEADLINE && Date.now() > _DW_DEADLINE) { Logger.log('[DRIVE WATCH] 時間切れのため残りは次回'); break; }
       var file   = files.next();
       var fileId = file.getId();
       if (processedIds[fileId]) {

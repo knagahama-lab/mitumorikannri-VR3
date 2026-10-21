@@ -1,0 +1,97 @@
+<script>
+// ============================================================
+// order_reimport_js.html — 管理コンソール「🔁 注文書 再インポート」（45_order_reimport.gs）
+//   ・処理済みの注文書PDF（試作・量産・サーバー連携）をインポート用フォルダへ戻して読み直す
+//   ・同じ取引先・同じ注文番号は上書き（重複しない）
+//   ・登録済みの重複注文の確認・整理（実行前にバックアップ）
+// ============================================================
+window.addEventListener('load', function () { _oriInjectAdminTab(); });
+
+function _oriInjectAdminTab() {
+  var anchor = document.getElementById('atab-clients');
+  if (!anchor || document.getElementById('atab-ori')) return;
+  var b = document.createElement('button');
+  b.className = 'admin-tab'; b.id = 'atab-ori'; b.textContent = '🔁 注文書 再インポート';
+  b.onclick = function () { switchAdminTab('ori'); };
+  anchor.after(b);
+  var content = document.createElement('div');
+  content.id = 'admin-tab-ori'; content.className = 'admin-tab-content';
+  var after = document.getElementById('admin-tab-clients');
+  (after ? after.parentNode : anchor.parentNode.parentNode).insertBefore(content, after ? after.nextSibling : null);
+  var orig = switchAdminTab;
+  switchAdminTab = function (tab) { orig(tab); if (tab === 'ori') oriRender(); };
+}
+
+function _oriApi(action, payload, cb) {
+  google.script.run.withSuccessHandler(function (res) {
+    if (!res || !res.success) { showToast((res && res.error) || 'エラーが発生しました', true); cb && cb(null); return; }
+    cb && cb(res);
+  }).withFailureHandler(function (e) { showToast(e.message || String(e), true); cb && cb(null); })
+    .handleApiRequest(action, payload || {});
+}
+
+function oriRender() {
+  var box = document.getElementById('admin-tab-ori'); if (!box) return;
+  box.innerHTML = '<div style="padding:12px;color:#64748b">読み込み中…</div>';
+  _oriApi('orderReimportStatus', {}, function (res) {
+    if (!res) { box.innerHTML = ''; return; }
+    var td = 'style="border:1px solid #cbd5e1;padding:6px 10px"';
+    var th = 'style="border:1px solid #94a3b8;padding:6px 10px;background:#e2e8f0;text-align:left"';
+    var tw = 0, tp = 0;
+    var rows = res.rows.map(function (r) {
+      tw += r.waiting; tp += r.processed;
+      return '<tr><td ' + td + '>' + _esc(r.label) + '</td><td ' + td + ' align="right">' + r.processed + '件</td>'
+           + '<td ' + td + ' align="right"' + (r.waiting ? ' style="border:1px solid #cbd5e1;padding:6px 10px;background:#fef9c3;font-weight:bold"' : '') + '>' + r.waiting + '件</td></tr>';
+    }).join('');
+    box.innerHTML =
+      '<div style="padding:12px;max-width:760px">'
+      + '<h3 style="margin:0 0 6px">🔁 注文書の再インポート（試作・量産）</h3>'
+      + '<div style="font-size:13px;color:#475569;line-height:1.7;margin-bottom:10px">'
+      + '処理済みの注文書PDFをインポート用フォルダへ戻し、5分ごとの自動取込で読み直します。<br>'
+      + '・同じ取引先・同じ注文番号の注文は<b>上書き</b>され、重複しません（進捗ステータス・見積の紐づけ・社内メモは残ります）<br>'
+      + '・以前取り込んだPDFのコピーはゴミ箱へ移ります（30日以内なら戻せます）<br>'
+      + '・再インポート中は通知を止めます。1回（5分ごと）に約4分ずつ処理するので、件数が多いと数時間かかります</div>'
+      + (res.reimporting ? '<div style="background:#fef9c3;border:1px solid #facc15;padding:8px 10px;margin-bottom:10px;border-radius:6px">⏳ 再インポート中です（取込待ちが0件になると自動で終わります）</div>' : '')
+      + '<table style="border-collapse:collapse;font-size:13px;margin-bottom:10px"><tr><th ' + th + '>フォルダ</th><th ' + th + '>処理済み</th><th ' + th + '>取込待ち</th></tr>'
+      + rows + '<tr style="background:#f1f5f9;font-weight:bold"><td ' + td + '>合計</td><td ' + td + ' align="right">' + tp + '件</td><td ' + td + ' align="right">' + tw + '件</td></tr></table>'
+      + '<button class="btn btn-primary" onclick="oriStart(' + tp + ')"' + (tp ? '' : ' disabled') + '>🔁 処理済み ' + tp + '件を再インポートする</button> '
+      + '<button class="btn" onclick="oriRender()">↻ 更新</button>'
+      + '<hr style="margin:16px 0">'
+      + '<h3 style="margin:0 0 6px">🧹 登録済みの重複注文の整理</h3>'
+      + '<div style="font-size:13px;color:#475569;line-height:1.7;margin-bottom:8px">同じ取引先・同じ注文番号の注文が複数ある時、1件（見積と紐づいた行 → 新しい行）を残して削除します。<br>'
+      + '削除の前に「管理シート」「注文書シート」のバックアップ（シートのコピー）を作ります。</div>'
+      + '<button class="btn" onclick="oriDedupe(true)">🔍 重複を確認する</button>'
+      + '<div id="ori-dedupe" style="margin-top:10px"></div>'
+      + '</div>';
+  });
+}
+
+function oriStart(n) {
+  if (!confirm('処理済みの注文書 ' + n + '件を再インポートします。\n同じ注文番号の注文は上書きされ、重複しません。\n\nよろしいですか？')) return;
+  showToast('再インポートを準備しています…');
+  _oriApi('orderReimportStart', {}, function (res) {
+    if (!res) return;
+    showToast(res.moved + '件をインポート用フォルダへ戻しました。5分ごとに順に読み直します');
+    oriRender();
+  });
+}
+
+function oriDedupe(dry) {
+  var box = document.getElementById('ori-dedupe'); if (!box) return;
+  if (!dry && !confirm('重複している注文を削除します（バックアップを作ってから実行します）。よろしいですか？')) return;
+  box.innerHTML = '<div style="color:#64748b">' + (dry ? '確認中…' : '整理中…') + '</div>';
+  _oriApi('orderDedupe', { dryRun: dry }, function (res) {
+    if (!res) { box.innerHTML = ''; return; }
+    if (!dry) { box.innerHTML = '<div style="color:#166534">✓ 重複注文 ' + res.removed + '件を削除しました' + (res.backup ? '（バックアップ: ' + _esc(res.backup) + '）' : '') + '</div>'; return; }
+    if (!res.groups.length) { box.innerHTML = '<div style="color:#166534">✓ 重複している注文はありません</div>'; return; }
+    var td = 'style="border:1px solid #cbd5e1;padding:4px 8px"';
+    var th = 'style="border:1px solid #94a3b8;padding:4px 8px;background:#e2e8f0;text-align:left"';
+    box.innerHTML = '<div style="margin-bottom:6px">重複 <b style="background:#fef08a;padding:0 4px">' + res.toRemove + '件</b>（' + res.groups.length + '注文）</div>'
+      + '<div style="max-height:260px;overflow:auto"><table style="border-collapse:collapse;font-size:12px"><tr><th ' + th + '>取引先</th><th ' + th + '>注文番号</th><th ' + th + '>残す</th><th ' + th + '>削除</th></tr>'
+      + res.groups.map(function (g) {
+          return '<tr><td ' + td + '>' + _esc(g.client) + '</td><td ' + td + '>' + _esc(g.orderNo) + '</td><td ' + td + '>' + _esc(g.keepId) + '</td><td ' + td + '>' + _esc(g.dropIds.join(', ')) + '</td></tr>';
+        }).join('') + '</table></div>'
+      + '<button class="btn btn-danger" style="margin-top:8px" onclick="oriDedupe(false)">🧹 ' + res.toRemove + '件を削除して整理する</button>';
+  });
+}
+</script>

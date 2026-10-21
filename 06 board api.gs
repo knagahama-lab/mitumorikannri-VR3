@@ -294,6 +294,10 @@ function handleApiRequest(action, payload) {
       // ★ 価格一覧表（36_price_table.gs）
       case 'priceTable':             return apiPriceTable();
       // ★ 見積カテゴリ管理（42_quote_categories.gs）
+      // ★ 注文書の再インポート・重複整理（45_order_reimport.gs）
+      case 'orderReimportStatus':    return apiOrderReimportStatus();
+      case 'orderReimportStart':     return apiOrderReimportStart();
+      case 'orderDedupe':            return apiOrderDedupe(payload);
       case 'categoryList':           return apiCategoryList();
       case 'categorySave':           return apiCategorySave(payload);
       // ★ 見積書⇔客先部品コード（37_quote_partcodes.gs）

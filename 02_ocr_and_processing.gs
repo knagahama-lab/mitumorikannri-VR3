@@ -291,7 +291,10 @@ function _saveOrderData(ocr, orderType, pdfUrl, folderUrl, msgId, fallbackSubjec
 
   // 既存レコードを探す
   var mgmtRow = -1;
-  if (action === 'revision' || action === 'cancellation') {
+  // ★ 同じ取引先・同じ注文番号の注文が登録済みなら、新規にせず上書きする（再インポートで重複させない：45_order_reimport.gs）
+  var dupRow = (action !== 'cancellation' && typeof _oriFindOrderRow === 'function') ? _oriFindOrderRow(mgmtSheet, ocr.documentNo, ocr.clientName) : -1;
+  if (dupRow > 0) { mgmtRow = dupRow; ocr._overwrite = true; }
+  else if (action === 'revision' || action === 'cancellation') {
     mgmtRow = _findExistingMgmtRowForOrder(ss, ocr.documentNo, ocr.subject || fallbackSubject);
   } else if (linkedQuoteNo && !ocr._multi) {
     // 複数注文のPDFは見積の行に合流させない（同じ見積を参照する注文同士が上書きし合うため）。見積は明細の紐づけで管理
@@ -311,6 +314,20 @@ function _saveOrderData(ocr, orderType, pdfUrl, folderUrl, msgId, fallbackSubjec
       mgmtSheet.getRange(mgmtRow, MGMT_COLS.MEMO).setValue(
         currentMemo + '\n[CANCEL] ' + (ocr.reason || 'キャンセル通知受領')
       );
+    } else if (ocr._overwrite) {
+      // 再取込（上書き）：進捗ステータス・紐づけ・メモは残し、注文書の内容とPDFだけ差し替える
+      var oldPdfUrl = String(mgmtSheet.getRange(mgmtRow, MGMT_COLS.ORDER_PDF_URL).getValue() || '');
+      if (ocr.documentDate) mgmtSheet.getRange(mgmtRow, MGMT_COLS.ORDER_DATE).setValue(ocr.documentDate);
+      mgmtSheet.getRange(mgmtRow, MGMT_COLS.ORDER_AMOUNT).setValue(ocr.subtotal || 0);
+      if (ocr.clientName) mgmtSheet.getRange(mgmtRow, MGMT_COLS.CLIENT).setValue(ocr.clientName);
+      if (!mgmtSheet.getRange(mgmtRow, MGMT_COLS.SUBJECT).getValue()) mgmtSheet.getRange(mgmtRow, MGMT_COLS.SUBJECT).setValue(ocr.subject || fallbackSubject);
+      mgmtSheet.getRange(mgmtRow, MGMT_COLS.ORDER_PDF_URL   ).setValue(pdfUrl);
+      mgmtSheet.getRange(mgmtRow, MGMT_COLS.DRIVE_FOLDER_URL).setValue(folderUrl);
+      mgmtSheet.getRange(mgmtRow, MGMT_COLS.ORDER_TYPE      ).setValue(orderType);
+      if (ocr.modelCode)   mgmtSheet.getRange(mgmtRow, MGMT_COLS.MODEL_CODE   ).setValue(ocr.modelCode);
+      if (ocr.orderSlipNo) mgmtSheet.getRange(mgmtRow, MGMT_COLS.ORDER_SLIP_NO).setValue(ocr.orderSlipNo);
+      // 以前に取り込んだPDFのコピー（重複）はゴミ箱へ（同じPDFを複数の注文で共有している時は残す）
+      if (oldPdfUrl && oldPdfUrl !== pdfUrl && typeof _oriTrashOldCopy === 'function') _oriTrashOldCopy(mgmtSheet, oldPdfUrl, mgmtRow);
     } else {
       var status = (action === 'revision') ? CONFIG.STATUS.REVISED : CONFIG.STATUS.RECEIVED;
 
@@ -378,8 +395,12 @@ function _saveOrderData(ocr, orderType, pdfUrl, folderUrl, msgId, fallbackSubjec
 
   // ★ 通知（39_notify.gs）：新規品番（客先部品コード未登録）・差し替え・キャンセルのみ Chat／メール。
   //   見積→受注・要確認は画面のベル通知へ記録。失敗時は従来の通知にフォールバック。
-  try { cpmNotifyOrder(finalMgmtId, action, (typeof cpm !== 'undefined') ? cpm : null, ocr); }
-  catch(e) { Logger.log('[NOTIFY ERROR] ' + e.message); _sendChatNotification(finalMgmtId, 'order', action); }
+  //   再取込（上書き）・再インポート中は通知しない
+  var quiet = ocr._overwrite || (typeof _oriIsReimporting === 'function' && _oriIsReimporting());
+  if (!quiet) {
+    try { cpmNotifyOrder(finalMgmtId, action, (typeof cpm !== 'undefined') ? cpm : null, ocr); }
+    catch(e) { Logger.log('[NOTIFY ERROR] ' + e.message); _sendChatNotification(finalMgmtId, 'order', action); }
+  }
 
   // ★ 同じPDF内の2件目以降の発注書を、それぞれ別の注文として登録（取引先・種別などは1件目を引き継ぐ）
   extraOrders.forEach(function(ex, i) {
@@ -389,7 +410,7 @@ function _saveOrderData(ocr, orderType, pdfUrl, folderUrl, msgId, fallbackSubjec
       Object.keys(ex).forEach(function(k) { if (ex[k] !== '' && ex[k] !== null && ex[k] !== undefined) child[k] = ex[k]; });
       child.lineItems = ex.lineItems || [];
       child.linkedQuoteNo = ex.linkedQuoteNo || '';
-      child.additionalOrders = []; child._multi = true;
+      child.additionalOrders = []; child._multi = true; delete child._overwrite; // 上書きかどうかは注文番号ごとに判定
       _saveOrderData(child, orderType, pdfUrl, folderUrl, msgId ? msgId + '#' + (i + 2) : '', fallbackSubject);
     } catch (e2) { Logger.log('[MULTI ORDER ERROR] ' + (ex.documentNo || i) + ': ' + e2.message); }
   });
@@ -423,8 +444,14 @@ function _writeOrderLines(ss, mgmtSheet, mgmtRow, mgmtId, ocr, orderType, pdfUrl
     ];
   });
 
+  // ★ 再取込（上書き）：同じ注文の古い明細を消してから書く。明細ステータス（20列目以降）は行番号ごとに引き継ぐ
+  var keep = (ocr._overwrite && typeof _oriRemoveOrderLines === 'function') ? _oriRemoveOrderLines(os, mgmtId, ocr.documentNo || '') : null;
   var startRow = os.getLastRow() + 1;
   os.getRange(startRow, 1, lines.length, 19).setValues(lines);
+  if (keep && keep.width) {
+    var extra = lines.map(function(l, i) { return keep.byLine[i + 1] || new Array(keep.width).fill(''); });
+    os.getRange(startRow, 20, extra.length, keep.width).setValues(extra);
+  }
   mgmtSheet.getRange(mgmtRow, MGMT_COLS.ORDER_SHEET_ROW).setValue(startRow);
   return { startRow: startRow, count: lines.length };
 }

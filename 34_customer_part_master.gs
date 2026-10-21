@@ -205,7 +205,7 @@ function cpmOnOrderSaved(mgmtId, ocr, written) {
         if (m.lastPrice && price && m.lastPrice !== price) res.priceChanged = true;
         if (m.quotePrice && price && m.quotePrice !== price) res.quoteDiff = true;
         if (m.name && m.name !== sp.name) res.nameChanged = true;
-        if (m.lastOrderNo !== orderNo) { // 同じ注文書の再取込（差し替え）は回数に数えない
+        if (m.lastOrderNo !== orderNo && !ocr._overwrite) { // 同じ注文書の再取込（差し替え・再インポート）は回数に数えない
           r[CPM.COUNT] = (Number(r[CPM.COUNT]) || 0) + 1;
           r[CPM.LAST_PRICE] = price; r[CPM.LAST_QTY] = qty; r[CPM.LAST_DATE] = orderDate;
           r[CPM.LAST_ORDER_NO] = orderNo; r[CPM.LAST_MGMT_ID] = mgmtId;
@@ -234,7 +234,7 @@ function cpmOnOrderSaved(mgmtId, ocr, written) {
 
     if (codes.length) os.getRange(written.startRow, CPM_ORDER_CODE_COL, codes.length, 1).setNumberFormat('@').setValues(codes);
     out.allLinked = withCode > 0 && withCode === written.count && out.links.length === written.count;
-    _cpmWriteMemo(mgmtId, out.results);
+    if (!ocr._overwrite) _cpmWriteMemo(mgmtId, out.results);
   } finally {
     lock.releaseLock();
   }
