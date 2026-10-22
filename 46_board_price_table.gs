@@ -238,6 +238,18 @@ function _bpFindRow(sheet, id) {
   return i < 0 ? -1 : i + 2;
 }
 
+/** 基板の価格だけを軽く取得（機種の基板構成の合計計算用。履歴・添付は読まない） */
+function _bpBoardsLite() {
+  var sh = _bpInitSheets();
+  var includePcb = _bpIncludePcb();
+  var last = sh.main.getLastRow();
+  var data = last > 1 ? sh.main.getRange(2, 1, last - 1, BP_NCOLS).getValues() : [];
+  return data.filter(function (r) { return r[0] !== ''; }).map(function (r) {
+    var values = _bpRowToValues(r);
+    return { id: String(r[0]), name: String(r[BP_COL.NAME - 1] || ''), values: values, calc: _bpCalc(values, includePcb) };
+  });
+}
+
 // ------------------------------------------------------------
 // API: 一覧
 // ------------------------------------------------------------

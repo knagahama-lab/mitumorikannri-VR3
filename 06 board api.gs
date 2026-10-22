@@ -304,6 +304,10 @@ function handleApiRequest(action, payload) {
       case 'boardPriceDocDelete':     return apiBoardPriceDocDelete(payload);
       case 'boardPriceSetting':       return apiBoardPriceSetting(payload);
       case 'boardPriceSetupTrigger':  return setupBoardPriceTrigger();
+      // ★ 機種の基板構成と価格の自動合計（47_model_board_set.gs）
+      case 'modelBoardSetGet':        return apiModelBoardSetGet(payload);
+      case 'modelBoardSetList':       return apiModelBoardSetList();
+      case 'modelBoardSetSave':       return apiModelBoardSetSave(payload);
       // ★ 見積カテゴリ管理（42_quote_categories.gs）
       // ★ 注文書の再インポート・重複整理（45_order_reimport.gs）
       case 'orderReimportStatus':    return apiOrderReimportStatus();

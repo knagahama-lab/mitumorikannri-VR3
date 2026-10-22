@@ -1,0 +1,360 @@
+<style>
+  /* 機種の基板構成と価格の自動合計（47_model_board_set.gs）。表の見た目は board_price_js.html を共用 */
+  .mbs-cards{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin-bottom:12px; }
+  .mbs-card{ background:#f8fafc; border:1px solid var(--border-light); border-radius:8px; padding:9px 12px; }
+  .mbs-card .l{ font-size:11px; color:var(--text-sub); } .mbs-card .v{ font-size:18px; font-weight:800; margin-top:2px; font-variant-numeric:tabular-nums; }
+  .mbs-card.inv{ background:#fef2f2; border-color:#fca5a5; }
+  .mbs-warn{ background:#fffbeb; border:1px solid #fcd34d; border-radius:8px; padding:8px 12px; font-size:12px; color:#92400e; margin-bottom:10px; }
+  table.mbs{ border-collapse:collapse; width:100%; font-size:12.5px; font-variant-numeric:tabular-nums; }
+  table.mbs th, table.mbs td{ border:1px solid #cbd5e1; padding:5px 8px; vertical-align:middle; }
+  table.mbs thead th{ background:#e9edf3; font-weight:800; white-space:nowrap; text-align:center; }
+  table.mbs td.r{ text-align:right; white-space:nowrap; }
+  table.mbs tr.inv td{ background:#fef2f2; }
+  table.mbs tfoot td{ background:#fff200; font-weight:800; }
+  table.mbs input{ width:100%; padding:5px 7px; border:1px solid var(--border); border-radius:5px; font-size:12.5px; box-sizing:border-box; }
+  .mbs-cand{ border:1px solid var(--border); border-radius:8px; padding:8px 12px; margin-bottom:8px; background:#fff; }
+  .mbs-cand .roles{ font-size:12px; color:#334155; margin:4px 0 6px; line-height:1.7; }
+</style>
+<script>
+// ============================================================
+// model_board_set_js.html — 機種の基板構成と価格の自動合計（47_model_board_set.gs）
+//   ① 機種マスタの詳細に「💰 基板構成・価格」タブ（機種に 主基板／サブ基板／枠制御基板 … を選ぶと 基板価格表から自動合計）
+//   ② 価格表ページに「🧮 機種別価格」タブ（構成を持つ機種の合計価格一覧）
+//   board_price_js.html（基板価格表）の後に読み込む
+// ============================================================
+const MBS = { data: {}, view: {}, edit: null, list: [], allModels: [], presets: ['主基板', 'サブ基板', '枠制御基板'], listLoaded: false, q: '', invOnly: false };
+
+const _mbsq = s => _esc(String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+const _mbsNorm = s => String(s == null ? '' : s).normalize('NFKC').toUpperCase().replace(/[\s　]/g, '');
+const _mbsDefaultRoles = ['主基板', 'サブ基板', '枠制御基板'];
+function _mbsIdx() {
+  const byId = {}, byName = {};
+  BPT.rows.forEach(b => { byId[b.id] = b; byName[_mbsNorm(b.name)] = b; });
+  return { byId, byName };
+}
+
+// ── 計算（47_model_board_set.gs の _mbsLineCalc / _mbsTotals と同じ式。編集中の試算用。保存後はサーバーの値）──
+function _mbsLineCalc(line, board) {
+  let q = Number(line.qty); if (!(q > 0)) q = 1;
+  const out = { role: line.role, boardId: board ? board.id : '', boardName: board ? board.name : String(line.boardName || ''), qty: q, resolved: !!board, board: null, sale: null, cost: null, profit: null, inverted: false, complete: false };
+  if (!board) return out;
+  const c = board.calc;
+  out.board = { total: c.total, cost: c.cost, profit: c.profit, inverted: c.inverted };
+  out.sale = c.total === null ? null : _bptRound(c.total * q, 2);
+  out.cost = c.cost === null ? null : _bptRound(c.cost * q, 2);
+  out.profit = c.profit === null ? null : _bptRound(c.profit * q, 2);
+  out.inverted = out.profit !== null && out.profit < 0;
+  out.complete = c.total !== null && c.profit !== null;
+  return out;
+}
+function _mbsTotals(calcs) {
+  let sale = 0, saleN = 0, cost = 0, costN = 0, profit = 0, profitN = 0, rateBase = 0, costBase = 0; const names = [];
+  calcs.forEach(l => {
+    if (l.sale !== null) { sale += l.sale; saleN++; }
+    if (l.cost !== null) { cost += l.cost; costN++; }
+    if (l.profit !== null) { profit += l.profit; profitN++; rateBase += l.sale; costBase += l.cost; }
+    if (!l.complete) names.push(l.boardName || '(未選択)');
+  });
+  const p = profitN ? _bptRound(profit, 2) : null;
+  return {
+    sale: saleN ? _bptRound(sale, 2) : null, cost: costN ? _bptRound(cost, 2) : null, profit: p,
+    rate: (p !== null && rateBase > 0) ? _bptRound(p / rateBase * 100, 1) : null,
+    headroomRate: (p !== null && costBase > 0) ? _bptRound(p / costBase * 100, 1) : null,
+    inverted: p !== null && p < 0, incomplete: names.length, incompleteNames: names, lineCount: calcs.length,
+  };
+}
+
+// ── 共通 ──
+function mbsEnsureBoards(cb) {
+  if (BPT.loaded) { cb(); return; }
+  _bptApi('boardPriceList', {}, res => { BPT.rows = res.rows || []; BPT.includePcb = !!res.includePcb; BPT.loaded = true; cb(); });
+}
+
+function _mbsCards(t) {
+  const yen = n => n === null ? '—' : _bptYen(n);
+  let judge;
+  if (t.profit === null) judge = '<span class="pt-muted">—</span>';
+  else if (t.inverted) judge = '<span class="bpt-bad">⚠️ 逆ざや</span>';
+  else judge = `<span class="bpt-ok">余裕 ${_bptYen(t.profit)}</span>` + (t.headroomRate != null ? `<div style="font-size:11px;font-weight:500;color:var(--text-sub);">原価合計 +${t.headroomRate}% まで</div>` : '');
+  return `<div class="mbs-cards">
+    <div class="mbs-card"><div class="l">売値合計</div><div class="v">${yen(t.sale)}</div></div>
+    <div class="mbs-card"><div class="l">原価合計</div><div class="v">${yen(t.cost)}</div></div>
+    <div class="mbs-card ${t.inverted ? 'inv' : ''}"><div class="l">利益${t.rate != null ? `（利益率 ${t.rate}%）` : ''}</div><div class="v ${t.inverted ? 'bpt-bad' : ''}">${yen(t.profit)}</div></div>
+    <div class="mbs-card ${t.inverted ? 'inv' : ''}"><div class="l">逆ざや判定</div><div class="v" style="font-size:15px;">${judge}</div></div></div>`
+    + (t.incomplete ? `<div class="mbs-warn">⚠️ 金額が揃っていない基板が ${t.incomplete} 件あります（${_esc(t.incompleteNames.join('、'))}）。基板価格表への登録・売値と原価の入力を行うと合計に反映されます。利益・原価は金額が揃っている基板のみの合計です。</div>` : '');
+}
+
+// ============================================================
+// 表示（機種詳細タブ／モーダル共通）
+// ============================================================
+function mbsLoadModel(code, cid) {
+  if (MBS.edit && !document.getElementById(MBS.edit.cid)) MBS.edit = null;
+  MBS.view[cid] = code;
+  const el = document.getElementById(cid);
+  if (el) el.innerHTML = '<div class="loading"><div class="spinner"></div><br>基板価格表から計算中...</div>';
+  mbsEnsureBoards(() => {
+    _bptApi('modelBoardSetGet', { modelCode: code }, res => {
+      MBS.data[code] = res; if (res.rolePresets) MBS.presets = res.rolePresets;
+      if (!(MBS.edit && MBS.edit.cid === cid)) mbsRenderView(cid);
+    }, () => { const e = document.getElementById(cid); if (e) e.innerHTML = '<div class="loading">読み込みに失敗しました</div>'; });
+  });
+}
+
+function mbsRenderView(cid) {
+  const el = document.getElementById(cid), code = MBS.view[cid], d = MBS.data[code];
+  if (!el || !d) return;
+  if (!d.lines.length) {
+    const cands = (d.candidates || []).map((c, i) => `<div class="mbs-cand"><b>${_esc(c.label)}</b>
+        <div class="roles">${c.lines.map(l => `${_esc(l.role)}: <b>${_esc(l.boardName)}</b>${l.resolved ? '' : ' <span class="bpt-tag warn">価格表に未登録</span>'}${l.alts.length ? ` <span class="pt-muted">（他: ${_esc(l.alts.join(' / '))}）</span>` : ''}`).join('<br>')}${c.skipped.length ? `<br><span class="pt-muted">取り込めない記載: ${_esc(c.skipped.map(s => s.role + '=' + s.raw).join('、'))}</span>` : ''}</div>
+        <button class="btn btn-primary btn-sm" onclick="mbsStartFromCandidate('${_mbsq(code)}','${_mbsq(cid)}',${i})">この構成で作成</button></div>`).join('');
+    el.innerHTML = `<div style="margin-bottom:10px;">この機種の基板構成はまだ登録されていません。主基板・サブ基板・枠制御基板などを選ぶと、基板価格表の金額から合計価格を自動で計算します。</div>
+      <div style="margin-bottom:12px;"><button class="btn btn-primary btn-sm" onclick="mbsStartEdit('${_mbsq(code)}','${_mbsq(cid)}')">＋ 基板構成を作成</button></div>
+      ${cands ? `<div class="bpt-sec">既存の「機種基板構成」から候補（${d.candidates.length}件）</div>${cands}` : ''}`;
+    return;
+  }
+  el.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+      <div style="font-size:12px;color:var(--text-sub);">基板価格表の金額から自動計算（基板価格表を改定すると、ここも自動で変わります）${d.updatedAt ? ` ／ 構成の最終更新 ${_esc(d.updatedAt)}` : ''}</div>
+      <button class="btn btn-outline btn-sm" onclick="mbsStartEdit('${_mbsq(code)}','${_mbsq(cid)}')">✏️ 構成を編集</button></div>
+    ${_mbsCards(d.totals)}
+    <div style="overflow:auto;"><table class="mbs"><thead><tr><th>役割</th><th>基板</th><th>数量</th><th>1枚 売値</th><th>1枚 原価</th><th>1枚 利益</th><th>売値小計</th><th>原価小計</th><th>利益小計</th><th>状態</th></tr></thead><tbody>
+    ${d.lines.map(l => {
+      const b = l.board;
+      const state = !l.resolved ? `<span class="bpt-tag warn">価格表に未登録</span> <button class="btn btn-outline btn-sm" onclick="bptOpenEdit(null,'${_mbsq(l.boardName)}')">登録</button>`
+        : !l.complete ? '<span class="bpt-tag warn">金額未入力</span>' : l.inverted ? '<span class="bpt-bad">⚠️ 逆ざや</span>' : '<span class="bpt-ok">OK</span>';
+      return `<tr class="${l.inverted ? 'inv' : ''}"><td>${_esc(l.role)}</td>
+        <td>${l.resolved ? `<a href="#" onclick="event.preventDefault();bptOpenEdit('${_mbsq(l.boardId)}')" style="color:#1d4ed8;font-weight:700;text-decoration:none;" title="基板価格表の金額を開く">${_esc(l.boardName)}</a>` : `<b>${_esc(l.boardName)}</b>`}</td>
+        <td class="r">${_bptNum(l.qty)}</td>
+        <td class="r">${b ? _bptNum(b.total) : ''}</td><td class="r">${b ? _bptNum(b.cost) : ''}</td><td class="r ${b && b.inverted ? 'bpt-bad' : ''}">${b ? _bptNum(b.profit) : ''}</td>
+        <td class="r">${_bptNum(l.sale)}</td><td class="r">${_bptNum(l.cost)}</td><td class="r ${l.inverted ? 'bpt-bad' : ''}">${_bptNum(l.profit)}</td><td>${state}</td></tr>`;
+    }).join('')}
+    </tbody><tfoot><tr><td colspan="6" style="text-align:right;">合計</td><td class="r">${_bptNum(d.totals.sale)}</td><td class="r">${_bptNum(d.totals.cost)}</td><td class="r">${_bptNum(d.totals.profit)}</td><td></td></tr></tfoot></table></div>`;
+}
+
+// ============================================================
+// 編集（役割 × 基板 × 数量）
+// ============================================================
+function mbsStartEdit(code, cid, seed) {
+  mbsEnsureBoards(() => {
+    const d = MBS.data[code];
+    let lines = seed || ((d && d.lines.length) ? d.lines.map(l => ({ role: l.role, boardName: l.boardName, qty: l.qty })) : _mbsDefaultRoles.map(r => ({ role: r, boardName: '', qty: 1 })));
+    MBS.edit = { modelCode: code, cid, lines };
+    MBS.view[cid] = code;
+    mbsRenderEdit();
+  });
+}
+function mbsStartFromCandidate(code, cid, i) {
+  const c = (MBS.data[code].candidates || [])[i]; if (!c) return;
+  mbsStartEdit(code, cid, c.lines.map(l => ({ role: l.role, boardName: l.boardName, qty: l.qty || 1 })));
+}
+
+function mbsRenderEdit() {
+  const E = MBS.edit; if (!E) return;
+  const el = document.getElementById(E.cid); if (!el) return;
+  const boardOpts = BPT.rows.map(b => `<option value="${_esc(b.name)}" label="${_esc(b.name + (b.calc.total != null ? '　売値 ' + _bptYen(b.calc.total) : ''))}"></option>`).join('');
+  const roleOpts = (MBS.presets || []).map(r => `<option value="${_esc(r)}"></option>`).join('');
+  el.innerHTML = `<datalist id="mbs-boards">${boardOpts}</datalist><datalist id="mbs-roles">${roleOpts}</datalist>
+    <div style="font-size:12px;color:var(--text-sub);margin-bottom:8px;">役割を入力（候補から選べます）し、基板名は基板価格表の基板から選びます（例: M2502B）。数量は1機種あたりの枚数です。</div>
+    <div style="overflow:auto;"><table class="mbs"><thead><tr><th style="width:150px;">役割</th><th style="width:170px;">基板（基板価格表）</th><th style="width:70px;">数量</th><th>この基板の金額（自動）</th><th style="width:36px;"></th></tr></thead><tbody>
+    ${E.lines.map((l, i) => `<tr><td><input list="mbs-roles" value="${_esc(l.role)}" oninput="mbsEditSet(${i},'role',this.value)" placeholder="例: 主基板"></td>
+      <td><input list="mbs-boards" value="${_esc(l.boardName)}" oninput="mbsEditSet(${i},'boardName',this.value)" placeholder="基板名を選択"></td>
+      <td><input type="number" min="1" max="999" step="1" value="${_esc(l.qty)}" oninput="mbsEditSet(${i},'qty',this.value)"></td>
+      <td id="mbs-pv-${i}"></td>
+      <td><button class="btn btn-outline btn-sm" title="この行を外す" onclick="mbsEditRemove(${i})">✕</button></td></tr>`).join('')}
+    </tbody></table></div>
+    <div style="margin:8px 0 12px;"><button class="btn btn-outline btn-sm" onclick="mbsEditAdd()">＋ 行を追加</button></div>
+    <div id="mbs-edit-totals"></div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px;">
+      <button class="btn btn-outline" onclick="mbsEditCancel()">キャンセル</button>
+      <button class="btn btn-primary" id="mbs-save-btn" onclick="mbsSave()">💾 構成を保存</button></div>`;
+  mbsEditPreview();
+}
+function mbsEditSet(i, key, val) { if (!MBS.edit || !MBS.edit.lines[i]) return; MBS.edit.lines[i][key] = val; mbsEditPreview(); }
+function mbsEditAdd() { MBS.edit.lines.push({ role: '', boardName: '', qty: 1 }); mbsRenderEdit(); }
+function mbsEditRemove(i) { MBS.edit.lines.splice(i, 1); mbsRenderEdit(); }
+function mbsEditCancel() {
+  const E = MBS.edit; MBS.edit = null;
+  if (E) mbsRenderView(E.cid);
+}
+function mbsEditPreview() {
+  const E = MBS.edit; if (!E) return;
+  const idx = _mbsIdx(), calcs = [];
+  E.lines.forEach((l, i) => {
+    const name = String(l.boardName || '').trim();
+    const cell = document.getElementById('mbs-pv-' + i);
+    if (!name) { if (cell) cell.innerHTML = '<span class="pt-muted">基板を選んでください</span>'; return; }
+    const c = _mbsLineCalc(l, idx.byName[_mbsNorm(name)] || null);
+    calcs.push(c);
+    if (!cell) return;
+    cell.innerHTML = !c.resolved ? `<span class="bpt-tag warn">基板価格表に未登録</span> <button class="btn btn-outline btn-sm" onclick="bptOpenEdit(null,'${_mbsq(name)}')">登録</button>`
+      : !c.complete ? `<b>${_esc(c.boardName)}</b> <span class="bpt-tag warn">金額未入力</span>`
+      : `<span class="${c.inverted ? 'bpt-bad' : ''}">売値 ${_bptYen(c.sale)} ／ 原価 ${_bptYen(c.cost)} ／ 利益 ${_bptYen(c.profit)}${c.inverted ? ' ⚠️逆ざや' : ''}</span>${c.qty > 1 ? ` <span class="pt-muted">（${c.qty}枚ぶん）</span>` : ''}`;
+  });
+  const tot = document.getElementById('mbs-edit-totals');
+  if (tot) tot.innerHTML = calcs.length ? _mbsCards(_mbsTotals(calcs)) : '';
+}
+function mbsSave() {
+  const E = MBS.edit; if (!E) return;
+  const btn = document.getElementById('mbs-save-btn'); btn.disabled = true; btn.textContent = '保存中…';
+  _bptApi('modelBoardSetSave', { modelCode: E.modelCode, lines: E.lines.map(l => ({ role: l.role, boardName: l.boardName, qty: l.qty })) }, res => {
+    showToast(res.count ? '基板構成を保存しました' : '基板構成を削除しました');
+    MBS.edit = null;
+    mbsLoadModel(E.modelCode, E.cid);
+    if (MBS.listLoaded) mbsLoadList();
+  }, () => { btn.disabled = false; btn.textContent = '💾 構成を保存'; });
+}
+
+// 基板価格表が更新されたら（金額改定・基板登録・PCB設定の切替）、表示中の機種の合計も更新する
+function mbsOnBoardsChanged() {
+  if (MBS.edit) { mbsRenderEdit(); }
+  Object.keys(MBS.view).forEach(cid => {
+    if (MBS.edit && MBS.edit.cid === cid) return;
+    if (document.getElementById(cid) && MBS.view[cid]) mbsLoadModel(MBS.view[cid], cid);
+  });
+  if (MBS.listLoaded && document.getElementById('mbs-table')) mbsLoadList();
+}
+
+// ============================================================
+// ① 機種マスタの詳細に「💰 基板構成・価格」タブを追加
+// ============================================================
+(function hookModelDetail() {
+  const prevRender = _renderModelDetail;
+  _renderModelDetail = function(res) {
+    prevRender.apply(this, arguments);
+    const tabs = document.getElementById('model-detail-tabs'); if (!tabs) return;
+    if (MBS.edit && MBS.edit.cid === 'mdtab-content-bset') MBS.edit = null;
+    const code = (res.masterInfo || {}).modelCode || '';
+    const btn = document.createElement('button');
+    btn.className = 'admin-tab'; btn.id = 'mdtab-bset'; btn.textContent = '💰 基板構成・価格';
+    btn.onclick = () => { switchModelTab('bset'); mbsLoadModel(code, 'mdtab-content-bset'); };
+    const boardBtn = document.getElementById('mdtab-board');
+    if (boardBtn) boardBtn.after(btn); else tabs.appendChild(btn);
+    const con = document.createElement('div');
+    con.id = 'mdtab-content-bset'; con.className = 'admin-tab-content';
+    const boardCon = document.getElementById('mdtab-content-board');
+    if (boardCon) boardCon.after(con); else tabs.parentNode.appendChild(con);
+  };
+  const prevSwitch = switchModelTab;
+  switchModelTab = function(name) {
+    prevSwitch(name);
+    const b = document.getElementById('mdtab-bset'), c = document.getElementById('mdtab-content-bset');
+    if (b) b.classList.toggle('active', name === 'bset');
+    if (c) c.style.display = (name === 'bset') ? 'block' : 'none';
+  };
+})();
+
+// ============================================================
+// ② 価格表ページに「🧮 機種別価格」タブを追加（構成を持つ機種の合計価格一覧）
+// ============================================================
+(function hookModelPricePage() {
+  const prevInit = initPriceListPage;
+  initPriceListPage = function() {
+    prevInit.apply(this, arguments);
+    const auto = document.getElementById('pl-tab-auto');
+    if (!auto || document.getElementById('pl-tab-mbs')) return;
+    const b = document.createElement('button');
+    b.className = 'btn btn-sm btn-outline'; b.id = 'pl-tab-mbs'; b.textContent = '🧮 機種別価格';
+    b.onclick = () => _plSwitchPageTab('mbs');
+    const anchor = document.getElementById('pl-tab-bpt') || document.getElementById('pl-tab-table') || auto;
+    if (anchor === auto) auto.before(b); else anchor.after(b);
+
+    const panel = document.createElement('div'); panel.id = 'pl-panel-mbs'; panel.style.display = 'none';
+    panel.innerHTML = `
+      <div class="bpt-bar">
+        <input id="mbs-search" type="text" placeholder="機種コード・機種名・基板名で検索..." value="${_esc(MBS.q)}" style="flex:1;min-width:200px;padding:7px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;" oninput="MBS.q=this.value;mbsRenderList()">
+        <label style="font-size:12px;display:flex;align-items:center;gap:4px;color:var(--danger);"><input type="checkbox" ${MBS.invOnly ? 'checked' : ''} onchange="MBS.invOnly=this.checked;mbsRenderList()"> ⚠️ 逆ざやのみ</label>
+        <button class="btn btn-primary btn-sm" onclick="mbsOpenAdd()">＋ 機種の基板構成を追加</button>
+        <button class="btn btn-outline btn-sm" onclick="mbsCsv()" style="color:#16a34a;border-color:#16a34a;">📥 CSV</button>
+        <button class="btn btn-outline btn-sm" onclick="mbsLoadList()">↻</button>
+      </div>
+      <div id="mbs-chips" class="bpt-chips"></div>
+      <div id="mbs-table"><div class="loading"><div class="spinner"></div><br>読み込み中...</div></div>`;
+    document.getElementById('pl-panel-auto').before(panel);
+  };
+  const prevSwitch = _plSwitchPageTab;
+  _plSwitchPageTab = function(tab) {
+    const panel = document.getElementById('pl-panel-mbs'), btn = document.getElementById('pl-tab-mbs');
+    if (tab === 'mbs') {
+      ['auto', 'master', 'model', 'table', 'bpt'].forEach(t => {
+        const p = document.getElementById('pl-panel-' + t), bt = document.getElementById('pl-tab-' + t);
+        if (p) p.style.display = 'none';
+        if (bt) bt.className = 'btn btn-sm btn-outline';
+      });
+      if (panel) panel.style.display = '';
+      if (btn) btn.className = 'btn btn-sm btn-primary';
+      _plPageTab = 'mbs';
+      if (MBS.listLoaded) mbsRenderList(); else mbsLoadList();
+      return;
+    }
+    if (panel) panel.style.display = 'none';
+    if (btn) btn.className = 'btn btn-sm btn-outline';
+    prevSwitch(tab);
+  };
+})();
+
+function mbsLoadList() {
+  mbsEnsureBoards(() => {
+    _bptApi('modelBoardSetList', {}, res => {
+      MBS.list = res.models || []; MBS.allModels = res.allModels || []; if (res.rolePresets) MBS.presets = res.rolePresets; MBS.listLoaded = true;
+      mbsRenderList();
+    }, () => { const t = document.getElementById('mbs-table'); if (t) t.innerHTML = '<div class="loading">読み込みに失敗しました。↻ で再読み込みしてください</div>'; });
+  });
+}
+
+function _mbsListFiltered() {
+  const kws = normalizeSearchText(MBS.q || '').split(/\s+/).filter(Boolean);
+  return MBS.list.filter(m => {
+    if (MBS.invOnly && !m.totals.inverted) return false;
+    if (!kws.length) return true;
+    const t = normalizeSearchText(m.modelCode + ' ' + m.modelName + ' ' + m.lines.map(l => l.role + ' ' + l.boardName).join(' '));
+    return kws.every(k => t.includes(k));
+  });
+}
+
+function mbsRenderList() {
+  const el = document.getElementById('mbs-table'); if (!el) return;
+  const rows = _mbsListFiltered();
+  const inv = MBS.list.filter(m => m.totals.inverted).length, inc = MBS.list.filter(m => m.totals.incomplete).length;
+  const chip = (l, v, col) => `<div class="bpt-chip">${l} <b style="color:${col || 'inherit'}">${v}</b></div>`;
+  const chips = document.getElementById('mbs-chips');
+  if (chips) chips.innerHTML = chip('基板構成のある機種', MBS.list.length + '機種') + chip('⚠️ 逆ざや', inv + '機種', inv ? '#dc2626' : '') + chip('金額が揃っていない基板あり', inc + '機種', inc ? '#b45309' : '');
+  if (!MBS.list.length) { el.innerHTML = '<div class="loading">まだ機種の基板構成がありません。「＋ 機種の基板構成を追加」か、機種マスタの「💰 基板構成・価格」タブから登録してください。</div>'; return; }
+  if (!rows.length) { el.innerHTML = '<div class="loading">該当なし</div>'; return; }
+  el.innerHTML = `<div class="bpt-wrap"><table class="pt"><thead><tr><th>機種コード</th><th>機種名</th><th>基板構成</th><th>売値合計</th><th>原価合計</th><th>利益</th><th>利益率</th><th>判定</th><th></th></tr></thead><tbody>
+    ${rows.map(m => {
+      const t = m.totals;
+      const judge = t.profit === null ? '<span class="pt-muted">—</span>' : t.inverted ? '<span class="bpt-bad">⚠️ 逆ざや</span>' : `<span class="bpt-ok">余裕 ${_bptYen(t.profit)}</span>${t.headroomRate != null ? `<div class="pt-muted">原価+${t.headroomRate}%まで</div>` : ''}`;
+      return `<tr class="${t.inverted ? 'bpt-inv' : ''}"><td class="name">${_esc(m.modelCode)}</td><td>${_esc(m.modelName)}</td>
+        <td style="font-size:11.5px;line-height:1.6;">${m.lines.map(l => `${_esc(l.role)}: <b>${_esc(l.boardName)}</b>${l.qty > 1 ? '×' + l.qty : ''}${l.resolved ? '' : ' <span class="bpt-tag warn">未登録</span>'}`).join('<br>')}</td>
+        <td class="num pt-cur">${t.sale === null ? '' : _bptNum(t.sale)}</td><td class="num">${t.cost === null ? '' : _bptNum(t.cost)}</td>
+        <td class="num calc ${t.inverted ? 'bpt-bad' : ''}">${t.profit === null ? '<span class="pt-muted">—</span>' : _bptNum(t.profit)}</td>
+        <td class="num calc ${t.inverted ? 'bpt-bad' : ''}">${t.rate === null ? '<span class="pt-muted">—</span>' : t.rate + '%'}</td>
+        <td class="calc"><div class="bpt-line">${judge}${t.incomplete ? `<div style="color:#b45309;">未確定 ${t.incomplete}件</div>` : ''}</div></td>
+        <td><button class="btn btn-outline btn-sm" onclick="mbsOpenModal('${_mbsq(m.modelCode)}')">開く</button></td></tr>`;
+    }).join('')}</tbody></table></div>`;
+}
+
+function mbsOpenModal(code) {
+  bptModal('🧮 ' + code + ' — 基板構成・価格', '<div id="mbs-modal-body"></div>', 1000);
+  mbsLoadModel(code, 'mbs-modal-body');
+}
+function mbsOpenAdd() {
+  mbsEnsureBoards(() => {
+    const opts = MBS.allModels.map(m => `<option value="${_esc(m.modelCode)}" label="${_esc(m.modelName)}"></option>`).join('');
+    bptModal('＋ 機種の基板構成を追加', `<datalist id="mbs-models">${opts}</datalist>
+      <div class="bpt-f"><label>機種（機種マスタの機種コード） *</label><input type="text" id="mbs-add-code" list="mbs-models" placeholder="機種コードを選択または入力"></div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;"><button class="btn btn-outline" onclick="bptClose()">キャンセル</button>
+        <button class="btn btn-primary" onclick="mbsOpenAddGo()">構成を作成・編集</button></div>`, 520);
+  });
+}
+function mbsOpenAddGo() {
+  const code = (document.getElementById('mbs-add-code').value || '').trim();
+  if (!code) { showToast('機種コードを入力してください', true); return; }
+  mbsOpenModal(code);
+}
+
+function mbsCsv() {
+  const rows = _mbsListFiltered().map(m => [m.modelCode, m.modelName, m.lines.map(l => l.role + ':' + l.boardName + (l.qty > 1 ? '×' + l.qty : '')).join(' / '),
+    m.totals.sale, m.totals.cost, m.totals.profit, m.totals.rate, m.totals.inverted ? '逆ざや' : '', m.totals.incomplete || ''].map(x => x == null ? '' : x));
+  _downloadCsv('機種別価格_' + _today() + '.csv', ['機種コード', '機種名', '基板構成', '売値合計', '原価合計', '利益', '利益率%', '判定', '未確定の基板数'], rows);
+}
+</script>

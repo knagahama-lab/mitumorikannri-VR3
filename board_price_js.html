@@ -164,6 +164,7 @@ function bptLoad() {
   _bptApi('boardPriceList', {}, res => {
     BPT.rows = res.rows || []; BPT.includePcb = !!res.includePcb; BPT.loaded = true;
     bptRender();
+    if (typeof mbsOnBoardsChanged === 'function') mbsOnBoardsChanged();
   }, () => { if (t) t.innerHTML = '<div class="loading">読み込みに失敗しました。↻ で再読み込みしてください</div>'; });
 }
 
@@ -282,14 +283,14 @@ function bptClose() { const ov = document.getElementById('bpt-modal'); if (ov) o
 // ============================================================
 // 編集（新規／金額変更）— 金額が変わると「変更理由（履歴）」の入力欄が出て、入力するまで保存できない
 // ============================================================
-function bptOpenEdit(id) {
+function bptOpenEdit(id, presetName) {
   const row = id ? _bptRow(id) : null;
   BPT.edit = { id: id || null, orig: row ? Object.assign({}, row.values) : {} };
   const v = row ? row.values : {};
   const inp = (key, label) => `<div class="bpt-f"><label>${label}</label><input type="number" step="any" min="0" inputmode="decimal" id="bpt-f-${key}" value="${v[key] == null ? '' : v[key]}" oninput="bptEditUpdate()"></div>`;
   bptModal(row ? '✏️ 基板価格を編集 — ' + row.name : '＋ 基板を追加', `
     <div class="bpt-grid">
-      <div class="bpt-f full"><label>基板名 *</label><input type="text" id="bpt-f-name" value="${_esc(row ? row.name : '')}" placeholder="例: ABC-123 主基板"></div>
+      <div class="bpt-f full"><label>基板名 *</label><input type="text" id="bpt-f-name" value="${_esc(row ? row.name : (presetName || ''))}" placeholder="例: M2502B"></div>
       ${inp('mountSale', '実装費 売値（円）')}${inp('mountCost', '実装費 原価（円）')}
       ${inp('matSale', '材料費 売値（円）')}${inp('matCost', '材料費 原価（円）')}
       ${inp('mgmtFee', '管理費（円）')}${inp('discount', '値引き（円）')}
