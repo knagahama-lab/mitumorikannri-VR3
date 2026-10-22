@@ -293,6 +293,17 @@ function handleApiRequest(action, payload) {
       case 'cpmClientFix':           return apiCpmClientFix(payload);
       // ★ 価格一覧表（36_price_table.gs）
       case 'priceTable':             return apiPriceTable();
+      // ★ 基板価格表・価格改定履歴・原価更新履歴（46_board_price_table.gs）
+      case 'boardPriceList':          return apiBoardPriceList();
+      case 'boardPriceSave':          return apiBoardPriceSave(payload);
+      case 'boardPriceHistory':       return apiBoardPriceHistory(payload);
+      case 'boardPriceHistoryAdd':    return apiBoardPriceHistoryAdd(payload);
+      case 'boardPriceHistoryUpdate': return apiBoardPriceHistoryUpdate(payload);
+      case 'boardPriceDocUpload':     return apiBoardPriceDocUpload(payload);
+      case 'boardPriceDocList':       return apiBoardPriceDocList(payload);
+      case 'boardPriceDocDelete':     return apiBoardPriceDocDelete(payload);
+      case 'boardPriceSetting':       return apiBoardPriceSetting(payload);
+      case 'boardPriceSetupTrigger':  return setupBoardPriceTrigger();
       // ★ 見積カテゴリ管理（42_quote_categories.gs）
       // ★ 注文書の再インポート・重複整理（45_order_reimport.gs）
       case 'orderReimportStatus':    return apiOrderReimportStatus();

@@ -1,0 +1,551 @@
+<style>
+  /* 基板価格表（46_board_price_table.gs）。表の罫線は price_table_js.html の table.pt を共用 */
+  .bpt-bar{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:10px; }
+  .bpt-chips{ display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+  .bpt-chip{ background:#f8fafc; border:1px solid var(--border-light); border-radius:8px; padding:7px 13px; font-size:12px; }
+  .bpt-chip b{ font-size:14px; }
+  .bpt-wrap{ overflow:auto; max-height:calc(100vh - 330px); border:1px solid #333; background:#fff; }
+  table.pt td.calc{ background:#f1f5f9; }
+  table.pt tr.bpt-inv td:not(.pt-cur){ background:#fef2f2; }
+  table.pt tr.bpt-inv td.name{ border-left:4px solid #dc2626; }
+  .bpt-bad{ color:#dc2626; font-weight:800; }
+  .bpt-ok{ color:#15803d; font-weight:700; }
+  .bpt-line{ font-size:11px; line-height:1.55; white-space:nowrap; text-align:left; }
+  .bpt-doc a{ color:#1d4ed8; text-decoration:none; font-size:12px; }
+  .bpt-doc a:hover{ text-decoration:underline; }
+  .bpt-ops{ display:flex; gap:4px; }
+  .bpt-grid{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px 14px; }
+  .bpt-grid .full{ grid-column:1 / -1; }
+  .bpt-f label{ display:block; font-size:11px; font-weight:700; color:var(--text-sub); margin-bottom:3px; }
+  .bpt-f input, .bpt-f select, .bpt-f textarea{ width:100%; padding:7px 9px; border:1px solid var(--border); border-radius:6px; font-size:13px; box-sizing:border-box; font-family:inherit; }
+  .bpt-f input:focus, .bpt-f select:focus, .bpt-f textarea:focus{ outline:none; border-color:var(--primary); box-shadow:0 0 0 3px rgba(37,99,235,.08); }
+  .bpt-sec{ font-size:12px; font-weight:800; color:#334155; margin:14px 0 6px; padding-bottom:4px; border-bottom:2px solid #e2e8f0; }
+  .bpt-prev{ background:#f8fafc; border:1px solid var(--border); border-radius:8px; padding:10px 12px; font-size:12px; line-height:1.7; }
+  .bpt-prev.inv{ background:#fef2f2; border-color:#fca5a5; }
+  .bpt-must{ background:#fffbeb; border:1px solid #fcd34d; border-radius:8px; padding:10px 12px; }
+  .bpt-must h4{ margin:0 0 6px; font-size:12px; color:#92400e; }
+  .bpt-diff{ font-size:12px; margin:0 0 8px; padding-left:16px; }
+  table.bpt-h{ border-collapse:collapse; width:100%; font-size:12px; font-variant-numeric:tabular-nums; }
+  table.bpt-h th, table.bpt-h td{ border:1px solid #cbd5e1; padding:4px 7px; vertical-align:top; }
+  table.bpt-h thead th{ background:#e9edf3; font-weight:800; white-space:nowrap; position:sticky; top:0; }
+  table.bpt-h td.r{ text-align:right; white-space:nowrap; }
+  table.bpt-h tr.direct td{ background:#fff7ed; }
+  table.bpt-h tr.pend td{ background:#fefce8; }
+  .bpt-tag{ display:inline-block; font-size:10px; font-weight:800; padding:1px 6px; border-radius:99px; background:#e2e8f0; color:#334155; }
+  .bpt-tag.cost{ background:#ede9fe; color:#5b21b6; } .bpt-tag.sale{ background:#dbeafe; color:#1d4ed8; }
+  .bpt-tag.warn{ background:#ffedd5; color:#c2410c; }
+</style>
+<script>
+// ============================================================
+// board_price_js.html — 基板価格表（46_board_price_table.gs）
+//   価格表ページに「🧾 基板価格表」タブを追加。
+//   縦=基板名 ／ 横=実装費(売値・原価) 材料費(売値・原価) 管理費 利益 値引き 合計金額 PCB単価
+//   金額を変えるときは 変更理由（履歴）が必須。仕入見積書（実装費／PCB）を添付できる。
+// ============================================================
+const BPT_FIELDS = [
+  { key: 'mountSale', label: '実装費(売値)', kind: 'sale' },
+  { key: 'mountCost', label: '実装費(原価)', kind: 'cost' },
+  { key: 'matSale',   label: '材料費(売値)', kind: 'sale' },
+  { key: 'matCost',   label: '材料費(原価)', kind: 'cost' },
+  { key: 'mgmtFee',   label: '管理費',       kind: 'sale' },
+  { key: 'discount',  label: '値引き',       kind: 'sale' },
+  { key: 'pcbPrice',  label: 'PCB単価',      kind: 'cost' },
+];
+const BPT = { rows: [], loaded: false, includePcb: false, q: '', invertedOnly: false, edit: null, hist: null, docs: null };
+
+// ── 計算（46_board_price_table.gs の _bpCalc / _bpDiff と同じ式。画面での試算用。保存値はサーバーで再計算）──
+const _bptRound = (n, d) => { const p = Math.pow(10, d || 0); return Math.round(n * p) / p; };
+function _bptCalc(v, includePcb) {
+  const n = k => (v[k] === '' || v[k] == null || isNaN(Number(v[k]))) ? null : Number(v[k]);
+  const z = k => n(k) === null ? 0 : n(k);
+  const hasSale = ['mountSale', 'matSale', 'mgmtFee'].some(k => n(k) !== null);
+  const total = hasSale ? _bptRound(z('mountSale') + z('matSale') + z('mgmtFee') - z('discount'), 2) : null;
+  const costKeys = ['mountCost', 'matCost'].concat(includePcb ? ['pcbPrice'] : []);
+  const hasCost = costKeys.some(k => n(k) !== null);
+  const cost = hasCost ? _bptRound(costKeys.reduce((s, k) => s + z(k), 0), 2) : null;
+  const profit = (total !== null && hasCost) ? _bptRound(total - cost, 2) : null;
+  const limits = {};
+  if (profit !== null) costKeys.forEach(k => { limits[k] = _bptRound(z(k) + profit, 2); });
+  return {
+    total, cost, profit,
+    rate: (profit !== null && total > 0) ? _bptRound(profit / total * 100, 1) : null,
+    headroomRate: (profit !== null && cost > 0) ? _bptRound(profit / cost * 100, 1) : null,
+    inverted: profit !== null && profit < 0, limits, costKeys,
+  };
+}
+function _bptDiff(before, after) {
+  const out = [];
+  const num = x => (x === '' || x == null || isNaN(Number(x))) ? null : Number(x);
+  BPT_FIELDS.forEach(f => {
+    const b = num(before[f.key]), a = num(after[f.key]);
+    if (a === b) return;
+    out.push({ key: f.key, label: f.label, kind: f.kind, before: b, after: a,
+      diff: (a !== null && b !== null) ? _bptRound(a - b, 2) : null,
+      pct: (a !== null && b !== null && b !== 0) ? _bptRound((a - b) / b * 100, 1) : null });
+  });
+  return out;
+}
+
+// ── 共通 ──
+const _bptYen = n => (n === '' || n == null) ? '' : '¥' + Number(n).toLocaleString('ja-JP', { maximumFractionDigits: 2 });
+const _bptNum = n => (n === '' || n == null) ? '' : Number(n).toLocaleString('ja-JP', { maximumFractionDigits: 2 });
+const _bptToday = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+const _bptSigned = n => n == null ? '' : (n > 0 ? '+' : n < 0 ? '−' : '') + Math.abs(n).toLocaleString('ja-JP', { maximumFractionDigits: 2 });
+function _bptApi(action, payload, ok, ng) {
+  google.script.run
+    .withSuccessHandler(res => { if (res && res.success) ok(res); else { showToast((res && res.error) || '処理に失敗しました', true); if (ng) ng(res); } })
+    .withFailureHandler(err => { showToast('通信エラー: ' + (err.message || err), true); if (ng) ng(err); })
+    .handleApiRequest(action, payload || {});
+}
+function _bptReadFile(file) {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result).split(',')[1]);
+    fr.onerror = () => reject(new Error('ファイルを読み込めませんでした'));
+    fr.readAsDataURL(file);
+  });
+}
+function _bptField(key) { return BPT_FIELDS.find(f => f.key === key); }
+function _bptRow(id) { return BPT.rows.find(r => r.id === id); }
+
+// ── ページ（価格表に差し込むタブ） ──
+(function hookBoardPricePage() {
+  const prevInit = initPriceListPage;
+  initPriceListPage = function() {
+    prevInit.apply(this, arguments);
+    const auto = document.getElementById('pl-tab-auto');
+    if (!auto || document.getElementById('pl-tab-bpt')) return;
+    const b = document.createElement('button');
+    b.className = 'btn btn-sm btn-outline'; b.id = 'pl-tab-bpt'; b.textContent = '🧾 基板価格表';
+    b.onclick = () => _plSwitchPageTab('bpt');
+    const anchor = document.getElementById('pl-tab-table');
+    if (anchor) anchor.after(b); else auto.before(b);
+
+    const panel = document.createElement('div'); panel.id = 'pl-panel-bpt'; panel.style.display = 'none';
+    panel.innerHTML = `
+      <div class="bpt-bar">
+        <input id="bpt-search" type="text" placeholder="基板名・備考で検索..." value="${_esc(BPT.q)}" style="flex:1;min-width:200px;padding:7px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;" oninput="BPT.q=this.value;bptRender()">
+        <label style="font-size:12px;display:flex;align-items:center;gap:4px;color:var(--danger);"><input type="checkbox" id="bpt-inv-only" ${BPT.invertedOnly ? 'checked' : ''} onchange="BPT.invertedOnly=this.checked;bptRender()"> ⚠️ 逆ざやのみ</label>
+        <label style="font-size:12px;display:flex;align-items:center;gap:4px;" title="ONにすると PCB単価も原価に含めて 利益・逆ざやを計算します"><input type="checkbox" id="bpt-incl-pcb" onchange="bptSetIncludePcb(this.checked)"> PCB単価を原価に含める</label>
+        <button class="btn btn-primary btn-sm" onclick="bptOpenEdit(null)">＋ 基板を追加</button>
+        <button class="btn btn-outline btn-sm" onclick="bptCsv()" style="color:#16a34a;border-color:#16a34a;">📥 CSV</button>
+        <button class="btn btn-outline btn-sm" onclick="bptLoad()">↻</button>
+      </div>
+      <div id="bpt-chips" class="bpt-chips"></div>
+      <div id="bpt-info" style="font-size:12px;color:var(--text-sub);margin-bottom:6px;"></div>
+      <div id="bpt-table"><div class="loading"><div class="spinner"></div><br>読み込み中...</div></div>`;
+    document.getElementById('pl-panel-auto').before(panel);
+  };
+
+  const prevSwitch = _plSwitchPageTab;
+  _plSwitchPageTab = function(tab) {
+    const panel = document.getElementById('pl-panel-bpt'), btn = document.getElementById('pl-tab-bpt');
+    if (tab === 'bpt') {
+      ['auto', 'master', 'model', 'table'].forEach(t => {
+        const p = document.getElementById('pl-panel-' + t), bt = document.getElementById('pl-tab-' + t);
+        if (p) p.style.display = 'none';
+        if (bt) bt.className = 'btn btn-sm btn-outline';
+      });
+      if (panel) panel.style.display = '';
+      if (btn) btn.className = 'btn btn-sm btn-primary';
+      _plPageTab = 'bpt';
+      if (BPT.loaded) bptRender(); else bptLoad();
+      return;
+    }
+    if (panel) panel.style.display = 'none';
+    if (btn) btn.className = 'btn btn-sm btn-outline';
+    prevSwitch(tab);
+  };
+})();
+
+function bptLoad() {
+  const t = document.getElementById('bpt-table');
+  if (t) t.innerHTML = '<div class="loading"><div class="spinner"></div><br>読み込み中...</div>';
+  _bptApi('boardPriceList', {}, res => {
+    BPT.rows = res.rows || []; BPT.includePcb = !!res.includePcb; BPT.loaded = true;
+    bptRender();
+  }, () => { if (t) t.innerHTML = '<div class="loading">読み込みに失敗しました。↻ で再読み込みしてください</div>'; });
+}
+
+function bptSetIncludePcb(on) {
+  _bptApi('boardPriceSetting', { includePcb: !!on }, res => {
+    BPT.includePcb = !!res.includePcb;
+    showToast(on ? 'PCB単価を原価に含めて計算します' : 'PCB単価は原価に含めず計算します');
+    bptLoad();
+  }, () => { const c = document.getElementById('bpt-incl-pcb'); if (c) c.checked = BPT.includePcb; });
+}
+
+function _bptFiltered() {
+  const kws = normalizeSearchText(BPT.q || '').split(/\s+/).filter(Boolean);
+  return BPT.rows.filter(r => {
+    if (BPT.invertedOnly && !r.calc.inverted) return false;
+    if (!kws.length) return true;
+    const t = normalizeSearchText(r.name + ' ' + r.remarks);
+    return kws.every(k => t.includes(k));
+  });
+}
+
+function _bptLimitCell(r) {
+  const c = r.calc;
+  if (c.profit === null) return '<span class="pt-muted">原価未入力</span>';
+  const names = { mountCost: '実装費原価', matCost: '材料費原価', pcbPrice: 'PCB単価' };
+  const head = c.inverted
+    ? `<div class="bpt-bad">⚠️ 逆ざや ${_bptYen(c.profit)}</div>`
+    : `<div class="bpt-ok">余裕 ${_bptYen(c.profit)}${c.headroomRate != null ? `（原価合計+${c.headroomRate}%まで）` : ''}</div>`;
+  const lines = c.costKeys.filter(k => (r.values[k] != null)).map(k => {
+    if (!c.inverted) return `<div>${names[k]} ${_bptYen(c.limits[k])} まで</div>`;
+    return c.limits[k] >= 0
+      ? `<div>${names[k]}を ${_bptYen(c.limits[k])} 以下にすれば黒字</div>`
+      : `<div>${names[k]}だけでは解消不可</div>`;
+  }).join('');
+  return `<div class="bpt-line">${head}${lines}</div>`;
+}
+function _bptDocCell(d) {
+  if (!d) return '<span class="pt-muted">—</span>';
+  const nm = d.name.length > 18 ? d.name.slice(0, 17) + '…' : d.name;
+  return `<span class="bpt-doc"><a href="${_esc(d.url)}" target="_blank" title="${_esc(d.name)}（${_esc(d.date)}）">📎 ${_esc(nm)}</a>${d.count > 1 ? ` <span class="pt-muted">(${d.count}版)</span>` : ''}</span>`;
+}
+
+function bptRender() {
+  const incl = document.getElementById('bpt-incl-pcb'); if (incl) incl.checked = BPT.includePcb;
+  const rows = _bptFiltered();
+  const inv = BPT.rows.filter(r => r.calc.inverted).length;
+  const noDoc = BPT.rows.filter(r => !r.docMount || !r.docPcb).length;
+  const pend = BPT.rows.reduce((s, r) => s + (r.pendingRequests || 0), 0);
+  const chip = (l, v, col) => `<div class="bpt-chip">${l} <b style="color:${col || 'inherit'}">${v}</b></div>`;
+  const chips = document.getElementById('bpt-chips');
+  if (chips) chips.innerHTML = chip('基板', BPT.rows.length + '件') + chip('⚠️ 逆ざや', inv + '件', inv ? '#dc2626' : '') + chip('仕入見積書が未添付（実装費 or PCB）', noDoc + '件') + (pend ? chip('🟡 依頼中の値上げ・改定', pend + '件', '#b45309') : '');
+  const info = document.getElementById('bpt-info');
+  if (info) info.innerHTML = `<b>合計金額</b> = 実装費売値 + 材料費売値 + 管理費 − 値引き ／ <b>利益</b> = 合計金額 − 原価（実装費原価 + 材料費原価${BPT.includePcb ? ' + PCB単価' : ''}）。灰色の列は自動計算です。<b>金額を変更するときは変更理由（履歴）の入力が必須</b>です。`;
+  const el = document.getElementById('bpt-table'); if (!el) return;
+  if (!BPT.rows.length) { el.innerHTML = '<div class="loading">まだ基板が登録されていません。「＋ 基板を追加」から登録してください。</div>'; return; }
+  if (!rows.length) { el.innerHTML = '<div class="loading">該当なし</div>'; return; }
+
+  let html = `<div class="bpt-wrap"><table class="pt"><thead>
+    <tr><th rowspan="2">基板名</th><th colspan="2">実装費</th><th colspan="2">材料費</th><th rowspan="2">管理費</th><th rowspan="2">利益<br><small>(自動)</small></th><th rowspan="2">値引き</th>
+        <th rowspan="2" class="pt-cur">合計金額<br><small>(自動)</small></th><th rowspan="2">PCB単価</th><th rowspan="2">利益率</th><th rowspan="2">逆ざやライン<br><small>（原価がここまで上がると利益0）</small></th>
+        <th colspan="2">仕入見積書</th><th rowspan="2">最終改定</th><th rowspan="2">操作</th></tr>
+    <tr><th>売値</th><th>原価</th><th>売値</th><th>原価</th><th>実装費</th><th>PCB</th></tr></thead><tbody>`;
+  rows.forEach(r => {
+    const v = r.values, c = r.calc;
+    const profitCls = c.profit === null ? '' : c.inverted ? 'bpt-bad' : '';
+    html += `<tr class="${c.inverted ? 'bpt-inv' : ''}">
+      <td class="name" title="${_esc(r.remarks)}">${_esc(r.name)}${r.pendingRequests ? ` <span class="bpt-tag warn" title="依頼中（未反映）の履歴があります">依頼中${r.pendingRequests}</span>` : ''}</td>
+      <td class="num">${_bptNum(v.mountSale)}</td><td class="num">${_bptNum(v.mountCost)}</td>
+      <td class="num">${_bptNum(v.matSale)}</td><td class="num">${_bptNum(v.matCost)}</td>
+      <td class="num">${_bptNum(v.mgmtFee)}</td>
+      <td class="num calc ${profitCls}">${c.profit === null ? '<span class="pt-muted">—</span>' : _bptNum(c.profit)}</td>
+      <td class="num">${_bptNum(v.discount)}</td>
+      <td class="num pt-cur">${c.total === null ? '' : _bptNum(c.total)}</td>
+      <td class="num">${_bptNum(v.pcbPrice)}</td>
+      <td class="num calc ${profitCls}">${c.rate === null ? '<span class="pt-muted">—</span>' : c.rate + '%'}</td>
+      <td class="calc">${_bptLimitCell(r)}</td>
+      <td>${_bptDocCell(r.docMount)}</td><td>${_bptDocCell(r.docPcb)}</td>
+      <td style="font-size:11px;">${_esc(r.lastRevision || '—')}</td>
+      <td><div class="bpt-ops">
+        <button class="btn btn-outline btn-sm" onclick="bptOpenEdit('${_esc(r.id)}')">✏️ 編集</button>
+        <button class="btn btn-outline btn-sm" onclick="bptOpenHistory('${_esc(r.id)}')">📜 履歴 ${r.histCount}</button>
+        <button class="btn btn-outline btn-sm" onclick="bptOpenDocs('${_esc(r.id)}')">📎</button>
+      </div></td></tr>`;
+  });
+  el.innerHTML = html + '</tbody></table></div>';
+}
+
+function bptCsv() {
+  const rows = _bptFiltered().map(r => [r.name, r.values.mountSale, r.values.mountCost, r.values.matSale, r.values.matCost, r.values.mgmtFee,
+    r.calc.profit, r.values.discount, r.calc.total, r.values.pcbPrice, r.calc.rate, r.calc.inverted ? '逆ざや' : '', r.lastRevision, r.remarks]
+    .map(x => x == null ? '' : x));
+  _downloadCsv('基板価格表_' + _today() + '.csv',
+    ['基板名', '実装費売値', '実装費原価', '材料費売値', '材料費原価', '管理費', '利益', '値引き', '合計金額', 'PCB単価', '利益率%', '逆ざや', '最終改定日', '備考'], rows);
+}
+
+// ============================================================
+// モーダル共通
+// ============================================================
+function bptModal(title, bodyHtml, width) {
+  let ov = document.getElementById('bpt-modal');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.className = 'modal-overlay'; ov.id = 'bpt-modal';
+    ov.onclick = e => { if (e.target === ov) bptClose(); };
+    ov.innerHTML = '<div class="modal" id="bpt-modal-box"><div class="modal-head"><h3 id="bpt-modal-title"></h3><button class="modal-close" onclick="bptClose()">✕</button></div><div class="modal-body" id="bpt-modal-body"></div></div>';
+    document.body.appendChild(ov);
+  }
+  document.getElementById('bpt-modal-box').style.maxWidth = (width || 640) + 'px';
+  document.getElementById('bpt-modal-title').textContent = title;
+  document.getElementById('bpt-modal-body').innerHTML = bodyHtml;
+  ov.classList.add('open');
+}
+function bptSetBody(html) { const b = document.getElementById('bpt-modal-body'); if (b) b.innerHTML = html; }
+function bptClose() { const ov = document.getElementById('bpt-modal'); if (ov) ov.classList.remove('open'); BPT.edit = BPT.hist = BPT.docs = null; }
+
+// ============================================================
+// 編集（新規／金額変更）— 金額が変わると「変更理由（履歴）」の入力欄が出て、入力するまで保存できない
+// ============================================================
+function bptOpenEdit(id) {
+  const row = id ? _bptRow(id) : null;
+  BPT.edit = { id: id || null, orig: row ? Object.assign({}, row.values) : {} };
+  const v = row ? row.values : {};
+  const inp = (key, label) => `<div class="bpt-f"><label>${label}</label><input type="number" step="any" min="0" inputmode="decimal" id="bpt-f-${key}" value="${v[key] == null ? '' : v[key]}" oninput="bptEditUpdate()"></div>`;
+  bptModal(row ? '✏️ 基板価格を編集 — ' + row.name : '＋ 基板を追加', `
+    <div class="bpt-grid">
+      <div class="bpt-f full"><label>基板名 *</label><input type="text" id="bpt-f-name" value="${_esc(row ? row.name : '')}" placeholder="例: ABC-123 主基板"></div>
+      ${inp('mountSale', '実装費 売値（円）')}${inp('mountCost', '実装費 原価（円）')}
+      ${inp('matSale', '材料費 売値（円）')}${inp('matCost', '材料費 原価（円）')}
+      ${inp('mgmtFee', '管理費（円）')}${inp('discount', '値引き（円）')}
+      ${inp('pcbPrice', 'PCB単価（円）')}
+      <div class="bpt-f"><label>備考</label><input type="text" id="bpt-f-remarks" value="${_esc(row ? row.remarks : '')}"></div>
+    </div>
+    <div class="bpt-sec">利益の試算（入力に合わせて自動で変わります）</div>
+    <div id="bpt-preview" class="bpt-prev"></div>
+    <div id="bpt-must" class="bpt-must" style="display:none;margin-top:12px;">
+      <h4>📜 変更履歴の入力（必須）— 金額を変更するため、履歴として必ず残します</h4>
+      <ul id="bpt-diff" class="bpt-diff"></ul>
+      <div class="bpt-grid">
+        <div class="bpt-f"><label>改定日（適用日） *</label><input type="date" id="bpt-h-date" value="${_bptToday()}"></div>
+        <div class="bpt-f"><label>依頼元（仕入先・取引先など／任意）</label><input type="text" id="bpt-h-req" placeholder="例: ○○電子 値上げ依頼"></div>
+        <div class="bpt-f full"><label>変更理由 *</label><textarea id="bpt-h-reason" rows="2" placeholder="例: 仕入先からの値上げ依頼（部材高騰）／ 客先との価格交渉で改定"></textarea></div>
+      </div>
+    </div>
+    <div class="bpt-sec">仕入見積書の添付（任意・版は残ります）</div>
+    <div class="bpt-grid">
+      <div class="bpt-f"><label>実装費の仕入見積書</label><input type="file" id="bpt-file-mount" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.csv"></div>
+      <div class="bpt-f"><label>PCBの仕入見積書</label><input type="file" id="bpt-file-pcb" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.csv"></div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;">
+      <button class="btn btn-outline" onclick="bptClose()">キャンセル</button>
+      <button class="btn btn-primary" id="bpt-save-btn" onclick="bptSave()">💾 保存</button>
+    </div>`, 680);
+  bptEditUpdate();
+}
+
+function bptEditRead() {
+  const vals = {};
+  BPT_FIELDS.forEach(f => { const el = document.getElementById('bpt-f-' + f.key); const s = el ? el.value.trim() : ''; vals[f.key] = s === '' ? null : Number(s); });
+  return vals;
+}
+
+function bptEditUpdate() {
+  if (!BPT.edit) return;
+  const vals = bptEditRead(), c = _bptCalc(vals, BPT.includePcb);
+  const names = { mountCost: '実装費原価', matCost: '材料費原価', pcbPrice: 'PCB単価' };
+  const pv = document.getElementById('bpt-preview');
+  if (pv) {
+    pv.className = 'bpt-prev' + (c.inverted ? ' inv' : '');
+    if (c.total === null) pv.innerHTML = '<span class="pt-muted">売値（実装費・材料費・管理費）を入力すると合計金額が出ます</span>';
+    else {
+      const lim = c.profit === null ? '' : c.costKeys.filter(k => vals[k] != null).map(k => `${names[k]}が ${_bptYen(c.limits[k])} を超えると逆ざや`).join(' ／ ');
+      pv.innerHTML = `合計金額 <b>${_bptYen(c.total)}</b> ／ 原価 <b>${c.cost === null ? '未入力' : _bptYen(c.cost)}</b> ／ 利益 <b class="${c.inverted ? 'bpt-bad' : ''}">${c.profit === null ? '—' : _bptYen(c.profit)}</b>${c.rate !== null ? `（利益率 ${c.rate}%）` : ''}`
+        + (c.profit === null ? '' : c.inverted ? `<div class="bpt-bad">⚠️ 逆ざやです（原価が売値を ${_bptYen(-c.profit)} 上回っています）</div>` : `<div class="bpt-ok">✅ 利益あり。${lim}</div>`)
+        + (BPT.includePcb ? '' : '<div class="pt-muted">※ PCB単価は原価に含めず計算しています（上の「PCB単価を原価に含める」で切替）</div>');
+    }
+  }
+  const diffs = BPT.edit.id ? _bptDiff(BPT.edit.orig, vals) : [];
+  const must = document.getElementById('bpt-must');
+  if (must) must.style.display = diffs.length ? '' : 'none';
+  const dl = document.getElementById('bpt-diff');
+  if (dl) dl.innerHTML = diffs.map(d => `<li><b>${_esc(d.label)}</b>　${d.before == null ? '（空）' : _bptNum(d.before)} → <b>${d.after == null ? '（空）' : _bptNum(d.after)}</b>${d.diff != null ? `　<span class="${d.kind === 'cost' && d.diff > 0 ? 'bpt-bad' : ''}">${_bptSigned(d.diff)}${d.pct != null ? `（${_bptSigned(d.pct)}%）` : ''}</span>` : ''}　<span class="bpt-tag ${d.kind}">${d.kind === 'cost' ? '原価更新' : '価格改定'}</span></li>`).join('');
+}
+
+async function bptSave() {
+  const e = BPT.edit; if (!e) return;
+  const name = document.getElementById('bpt-f-name').value.trim();
+  if (!name) { showToast('基板名を入力してください', true); return; }
+  const vals = bptEditRead();
+  const diffs = e.id ? _bptDiff(e.orig, vals) : [];
+  const reasonEl = document.getElementById('bpt-h-reason');
+  const reason = reasonEl ? reasonEl.value.trim() : '';
+  const date = (document.getElementById('bpt-h-date') || {}).value || '';
+  if (diffs.length && !reason) { showToast('金額を変更するので「変更理由」を入力してください（履歴に残ります）', true); if (reasonEl) reasonEl.focus(); return; }
+  if (diffs.length && !date) { showToast('改定日（適用日）を入力してください', true); return; }
+
+  const files = [['実装費', 'bpt-file-mount'], ['PCB', 'bpt-file-pcb']]
+    .map(([kind, id]) => ({ kind, file: (document.getElementById(id).files || [])[0] })).filter(x => x.file);
+  const tooBig = files.find(x => x.file.size > 15 * 1024 * 1024);
+  if (tooBig) { showToast(tooBig.file.name + ' は15MBを超えています', true); return; }
+
+  const btn = document.getElementById('bpt-save-btn'); btn.disabled = true; btn.textContent = '保存中…';
+  const payload = { id: e.id, name, values: vals, remarks: document.getElementById('bpt-f-remarks').value.trim(),
+    reason, effectiveDate: date.replace(/-/g, '/'), requester: (document.getElementById('bpt-h-req') || {}).value || '' };
+  _bptApi('boardPriceSave', payload, async res => {
+    let failed = 0;
+    for (const x of files) {
+      try {
+        const base64Data = await _bptReadFile(x.file);
+        await new Promise(resolve => _bptApi('boardPriceDocUpload', { boardId: res.id, kind: x.kind, fileName: x.file.name, mimeType: x.file.type, base64Data }, resolve, () => { failed++; resolve(); }));
+      } catch (err) { failed++; showToast(err.message, true); }
+    }
+    showToast(failed ? '金額は保存しました（添付 ' + failed + ' 件は失敗。📎 から再度アップロードしてください）' : (res.created ? '基板を登録しました' : (res.historyAdded ? `保存しました（履歴 ${res.historyAdded} 件を記録）` : '保存しました')), !!failed);
+    bptClose(); bptLoad();
+  }, () => { btn.disabled = false; btn.textContent = '💾 保存'; });
+}
+
+// ============================================================
+// 履歴（価格改定履歴・原価更新履歴）— 手入力で追加／状態変更／メモ追記
+// ============================================================
+function bptOpenHistory(id) {
+  const row = _bptRow(id); if (!row) return;
+  BPT.hist = { boardId: id, rows: [], tab: 'all', adding: false };
+  bptModal('📜 履歴 — ' + row.name, '<div class="loading"><div class="spinner"></div><br>読み込み中...</div>', 1180);
+  _bptApi('boardPriceHistory', { boardId: id }, res => { BPT.hist.rows = res.rows || []; bptHistRender(); });
+}
+
+function bptHistRender() {
+  const H = BPT.hist; if (!H) return;
+  const row = _bptRow(H.boardId); if (!row) return;
+  const tabs = [['all', 'すべて'], ['価格改定', '価格改定'], ['原価更新', '原価更新'], ['pend', '🟡 依頼中']];
+  const list = H.rows.filter(h => H.tab === 'all' ? true : H.tab === 'pend' ? h.status === '依頼中（未反映）' : h.kind === H.tab);
+  const c = row.calc;
+  const cur = `現在: 合計金額 <b>${_bptYen(c.total)}</b> ／ 利益 <b class="${c.inverted ? 'bpt-bad' : ''}">${c.profit === null ? '—' : _bptYen(c.profit)}</b>${c.rate != null ? `（${c.rate}%）` : ''}`
+    + (c.profit !== null ? (c.inverted ? ' <span class="bpt-bad">⚠️ 逆ざや</span>' : ` ／ 原価合計が +${_bptYen(c.profit)}（${c.headroomRate == null ? '—' : c.headroomRate + '%'}）上がると逆ざや`) : '');
+  let html = `<div class="bpt-prev${c.inverted ? ' inv' : ''}" style="margin-bottom:10px;">${cur}</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+      ${tabs.map(([k, l]) => `<button class="btn btn-sm ${H.tab === k ? 'btn-primary' : 'btn-outline'}" onclick="BPT.hist.tab='${k}';bptHistRender()">${l}</button>`).join('')}
+      <span style="flex:1"></span>
+      <button class="btn btn-sm ${H.adding ? 'btn-outline' : 'btn-primary'}" onclick="BPT.hist.adding=!BPT.hist.adding;bptHistRender()">${H.adding ? '✕ 入力を閉じる' : '＋ 履歴を手入力で追加'}</button>
+    </div>`;
+  if (H.adding) html += _bptHistForm(row);
+  if (!list.length) html += '<div class="loading">履歴はありません</div>';
+  else {
+    html += `<div style="overflow:auto;max-height:52vh;"><table class="bpt-h"><thead><tr>
+      <th>改定日</th><th>種別</th><th>項目</th><th>変更前</th><th>変更後</th><th>差額（率）</th><th>依頼元</th><th>状態</th><th>変更後の利益</th><th>理由・メモ</th><th>入力者／日時</th><th></th></tr></thead><tbody>`;
+    list.forEach(h => {
+      const cost = h.kind === '原価更新';
+      html += `<tr class="${h.direct ? 'direct' : h.status === '依頼中（未反映）' ? 'pend' : ''}">
+        <td style="white-space:nowrap;">${_esc(h.date)}</td>
+        <td><span class="bpt-tag ${cost ? 'cost' : 'sale'}">${_esc(h.kind)}</span>${h.direct ? ' <span class="bpt-tag warn">直接編集</span>' : ''}</td>
+        <td style="white-space:nowrap;">${_esc(h.label)}</td>
+        <td class="r">${h.before == null ? '—' : _bptNum(h.before)}</td>
+        <td class="r"><b>${_bptNum(h.after)}</b></td>
+        <td class="r ${cost && h.diff > 0 ? 'bpt-bad' : ''}">${h.diff == null ? '' : _bptSigned(h.diff) + (h.pct != null ? `（${_bptSigned(h.pct)}%）` : '')}</td>
+        <td>${_esc(h.requester)}</td>
+        <td><select onchange="bptHistStatus('${_esc(h.id)}',this.value)" style="font-size:11px;padding:2px;">${['適用済み', '依頼中（未反映）', '見送り'].map(s => `<option${s === h.status ? ' selected' : ''}>${s}</option>`).join('')}</select></td>
+        <td class="r ${h.invertedAfter ? 'bpt-bad' : ''}">${h.profitAfter == null ? '—' : _bptYen(h.profitAfter)}${h.invertedAfter ? '<br>⚠️逆ざや' : ''}</td>
+        <td style="min-width:200px;">${_esc(h.reason)}</td>
+        <td style="font-size:10px;color:#64748b;white-space:nowrap;">${_esc(h.user)}<br>${_esc(h.at)}</td>
+        <td><button class="btn btn-outline btn-sm" title="メモを追記" onclick="bptHistMemo('${_esc(h.id)}')">💬</button></td></tr>`;
+    });
+    html += '</tbody></table></div>';
+  }
+  html += '<div class="pt-muted" style="margin-top:8px;">履歴は削除・書き換えできません（状態の変更とメモの追記のみ）。「直接編集」の行はスプレッドシートを直接書き換えた記録です。💬 で理由を追記してください。</div>';
+  bptSetBody(html);
+  if (H.adding) bptHAddKind();
+}
+
+function _bptHistForm(row) {
+  return `<div class="bpt-must" style="margin-bottom:12px;">
+    <h4>＋ 履歴を手入力で追加（過去の改定・原価値上げ依頼の記録。現在の金額は変わりません）</h4>
+    <div class="bpt-grid" style="grid-template-columns:repeat(3,minmax(0,1fr));">
+      <div class="bpt-f"><label>種別 *</label><select id="bpt-ha-kind" onchange="bptHAddKind()"><option>原価更新</option><option>価格改定</option></select></div>
+      <div class="bpt-f"><label>項目 *</label><select id="bpt-ha-field" onchange="bptHAddField()"></select></div>
+      <div class="bpt-f"><label>状態 *</label><select id="bpt-ha-status" onchange="bptHAddSim()"><option>適用済み</option><option>依頼中（未反映）</option><option>見送り</option></select></div>
+      <div class="bpt-f"><label>変更前（円）</label><input type="number" step="any" min="0" id="bpt-ha-before" oninput="bptHAddSim()"></div>
+      <div class="bpt-f"><label>変更後／依頼額（円） *</label><input type="number" step="any" min="0" id="bpt-ha-after" oninput="bptHAddSim()"></div>
+      <div class="bpt-f"><label>日付（改定日／依頼日） *</label><input type="date" id="bpt-ha-date" value="${_bptToday()}"></div>
+      <div class="bpt-f"><label>依頼元（仕入先など）</label><input type="text" id="bpt-ha-req" placeholder="例: ○○電子"></div>
+      <div class="bpt-f" style="grid-column:span 2;"><label>理由・メモ *</label><input type="text" id="bpt-ha-reason" placeholder="例: 部材高騰のため 10月出荷分から値上げ依頼"></div>
+    </div>
+    <div id="bpt-ha-sim" class="bpt-prev" style="margin-top:8px;"></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:8px;"><button class="btn btn-primary btn-sm" onclick="bptHAddSubmit()">履歴に追加</button></div>
+  </div>`;
+}
+function bptHAddKind() {
+  const kind = document.getElementById('bpt-ha-kind').value;
+  document.getElementById('bpt-ha-field').innerHTML = BPT_FIELDS.filter(f => (kind === '原価更新') === (f.kind === 'cost')).map(f => `<option value="${f.key}">${f.label}</option>`).join('');
+  bptHAddField();
+}
+function bptHAddField() {
+  const row = _bptRow(BPT.hist.boardId), key = document.getElementById('bpt-ha-field').value;
+  const cur = row && row.values[key];
+  document.getElementById('bpt-ha-before').value = cur == null ? '' : cur;
+  bptHAddSim();
+}
+function bptHAddSim() {
+  const row = _bptRow(BPT.hist.boardId), key = document.getElementById('bpt-ha-field').value;
+  const after = document.getElementById('bpt-ha-after').value;
+  const el = document.getElementById('bpt-ha-sim'); if (!row || !el) return;
+  if (after === '') { el.className = 'bpt-prev'; el.innerHTML = '<span class="pt-muted">変更後（依頼額）を入れると、現在の他の金額のまま その額になった場合の利益・逆ざやを試算します</span>'; return; }
+  const trial = Object.assign({}, row.values, { [key]: Number(after) });
+  const c = _bptCalc(trial, BPT.includePcb);
+  el.className = 'bpt-prev' + (c.inverted ? ' inv' : '');
+  el.innerHTML = c.profit === null ? '<span class="pt-muted">原価が未入力のため試算できません</span>'
+    : c.inverted ? `<span class="bpt-bad">⚠️ この金額だと逆ざやです（利益 ${_bptYen(c.profit)}）</span>`
+    : `<span class="bpt-ok">この金額でも利益 ${_bptYen(c.profit)}（${c.rate}%）で逆ざやにはなりません</span>${c.limits[key] != null ? `　／ ${_bptField(key).label}の逆ざやライン ${_bptYen(c.limits[key])}` : ''}`;
+}
+function bptHAddSubmit() {
+  const g = id => document.getElementById(id).value;
+  const payload = { boardId: BPT.hist.boardId, kind: g('bpt-ha-kind'), fieldKey: g('bpt-ha-field'), before: g('bpt-ha-before'), after: g('bpt-ha-after'),
+    date: g('bpt-ha-date').replace(/-/g, '/'), requester: g('bpt-ha-req'), status: g('bpt-ha-status'), reason: g('bpt-ha-reason') };
+  if (payload.after === '') { showToast('変更後（依頼額）を入力してください', true); return; }
+  if (!payload.reason.trim()) { showToast('理由・メモを入力してください', true); return; }
+  _bptApi('boardPriceHistoryAdd', payload, () => {
+    showToast('履歴を追加しました');
+    BPT.hist.adding = false;
+    _bptApi('boardPriceHistory', { boardId: BPT.hist.boardId }, r => { BPT.hist.rows = r.rows || []; bptHistRender(); });
+    bptLoad();
+  });
+}
+function bptHistStatus(id, status) {
+  _bptApi('boardPriceHistoryUpdate', { id, status }, () => {
+    showToast('状態を更新しました');
+    _bptApi('boardPriceHistory', { boardId: BPT.hist.boardId }, r => { BPT.hist.rows = r.rows || []; bptHistRender(); });
+    bptLoad();
+  }, () => bptHistRender());
+}
+function bptHistMemo(id) {
+  const memo = prompt('メモを追記します（履歴の元の記録は消えません）');
+  if (!memo || !memo.trim()) return;
+  _bptApi('boardPriceHistoryUpdate', { id, memo }, () => {
+    showToast('メモを追記しました');
+    _bptApi('boardPriceHistory', { boardId: BPT.hist.boardId }, r => { BPT.hist.rows = r.rows || []; bptHistRender(); });
+  });
+}
+
+// ============================================================
+// 仕入見積書（実装費／PCB）の添付一覧・追加
+// ============================================================
+function bptOpenDocs(id) {
+  const row = _bptRow(id); if (!row) return;
+  BPT.docs = { boardId: id };
+  bptModal('📎 仕入見積書 — ' + row.name, '<div class="loading"><div class="spinner"></div><br>読み込み中...</div>', 820);
+  bptDocsReload();
+}
+function bptDocsReload() {
+  const D = BPT.docs; if (!D) return;
+  _bptApi('boardPriceDocList', { boardId: D.boardId }, res => {
+    let html = `<div class="bpt-must" style="margin-bottom:12px;"><h4>＋ 仕入見積書を追加（新しい版を追加しても、古い版は残ります）</h4>
+      <div class="bpt-grid" style="grid-template-columns:140px minmax(0,1fr) minmax(0,1fr);">
+        <div class="bpt-f"><label>区分 *</label><select id="bpt-d-kind"><option>実装費</option><option>PCB</option></select></div>
+        <div class="bpt-f"><label>ファイル *</label><input type="file" id="bpt-d-file" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls,.csv"></div>
+        <div class="bpt-f"><label>メモ（任意）</label><input type="text" id="bpt-d-memo" placeholder="例: 2026/10 値上げ後の見積"></div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;margin-top:8px;"><button class="btn btn-primary btn-sm" id="bpt-d-btn" onclick="bptDocUpload()">アップロード</button></div></div>`;
+    if (!res.rows.length) html += '<div class="loading">添付はまだありません</div>';
+    else {
+      html += `<table class="bpt-h"><thead><tr><th>区分</th><th>ファイル</th><th>メモ</th><th>登録者</th><th>登録日時</th><th></th></tr></thead><tbody>` +
+        res.rows.map(d => `<tr><td><span class="bpt-tag ${d.kind === 'PCB' ? 'cost' : 'sale'}">${_esc(d.kind)}</span></td>
+          <td><a href="${_esc(d.url)}" target="_blank" style="color:#1d4ed8;">📎 ${_esc(d.fileName)}</a></td><td>${_esc(d.memo)}</td>
+          <td style="font-size:11px;">${_esc(d.user)}</td><td style="font-size:11px;white-space:nowrap;">${_esc(d.at)}</td>
+          <td><button class="btn btn-outline btn-sm" title="一覧から外す（Drive上のファイルは残ります）" onclick="bptDocDelete('${_esc(d.id)}')">リンク削除</button></td></tr>`).join('') + '</tbody></table>';
+    }
+    bptSetBody(html);
+  });
+}
+async function bptDocUpload() {
+  const D = BPT.docs; if (!D) return;
+  const file = (document.getElementById('bpt-d-file').files || [])[0];
+  if (!file) { showToast('ファイルを選んでください', true); return; }
+  if (file.size > 15 * 1024 * 1024) { showToast('15MBを超えるファイルは添付できません', true); return; }
+  const btn = document.getElementById('bpt-d-btn'); btn.disabled = true; btn.textContent = 'アップロード中…';
+  try {
+    const base64Data = await _bptReadFile(file);
+    _bptApi('boardPriceDocUpload', { boardId: D.boardId, kind: document.getElementById('bpt-d-kind').value, fileName: file.name, mimeType: file.type, base64Data, memo: document.getElementById('bpt-d-memo').value }, () => {
+      showToast('添付しました'); bptDocsReload(); bptLoad();
+    }, () => { btn.disabled = false; btn.textContent = 'アップロード'; });
+  } catch (err) { showToast(err.message, true); btn.disabled = false; btn.textContent = 'アップロード'; }
+}
+function bptDocDelete(id) {
+  if (!confirm('この添付を一覧から外しますか？（Drive上のファイルは削除されません）')) return;
+  _bptApi('boardPriceDocDelete', { id }, () => { showToast('外しました'); bptDocsReload(); bptLoad(); });
+}
+</script>
