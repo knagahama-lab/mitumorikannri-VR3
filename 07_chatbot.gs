@@ -526,41 +526,6 @@ function _buildInitialMessages(question, history) {
   return messages;
 }
 
-// ============================================================
-// v1 ユーティリティ（Drive検索・PDF読み込み）
-// ============================================================
-
-function _buildSpreadsheetContext(question) {
-  var keywords = _extractKeywords(question);
-  var results  = [];
-
-  var mgmtData = getAllMgmtData();
-  mgmtData.forEach(function(row) {
-    var text = [
-      row[MGMT_COLS.QUOTE_NO - 1], row[MGMT_COLS.ORDER_NO - 1],
-      row[MGMT_COLS.SUBJECT - 1],  row[MGMT_COLS.CLIENT - 1],
-      row[MGMT_COLS.MODEL_CODE - 1], row[MGMT_COLS.ORDER_SLIP_NO - 1],
-    ].join(' ').toLowerCase();
-    if (keywords.some(function(k){ return text.indexOf(k) >= 0; })) {
-      results.push({
-        type   : '管理',
-        quoteNo: String(row[MGMT_COLS.QUOTE_NO - 1] || ''),
-        orderNo: String(row[MGMT_COLS.ORDER_NO - 1] || ''),
-        subject: String(row[MGMT_COLS.SUBJECT - 1] || ''),
-        client : String(row[MGMT_COLS.CLIENT - 1] || ''),
-        status : String(row[MGMT_COLS.STATUS - 1] || ''),
-        amount : String(row[MGMT_COLS.ORDER_AMOUNT-1] || row[MGMT_COLS.QUOTE_AMOUNT-1] || ''),
-        model  : String(row[MGMT_COLS.MODEL_CODE - 1] || ''),
-        date   : String(row[MGMT_COLS.ORDER_DATE-1] || row[MGMT_COLS.QUOTE_DATE-1] || ''),
-        pdfUrl : String(row[MGMT_COLS.ORDER_PDF_URL-1] || row[MGMT_COLS.QUOTE_PDF_URL-1] || ''),
-      });
-    }
-  });
-
-  Logger.log('[CHATBOT] SS hits: ' + results.length);
-  return { hits: results.slice(0, CHATBOT_CONFIG.MAX_SS_ROWS), hitCount: results.length };
-}
-
 function _searchDriveFilesForChat(question) {
   try {
     var props  = PropertiesService.getScriptProperties();
@@ -581,43 +546,6 @@ function _searchDriveFilesForChat(question) {
     Logger.log('[CHATBOT] Drive search error: ' + e.message);
     return [];
   }
-}
-
-function _readPdfContents(driveFiles, apiKey, question) {
-  var results  = [];
-  var readCount = 0;
-  var maxRead  = CHATBOT_CONFIG.MAX_PDF_READ;
-
-  for (var i = 0; i < driveFiles.length && readCount < maxRead; i++) {
-    var f = driveFiles[i];
-    try {
-      var file = DriveApp.getFileById(f.id);
-      var b64  = Utilities.base64Encode(file.getBlob().getBytes());
-      var endpoint = CONFIG.GEMINI_API_ENDPOINT + CONFIG.GEMINI_PRIMARY_MODEL + ':generateContent?key=' + apiKey;
-      var payload  = {
-        contents: [{ parts: [
-          { text: '以下のPDFから、見積番号・注文番号・品名・仕様・数量・単価・金額・会社名・日付・件名などの重要情報を箇条書きで抽出してください。200文字以内で簡潔に。' },
-          { inline_data: { mime_type: 'application/pdf', data: b64 } }
-        ]}],
-        generationConfig: { maxOutputTokens: 300, temperature: 0 }
-      };
-      var res  = UrlFetchApp.fetch(endpoint, {
-        method: 'post', contentType: 'application/json',
-        payload: JSON.stringify(payload), muteHttpExceptions: true,
-      });
-      var json = JSON.parse(res.getContentText());
-      var text = (json.candidates && json.candidates[0] &&
-        json.candidates[0].content && json.candidates[0].content.parts)
-        ? json.candidates[0].content.parts.map(function(p){ return p.text||''; }).join('')
-        : '';
-      if (text) { results.push({ name: f.name, url: f.url, content: text }); readCount++; }
-    } catch(e) {
-      Logger.log('[CHATBOT] PDF read error: ' + f.name + ' ' + e.message);
-    }
-  }
-
-  Logger.log('[CHATBOT] PDF read: ' + results.length + '件');
-  return results;
 }
 
 function _extractKeywords(text) {

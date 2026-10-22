@@ -446,39 +446,3 @@ function _apiChecklistCopyTemplate(p) {
 //   case 'checklistCopyTemplate': return _apiChecklistCopyTemplate(payload);
 // ============================================================
 
-// ============================================================
-// テスト用
-// ============================================================
-function testChecklistApi() {
-  setupChecklistSheet();
-
-  var modelCode = 'TEST-MODEL-001';
-  var templates = [
-    { section: '主基板',   itemName: 'PCB試作見積',         format: 'Excel', submitTo: 'A基板メーカー' },
-    { section: '主基板',   itemName: 'イニシャル費見積',     format: 'PDF',   submitTo: 'A基板メーカー' },
-    { section: '主基板',   itemName: 'BOM部品原価見積',      format: 'Excel', submitTo: '調達部' },
-    { section: '液晶演出', itemName: '液晶ユニット試作見積', format: 'Excel', submitTo: 'B液晶メーカー' },
-    { section: '液晶演出', itemName: '組立費見積',           format: 'PDF',   submitTo: 'C組立工場' },
-  ];
-  templates.forEach(function(t, i) {
-    _apiChecklistSaveItem({
-      modelCode:   modelCode,
-      section:     t.section,
-      itemName:    t.itemName,
-      format:      t.format,
-      submitTo:    t.submitTo,
-      status:      i === 0 ? CL_STATUS.SUBMITTED : CL_STATUS.PENDING,
-      quoteAmount: i === 0 ? 250000 : 0,
-      costAmount:  i === 0 ? 180000 : 0,
-    });
-  });
-
-  var result = _apiChecklistGetByModel({ modelCode: modelCode });
-  Logger.log('=== checklistGetByModel ===');
-  Logger.log('セクション数: ' + result.sections.length);
-  result.sections.forEach(function(sec) {
-    Logger.log('  [' + sec.name + '] ' + sec.items.length + '件 小計:' + sec.subtotal);
-  });
-  Logger.log('総合計: ' + result.summary.grandTotal);
-  Logger.log('進捗: ' + result.summary.doneCount + '/' + result.summary.totalCount);
-}

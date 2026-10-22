@@ -460,14 +460,6 @@ function normalizeText(str) {
     .trim();
 }
 
-function _loadSettingsObj() {
-  try {
-    var raw = PropertiesService.getScriptProperties().getProperty('SYS_SETTINGS');
-    if (raw) return JSON.parse(raw);
-  } catch (e) {}
-  return { webhookUrl: '', notifyOrder: true, notifyQuote: true, notifyDl: true, alertDays: 3 };
-}
-
 function _isLinkedVal(val) {
   return val === true || String(val).toUpperCase() === 'TRUE';
 }
@@ -749,17 +741,6 @@ function confirmManualLink(orderMgmtId, quoteMgmtId) {
   }
 }
 
-function _findLatestOrderMgmtId() {
-  try {
-    var ss    = getSpreadsheet();
-    var sheet = ss.getSheetByName(CONFIG.SHEET_MANAGEMENT);
-    var last  = sheet.getLastRow();
-    if (last <= 1) return null;
-    var row = sheet.getRange(last, MGMT_COLS.ID).getValue();
-    return row ? String(row) : null;
-  } catch (e) { return null; }
-}
-
 function _sendOrderRegistrationToChat(mgmtId, uploadInfo, linkResult) {
   try {
     var webhookUrl = CONFIG.GOOGLE_CHAT_WEBHOOK_URL ||
@@ -781,23 +762,6 @@ function _sendOrderRegistrationToChat(mgmtId, uploadInfo, linkResult) {
   } catch (e) {
     Logger.log('[_sendOrderRegistrationToChat ERROR] ' + e.message);
   }
-}
-
-// ============================================================
-// 診断・テスト用
-// ============================================================
-
-function testGeminiConnection() {
-  var apiKey = getGeminiApiKey();
-  Logger.log('APIキー先頭8文字: ' + (apiKey ? apiKey.substring(0,8) : 'NULL'));
-  var url = CONFIG.GEMINI_API_ENDPOINT + CONFIG.GEMINI_PRIMARY_MODEL + ':generateContent?key=' + apiKey;
-  var res = UrlFetchApp.fetch(url, {
-    method: 'post', contentType: 'application/json',
-    payload: JSON.stringify({contents:[{parts:[{text:'テスト。OKとだけ返して。'}]}]}),
-    muteHttpExceptions: true,
-  });
-  Logger.log('Status: ' + res.getResponseCode());
-  Logger.log('Body: '   + res.getContentText().substring(0,400));
 }
 
 function checkAvailableModels() {

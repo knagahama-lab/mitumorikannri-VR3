@@ -660,15 +660,3 @@ function _registerNormalizedTriggers() {
   }
 }
 
-// ============================================================
-// デバッグ用
-// ============================================================
-function debugNormalize() {
-  Logger.log('=== 正規化DB状態確認 ===');
-  var ss = getSpreadsheet();
-  [SHEET_QUOTE_DETAIL, SHEET_ORDER_DETAIL, SHEET_UNIT_PRICE, SHEET_CASE_SUMMARY]
-    .forEach(function(name) {
-      var s = ss.getSheetByName(name);
-      Logger.log(name + ': ' + (s ? (s.getLastRow() - 1) + '行' : '未作成'));
-    });
-}

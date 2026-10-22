@@ -131,62 +131,6 @@ function processUploadedPdf(base64Data, fileName, docType, orderType) {
 }
 
 // ============================================================
-// 見積書: PDFテキスト + ルールベース構造化
-// ============================================================
-function _extractQuoteFromPdfText(driveFile) {
-  var text = _extractTextFromPdf(driveFile);
-  if (!text || text.trim().length < 20) {
-    Logger.log('[OCR HYBRID] 見積書テキスト抽出失敗 → 手動入力UIへ');
-    _logOcrResult(driveFile.getName(), 'ocr_failed', null, '見積書PDFからテキストを抽出できませんでした。');
-    return null;
-  }
-
-  Logger.log('[OCR HYBRID] 見積書テキスト抽出成功: ' + text.length + '文字');
-  var result = _parseQuoteText(text);
-  if (!result.documentNo && !result.totalAmount) {
-    Logger.log('[OCR HYBRID] 見積書構造化不十分 → Geminiテキスト補完');
-    result = _geminiStructureText(text, 'quote') || result;
-  }
-
-  _logOcrResult(driveFile.getName(), 'success', null,
-    '見積書: ' + (result.documentNo||'番号不明') +
-    ' 金額:' + (result.totalAmount||0) +
-    ' 明細:' + (result.lineItems ? result.lineItems.length : 0) + '行');
-  return result;
-}
-
-// ============================================================
-// 注文書: テキスト抽出 → Gemini構造化 → Vision フォールバック
-// ============================================================
-function _extractOrderHybrid(driveFile) {
-  var text = _extractTextFromPdf(driveFile);
-  if (text && text.trim().length >= 30) {
-    Logger.log('[OCR HYBRID] 注文書テキスト抽出成功 → Gemini構造化');
-    var result = _geminiStructureText(text, 'order');
-    if (result) {
-      _logOcrResult(driveFile.getName(), 'success', null, '注文書テキスト+Gemini構造化: ' + (result.documentNo||'?'));
-      return result;
-    }
-  }
-
-  Logger.log('[OCR HYBRID] 注文書テキスト抽出失敗 → Gemini Vision試行');
-  var apiKey = getGeminiApiKey();
-  if (!apiKey) {
-    _logOcrResult(driveFile.getName(), 'ocr_failed', null, 'スキャンPDF + APIキー未設定。手動入力が必要です。');
-    return null;
-  }
-
-  var visionResult = _geminiVisionOcr(driveFile, 'order', apiKey);
-  if (visionResult) {
-    _logOcrResult(driveFile.getName(), 'success', null, '注文書Vision OCR: ' + (visionResult.documentNo||'?'));
-    return visionResult;
-  }
-
-  _logOcrResult(driveFile.getName(), 'ocr_failed', null, '全OCR手法失敗。手動入力してください。');
-  return null;
-}
-
-// ============================================================
 // PDFからテキストを直接抽出（GASネイティブ）
 // ============================================================
 function _extractTextFromPdf(driveFile) {
@@ -543,16 +487,6 @@ function _ocr_normDate(val) {
   var r = s.match(/R(\d+)[\/.年](\d+)[\/.月](\d+)/);
   if (r) return (2018 + parseInt(r[1])) + '/' + r[2].padStart(2,'0') + '/' + r[3].padStart(2,'0');
   return s;
-}
-
-function _ocr_extractText(raw) {
-  try {
-    if (raw.candidates && raw.candidates[0] && raw.candidates[0].content && raw.candidates[0].content.parts) {
-      return (raw.candidates[0].content.parts[0].text || '').replace(/```json|```/gi,'').trim();
-    }
-    if (raw.promptFeedback && raw.promptFeedback.blockReason) Logger.log('[OCR] ブロック: ' + raw.promptFeedback.blockReason);
-    return null;
-  } catch(e) { return null; }
 }
 
 function _ocr_safeParseJson(text) {

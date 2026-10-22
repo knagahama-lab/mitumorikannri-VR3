@@ -1036,8 +1036,6 @@ function refreshDrivePdfCache() {
   return slim.length;
 }
 
-function _apiDriveSearchFallback(p) { return { success: false, error: "Not supported" }; }
-
 function _getAllSubFolderIds(rootFolderId) {
   var allIds   = [];
   var queue    = [rootFolderId];
@@ -1503,17 +1501,6 @@ function _apiCreateRevision(p) {
     mgmtSheet.appendRow(newRow);
     return {success:true, newMgmtId:newId, revision:nextRev};
   } catch(e){ return {success:false,error:e.message}; }
-}
-
-// _apiCheckDeadlines は handleApiRequest の 'checkDeadlines' ケースに統合済み
-
-function _apiUploadOrderWithLink(p) {
-  var res = _apiUploadPdf(p);
-  if (res.success && res.mgmtId) {
-    var aiRes = aiLinkOrderToQuote(res.mgmtId);
-    res.linkResult = aiRes;
-  }
-  return res;
 }
 
 // ── 外部API連携管理 ──

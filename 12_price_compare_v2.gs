@@ -645,24 +645,3 @@ function _toNumber(v) {
   return isNaN(n) ? null : n;
 }
 
-// ============================================================
-// デバッグ用
-// ============================================================
-function testCompareLatestOrder() {
-  var data = getAllMgmtData();
-  var latest = null;
-  for (var i = data.length - 1; i >= 0; i--) {
-    if (String(data[i][MGMT_COLS.ORDER_NO - 1] || '').trim()) {
-      latest = data[i]; break;
-    }
-  }
-  if (!latest) { Logger.log('注文書のある案件がありません'); return; }
-  var mgmtId = String(latest[MGMT_COLS.ID - 1] || '');
-  Logger.log('テスト対象管理ID: ' + mgmtId);
-  var result = comparePriceByMgmtId(mgmtId);
-  Logger.log('結果: ' + result.status);
-  Logger.log('自動受注可: ' + result.canAutoOrder);
-  result.lineResults.forEach(function(r) {
-    Logger.log('[行' + r.lineNo + '] ' + r.matchStatus + ' ' + r.message);
-  });
-}

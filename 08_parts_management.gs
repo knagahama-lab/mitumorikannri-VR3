@@ -132,43 +132,6 @@ function apiBomGetAll() {
 }
 
 // ============================================================
-// バルク保存（08 parts api.gs 互換）
-// ============================================================
-function apiBomSave(dbPayload) {
-  try {
-    var ss = _getBomSS();
-    _writeTableToSheet(ss, BOM_SHEET.PARTS,    dbPayload.parts,        ['id','name','category','maker','cost','price','unit','spec','stock']);
-    _writeTableToSheet(ss, BOM_SHEET.PRODUCTS, dbPayload.products,     ['id','name','code','desc']);
-    _writeTableToSheet(ss, BOM_SHEET.BOARDS,   dbPayload.boards,       ['id','productId','name','code','desc','version']);
-    _writeTableToSheet(ss, BOM_SHEET.BOM,      dbPayload.bom,          ['id','boardId','partId','qty','note']);
-    _writeTableToSheet(ss, '価格履歴',         dbPayload.priceHistory, ['id','partId','date','oldPrice','newPrice','reason']);
-    return { success: true };
-  } catch(e) {
-    Logger.log('[BOM SAVE ERROR] ' + e.message);
-    return { success: false, error: e.message };
-  }
-}
-
-// ============================================================
-// バルク読み込み（08 parts api.gs 互換）
-// ============================================================
-function apiBomLoad() {
-  try {
-    var ss = _getBomSS();
-    var db = { parts: [], products: [], boards: [], bom: [], priceHistory: [] };
-    db.parts        = _readTableFromSheet(ss, BOM_SHEET.PARTS,    ['id','name','category','maker','cost','price','unit','spec','stock']);
-    db.products     = _readTableFromSheet(ss, BOM_SHEET.PRODUCTS, ['id','name','code','desc']);
-    db.boards       = _readTableFromSheet(ss, BOM_SHEET.BOARDS,   ['id','productId','name','code','desc','version']);
-    db.bom          = _readTableFromSheet(ss, BOM_SHEET.BOM,      ['id','boardId','partId','qty','note']);
-    db.priceHistory = _readTableFromSheet(ss, '価格履歴',         ['id','partId','date','oldPrice','newPrice','reason']);
-    return { success: true, db: db };
-  } catch(e) {
-    Logger.log('[BOM LOAD ERROR] ' + e.message);
-    return { success: false, error: e.message };
-  }
-}
-
-// ============================================================
 // 個別 CRUD — 部品
 // ============================================================
 function apiBomSavePart(p) {

@@ -771,25 +771,3 @@ function dailySyncModelMaster() {
   Logger.log('[dailySyncModelMaster] 完了');
 }
 
-// ============================================================
-// テスト
-// ============================================================
-
-function testModelMasterList() {
-  var res = apiModelMasterList();
-  Logger.log('機種数: ' + (res.items || []).length);
-  (res.items || []).slice(0, 3).forEach(function(item) {
-    Logger.log(item.modelCode + ' / ' + item.modelName + ' / 見積' + item.quoteCount + '件 注文' + item.orderCount + '件');
-  });
-}
-
-function testModelMasterGet() {
-  var rows = _getAllModelMasterRows();
-  if (rows.length === 0) { Logger.log('機種マスタにデータがありません'); return; }
-  var mc  = String(rows[0][MODEL_MASTER_COLS.MODEL_CODE - 1]).trim();
-  var res = apiModelMasterGet({ modelCode: mc });
-  Logger.log('機種コード: ' + mc);
-  Logger.log('関連見積: ' + res.relatedQuotes.length + '件');
-  Logger.log('関連注文: ' + res.relatedOrders.length + '件');
-  Logger.log('基板: ' + res.boards.length + '件');
-}
