@@ -303,6 +303,7 @@ function handleApiRequest(action, payload) {
       case 'boardPriceDocList':       return apiBoardPriceDocList(payload);
       case 'boardPriceDocDelete':     return apiBoardPriceDocDelete(payload);
       case 'boardPriceSetting':       return apiBoardPriceSetting(payload);
+      case 'boardPriceSyncMaster':    return apiBoardPriceSyncMasterAll();
       case 'boardPriceSetupTrigger':  return setupBoardPriceTrigger();
       // ★ 機種の基板構成と価格の自動合計（47_model_board_set.gs）
       case 'modelBoardSetGet':        return apiModelBoardSetGet(payload);

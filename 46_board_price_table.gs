@@ -448,7 +448,8 @@ function apiBoardPriceSave(payload) {
         }));
       });
       _bpAppendHist(sh.hist, histRows);
-      return { success: true, id: boardId, created: true, historyAdded: histRows.length };
+      var mNew = (typeof _bpSyncRowToMaster === 'function') ? _bpSyncRowToMaster(name, values) : null;   // 基板PCB価格マスタへ反映（48）
+      return { success: true, id: boardId, created: true, historyAdded: histRows.length, master: mNew };
     }
 
     // ── 既存の更新
@@ -479,7 +480,8 @@ function apiBoardPriceSave(payload) {
       });
       _bpAppendHist(sh.hist, histRows);
     }
-    return { success: true, id: boardId, created: false, historyAdded: histRows.length };
+    var mUpd = (typeof _bpSyncRowToMaster === 'function') ? _bpSyncRowToMaster(name, values) : null;   // 基板PCB価格マスタへ反映（48）
+    return { success: true, id: boardId, created: false, historyAdded: histRows.length, master: mUpd };
   } catch (e) {
     Logger.log('[apiBoardPriceSave] ' + e.message + '\n' + e.stack);
     return { success: false, error: e.message };
@@ -726,6 +728,7 @@ function bpOnEdit(e) {
       sheet.getRange(r, BP_COL.INVERTED).setValue(calc2.inverted ? '⚠️逆ざや' : '');
       sheet.getRange(r, BP_COL.UPDATED).setValue(nowJST());
       sheet.getRange(r, BP_COL.UPDATER).setValue(_bpUser());
+      if (typeof _bpSyncRowToMaster === 'function') _bpSyncRowToMaster(String(cur[BP_COL.NAME - 1] || ''), _bpRowToValues(cur));   // 基板PCB価格マスタへ反映
     }
     _bpAppendHist(hist, histRows);
   } catch (err) {

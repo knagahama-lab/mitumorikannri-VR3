@@ -173,6 +173,7 @@ function _bptRow(id) { return BPT.rows.find(r => r.id === id); }
           <option value="prefix">並び順：M→D→SNB→DE→E→C</option><option value="prefixDesc">並び順：C→E→DE→SNB→D→M</option>
           <option value="alpha">並び順：頭文字 A→Z</option><option value="alphaDesc">並び順：頭文字 Z→A</option></select>
         <button class="btn btn-primary btn-sm" onclick="bptOpenEdit(null)">＋ 基板を追加</button>
+        <button class="btn btn-outline btn-sm" onclick="bptSyncMaster()" title="基板価格表の金額を 基板PCB価格マスタ へまとめて反映します（保存時は自動で反映）">🔄 マスタへ反映</button>
         <button class="btn btn-outline btn-sm" onclick="bptCsv()" style="color:#16a34a;border-color:#16a34a;">📥 CSV</button>
         <button class="btn btn-outline btn-sm" onclick="bptLoad()">↻</button>
       </div>
@@ -317,6 +318,19 @@ function bptRender() {
   el.innerHTML = html + '</tbody></table></div>';
 }
 
+// 基板PCB価格マスタへ一括反映（48_board_price_master_sync.gs）
+function bptSyncMaster() {
+  if (!confirm('基板価格表の金額を 基板PCB価格マスタ へ反映します。\n'
+    + '（PCB原価・実装費・仕掛原価(PCB抜き)・PCB公表単価・仕掛公表単価・公表単価合計）\n'
+    + '基板価格表で空欄の項目はマスタを書き換えません。よろしいですか？')) return;
+  showToast('マスタへ反映しています…');
+  _bptApi('boardPriceSyncMaster', {}, res => {
+    showToast('基板PCB価格マスタへ反映しました：更新 ' + res.updated + '件'
+      + (res.added.length ? '／追加 ' + res.added.length + '件（' + res.added.join('、') + '）' : ''));
+    try { if (typeof _plMasterRows !== 'undefined') _plMasterRows = []; } catch (e) {}
+  });
+}
+
 function bptCsv() {
   const rows = _bptFiltered().map(r => [r.name, r.values.mountSale, r.values.mountCost, r.values.matSale, r.values.matCost, r.values.mgmtFee,
     r.values.quoteProfit, r.values.discount, r.calc.total, r.calc.profit, r.calc.rate, r.calc.inverted ? '逆ざや' : '',
@@ -443,6 +457,7 @@ async function bptSave() {
   const payload = { id: e.id, name, values: vals, remarks: document.getElementById('bpt-f-remarks').value.trim(),
     reason, effectiveDate: date.replace(/-/g, '/'), requester: (document.getElementById('bpt-h-req') || {}).value || '' };
   _bptApi('boardPriceSave', payload, async res => {
+    try { if (typeof _plMasterRows !== 'undefined') _plMasterRows = []; } catch (e) {}   // 基板PCB価格マスタは次に開いた時に読み直す（保存時に自動反映済み）
     let failed = 0;
     for (const x of files) {
       try {
