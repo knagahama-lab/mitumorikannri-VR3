@@ -163,6 +163,10 @@ function handleApiRequest(action, payload) {
       case 'priceListGet':      return apiPriceListGet(payload);
       case 'priceListRebuild':  return apiPriceListRebuild();
       case 'priceListSaveCost': return apiPriceListSaveCost(payload);
+      // ── 見積書コスト査定（49_cost_assessment.gs）──
+      case 'costAssessmentList':   return apiCostAssessmentList();
+      case 'costAssessmentSave':   return apiCostAssessmentSave(payload);
+      case 'costAssessmentDelete': return apiCostAssessmentDelete(payload);
       // ── 基板PCB価格マスタ・機種基板構成（30_price_master_import.gs）──
       case 'seedMasterPriceData':          return apiSeedMasterPriceData();
       case 'masterBoardPriceGet':          return apiMasterBoardPriceGet();

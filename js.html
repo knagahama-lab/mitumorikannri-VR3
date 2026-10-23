@@ -17,6 +17,7 @@ const DEFAULT_MENU = [
   { id:'assignees',   icon:'👥', label:'担当者管理',    section:'自動化・連携',   visible:true },
   { id:'approval',    icon:'✅', label:'製造承認',      section:'自動化・連携',   visible:true },
   { id:'pricelist',   icon:'💹', label:'価格表',        section:'マスタ管理',     visible:true },
+  { id:'costassessment', icon:'🚚', label:'見積書コスト査定', section:'マスタ管理', visible:true },
   { id:'supplierdoc', icon:'🏭', label:'仕入先見積・値上げ', section:'マスタ管理',  visible:true },
   { id:'model',       icon:'🏭', label:'機種マスタ',    section:'マスタ管理',     visible:true },
   { id:'board',       icon:'🏷️', label:'基板マスタ',     section:'マスタ管理',     visible:true },
@@ -36,9 +37,12 @@ const DEFAULT_MENU = [
   { id:'zukan_ext',   icon:'📖', label:'製品図鑑・マニュアル', section:'設定',    visible:true, external:'https://script.google.com/macros/s/AKfycbyI8nGch1Pdj1doahcMX4av-t2wg18LkREvZHc4xob3RVgM65kcA8TDe4A5jMAGMzic/exec' }
 ];
 
-let IS_ADMIN = true;
+// ★修正: 以前は true 固定で、管理コンソールの「管理者のみ表示」設定を
+//   保存しても全ユーザーに表示され続けるバグがあった。
+//   doGet側がテンプレート出力する window.APP_IS_ADMIN（Dashboard.html内）を見る。
+let IS_ADMIN = (typeof window !== 'undefined' && typeof window.APP_IS_ADMIN !== 'undefined') ? !!window.APP_IS_ADMIN : true;
 let userMenuConfig = [];
-const PAGE_TITLES = { list:'案件一覧', ledger:'見積台帳', matching:'AI紐づけ', calendar:'スケジュール', ocr:'簡易OCR', todo:'ToDo', drivesearch:'全文検索', admin:'システム管理コンソール', workflow:'業務フロー', assignees:'担当者管理', approval:'製造承認', board:'基板マスタ', simulation:'利益シミュレーション', analysis:'分析・レポート', aichat:'AIアシスタント', model:'機種マスタ', checklist:'見積セット チェックリスト', quotecheck:'見積書チェック（単価照合）', quoteset:'見積セット管理', maker:'メーカー管理', submitmgmt:'見積提出管理', pricelist:'価格表', supplierdoc:'仕入先見積・値上げ管理' };
+const PAGE_TITLES = { list:'案件一覧', ledger:'見積台帳', matching:'AI紐づけ', calendar:'スケジュール', ocr:'簡易OCR', todo:'ToDo', drivesearch:'全文検索', admin:'システム管理コンソール', workflow:'業務フロー', assignees:'担当者管理', approval:'製造承認', board:'基板マスタ', simulation:'利益シミュレーション', analysis:'分析・レポート', aichat:'AIアシスタント', model:'機種マスタ', checklist:'見積セット チェックリスト', quotecheck:'見積書チェック（単価照合）', quoteset:'見積セット管理', maker:'メーカー管理', submitmgmt:'見積提出管理', pricelist:'価格表', supplierdoc:'仕入先見積・値上げ管理', costassessment:'見積書コスト査定' };
 
 const S = { all:[], filtered:[], page:1, limit:30, docType:'quote', orderType:'', selectedFile:null };
 let _clientMasterList = []; let _orderClientTab = 'all'; let _quoteClientTab = 'all'; let _editClientMaster = [];
@@ -320,6 +324,7 @@ function showPage(name){
   if(name==='checklist' && typeof initChecklistPage==='function') initChecklistPage();
   if(name==='quotecheck' && typeof initQuoteCheckPage==='function') initQuoteCheckPage();
   if(name==='pricelist' && typeof initPriceListPage==='function') initPriceListPage();
+  if(name==='costassessment' && typeof initCostAssessmentPage==='function') initCostAssessmentPage();
   if(name==='supplierdoc' && typeof initSupplierDocPage==='function') initSupplierDocPage();
   if(name==='quoteset')   loadQuoteSetPage();
   if(name==='submitmgmt') loadSubmitMgmt();

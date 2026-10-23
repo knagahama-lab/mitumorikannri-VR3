@@ -1,0 +1,241 @@
+<style>
+  .ca-grid{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:980px){ .ca-grid{ grid-template-columns:1fr; } }
+  .ca-card{ background:#fff; border:1px solid var(--border); border-radius:8px; padding:14px 16px; margin-bottom:14px; }
+  .ca-card h4{ margin:0 0 10px; font-size:13px; font-weight:800; color:#334155; }
+  .ca-row{ display:flex; gap:10px; align-items:center; margin-bottom:8px; flex-wrap:wrap; }
+  .ca-row label{ flex:0 0 160px; font-size:12.5px; color:#475569; font-weight:600; }
+  .ca-row input, .ca-row select{ flex:1; min-width:120px; padding:6px 9px; border:1px solid var(--border); border-radius:6px; font-size:13px; }
+  .ca-stat{ background:#f8fafc; border:1px solid var(--border); border-radius:8px; padding:10px 12px; text-align:center; }
+  .ca-stat .v{ font-size:20px; font-weight:800; color:#1d4ed8; }
+  .ca-stat.bad .v{ color:#dc2626; }
+  .ca-stat .l{ font-size:11px; color:#64748b; margin-top:2px; }
+  table.ca-plan{ border-collapse:collapse; width:100%; font-size:12.5px; }
+  table.ca-plan th, table.ca-plan td{ border:1px solid #cbd5e1; padding:5px 8px; text-align:right; }
+  table.ca-plan th{ background:#e9edf3; font-weight:800; text-align:center; }
+  table.ca-plan td:first-child, table.ca-plan th:first-child{ text-align:center; }
+  table.ca-plan input{ width:100%; border:none; text-align:right; font-size:12.5px; background:transparent; }
+  table.ca-plan tr.total td{ background:#334155; color:#fff; font-weight:800; }
+  .ca-list-item{ display:flex; justify-content:space-between; align-items:center; padding:7px 10px; border-bottom:1px solid #f1f5f9; cursor:pointer; font-size:12.5px; }
+  .ca-list-item:hover{ background:#f1f5ff; }
+  .ca-list-item.active{ background:#eef2ff; font-weight:700; }
+</style>
+<script>
+// ============================================================
+// cost_assessment_js.html — 見積書コスト査定ツール（49_cost_assessment.gs）
+//   通函・トラック輸送から基板1枚あたりの運送費を算出し、
+//   原価・売価と合わせて1枚あたり利益、年度別の販売計画利益を試算する。
+// ============================================================
+const CA = { items: [], currentId: '', plan: [] };
+
+function initCostAssessmentPage() {
+  const wrap = document.getElementById('costassessment-wrap');
+  if (!wrap) return;
+  wrap.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <div style="font-size:12px;color:var(--text-muted);">通函・トラック輸送費から基板1枚あたりの運送費を算出し、原価・売価・年度別販売計画から利益を試算します</div>
+      <button class="btn btn-sm btn-primary" onclick="caNewCase()">＋ 新規ケース</button>
+    </div>
+    <div style="display:grid;grid-template-columns:220px 1fr;gap:16px;align-items:start;">
+      <div class="ca-card" style="padding:0;max-height:calc(100vh - 220px);overflow:auto;">
+        <div style="padding:10px 12px;font-weight:800;font-size:12.5px;border-bottom:1px solid var(--border);">保存済みケース</div>
+        <div id="ca-list"><div class="loading"><div class="spinner"></div></div></div>
+      </div>
+      <div>
+        <div id="ca-stats" class="ca-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:14px;"></div>
+        <div class="ca-grid">
+          <div class="ca-card">
+            <h4>📦 通函・トラック輸送</h4>
+            <div class="ca-row"><label>通函1箱あたり枚数</label><input type="number" id="ca-boardPerTote" oninput="caRecalc()" placeholder="例: 50"></div>
+            <div class="ca-row"><label>トラック1便あたり通函台数</label><input type="number" id="ca-totePerTruck" oninput="caRecalc()" placeholder="例: 20"></div>
+            <div class="ca-row"><label>1便あたり運送費（円）</label><input type="number" id="ca-freightPerTruck" oninput="caRecalc()" placeholder="例: 30000"></div>
+            <div style="font-size:11.5px;color:#64748b;">1便あたり積載枚数 = 通函あたり枚数 × 通函台数。運送費/枚 = 1便あたり運送費 ÷ 積載枚数</div>
+          </div>
+          <div class="ca-card">
+            <h4>💰 原価・売価（基板1枚あたり）</h4>
+            <div class="ca-row"><label>原価/枚（円）</label><input type="number" id="ca-unitCost" oninput="caRecalc()" placeholder="例: 800"></div>
+            <div class="ca-row"><label>売価/枚（円）</label><input type="number" id="ca-unitPrice" oninput="caRecalc()" placeholder="例: 1000"></div>
+            <div style="font-size:11.5px;color:#64748b;">利益/枚 = 売価 − 原価 − 運送費/枚</div>
+          </div>
+        </div>
+
+        <div class="ca-card">
+          <h4>📅 年度別販売計画・利益試算</h4>
+          <table class="ca-plan" id="ca-plan-table"></table>
+          <button class="btn btn-sm btn-outline" style="margin-top:8px;" onclick="caAddPlanRow()">＋ 年度を追加</button>
+        </div>
+
+        <div class="ca-card">
+          <h4>📝 ケース情報</h4>
+          <div class="ca-row"><label>ケース名</label><input type="text" id="ca-caseName" placeholder="例: AG6R共通ボード 2027年版"></div>
+          <div class="ca-row"><label>メモ</label><input type="text" id="ca-notes" placeholder="任意"></div>
+          <div style="display:flex;gap:8px;margin-top:8px;">
+            <button class="btn btn-primary" onclick="caSave()">💾 保存</button>
+            <button class="btn btn-outline" onclick="caSave(true)">📄 別名で保存（新規）</button>
+            <button class="btn btn-outline" id="ca-delete-btn" style="display:none;color:#dc2626;border-color:#dc2626;" onclick="caDelete()">🗑 削除</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  caAddPlanRow(); caAddPlanRow(); caAddPlanRow();
+  caRecalc();
+  caLoadList();
+}
+
+function caLoadList() {
+  _ofApi('costAssessmentList', {}, res => {
+    CA.items = res.items || [];
+    const listEl = document.getElementById('ca-list');
+    if (!listEl) return;
+    if (!CA.items.length) { listEl.innerHTML = '<div style="padding:12px;color:#94a3b8;font-size:12px;">まだ保存されたケースはありません</div>'; return; }
+    listEl.innerHTML = CA.items.map(it => `
+      <div class="ca-list-item ${it.id === CA.currentId ? 'active' : ''}" onclick="caLoadCase('${it.id}')">
+        <span>${_esc(it.caseName)}</span>
+        <span style="color:#94a3b8;">${_esc(it.updatedAt || '')}</span>
+      </div>`).join('');
+  });
+}
+
+function caNewCase() {
+  CA.currentId = '';
+  document.getElementById('ca-caseName').value = '';
+  document.getElementById('ca-notes').value = '';
+  document.getElementById('ca-boardPerTote').value = '';
+  document.getElementById('ca-totePerTruck').value = '';
+  document.getElementById('ca-freightPerTruck').value = '';
+  document.getElementById('ca-unitCost').value = '';
+  document.getElementById('ca-unitPrice').value = '';
+  CA.plan = [];
+  caAddPlanRow(); caAddPlanRow(); caAddPlanRow();
+  document.getElementById('ca-delete-btn').style.display = 'none';
+  caRecalc();
+  caLoadList();
+}
+
+function caLoadCase(id) {
+  const it = CA.items.find(x => x.id === id);
+  if (!it) return;
+  CA.currentId = id;
+  document.getElementById('ca-caseName').value = it.caseName || '';
+  document.getElementById('ca-notes').value = it.notes || '';
+  document.getElementById('ca-boardPerTote').value = it.boardPerTote || '';
+  document.getElementById('ca-totePerTruck').value = it.totePerTruck || '';
+  document.getElementById('ca-freightPerTruck').value = it.freightPerTruck || '';
+  document.getElementById('ca-unitCost').value = it.unitCost || '';
+  document.getElementById('ca-unitPrice').value = it.unitPrice || '';
+  CA.plan = (it.yearlyPlan || []).map(p => ({ year: p.year, qty: p.qty }));
+  if (!CA.plan.length) { caAddPlanRow(); caAddPlanRow(); caAddPlanRow(); }
+  document.getElementById('ca-delete-btn').style.display = '';
+  caRenderPlanTable();
+  caRecalc();
+  caLoadList();
+}
+
+function caAddPlanRow() {
+  const thisYear = new Date().getFullYear();
+  const nextYear = CA.plan.length ? Math.max(...CA.plan.map(p => Number(p.year) || thisYear)) + 1 : thisYear;
+  CA.plan.push({ year: nextYear, qty: 0 });
+  caRenderPlanTable();
+}
+function caRemovePlanRow(idx) { CA.plan.splice(idx, 1); caRenderPlanTable(); caRecalc(); }
+
+function caRenderPlanTable() {
+  const tbl = document.getElementById('ca-plan-table');
+  if (!tbl) return;
+  tbl.innerHTML = `
+    <thead><tr><th>年度</th><th>予定販売枚数</th><th>売上</th><th>原価+運送費計</th><th>利益</th><th>累計利益</th><th></th></tr></thead>
+    <tbody>${CA.plan.map((p, i) => `
+      <tr data-i="${i}">
+        <td><input type="number" value="${p.year}" oninput="CA.plan[${i}].year=this.value;caRecalc()"></td>
+        <td><input type="number" value="${p.qty}" oninput="CA.plan[${i}].qty=this.value;caRecalc()"></td>
+        <td class="ca-cell-revenue"></td>
+        <td class="ca-cell-cost"></td>
+        <td class="ca-cell-profit"></td>
+        <td class="ca-cell-cum"></td>
+        <td style="text-align:center;"><button class="btn btn-sm btn-outline" style="padding:1px 6px;" onclick="caRemovePlanRow(${i})">✕</button></td>
+      </tr>`).join('')}
+      <tr class="total"><td colspan="4" style="text-align:right;">累計利益 合計</td><td colspan="2" id="ca-plan-total"></td><td></td></tr>
+    </tbody>`;
+}
+
+/** 入力値から各種指標を計算（保存はしない。保存時は入力値のみ送る） */
+function caCompute() {
+  const boardPerTote = Number(document.getElementById('ca-boardPerTote')?.value) || 0;
+  const totePerTruck = Number(document.getElementById('ca-totePerTruck')?.value) || 0;
+  const freightPerTruck = Number(document.getElementById('ca-freightPerTruck')?.value) || 0;
+  const unitCost = Number(document.getElementById('ca-unitCost')?.value) || 0;
+  const unitPrice = Number(document.getElementById('ca-unitPrice')?.value) || 0;
+
+  const boardsPerTruck = boardPerTote * totePerTruck;
+  const freightPerBoard = boardsPerTruck > 0 ? freightPerTruck / boardsPerTruck : 0;
+  const profitPerBoard = unitPrice - unitCost - freightPerBoard;
+  const marginRate = unitPrice > 0 ? (profitPerBoard / unitPrice * 100) : 0;
+
+  let cumulative = 0;
+  const plan = CA.plan.map(p => {
+    const qty = Number(p.qty) || 0;
+    const revenue = qty * unitPrice;
+    const cost = qty * (unitCost + freightPerBoard);
+    const profit = qty * profitPerBoard;
+    cumulative += profit;
+    return { year: p.year, qty, revenue, cost, profit, cumulative };
+  });
+
+  return { boardPerTote, totePerTruck, freightPerTruck, unitCost, unitPrice, boardsPerTruck, freightPerBoard, profitPerBoard, marginRate, plan, totalProfit: cumulative };
+}
+
+function caRecalc() {
+  const c = caCompute();
+  const yen = v => '¥' + Math.round(v).toLocaleString();
+  document.getElementById('ca-stats').innerHTML = `
+    <div class="ca-stat"><div class="v">${yen(c.freightPerBoard)}</div><div class="l">運送費/枚（積載${c.boardsPerTruck.toLocaleString()}枚/便）</div></div>
+    <div class="ca-stat ${c.profitPerBoard < 0 ? 'bad' : ''}"><div class="v">${yen(c.profitPerBoard)}</div><div class="l">利益/枚（運送費込み）</div></div>
+    <div class="ca-stat ${c.marginRate < 0 ? 'bad' : ''}"><div class="v">${c.marginRate.toFixed(1)}%</div><div class="l">粗利率</div></div>
+    <div class="ca-stat ${c.totalProfit < 0 ? 'bad' : ''}"><div class="v">${yen(c.totalProfit)}</div><div class="l">計画期間 累計利益</div></div>`;
+
+  c.plan.forEach((p, i) => {
+    const row = document.querySelector(`#ca-plan-table tr[data-i="${i}"]`);
+    if (!row) return;
+    row.querySelector('.ca-cell-revenue').textContent = yen(p.revenue);
+    row.querySelector('.ca-cell-cost').textContent = yen(p.cost);
+    const profitCell = row.querySelector('.ca-cell-profit');
+    profitCell.textContent = yen(p.profit);
+    profitCell.style.color = p.profit < 0 ? '#dc2626' : '#16a34a';
+    row.querySelector('.ca-cell-cum').textContent = yen(p.cumulative);
+  });
+  const totalEl = document.getElementById('ca-plan-total');
+  if (totalEl) totalEl.textContent = yen(c.totalProfit);
+}
+
+function caSave(asNew) {
+  const caseName = document.getElementById('ca-caseName').value.trim();
+  if (!caseName) { showToast('ケース名を入力してください', true); return; }
+  const c = caCompute();
+  const payload = {
+    id: asNew ? '' : CA.currentId,
+    caseName,
+    notes: document.getElementById('ca-notes').value,
+    boardPerTote: c.boardPerTote,
+    totePerTruck: c.totePerTruck,
+    freightPerTruck: c.freightPerTruck,
+    unitCost: c.unitCost,
+    unitPrice: c.unitPrice,
+    yearlyPlan: CA.plan,
+  };
+  _ofApi('costAssessmentSave', payload, res => {
+    CA.currentId = res.id;
+    document.getElementById('ca-delete-btn').style.display = '';
+    showToast('保存しました');
+    caLoadList();
+  });
+}
+
+function caDelete() {
+  if (!CA.currentId) return;
+  if (!confirm('このケースを削除しますか？')) return;
+  _ofApi('costAssessmentDelete', { id: CA.currentId }, () => {
+    showToast('削除しました');
+    caNewCase();
+  });
+}
+</script>
