@@ -50,9 +50,39 @@ const BPT_FIELDS = [
   { key: 'mgmtFee',   label: '管理費',       kind: 'sale' },
   { key: 'quoteProfit', label: '利益(見積記載)', kind: 'sale' },
   { key: 'discount',  label: '値引き',       kind: 'sale' },
-  { key: 'pcbPrice',  label: 'PCB単価',      kind: 'cost' },
+  { key: 'pcbPrice',  label: 'PCB原価',      kind: 'cost' },
+  { key: 'pcbSale',     label: 'PCB売値',   kind: 'sale' },
+  { key: 'pcbProfit',   label: 'PCB利益',   kind: 'sale' },
+  { key: 'pcbDiscount', label: 'PCB値引き', kind: 'sale' },
 ];
-const BPT = { rows: [], loaded: false, includePcb: false, q: '', invertedOnly: false, edit: null, hist: null, docs: null };
+const BPT = { rows: [], loaded: false, includePcb: false, q: '', invertedOnly: false, edit: null, hist: null, docs: null, prefix: '', sort: 'prefix' };
+
+// ── 並び順・頭文字（46_board_price_table.gs の _bpSortKey と同じ規則）──
+const BPT_PREFIX_ORDER = ['M', 'D', 'SNB', 'DE', 'E', 'C'];
+const _bptStrip = n => String(n || '').normalize('NFKC').toUpperCase().replace(/^\s*FJ\s*[+\-]?\s*/, '').replace(/\s+/g, '');
+const _bptPrefix = n => { const m = _bptStrip(n).match(/^[A-Z]+/); return m ? m[0] : ''; };
+function _bptSortKey(name) {
+  const s = _bptStrip(name), p = _bptPrefix(name), gi = BPT_PREFIX_ORDER.indexOf(p);
+  const rest = s.substring(p.length), num = rest.match(/^\d+/);
+  return [gi < 0 ? BPT_PREFIX_ORDER.length : gi, gi < 0 ? p : '', num ? Number(num[0]) : -1, num ? rest.substring(num[0].length) : rest];
+}
+function _bptCompare(a, b) {
+  const x = _bptSortKey(a), y = _bptSortKey(b);
+  for (let i = 0; i < x.length; i++) { if (x[i] < y[i]) return -1; if (x[i] > y[i]) return 1; }
+  return String(a).localeCompare(String(b), 'ja');
+}
+// 頭文字の一覧（既定順 → それ以外は英字順）と件数
+function _bptPrefixes() {
+  const cnt = {};
+  BPT.rows.forEach(r => { const p = _bptPrefix(r.name) || '他'; cnt[p] = (cnt[p] || 0) + 1; });
+  return Object.keys(cnt).sort((a, b) => {
+    const ia = BPT_PREFIX_ORDER.indexOf(a), ib = BPT_PREFIX_ORDER.indexOf(b);
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
+  }).map(p => ({ p, n: cnt[p] }));
+}
+function bptSetPrefix(p) { BPT.prefix = p; bptRender(); }
+function bptSetSort(v) { BPT.sort = v; bptRender(); }
+
 
 // ── 計算（46_board_price_table.gs の _bpCalc / _bpDiff と同じ式。画面での試算用。保存値はサーバーで再計算）──
 const _bptRound = (n, d) => { const p = Math.pow(10, d || 0); return Math.round(n * p) / p; };
@@ -74,7 +104,11 @@ function _bptCalc(v, includePcb) {
   const profit = (total !== null && hasCost) ? _bptRound(total - cost, 2) : null;
   const limits = {};
   if (profit !== null) costKeys.forEach(k => { limits[k] = _bptRound(z(k) + profit, 2); });
+  // PCB：売価 = PCB売値 + PCB利益 + PCB値引き ／ 実利益 = 売価 − PCB原価
+  const pcbTotal = ['pcbSale', 'pcbProfit'].some(k => n(k) !== null) ? _bptRound(z('pcbSale') + z('pcbProfit') + z('pcbDiscount'), 2) : null;
+  const pcbProfit = (pcbTotal !== null && n('pcbPrice') !== null) ? _bptRound(pcbTotal - z('pcbPrice'), 2) : null;
   return {
+    pcbTotal, pcbProfit, pcbInverted: pcbProfit !== null && pcbProfit < 0,
     total, cost, profit,
     rate: (profit !== null && total > 0) ? _bptRound(profit / total * 100, 1) : null,
     headroomRate: (profit !== null && cost > 0) ? _bptRound(profit / cost * 100, 1) : null,
@@ -135,10 +169,14 @@ function _bptRow(id) { return BPT.rows.find(r => r.id === id); }
         <input id="bpt-search" type="text" placeholder="基板名・備考で検索..." value="${_esc(BPT.q)}" style="flex:1;min-width:200px;padding:7px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;" oninput="BPT.q=this.value;bptRender()">
         <label style="font-size:12px;display:flex;align-items:center;gap:4px;color:var(--danger);"><input type="checkbox" id="bpt-inv-only" ${BPT.invertedOnly ? 'checked' : ''} onchange="BPT.invertedOnly=this.checked;bptRender()"> ⚠️ 逆ざやのみ</label>
         <label style="font-size:12px;display:none;align-items:center;gap:4px;" title="ONにすると PCB単価も原価に含めて 利益・逆ざやを計算します"><input type="checkbox" id="bpt-incl-pcb" onchange="bptSetIncludePcb(this.checked)"> PCB単価を原価に含める</label>
+        <select id="bpt-sort" onchange="bptSetSort(this.value)" title="並び順" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;">
+          <option value="prefix">並び順：M→D→SNB→DE→E→C</option><option value="prefixDesc">並び順：C→E→DE→SNB→D→M</option>
+          <option value="alpha">並び順：頭文字 A→Z</option><option value="alphaDesc">並び順：頭文字 Z→A</option></select>
         <button class="btn btn-primary btn-sm" onclick="bptOpenEdit(null)">＋ 基板を追加</button>
         <button class="btn btn-outline btn-sm" onclick="bptCsv()" style="color:#16a34a;border-color:#16a34a;">📥 CSV</button>
         <button class="btn btn-outline btn-sm" onclick="bptLoad()">↻</button>
       </div>
+      <div id="bpt-prefix" style="display:flex;flex-wrap:wrap;gap:4px;margin:6px 0;"></div>
       <div id="bpt-chips" class="bpt-chips"></div>
       <div id="bpt-info" style="font-size:12px;color:var(--text-sub);margin-bottom:6px;"></div>
       <div id="bpt-table"><div class="loading"><div class="spinner"></div><br>読み込み中...</div></div>`;
@@ -186,12 +224,20 @@ function bptSetIncludePcb(on) {
 
 function _bptFiltered() {
   const kws = normalizeSearchText(BPT.q || '').split(/\s+/).filter(Boolean);
-  return BPT.rows.filter(r => {
-    if (BPT.invertedOnly && !r.calc.inverted) return false;
+  const list = BPT.rows.filter(r => {
+    if (BPT.invertedOnly && !r.calc.inverted && !r.calc.pcbInverted) return false;
+    if (BPT.prefix && (_bptPrefix(r.name) || '他') !== BPT.prefix) return false;
     if (!kws.length) return true;
     const t = normalizeSearchText(r.name + ' ' + r.remarks);
     return kws.every(k => t.includes(k));
   });
+  const sorters = {
+    prefix: (a, b) => _bptCompare(a.name, b.name),                         // 既定：M→D→SNB→DE→E→C、番号順
+    prefixDesc: (a, b) => _bptCompare(b.name, a.name),
+    alpha: (a, b) => _bptStrip(a.name).localeCompare(_bptStrip(b.name)),     // 頭文字 A→Z
+    alphaDesc: (a, b) => _bptStrip(b.name).localeCompare(_bptStrip(a.name)), // 頭文字 Z→A
+  };
+  return list.sort(sorters[BPT.sort] || sorters.prefix);
 }
 
 function _bptLimitCell(r) {
@@ -217,6 +263,13 @@ function _bptDocCell(d) {
 
 function bptRender() {
   const incl = document.getElementById('bpt-incl-pcb'); if (incl) incl.checked = BPT.includePcb;
+  const pfx = document.getElementById('bpt-prefix');
+  if (pfx) {
+    const btn = (p, label) => `<button class="btn btn-sm ${BPT.prefix === p ? 'btn-primary' : 'btn-outline'}" style="padding:3px 10px;" onclick="bptSetPrefix('${p}')">${label}</button>`;
+    pfx.innerHTML = '<span style="font-size:12px;color:var(--text-sub);align-self:center;">頭文字：</span>' + btn('', 'すべて ' + BPT.rows.length)
+      + _bptPrefixes().map(x => btn(x.p, x.p + ' ' + x.n)).join('');
+  }
+  const so = document.getElementById('bpt-sort'); if (so) so.value = BPT.sort;
   const rows = _bptFiltered();
   const inv = BPT.rows.filter(r => r.calc.inverted).length;
   const noDoc = BPT.rows.filter(r => !r.docMount || !r.docPcb).length;
@@ -232,9 +285,10 @@ function bptRender() {
 
   let html = `<div class="bpt-wrap"><table class="pt"><thead>
     <tr><th rowspan="2">基板名</th><th colspan="2">実装費</th><th colspan="2">仕掛</th><th rowspan="2">管理費</th><th rowspan="2">利益<br><small>(見積記載)</small></th><th rowspan="2">値引き</th>
-        <th rowspan="2" class="pt-cur">合計金額<br><small>(自動)</small></th><th rowspan="2">PCB単価</th><th rowspan="2" class="pt-cur">実利益<br><small>(自動)</small></th><th rowspan="2">実利益率</th><th rowspan="2">逆ざやライン<br><small>（原価がここまで上がると利益0）</small></th>
+        <th rowspan="2" class="pt-cur">合計金額<br><small>(自動)</small></th><th rowspan="2" class="pt-cur">実利益<br><small>(自動)</small></th><th rowspan="2">実利益率</th><th rowspan="2">逆ざやライン<br><small>（原価がここまで上がると利益0）</small></th>
+        <th colspan="6" style="background:#ecfeff;">PCB</th>
         <th colspan="2">仕入見積書</th><th rowspan="2">最終改定</th><th rowspan="2">操作</th></tr>
-    <tr><th>売値</th><th>原価</th><th>単価</th><th>原価</th><th>実装費</th><th>PCB</th></tr></thead><tbody>`;
+    <tr><th>売値</th><th>原価</th><th>単価</th><th>原価</th><th>原価</th><th>売値</th><th>利益<br><small>(見積記載)</small></th><th>値引き</th><th class="pt-cur">売価<br><small>(自動)</small></th><th class="pt-cur">実利益<br><small>(自動)</small></th><th>実装費</th><th>PCB</th></tr></thead><tbody>`;
   rows.forEach(r => {
     const v = r.values, c = r.calc;
     const profitCls = c.profit === null ? '' : c.inverted ? 'bpt-bad' : '';
@@ -246,10 +300,12 @@ function bptRender() {
       <td class="num">${_bptNum(v.quoteProfit)}</td>
       <td class="num">${_bptNum(v.discount)}</td>
       <td class="num pt-cur">${c.total === null ? '' : _bptNum(c.total)}</td>
-      <td class="num">${_bptNum(v.pcbPrice)}</td>
       <td class="num calc ${profitCls}">${c.profit === null ? '<span class="pt-muted">—</span>' : _bptNum(c.profit)}</td>
       <td class="num calc ${profitCls}">${c.rate === null ? '<span class="pt-muted">—</span>' : c.rate + '%'}</td>
       <td class="calc">${_bptLimitCell(r)}</td>
+      <td class="num">${_bptNum(v.pcbPrice)}</td><td class="num">${_bptNum(v.pcbSale)}</td><td class="num">${_bptNum(v.pcbProfit)}</td><td class="num">${_bptNum(v.pcbDiscount)}</td>
+      <td class="num pt-cur">${c.pcbTotal == null ? '' : _bptNum(c.pcbTotal)}</td>
+      <td class="num calc ${c.pcbInverted ? 'bpt-bad' : ''}">${c.pcbProfit == null ? '<span class="pt-muted">—</span>' : _bptNum(c.pcbProfit)}${c.pcbInverted ? ' ⚠️' : ''}</td>
       <td>${_bptDocCell(r.docMount)}</td><td>${_bptDocCell(r.docPcb)}</td>
       <td style="font-size:11px;">${_esc(r.lastRevision || '—')}</td>
       <td><div class="bpt-ops">
@@ -263,10 +319,12 @@ function bptRender() {
 
 function bptCsv() {
   const rows = _bptFiltered().map(r => [r.name, r.values.mountSale, r.values.mountCost, r.values.matSale, r.values.matCost, r.values.mgmtFee,
-    r.values.quoteProfit, r.values.discount, r.calc.total, r.values.pcbPrice, r.calc.profit, r.calc.rate, r.calc.inverted ? '逆ざや' : '', r.lastRevision, r.remarks]
+    r.values.quoteProfit, r.values.discount, r.calc.total, r.calc.profit, r.calc.rate, r.calc.inverted ? '逆ざや' : '',
+    r.values.pcbPrice, r.values.pcbSale, r.values.pcbProfit, r.values.pcbDiscount, r.calc.pcbTotal, r.calc.pcbProfit, r.lastRevision, r.remarks]
     .map(x => x == null ? '' : x));
   _downloadCsv('基板価格表_' + _today() + '.csv',
-    ['基板名', '実装費売値', '実装費原価', '仕掛単価', '仕掛原価', '管理費', '利益(見積記載)', '値引き', '合計金額', 'PCB単価', '実利益', '実利益率%', '逆ざや', '最終改定日', '備考'], rows);
+    ['基板名', '実装費売値', '実装費原価', '仕掛単価', '仕掛原価', '管理費', '利益(見積記載)', '値引き', '合計金額', '実利益', '実利益率%', '逆ざや',
+     'PCB原価', 'PCB売値', 'PCB利益(見積記載)', 'PCB値引き', 'PCB売価', 'PCB実利益', '最終改定日', '備考'], rows);
 }
 
 // ============================================================
@@ -304,7 +362,9 @@ function bptOpenEdit(id, presetName) {
       ${inp('matSale', '仕掛単価（円）')}${inp('matCost', '仕掛原価（円）')}
       ${inp('mgmtFee', '管理費（円）')}${inp('quoteProfit', '利益（見積書に記載・円）')}
       ${inp('discount', '値引き（円・マイナスで入力 例: -0.19）')}
-      ${inp('pcbPrice', 'PCB単価（円）')}
+      <div class="bpt-f full" style="margin-top:4px;font-weight:700;color:#0e7490;">PCB（PCB売価 = PCB売値 + PCB利益 + PCB値引き ／ PCB実利益 = PCB売価 − PCB原価）</div>
+      ${inp('pcbPrice', 'PCB原価（円）')}${inp('pcbSale', 'PCB売値（円）')}
+      ${inp('pcbProfit', 'PCB利益（見積書に記載・円）')}${inp('pcbDiscount', 'PCB値引き（円・マイナスで入力）')}
       <div class="bpt-f"><label>備考</label><input type="text" id="bpt-f-remarks" value="${_esc(row ? row.remarks : '')}"></div>
     </div>
     <div class="bpt-sec">実利益の試算（入力に合わせて自動で変わります）</div>
@@ -348,6 +408,7 @@ function bptEditUpdate() {
       const lim = c.profit === null ? '' : c.costKeys.filter(k => vals[k] != null).map(k => `${names[k]}が ${_bptYen(c.limits[k])} を超えると逆ざや`).join(' ／ ');
       pv.innerHTML = `合計金額 <b>${_bptYen(c.total)}</b> ／ 原価 <b>${c.cost === null ? '未入力' : _bptYen(c.cost)}</b> ／ 実利益 <b class="${c.inverted ? 'bpt-bad' : ''}">${c.profit === null ? '—' : _bptYen(c.profit)}</b>${c.rate !== null ? `（実利益率 ${c.rate}%）` : ''}`
         + (c.profit === null ? '' : c.inverted ? `<div class="bpt-bad">⚠️ 逆ざやです（原価が売値を ${_bptYen(-c.profit)} 上回っています）</div>` : `<div class="bpt-ok">✅ 利益あり。${lim}</div>`)
+        + (c.pcbTotal == null ? '' : `<div style="margin-top:4px;">PCB：売価 <b>${_bptYen(c.pcbTotal)}</b> ／ 原価 <b>${vals.pcbPrice == null ? '未入力' : _bptYen(vals.pcbPrice)}</b> ／ 実利益 <b class="${c.pcbInverted ? 'bpt-bad' : ''}">${c.pcbProfit == null ? '—' : _bptYen(c.pcbProfit)}</b>${c.pcbInverted ? ' ⚠️逆ざや' : ''}</div>`)
     }
   }
   const diffs = BPT.edit.id ? _bptDiff(BPT.edit.orig, vals) : [];
@@ -364,7 +425,7 @@ async function bptSave() {
   const vals = bptEditRead();
   const bad = BPT_FIELDS.find(f => Number.isNaN(vals[f.key]));
   if (bad) { showToast(bad.label + ' は数値で入力してください（例: 12.34）', true); return; }
-  const neg = BPT_FIELDS.find(f => f.key !== 'discount' && vals[f.key] != null && vals[f.key] < 0);
+  const neg = BPT_FIELDS.find(f => f.key !== 'discount' && f.key !== 'pcbDiscount' && vals[f.key] != null && vals[f.key] < 0);
   if (neg) { showToast(neg.label + ' は0以上で入力してください', true); return; }
   const diffs = e.id ? _bptDiff(e.orig, vals) : [];
   const reasonEl = document.getElementById('bpt-h-reason');
