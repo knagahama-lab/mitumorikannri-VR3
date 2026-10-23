@@ -1,13 +1,13 @@
 // ============================================================
 // 46_board_price_table.gs
-// 基板価格表（基板ごとの 実装費・材料費・管理費・値引き・PCB単価 と 利益／逆ざや判定）
+// 基板価格表（基板ごとの 実装費・仕掛・管理費・値引き・PCB単価 と 利益／逆ざや判定）
 //
-//   縦 = 基板名 ／ 横 = 実装費(売値・原価) 材料費(売値・原価) 管理費 利益 値引き 合計金額 PCB単価 … 実利益
+//   縦 = 基板名 ／ 横 = 実装費(売値・原価) 仕掛(単価・原価) 管理費 利益 値引き 合計金額 PCB単価 … 実利益
 //
 //   ・利益     = 見積書に記載する利益（手入力）
-//   ・合計金額 = 実装費売値 + 材料費売値 + 管理費 + 利益 − 値引き        （自動計算。値引きはマイナスで入れても差し引く）
-//   ・実利益   = 合計金額 − 原価合計                                      （自動計算・シートの最後の列）
-//       原価合計 = 実装費原価 + 材料費原価（設定ONの時だけ PCB単価も原価に含める）
+//   ・売価(合計金額) = 仕掛単価 + 実装費 + 管理費 + 利益 + 値引き        （自動計算。値引きはマイナスで入力：例 −0.19）
+//   ・原価           = 仕掛原価 + 実装費原価                              （PCB単価は含めない）
+//   ・実利益         = 売価 − 原価                                        （自動計算・シートの最後の列）
 //   ・逆ざやライン = 他の原価を据え置いたとき、その原価が いくらまで上がると利益が0になるか
 //
 //   ★ 金額を変更する保存は「変更理由（履歴）」が無いと必ず失敗する（サーバー側で強制）。
@@ -28,14 +28,14 @@ var BP_PROP_FOLDER_ID   = 'BP_DOC_FOLDER_ID';
 var BP_FIELDS = [
   { key: 'mountSale', label: '実装費(売値)', kind: 'sale', col: 3 },
   { key: 'mountCost', label: '実装費(原価)', kind: 'cost', col: 4 },
-  { key: 'matSale',   label: '材料費(売値)', kind: 'sale', col: 5 },
-  { key: 'matCost',   label: '材料費(原価)', kind: 'cost', col: 6 },
+  { key: 'matSale',   label: '仕掛単価',     kind: 'sale', col: 5 },
+  { key: 'matCost',   label: '仕掛原価',     kind: 'cost', col: 6 },
   { key: 'mgmtFee',   label: '管理費',       kind: 'sale', col: 7 },
   { key: 'quoteProfit', label: '利益(見積記載)', kind: 'sale', col: 8 },   // 見積書に記載する利益（手入力）
   { key: 'discount',  label: '値引き',       kind: 'sale', col: 9 },
   { key: 'pcbPrice',  label: 'PCB単価',      kind: 'cost', col: 11 },
 ];
-var BP_HEADERS = ['基板ID', '基板名', '実装費_売値', '実装費_原価', '材料費_売値', '材料費_原価', '管理費', '利益', '値引き',
+var BP_HEADERS = ['基板ID', '基板名', '実装費_売値', '実装費_原価', '仕掛単価', '仕掛原価', '管理費', '利益', '値引き',
                   '合計金額(自動)', 'PCB単価', '実利益率%(自動)', '逆ざや(自動)', '備考', '登録日時', '更新日時', '更新者', '実利益(自動)'];
 var BP_COL = { ID: 1, NAME: 2, QUOTE_PROFIT: 8, TOTAL: 10, RATE: 12, INVERTED: 13, REMARKS: 14, CREATED: 15, UPDATED: 16, UPDATER: 17, PROFIT: 18 };
 var BP_NCOLS = 18;   // PROFIT(18列目) = 実利益（自動）。8列目の「利益」は見積記載用の手入力
@@ -73,10 +73,11 @@ function _bpCalc(v, includePcb) {
   var z = function (k) { var x = n(k); return x === null ? 0 : x; };
 
   var hasSale = ['mountSale', 'matSale', 'mgmtFee', 'quoteProfit'].some(function (k) { return n(k) !== null; });
-  // 合計金額 = 実装費売値 + 材料費売値 + 管理費 + 利益(見積記載) − 値引き（値引きはマイナスで入っていても差し引く）
-  var total = hasSale ? _bpRound(z('mountSale') + z('matSale') + z('mgmtFee') + z('quoteProfit') - Math.abs(z('discount')), 2) : null;
+  // 売価(合計金額) = 仕掛単価 + 実装費 + 管理費 + 利益(見積記載) + 値引き（値引きはマイナスで入力）
+  var total = hasSale ? _bpRound(z('matSale') + z('mountSale') + z('mgmtFee') + z('quoteProfit') + z('discount'), 2) : null;
 
-  var costKeys = ['mountCost', 'matCost'].concat(includePcb ? ['pcbPrice'] : []);
+  // 原価 = 仕掛原価 + 実装費原価（PCB単価は含めない）
+  var costKeys = ['mountCost', 'matCost'];
   var hasCost = costKeys.some(function (k) { return n(k) !== null; });
   var cost = hasCost ? _bpRound(costKeys.reduce(function (s, k) { return s + z(k); }, 0), 2) : null;
 
@@ -171,7 +172,7 @@ function setupBoardPriceTrigger() {
  */
 function _bpMigrateLayout(main) {
   var props = PropertiesService.getScriptProperties();
-  if (props.getProperty(BP_PROP_LAYOUT) === '1') return;
+  if (props.getProperty(BP_PROP_LAYOUT) === '2') return;
   var h8 = String(main.getRange(1, BP_COL.QUOTE_PROFIT).getValue() || '');
   if (main.getMaxColumns() < BP_NCOLS) main.insertColumnsAfter(main.getMaxColumns(), BP_NCOLS - main.getMaxColumns());
   var last = main.getLastRow();
@@ -180,7 +181,7 @@ function _bpMigrateLayout(main) {
   main.getRange(1, BP_COL.QUOTE_PROFIT).setBackground('#FFF9C4').setNote('見積書に記載する利益（手入力）。合計金額に含まれます');
   main.getRange(1, BP_COL.PROFIT).setNote('実利益 = 合計金額 − 原価合計（自動計算）');
   _bpRecalcAll(main, _bpIncludePcb());
-  props.setProperty(BP_PROP_LAYOUT, '1');
+  props.setProperty(BP_PROP_LAYOUT, '2');
   Logger.log('[BP] 基板価格表を新レイアウト（利益=手入力／実利益=自動）へ移行しました');
 }
 
