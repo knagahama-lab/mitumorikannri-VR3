@@ -39,7 +39,7 @@
 // ============================================================
 // board_price_js.html — 基板価格表（46_board_price_table.gs）
 //   価格表ページに「🧾 基板価格表」タブを追加。
-//   縦=基板名 ／ 横=実装費(売値・原価) 材料費(売値・原価) 管理費 利益 値引き 合計金額 PCB単価
+//   縦=基板名 ／ 横=実装費(売値・原価) 材料費(売値・原価) 管理費 利益(見積記載・手入力) 値引き 合計金額 PCB単価 実利益(自動)
 //   金額を変えるときは 変更理由（履歴）が必須。仕入見積書（実装費／PCB）を添付できる。
 // ============================================================
 const BPT_FIELDS = [
@@ -48,6 +48,7 @@ const BPT_FIELDS = [
   { key: 'matSale',   label: '材料費(売値)', kind: 'sale' },
   { key: 'matCost',   label: '材料費(原価)', kind: 'cost' },
   { key: 'mgmtFee',   label: '管理費',       kind: 'sale' },
+  { key: 'quoteProfit', label: '利益(見積記載)', kind: 'sale' },
   { key: 'discount',  label: '値引き',       kind: 'sale' },
   { key: 'pcbPrice',  label: 'PCB単価',      kind: 'cost' },
 ];
@@ -65,8 +66,8 @@ function _bptParse(s) {
 function _bptCalc(v, includePcb) {
   const n = k => (v[k] === '' || v[k] == null || isNaN(Number(v[k]))) ? null : Number(v[k]);
   const z = k => n(k) === null ? 0 : n(k);
-  const hasSale = ['mountSale', 'matSale', 'mgmtFee'].some(k => n(k) !== null);
-  const total = hasSale ? _bptRound(z('mountSale') + z('matSale') + z('mgmtFee') - z('discount'), 2) : null;
+  const hasSale = ['mountSale', 'matSale', 'mgmtFee', 'quoteProfit'].some(k => n(k) !== null);
+  const total = hasSale ? _bptRound(z('mountSale') + z('matSale') + z('mgmtFee') + z('quoteProfit') - Math.abs(z('discount')), 2) : null;
   const costKeys = ['mountCost', 'matCost'].concat(includePcb ? ['pcbPrice'] : []);
   const hasCost = costKeys.some(k => n(k) !== null);
   const cost = hasCost ? _bptRound(costKeys.reduce((s, k) => s + z(k), 0), 2) : null;
@@ -224,14 +225,14 @@ function bptRender() {
   const chips = document.getElementById('bpt-chips');
   if (chips) chips.innerHTML = chip('基板', BPT.rows.length + '件') + chip('⚠️ 逆ざや', inv + '件', inv ? '#dc2626' : '') + chip('仕入見積書が未添付（実装費 or PCB）', noDoc + '件') + (pend ? chip('🟡 依頼中の値上げ・改定', pend + '件', '#b45309') : '');
   const info = document.getElementById('bpt-info');
-  if (info) info.innerHTML = `<b>合計金額</b> = 実装費売値 + 材料費売値 + 管理費 − 値引き ／ <b>利益</b> = 合計金額 − 原価（実装費原価 + 材料費原価${BPT.includePcb ? ' + PCB単価' : ''}）。灰色の列は自動計算です。<b>金額を変更するときは変更理由（履歴）の入力が必須</b>です。`;
+  if (info) info.innerHTML = `<b>合計金額</b> = 実装費売値 + 材料費売値 + 管理費 + 利益（見積記載） − 値引き ／ <b>実利益</b> = 合計金額 − 原価（実装費原価 + 材料費原価${BPT.includePcb ? ' + PCB単価' : ''}）。灰色の列は自動計算です。<b>金額を変更するときは変更理由（履歴）の入力が必須</b>です。`;
   const el = document.getElementById('bpt-table'); if (!el) return;
   if (!BPT.rows.length) { el.innerHTML = '<div class="loading">まだ基板が登録されていません。「＋ 基板を追加」から登録してください。</div>'; return; }
   if (!rows.length) { el.innerHTML = '<div class="loading">該当なし</div>'; return; }
 
   let html = `<div class="bpt-wrap"><table class="pt"><thead>
-    <tr><th rowspan="2">基板名</th><th colspan="2">実装費</th><th colspan="2">材料費</th><th rowspan="2">管理費</th><th rowspan="2">利益<br><small>(自動)</small></th><th rowspan="2">値引き</th>
-        <th rowspan="2" class="pt-cur">合計金額<br><small>(自動)</small></th><th rowspan="2">PCB単価</th><th rowspan="2">利益率</th><th rowspan="2">逆ざやライン<br><small>（原価がここまで上がると利益0）</small></th>
+    <tr><th rowspan="2">基板名</th><th colspan="2">実装費</th><th colspan="2">材料費</th><th rowspan="2">管理費</th><th rowspan="2">利益<br><small>(見積記載)</small></th><th rowspan="2">値引き</th>
+        <th rowspan="2" class="pt-cur">合計金額<br><small>(自動)</small></th><th rowspan="2">PCB単価</th><th rowspan="2" class="pt-cur">実利益<br><small>(自動)</small></th><th rowspan="2">実利益率</th><th rowspan="2">逆ざやライン<br><small>（原価がここまで上がると利益0）</small></th>
         <th colspan="2">仕入見積書</th><th rowspan="2">最終改定</th><th rowspan="2">操作</th></tr>
     <tr><th>売値</th><th>原価</th><th>売値</th><th>原価</th><th>実装費</th><th>PCB</th></tr></thead><tbody>`;
   rows.forEach(r => {
@@ -242,10 +243,11 @@ function bptRender() {
       <td class="num">${_bptNum(v.mountSale)}</td><td class="num">${_bptNum(v.mountCost)}</td>
       <td class="num">${_bptNum(v.matSale)}</td><td class="num">${_bptNum(v.matCost)}</td>
       <td class="num">${_bptNum(v.mgmtFee)}</td>
-      <td class="num calc ${profitCls}">${c.profit === null ? '<span class="pt-muted">—</span>' : _bptNum(c.profit)}</td>
+      <td class="num">${_bptNum(v.quoteProfit)}</td>
       <td class="num">${_bptNum(v.discount)}</td>
       <td class="num pt-cur">${c.total === null ? '' : _bptNum(c.total)}</td>
       <td class="num">${_bptNum(v.pcbPrice)}</td>
+      <td class="num calc ${profitCls}">${c.profit === null ? '<span class="pt-muted">—</span>' : _bptNum(c.profit)}</td>
       <td class="num calc ${profitCls}">${c.rate === null ? '<span class="pt-muted">—</span>' : c.rate + '%'}</td>
       <td class="calc">${_bptLimitCell(r)}</td>
       <td>${_bptDocCell(r.docMount)}</td><td>${_bptDocCell(r.docPcb)}</td>
@@ -261,10 +263,10 @@ function bptRender() {
 
 function bptCsv() {
   const rows = _bptFiltered().map(r => [r.name, r.values.mountSale, r.values.mountCost, r.values.matSale, r.values.matCost, r.values.mgmtFee,
-    r.calc.profit, r.values.discount, r.calc.total, r.values.pcbPrice, r.calc.rate, r.calc.inverted ? '逆ざや' : '', r.lastRevision, r.remarks]
+    r.values.quoteProfit, r.values.discount, r.calc.total, r.values.pcbPrice, r.calc.profit, r.calc.rate, r.calc.inverted ? '逆ざや' : '', r.lastRevision, r.remarks]
     .map(x => x == null ? '' : x));
   _downloadCsv('基板価格表_' + _today() + '.csv',
-    ['基板名', '実装費売値', '実装費原価', '材料費売値', '材料費原価', '管理費', '利益', '値引き', '合計金額', 'PCB単価', '利益率%', '逆ざや', '最終改定日', '備考'], rows);
+    ['基板名', '実装費売値', '実装費原価', '材料費売値', '材料費原価', '管理費', '利益(見積記載)', '値引き', '合計金額', 'PCB単価', '実利益', '実利益率%', '逆ざや', '最終改定日', '備考'], rows);
 }
 
 // ============================================================
@@ -300,11 +302,12 @@ function bptOpenEdit(id, presetName) {
       <div class="bpt-f full"><label>基板名 *</label><input type="text" id="bpt-f-name" value="${_esc(row ? row.name : (presetName || ''))}" placeholder="例: M2502B"></div>
       ${inp('mountSale', '実装費 売値（円）')}${inp('mountCost', '実装費 原価（円）')}
       ${inp('matSale', '材料費 売値（円）')}${inp('matCost', '材料費 原価（円）')}
-      ${inp('mgmtFee', '管理費（円）')}${inp('discount', '値引き（円）')}
+      ${inp('mgmtFee', '管理費（円）')}${inp('quoteProfit', '利益（見積書に記載・円）')}
+      ${inp('discount', '値引き（円）')}
       ${inp('pcbPrice', 'PCB単価（円）')}
       <div class="bpt-f"><label>備考</label><input type="text" id="bpt-f-remarks" value="${_esc(row ? row.remarks : '')}"></div>
     </div>
-    <div class="bpt-sec">利益の試算（入力に合わせて自動で変わります）</div>
+    <div class="bpt-sec">実利益の試算（入力に合わせて自動で変わります）</div>
     <div id="bpt-preview" class="bpt-prev"></div>
     <div id="bpt-must" class="bpt-must" style="display:none;margin-top:12px;">
       <h4>📜 変更履歴の入力（必須）— 金額を変更するため、履歴として必ず残します</h4>
@@ -343,7 +346,7 @@ function bptEditUpdate() {
     if (c.total === null) pv.innerHTML = '<span class="pt-muted">売値（実装費・材料費・管理費）を入力すると合計金額が出ます</span>';
     else {
       const lim = c.profit === null ? '' : c.costKeys.filter(k => vals[k] != null).map(k => `${names[k]}が ${_bptYen(c.limits[k])} を超えると逆ざや`).join(' ／ ');
-      pv.innerHTML = `合計金額 <b>${_bptYen(c.total)}</b> ／ 原価 <b>${c.cost === null ? '未入力' : _bptYen(c.cost)}</b> ／ 利益 <b class="${c.inverted ? 'bpt-bad' : ''}">${c.profit === null ? '—' : _bptYen(c.profit)}</b>${c.rate !== null ? `（利益率 ${c.rate}%）` : ''}`
+      pv.innerHTML = `合計金額 <b>${_bptYen(c.total)}</b> ／ 原価 <b>${c.cost === null ? '未入力' : _bptYen(c.cost)}</b> ／ 実利益 <b class="${c.inverted ? 'bpt-bad' : ''}">${c.profit === null ? '—' : _bptYen(c.profit)}</b>${c.rate !== null ? `（実利益率 ${c.rate}%）` : ''}`
         + (c.profit === null ? '' : c.inverted ? `<div class="bpt-bad">⚠️ 逆ざやです（原価が売値を ${_bptYen(-c.profit)} 上回っています）</div>` : `<div class="bpt-ok">✅ 利益あり。${lim}</div>`)
         + (BPT.includePcb ? '' : '<div class="pt-muted">※ PCB単価は原価に含めず計算しています（上の「PCB単価を原価に含める」で切替）</div>');
     }
@@ -362,7 +365,7 @@ async function bptSave() {
   const vals = bptEditRead();
   const bad = BPT_FIELDS.find(f => Number.isNaN(vals[f.key]));
   if (bad) { showToast(bad.label + ' は数値で入力してください（例: 12.34）', true); return; }
-  const neg = BPT_FIELDS.find(f => vals[f.key] != null && vals[f.key] < 0);
+  const neg = BPT_FIELDS.find(f => f.key !== 'discount' && vals[f.key] != null && vals[f.key] < 0);
   if (neg) { showToast(neg.label + ' は0以上で入力してください', true); return; }
   const diffs = e.id ? _bptDiff(e.orig, vals) : [];
   const reasonEl = document.getElementById('bpt-h-reason');
@@ -408,7 +411,7 @@ function bptHistRender() {
   const tabs = [['all', 'すべて'], ['価格改定', '価格改定'], ['原価更新', '原価更新'], ['pend', '🟡 依頼中']];
   const list = H.rows.filter(h => H.tab === 'all' ? true : H.tab === 'pend' ? h.status === '依頼中（未反映）' : h.kind === H.tab);
   const c = row.calc;
-  const cur = `現在: 合計金額 <b>${_bptYen(c.total)}</b> ／ 利益 <b class="${c.inverted ? 'bpt-bad' : ''}">${c.profit === null ? '—' : _bptYen(c.profit)}</b>${c.rate != null ? `（${c.rate}%）` : ''}`
+  const cur = `現在: 合計金額 <b>${_bptYen(c.total)}</b> ／ 実利益 <b class="${c.inverted ? 'bpt-bad' : ''}">${c.profit === null ? '—' : _bptYen(c.profit)}</b>${c.rate != null ? `（${c.rate}%）` : ''}`
     + (c.profit !== null ? (c.inverted ? ' <span class="bpt-bad">⚠️ 逆ざや</span>' : ` ／ 原価合計が +${_bptYen(c.profit)}（${c.headroomRate == null ? '—' : c.headroomRate + '%'}）上がると逆ざや`) : '');
   let html = `<div class="bpt-prev${c.inverted ? ' inv' : ''}" style="margin-bottom:10px;">${cur}</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
@@ -420,7 +423,7 @@ function bptHistRender() {
   if (!list.length) html += '<div class="loading">履歴はありません</div>';
   else {
     html += `<div style="overflow:auto;max-height:52vh;"><table class="bpt-h"><thead><tr>
-      <th>改定日</th><th>種別</th><th>項目</th><th>変更前</th><th>変更後</th><th>差額（率）</th><th>依頼元</th><th>状態</th><th>変更後の利益</th><th>理由・メモ</th><th>入力者／日時</th><th></th></tr></thead><tbody>`;
+      <th>改定日</th><th>種別</th><th>項目</th><th>変更前</th><th>変更後</th><th>差額（率）</th><th>依頼元</th><th>状態</th><th>変更後の実利益</th><th>理由・メモ</th><th>入力者／日時</th><th></th></tr></thead><tbody>`;
     list.forEach(h => {
       const cost = h.kind === '原価更新';
       html += `<tr class="${h.direct ? 'direct' : h.status === '依頼中（未反映）' ? 'pend' : ''}">
@@ -483,8 +486,8 @@ function bptHAddSim() {
   const c = _bptCalc(trial, BPT.includePcb);
   el.className = 'bpt-prev' + (c.inverted ? ' inv' : '');
   el.innerHTML = c.profit === null ? '<span class="pt-muted">原価が未入力のため試算できません</span>'
-    : c.inverted ? `<span class="bpt-bad">⚠️ この金額だと逆ざやです（利益 ${_bptYen(c.profit)}）</span>`
-    : `<span class="bpt-ok">この金額でも利益 ${_bptYen(c.profit)}（${c.rate}%）で逆ざやにはなりません</span>${c.limits[key] != null ? `　／ ${_bptField(key).label}の逆ざやライン ${_bptYen(c.limits[key])}` : ''}`;
+    : c.inverted ? `<span class="bpt-bad">⚠️ この金額だと逆ざやです（実利益 ${_bptYen(c.profit)}）</span>`
+    : `<span class="bpt-ok">この金額でも実利益 ${_bptYen(c.profit)}（${c.rate}%）で逆ざやにはなりません</span>${c.limits[key] != null ? `　／ ${_bptField(key).label}の逆ざやライン ${_bptYen(c.limits[key])}` : ''}`;
 }
 function bptHAddSubmit() {
   const g = id => document.getElementById(id).value;

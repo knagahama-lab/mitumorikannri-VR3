@@ -2,10 +2,11 @@
 // 46_board_price_table.gs
 // 基板価格表（基板ごとの 実装費・材料費・管理費・値引き・PCB単価 と 利益／逆ざや判定）
 //
-//   縦 = 基板名 ／ 横 = 実装費(売値・原価) 材料費(売値・原価) 管理費 利益 値引き 合計金額 PCB単価
+//   縦 = 基板名 ／ 横 = 実装費(売値・原価) 材料費(売値・原価) 管理費 利益 値引き 合計金額 PCB単価 … 実利益
 //
-//   ・合計金額 = 実装費売値 + 材料費売値 + 管理費 − 値引き                （自動計算）
-//   ・利益     = 合計金額 − 原価合計                                      （自動計算）
+//   ・利益     = 見積書に記載する利益（手入力）
+//   ・合計金額 = 実装費売値 + 材料費売値 + 管理費 + 利益 − 値引き        （自動計算。値引きはマイナスで入れても差し引く）
+//   ・実利益   = 合計金額 − 原価合計                                      （自動計算・シートの最後の列）
 //       原価合計 = 実装費原価 + 材料費原価（設定ONの時だけ PCB単価も原価に含める）
 //   ・逆ざやライン = 他の原価を据え置いたとき、その原価が いくらまで上がると利益が0になるか
 //
@@ -30,13 +31,15 @@ var BP_FIELDS = [
   { key: 'matSale',   label: '材料費(売値)', kind: 'sale', col: 5 },
   { key: 'matCost',   label: '材料費(原価)', kind: 'cost', col: 6 },
   { key: 'mgmtFee',   label: '管理費',       kind: 'sale', col: 7 },
+  { key: 'quoteProfit', label: '利益(見積記載)', kind: 'sale', col: 8 },   // 見積書に記載する利益（手入力）
   { key: 'discount',  label: '値引き',       kind: 'sale', col: 9 },
   { key: 'pcbPrice',  label: 'PCB単価',      kind: 'cost', col: 11 },
 ];
-var BP_HEADERS = ['基板ID', '基板名', '実装費_売値', '実装費_原価', '材料費_売値', '材料費_原価', '管理費', '利益(自動)', '値引き',
-                  '合計金額(自動)', 'PCB単価', '利益率%(自動)', '逆ざや(自動)', '備考', '登録日時', '更新日時', '更新者'];
-var BP_COL = { ID: 1, NAME: 2, PROFIT: 8, TOTAL: 10, RATE: 12, INVERTED: 13, REMARKS: 14, CREATED: 15, UPDATED: 16, UPDATER: 17 };
-var BP_NCOLS = 17;
+var BP_HEADERS = ['基板ID', '基板名', '実装費_売値', '実装費_原価', '材料費_売値', '材料費_原価', '管理費', '利益', '値引き',
+                  '合計金額(自動)', 'PCB単価', '実利益率%(自動)', '逆ざや(自動)', '備考', '登録日時', '更新日時', '更新者', '実利益(自動)'];
+var BP_COL = { ID: 1, NAME: 2, QUOTE_PROFIT: 8, TOTAL: 10, RATE: 12, INVERTED: 13, REMARKS: 14, CREATED: 15, UPDATED: 16, UPDATER: 17, PROFIT: 18 };
+var BP_NCOLS = 18;   // PROFIT(18列目) = 実利益（自動）。8列目の「利益」は見積記載用の手入力
+var BP_PROP_LAYOUT = 'BP_LAYOUT_V2';   // 8列目を「利益(自動)」→「利益(手入力)」に変えた版
 
 var BP_HIST_HEADERS = ['履歴ID', '変更ID', '基板ID', '基板名', '種別', '項目', '変更前', '変更後', '差額', '変更率%', '改定日(適用日)',
                        '依頼元', '状態', '理由・メモ', '変更後の利益', '変更後の逆ざや', '入力者', '登録日時'];
@@ -69,8 +72,9 @@ function _bpCalc(v, includePcb) {
   var n = function (k) { return _bpNum(v[k]); };
   var z = function (k) { var x = n(k); return x === null ? 0 : x; };
 
-  var hasSale = ['mountSale', 'matSale', 'mgmtFee'].some(function (k) { return n(k) !== null; });
-  var total = hasSale ? _bpRound(z('mountSale') + z('matSale') + z('mgmtFee') - z('discount'), 2) : null;
+  var hasSale = ['mountSale', 'matSale', 'mgmtFee', 'quoteProfit'].some(function (k) { return n(k) !== null; });
+  // 合計金額 = 実装費売値 + 材料費売値 + 管理費 + 利益(見積記載) − 値引き（値引きはマイナスで入っていても差し引く）
+  var total = hasSale ? _bpRound(z('mountSale') + z('matSale') + z('mgmtFee') + z('quoteProfit') - Math.abs(z('discount')), 2) : null;
 
   var costKeys = ['mountCost', 'matCost'].concat(includePcb ? ['pcbPrice'] : []);
   var hasCost = costKeys.some(function (k) { return n(k) !== null; });
@@ -147,6 +151,7 @@ function _bpInitSheets() {
     _bpSetHeader(doc, BP_DOC_HEADERS, '#E8F5E9');
     doc.getRange(2, 9, doc.getMaxRows() - 1, 1).setNumberFormat('@');
   }
+  if (!created) _bpMigrateLayout(main);
   if (created) { try { setupBoardPriceTrigger(); } catch (e2) { Logger.log('[BP trigger] ' + e2.message); } }
   return { main: main, hist: hist, doc: doc };
 }
@@ -157,6 +162,43 @@ function setupBoardPriceTrigger() {
   if (exists) return { success: true, already: true };
   ScriptApp.newTrigger('bpOnEdit').forSpreadsheet(getSpreadsheet()).onEdit().create();
   return { success: true, already: false };
+}
+
+/**
+ * 旧版（8列目＝利益(自動)）のシートを新版へ移行（1回だけ）
+ *   8列目：自動計算の値を消して「利益（見積記載・手入力）」にする
+ *   18列目：「実利益(自動)」を追加し、全行の 合計金額・実利益・実利益率・逆ざや を再計算
+ */
+function _bpMigrateLayout(main) {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty(BP_PROP_LAYOUT) === '1') return;
+  var h8 = String(main.getRange(1, BP_COL.QUOTE_PROFIT).getValue() || '');
+  if (main.getMaxColumns() < BP_NCOLS) main.insertColumnsAfter(main.getMaxColumns(), BP_NCOLS - main.getMaxColumns());
+  var last = main.getLastRow();
+  if (h8.indexOf('自動') >= 0 && last > 1) main.getRange(2, BP_COL.QUOTE_PROFIT, last - 1, 1).clearContent();
+  _bpSetHeader(main, BP_HEADERS, '#E3F2FD');
+  main.getRange(1, BP_COL.QUOTE_PROFIT).setBackground('#FFF9C4').setNote('見積書に記載する利益（手入力）。合計金額に含まれます');
+  main.getRange(1, BP_COL.PROFIT).setNote('実利益 = 合計金額 − 原価合計（自動計算）');
+  _bpRecalcAll(main, _bpIncludePcb());
+  props.setProperty(BP_PROP_LAYOUT, '1');
+  Logger.log('[BP] 基板価格表を新レイアウト（利益=手入力／実利益=自動）へ移行しました');
+}
+
+/** 全行の自動計算列（合計金額・実利益・実利益率・逆ざや）を再計算 */
+function _bpRecalcAll(main, includePcb) {
+  var last = main.getLastRow();
+  if (last <= 1) return;
+  var rg = main.getRange(2, 1, last - 1, BP_NCOLS);
+  var data = rg.getValues();
+  data.forEach(function (r) {
+    if (r[0] === '') return;
+    var calc = _bpCalc(_bpRowToValues(r), includePcb);
+    r[BP_COL.PROFIT - 1] = calc.profit === null ? '' : calc.profit;
+    r[BP_COL.TOTAL - 1] = calc.total === null ? '' : calc.total;
+    r[BP_COL.RATE - 1] = calc.rate === null ? '' : calc.rate;
+    r[BP_COL.INVERTED - 1] = calc.inverted ? '⚠️逆ざや' : '';
+  });
+  rg.setValues(data);
 }
 
 // ------------------------------------------------------------
@@ -332,7 +374,7 @@ function apiBoardPriceSave(payload) {
       var f = BP_FIELDS[i], raw = (payload.values || {})[f.key];
       var x = _bpNum(raw);
       if (raw !== '' && raw !== null && raw !== undefined && x === null) return { success: false, error: f.label + ' は数値で入力してください' };
-      if (x !== null && x < 0) return { success: false, error: f.label + ' は0以上で入力してください' };
+      if (x !== null && x < 0 && f.key !== 'discount') return { success: false, error: f.label + ' は0以上で入力してください' };
       values[f.key] = x;
     }
 
@@ -591,16 +633,7 @@ function apiBoardPriceSetting(payload) {
       var sh = _bpInitSheets();
       var last = sh.main.getLastRow();
       if (last > 1) {
-        var rg = sh.main.getRange(2, 1, last - 1, BP_NCOLS);
-        var data = rg.getValues();
-        data.forEach(function (r, i) {
-          if (r[0] === '') return;
-          var calc = _bpCalc(_bpRowToValues(r), inc);
-          r[BP_COL.PROFIT - 1] = calc.profit === null ? '' : calc.profit;
-          r[BP_COL.RATE - 1] = calc.rate === null ? '' : calc.rate;
-          r[BP_COL.INVERTED - 1] = calc.inverted ? '⚠️逆ざや' : '';
-        });
-        rg.setValues(data);
+        _bpRecalcAll(sh.main, inc);
       }
     }
     return { success: true, includePcb: _bpIncludePcb() };
@@ -643,7 +676,7 @@ function bpOnEdit(e) {
           profitAfter: calc.profit, invertedAfter: calc.inverted, user: (e.user && e.user.getEmail && e.user.getEmail()) || _bpUser(),
         }));
       }
-      // 自動計算列を戻す（利益・合計・利益率・逆ざやは常に計算値）＋更新情報
+      // 自動計算列を戻す（実利益・合計・実利益率・逆ざやは常に計算値。8列目の利益は手入力）＋更新情報
       var calc2 = _bpCalc(_bpRowToValues(cur), includePcb);
       sheet.getRange(r, BP_COL.PROFIT).setValue(calc2.profit === null ? '' : calc2.profit);
       sheet.getRange(r, BP_COL.TOTAL).setValue(calc2.total === null ? '' : calc2.total);

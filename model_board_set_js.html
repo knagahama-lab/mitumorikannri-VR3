@@ -79,7 +79,7 @@ function _mbsCards(t) {
   return `<div class="mbs-cards">
     <div class="mbs-card"><div class="l">売値合計</div><div class="v">${yen(t.sale)}</div></div>
     <div class="mbs-card"><div class="l">原価合計</div><div class="v">${yen(t.cost)}</div></div>
-    <div class="mbs-card ${t.inverted ? 'inv' : ''}"><div class="l">利益${t.rate != null ? `（利益率 ${t.rate}%）` : ''}</div><div class="v ${t.inverted ? 'bpt-bad' : ''}">${yen(t.profit)}</div></div>
+    <div class="mbs-card ${t.inverted ? 'inv' : ''}"><div class="l">実利益${t.rate != null ? `（実利益率 ${t.rate}%）` : ''}</div><div class="v ${t.inverted ? 'bpt-bad' : ''}">${yen(t.profit)}</div></div>
     <div class="mbs-card ${t.inverted ? 'inv' : ''}"><div class="l">逆ざや判定</div><div class="v" style="font-size:15px;">${judge}</div></div></div>`
     + (t.incomplete ? `<div class="mbs-warn">⚠️ 金額が揃っていない基板が ${t.incomplete} 件あります（${_esc(t.incompleteNames.join('、'))}）。基板価格表への登録・売値と原価の入力を行うと合計に反映されます。利益・原価は金額が揃っている基板のみの合計です。</div>` : '');
 }
@@ -116,7 +116,7 @@ function mbsRenderView(cid) {
       <div style="font-size:12px;color:var(--text-sub);">基板価格表の金額から自動計算（基板価格表を改定すると、ここも自動で変わります）${d.updatedAt ? ` ／ 構成の最終更新 ${_esc(d.updatedAt)}` : ''}</div>
       <button class="btn btn-outline btn-sm" onclick="mbsStartEdit('${_mbsq(code)}','${_mbsq(cid)}')">✏️ 構成を編集</button></div>
     ${_mbsCards(d.totals)}
-    <div style="overflow:auto;"><table class="mbs"><thead><tr><th>役割</th><th>基板</th><th>数量</th><th>1枚 売値</th><th>1枚 原価</th><th>1枚 利益</th><th>売値小計</th><th>原価小計</th><th>利益小計</th><th>状態</th></tr></thead><tbody>
+    <div style="overflow:auto;"><table class="mbs"><thead><tr><th>役割</th><th>基板</th><th>数量</th><th>1枚 売値</th><th>1枚 原価</th><th>1枚 実利益</th><th>売値小計</th><th>原価小計</th><th>実利益小計</th><th>状態</th></tr></thead><tbody>
     ${d.lines.map(l => {
       const b = l.board;
       const state = !l.resolved ? `<span class="bpt-tag warn">価格表に未登録</span> <button class="btn btn-outline btn-sm" onclick="bptOpenEdit(null,'${_mbsq(l.boardName)}')">登録</button>`
@@ -187,7 +187,7 @@ function mbsEditPreview() {
     if (!cell) return;
     cell.innerHTML = !c.resolved ? `<span class="bpt-tag warn">基板価格表に未登録</span> <button class="btn btn-outline btn-sm" onclick="bptOpenEdit(null,'${_mbsq(name)}')">登録</button>`
       : !c.complete ? `<b>${_esc(c.boardName)}</b> <span class="bpt-tag warn">金額未入力</span>`
-      : `<span class="${c.inverted ? 'bpt-bad' : ''}">売値 ${_bptYen(c.sale)} ／ 原価 ${_bptYen(c.cost)} ／ 利益 ${_bptYen(c.profit)}${c.inverted ? ' ⚠️逆ざや' : ''}</span>${c.qty > 1 ? ` <span class="pt-muted">（${c.qty}枚ぶん）</span>` : ''}`;
+      : `<span class="${c.inverted ? 'bpt-bad' : ''}">売値 ${_bptYen(c.sale)} ／ 原価 ${_bptYen(c.cost)} ／ 実利益 ${_bptYen(c.profit)}${c.inverted ? ' ⚠️逆ざや' : ''}</span>${c.qty > 1 ? ` <span class="pt-muted">（${c.qty}枚ぶん）</span>` : ''}`;
   });
   const tot = document.getElementById('mbs-edit-totals');
   if (tot) tot.innerHTML = calcs.length ? _mbsCards(_mbsTotals(calcs)) : '';
@@ -319,7 +319,7 @@ function mbsRenderList() {
   if (chips) chips.innerHTML = chip('基板構成のある機種', MBS.list.length + '機種') + chip('⚠️ 逆ざや', inv + '機種', inv ? '#dc2626' : '') + chip('金額が揃っていない基板あり', inc + '機種', inc ? '#b45309' : '');
   if (!MBS.list.length) { el.innerHTML = '<div class="loading">まだ機種の基板構成がありません。「＋ 機種の基板構成を追加」か、機種マスタの「💰 基板構成・価格」タブから登録してください。</div>'; return; }
   if (!rows.length) { el.innerHTML = '<div class="loading">該当なし</div>'; return; }
-  el.innerHTML = `<div class="bpt-wrap"><table class="pt"><thead><tr><th>機種コード</th><th>機種名</th><th>基板構成</th><th>売値合計</th><th>原価合計</th><th>利益</th><th>利益率</th><th>判定</th><th></th></tr></thead><tbody>
+  el.innerHTML = `<div class="bpt-wrap"><table class="pt"><thead><tr><th>機種コード</th><th>機種名</th><th>基板構成</th><th>売値合計</th><th>原価合計</th><th>実利益</th><th>実利益率</th><th>判定</th><th></th></tr></thead><tbody>
     ${rows.map(m => {
       const t = m.totals;
       const judge = t.profit === null ? '<span class="pt-muted">—</span>' : t.inverted ? '<span class="bpt-bad">⚠️ 逆ざや</span>' : `<span class="bpt-ok">余裕 ${_bptYen(t.profit)}</span>${t.headroomRate != null ? `<div class="pt-muted">原価+${t.headroomRate}%まで</div>` : ''}`;
@@ -355,6 +355,6 @@ function mbsOpenAddGo() {
 function mbsCsv() {
   const rows = _mbsListFiltered().map(m => [m.modelCode, m.modelName, m.lines.map(l => l.role + ':' + l.boardName + (l.qty > 1 ? '×' + l.qty : '')).join(' / '),
     m.totals.sale, m.totals.cost, m.totals.profit, m.totals.rate, m.totals.inverted ? '逆ざや' : '', m.totals.incomplete || ''].map(x => x == null ? '' : x));
-  _downloadCsv('機種別価格_' + _today() + '.csv', ['機種コード', '機種名', '基板構成', '売値合計', '原価合計', '利益', '利益率%', '判定', '未確定の基板数'], rows);
+  _downloadCsv('機種別価格_' + _today() + '.csv', ['機種コード', '機種名', '基板構成', '売値合計', '原価合計', '実利益', '実利益率%', '判定', '未確定の基板数'], rows);
 }
 </script>
