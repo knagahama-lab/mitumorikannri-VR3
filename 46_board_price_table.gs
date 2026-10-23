@@ -52,8 +52,11 @@ var BP_DOC_KINDS = ['実装費', 'PCB'];
 // ------------------------------------------------------------
 function _bpNum(x) {
   if (x === '' || x === null || x === undefined) return null;
-  var n = Number(String(x).replace(/[,¥￥\s]/g, ''));
-  return isNaN(n) ? null : n;
+  // 全角数字・全角の小数点・カンマ・¥ も可。金額は小数第2位まで（3位以下は四捨五入）
+  var s = String(x).normalize('NFKC').replace(/[,，\s¥￥円]/g, '').replace(/。/g, '.');
+  if (s === '' || !/^-?(\d+\.?\d*|\.\d+)$/.test(s)) return null;
+  var n = Number(s);
+  return isNaN(n) ? null : Math.round(n * 100) / 100;
 }
 function _bpRound(n, d) { var p = Math.pow(10, d || 0); return Math.round(n * p) / p; }
 

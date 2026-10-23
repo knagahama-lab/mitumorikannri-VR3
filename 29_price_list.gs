@@ -88,7 +88,7 @@ function _quoteLinesToPriceItems(rows) {
     var amount = Number(r[QUOTE_COLS.AMOUNT - 1] || 0);
     var unitPrice = Number(r[QUOTE_COLS.UNIT_PRICE - 1] || 0);
     if (!unitPrice && amount) {
-      unitPrice = (qty > 1) ? Math.round(amount / qty) : amount;
+      unitPrice = (qty > 1) ? Math.round(amount / qty * 100) / 100 : amount;
     }
     if (!unitPrice) return;
     var spec = String(r[QUOTE_COLS.SPEC - 1] || '').trim();

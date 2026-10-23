@@ -39,7 +39,7 @@ function apiPriceTable() {
       var qty = Number(r[QUOTE_COLS.QTY - 1]) || 0;
       var amount = Number(r[QUOTE_COLS.AMOUNT - 1]) || 0;
       var price = Number(r[QUOTE_COLS.UNIT_PRICE - 1]) || 0;
-      if (!price && amount) price = qty > 1 ? Math.round(amount / qty) : amount;
+      if (!price && amount) price = qty > 1 ? Math.round(amount / qty * 100) / 100 : amount;
       if (!price) return;
       var spec = String(r[QUOTE_COLS.SPEC - 1] || '').trim();
       var cat = _classifyPriceItem(name.normalize('NFKC')); // 全角ＰＣＢ等も同じ分類に

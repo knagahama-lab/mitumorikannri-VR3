@@ -436,7 +436,7 @@ function _ocr_normalize(data, docType) {
         item.unitPrice = _ocr_normAmt(item.unitPrice);
         item.amount    = _ocr_normAmt(item.amount);
         item.unit      = String(item.unit || '式').trim();
-        if (!item.unitPrice && item.amount > 0 && item.qty > 0) item.unitPrice = Math.round(item.amount / item.qty);
+        if (!item.unitPrice && item.amount > 0 && item.qty > 0) item.unitPrice = Math.round(item.amount / item.qty * 100) / 100;
         if (!item.amount && item.unitPrice > 0 && item.qty > 0) item.amount = item.unitPrice * item.qty;
         item.itemName = String(item.itemName || '').trim();
         item.spec     = String(item.spec     || '').trim();

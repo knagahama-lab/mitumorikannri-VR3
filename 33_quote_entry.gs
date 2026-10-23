@@ -41,7 +41,7 @@ function _qeCalc(doc) {
     var qty = Number(l.qty) || 0;
     if (!qty && Number(l.perCase) && Number(l.cases)) qty = Number(l.perCase) * Number(l.cases);
     l.qty = qty;
-    var amt = Math.round(qty * (Number(l.price) || 0));
+    var amt = Math.round(qty * (Number(l.price) || 0) * 100) / 100;
     if (l.kind === '値引') amt = -Math.abs(amt);
     l.amount = amt;
     var rate = Number(l.taxRate) || 0;

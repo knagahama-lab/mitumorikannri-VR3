@@ -93,7 +93,7 @@ function _ptFiltered(ignoreCat) {
     return kws.every(k => t.includes(k));
   });
 }
-const _ptYen = n => n || n === 0 ? Number(n).toLocaleString() : '';
+const _ptYen = n => n || n === 0 ? Number(n).toLocaleString('ja-JP', { maximumFractionDigits: 2 }) : '';
 function _ptDiff(r) {
   if (!r.old) return { html: '<span class="same">—</span>', text: '' };
   const d = r.cur.price - r.old.price, pct = r.old.price ? Math.round(d / r.old.price * 1000) / 10 : 0;

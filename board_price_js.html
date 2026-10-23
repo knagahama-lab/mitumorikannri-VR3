@@ -55,6 +55,13 @@ const BPT = { rows: [], loaded: false, includePcb: false, q: '', invertedOnly: f
 
 // ── 計算（46_board_price_table.gs の _bpCalc / _bpDiff と同じ式。画面での試算用。保存値はサーバーで再計算）──
 const _bptRound = (n, d) => { const p = Math.pow(10, d || 0); return Math.round(n * p) / p; };
+// 金額入力の読み取り：全角数字・全角の小数点（．）・カンマ・¥ も可。小数第2位まで（3位以下は四捨五入）。空欄→null、読めない→NaN
+function _bptParse(s) {
+  s = String(s == null ? '' : s).normalize('NFKC').replace(/[,，\s¥￥円]/g, '').replace(/。/g, '.');
+  if (s === '') return null;
+  if (!/^-?(\d+\.?\d*|\.\d+)$/.test(s)) return NaN;
+  return _bptRound(Number(s), 2);
+}
 function _bptCalc(v, includePcb) {
   const n = k => (v[k] === '' || v[k] == null || isNaN(Number(v[k]))) ? null : Number(v[k]);
   const z = k => n(k) === null ? 0 : n(k);
@@ -287,7 +294,7 @@ function bptOpenEdit(id, presetName) {
   const row = id ? _bptRow(id) : null;
   BPT.edit = { id: id || null, orig: row ? Object.assign({}, row.values) : {} };
   const v = row ? row.values : {};
-  const inp = (key, label) => `<div class="bpt-f"><label>${label}</label><input type="number" step="any" min="0" inputmode="decimal" id="bpt-f-${key}" value="${v[key] == null ? '' : v[key]}" oninput="bptEditUpdate()"></div>`;
+  const inp = (key, label) => `<div class="bpt-f"><label>${label}</label><input type="text" inputmode="decimal" autocomplete="off" placeholder="例: 12.34" id="bpt-f-${key}" value="${v[key] == null ? '' : v[key]}" oninput="bptEditUpdate()"></div>`;
   bptModal(row ? '✏️ 基板価格を編集 — ' + row.name : '＋ 基板を追加', `
     <div class="bpt-grid">
       <div class="bpt-f full"><label>基板名 *</label><input type="text" id="bpt-f-name" value="${_esc(row ? row.name : (presetName || ''))}" placeholder="例: M2502B"></div>
@@ -322,7 +329,7 @@ function bptOpenEdit(id, presetName) {
 
 function bptEditRead() {
   const vals = {};
-  BPT_FIELDS.forEach(f => { const el = document.getElementById('bpt-f-' + f.key); const s = el ? el.value.trim() : ''; vals[f.key] = s === '' ? null : Number(s); });
+  BPT_FIELDS.forEach(f => { const el = document.getElementById('bpt-f-' + f.key); vals[f.key] = _bptParse(el ? el.value : ''); });
   return vals;
 }
 
@@ -353,6 +360,10 @@ async function bptSave() {
   const name = document.getElementById('bpt-f-name').value.trim();
   if (!name) { showToast('基板名を入力してください', true); return; }
   const vals = bptEditRead();
+  const bad = BPT_FIELDS.find(f => Number.isNaN(vals[f.key]));
+  if (bad) { showToast(bad.label + ' は数値で入力してください（例: 12.34）', true); return; }
+  const neg = BPT_FIELDS.find(f => vals[f.key] != null && vals[f.key] < 0);
+  if (neg) { showToast(neg.label + ' は0以上で入力してください', true); return; }
   const diffs = e.id ? _bptDiff(e.orig, vals) : [];
   const reasonEl = document.getElementById('bpt-h-reason');
   const reason = reasonEl ? reasonEl.value.trim() : '';
@@ -440,8 +451,8 @@ function _bptHistForm(row) {
       <div class="bpt-f"><label>種別 *</label><select id="bpt-ha-kind" onchange="bptHAddKind()"><option>原価更新</option><option>価格改定</option></select></div>
       <div class="bpt-f"><label>項目 *</label><select id="bpt-ha-field" onchange="bptHAddField()"></select></div>
       <div class="bpt-f"><label>状態 *</label><select id="bpt-ha-status" onchange="bptHAddSim()"><option>適用済み</option><option>依頼中（未反映）</option><option>見送り</option></select></div>
-      <div class="bpt-f"><label>変更前（円）</label><input type="number" step="any" min="0" id="bpt-ha-before" oninput="bptHAddSim()"></div>
-      <div class="bpt-f"><label>変更後／依頼額（円） *</label><input type="number" step="any" min="0" id="bpt-ha-after" oninput="bptHAddSim()"></div>
+      <div class="bpt-f"><label>変更前（円）</label><input type="text" inputmode="decimal" autocomplete="off" id="bpt-ha-before" oninput="bptHAddSim()"></div>
+      <div class="bpt-f"><label>変更後／依頼額（円） *</label><input type="text" inputmode="decimal" autocomplete="off" placeholder="例: 12.34" id="bpt-ha-after" oninput="bptHAddSim()"></div>
       <div class="bpt-f"><label>日付（改定日／依頼日） *</label><input type="date" id="bpt-ha-date" value="${_bptToday()}"></div>
       <div class="bpt-f"><label>依頼元（仕入先など）</label><input type="text" id="bpt-ha-req" placeholder="例: ○○電子"></div>
       <div class="bpt-f" style="grid-column:span 2;"><label>理由・メモ *</label><input type="text" id="bpt-ha-reason" placeholder="例: 部材高騰のため 10月出荷分から値上げ依頼"></div>
@@ -466,7 +477,9 @@ function bptHAddSim() {
   const after = document.getElementById('bpt-ha-after').value;
   const el = document.getElementById('bpt-ha-sim'); if (!row || !el) return;
   if (after === '') { el.className = 'bpt-prev'; el.innerHTML = '<span class="pt-muted">変更後（依頼額）を入れると、現在の他の金額のまま その額になった場合の利益・逆ざやを試算します</span>'; return; }
-  const trial = Object.assign({}, row.values, { [key]: Number(after) });
+  const av = _bptParse(after);
+  if (Number.isNaN(av)) { el.className = 'bpt-prev'; el.innerHTML = '<span class="bpt-bad">数値で入力してください（例: 12.34）</span>'; return; }
+  const trial = Object.assign({}, row.values, { [key]: av });
   const c = _bptCalc(trial, BPT.includePcb);
   el.className = 'bpt-prev' + (c.inverted ? ' inv' : '');
   el.innerHTML = c.profit === null ? '<span class="pt-muted">原価が未入力のため試算できません</span>'
@@ -478,6 +491,9 @@ function bptHAddSubmit() {
   const payload = { boardId: BPT.hist.boardId, kind: g('bpt-ha-kind'), fieldKey: g('bpt-ha-field'), before: g('bpt-ha-before'), after: g('bpt-ha-after'),
     date: g('bpt-ha-date').replace(/-/g, '/'), requester: g('bpt-ha-req'), status: g('bpt-ha-status'), reason: g('bpt-ha-reason') };
   if (payload.after === '') { showToast('変更後（依頼額）を入力してください', true); return; }
+  const pb = _bptParse(payload.before), pa = _bptParse(payload.after);
+  if (Number.isNaN(pb) || Number.isNaN(pa)) { showToast('金額は数値で入力してください（例: 12.34）', true); return; }
+  payload.before = pb == null ? '' : pb; payload.after = pa;
   if (!payload.reason.trim()) { showToast('理由・メモを入力してください', true); return; }
   _bptApi('boardPriceHistoryAdd', payload, () => {
     showToast('履歴を追加しました');

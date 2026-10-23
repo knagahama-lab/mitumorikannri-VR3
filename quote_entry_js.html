@@ -16,8 +16,8 @@ const QE_NUM_FIELDS = ['perCase', 'cases', 'qty', 'price'];
 })();
 
 // ── ユーティリティ ──
-const _qeNum = v => { const n = Number(String(v == null ? '' : v).replace(/[,，¥円\s]/g, '')); return isNaN(n) ? 0 : n; };
-const _qeFmt = n => (Number(n) || 0).toLocaleString();
+const _qeNum = v => { const n = Number(String(v == null ? '' : v).normalize('NFKC').replace(/[,，¥￥円\s]/g, '').replace(/。/g, '.')); return isNaN(n) ? 0 : Math.round(n * 100) / 100; }; // 全角も可・小数第2位まで
+const _qeFmt = n => (Number(n) || 0).toLocaleString('ja-JP', { maximumFractionDigits: 2 });
 const _qeToday = () => _ofToday();
 const _qeBlankLine = () => ({ kind:'通常', code:'', name:'', spec:'', perCase:'', cases:'', qty:'', unit:'', price:'', taxRate:10, taxType:'外税' });
 const _qeIsBlank = l => !String(l.code||'').trim() && !String(l.name||'').trim() && !String(l.spec||'').trim() && !_qeNum(l.qty) && !_qeNum(l.price);
@@ -36,7 +36,7 @@ function _qeCalc(doc) {
     if (l.kind === '摘要') { l.amount = 0; l.tax = 0; return; }
     let qty = _qeNum(l.qty);
     if (!qty && _qeNum(l.perCase) && _qeNum(l.cases)) qty = _qeNum(l.perCase) * _qeNum(l.cases);
-    let amt = Math.round(qty * _qeNum(l.price));
+    let amt = Math.round(qty * _qeNum(l.price) * 100) / 100;
     if (l.kind === '値引') amt = -Math.abs(amt);
     l.amount = amt;
     const type = l.taxType || '外税'; const rate = type === '非課税' ? 0 : _qeNum(l.taxRate);
