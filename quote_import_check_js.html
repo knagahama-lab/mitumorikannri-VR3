@@ -1,0 +1,64 @@
+<script>
+// ============================================================
+// quote_import_check_js.html — 見積書一覧「🔍 最近の取込を確認」（50_quote_import_check.gs）
+//   最近登録された見積と、一覧に出ない／見えにくい理由を表示。「一覧で表示」で絞り込みを解除して検索する
+// ============================================================
+window.addEventListener('load', function () {
+  var box = document.getElementById('qs-search');
+  if (!box || document.getElementById('qic-btn')) return;
+  var b = document.createElement('button');
+  b.id = 'qic-btn'; b.className = 'btn btn-outline btn-sm'; b.type = 'button';
+  b.textContent = '🔍 最近の取込を確認';
+  b.title = '最近取り込んだ見積が一覧に出ない時に、理由を確認します';
+  b.style.marginLeft = '6px';
+  b.onclick = function () { qicOpen(14); };
+  (box.closest('.search-box') || box).after(b);
+});
+
+function qicOpen(days) {
+  var ov = document.getElementById('qic-modal');
+  if (!ov) {
+    ov = document.createElement('div'); ov.id = 'qic-modal';
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+    ov.onclick = function (e) { if (e.target === ov) ov.remove(); };
+    document.body.appendChild(ov);
+  }
+  ov.innerHTML = '<div style="background:#fff;border-radius:10px;max-width:1100px;width:100%;max-height:85vh;overflow:auto;padding:16px;">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><h3 style="margin:0;">🔍 最近取り込んだ見積</h3>'
+    + '<div><select id="qic-days" onchange="qicOpen(Number(this.value))" style="padding:4px 6px;">'
+    + [7, 14, 30, 60].map(function (d) { return '<option value="' + d + '"' + (d === days ? ' selected' : '') + '>直近' + d + '日</option>'; }).join('')
+    + '</select> <button class="btn btn-outline btn-sm" onclick="document.getElementById(\'qic-modal\').remove()">閉じる</button></div></div>'
+    + '<div id="qic-body" style="color:#64748b;">読み込み中…</div></div>';
+  google.script.run.withSuccessHandler(function (res) {
+    var body = document.getElementById('qic-body'); if (!body) return;
+    if (!res || !res.success) { body.innerHTML = '<span style="color:#dc2626;">エラー: ' + _esc((res && res.error) || '') + '</span>'; return; }
+    if (!res.rows.length) { body.innerHTML = '直近' + res.days + '日に登録された見積はありません（管理シートの登録日時で判定）。'; return; }
+    var td = 'style="border:1px solid #cbd5e1;padding:5px 8px;vertical-align:top;"';
+    var th = 'style="border:1px solid #94a3b8;padding:5px 8px;background:#e2e8f0;text-align:left;white-space:nowrap;"';
+    var ng = res.rows.filter(function (r) { return r.reasons.length; }).length;
+    body.innerHTML = '<div style="margin-bottom:6px;color:#334155;">' + res.rows.length + '件　うち一覧に出ない・見えにくい可能性 <b style="background:#fef08a;padding:0 4px;">' + ng + '件</b></div>'
+      + '<table style="border-collapse:collapse;font-size:12px;width:100%;"><tr><th ' + th + '>登録日時</th><th ' + th + '>見積番号</th><th ' + th + '>件名</th><th ' + th + '>取引先</th><th ' + th + '>ステータス</th><th ' + th + '>一覧に出ない理由</th><th ' + th + '></th></tr>'
+      + res.rows.map(function (r) {
+          var why = r.reasons.length ? '<span style="color:#b45309;">' + r.reasons.map(_esc).join('<br>') + '</span>' : '<span style="color:#16a34a;">✓ 一覧に表示されます</span>';
+          return '<tr' + (r.reasons.length ? ' style="background:#fffbeb;"' : '') + '><td ' + td + '>' + _esc(r.createdAt) + '</td><td ' + td + '><b>' + (_esc(r.quoteNo) || '<span style="color:#dc2626;">（空）</span>') + '</b></td>'
+            + '<td ' + td + '>' + _esc(r.subject) + '</td><td ' + td + '>' + (_esc(r.client) || '<span style="color:#dc2626;">（空）</span>') + '</td>'
+            + '<td ' + td + '>' + _esc(r.status) + (r.ledgerStatus && r.ledgerStatus !== r.status ? '<br><small>台帳: ' + _esc(r.ledgerStatus) + '</small>' : '') + '</td>'
+            + '<td ' + td + '>' + why + '</td>'
+            + '<td ' + td + ' style="white-space:nowrap;border:1px solid #cbd5e1;padding:5px 8px;">' + (r.pdfUrl ? '<a href="' + _esc(r.pdfUrl) + '" target="_blank">PDF</a> ' : '')
+            + '<button class="btn btn-outline btn-sm" onclick="qicShow(\'' + _esc(r.quoteNo || r.subject) + '\')">一覧で表示</button></td></tr>';
+        }).join('') + '</table>';
+  }).withFailureHandler(function (e) {
+    var body = document.getElementById('qic-body'); if (body) body.innerHTML = '<span style="color:#dc2626;">通信エラー: ' + _esc(e.message || String(e)) + '</span>';
+  }).handleApiRequest('quoteImportCheck', { days: days });
+}
+
+// 一覧の絞り込み（取引先タブ・カテゴリ・ステータス・アーカイブ非表示）を解除して、見積番号で検索
+function qicShow(key) {
+  var m = document.getElementById('qic-modal'); if (m) m.remove();
+  try { if (typeof _quoteClientTab !== 'undefined') _quoteClientTab = 'all'; if (typeof renderQuoteClientTabs === 'function') renderQuoteClientTabs(); } catch (e) {}
+  try { if (typeof _quoteCatTab !== 'undefined') _quoteCatTab = 'all'; if (typeof renderQuoteCategoryTabs === 'function') renderQuoteCategoryTabs(); } catch (e) {}
+  ['qs-filter-status', 'qs-filter-linked', 'qs-amount-search'].forEach(function (id) { var el = document.getElementById(id); if (el) el.value = ''; });
+  var s = document.getElementById('qs-search'); if (s) s.value = key || '';
+  if (typeof applyQuoteFilter === 'function') applyQuoteFilter();
+}
+</script>

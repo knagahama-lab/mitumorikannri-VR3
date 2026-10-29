@@ -85,6 +85,7 @@ function handleApiRequest(action, payload) {
       case 'confirmLink':         res = _apiConfirmLink(payload); break;
       case 'runMatching':         res = _apiRunMatching(payload); break;
       case 'quoteListGetAll':     res = _apiQuoteListGetAll(); break;
+      case 'quoteImportCheck':    res = apiQuoteImportCheck(payload); break;   // 50_quote_import_check.gs
       case 'getQuoteDetail':      res = _apiGetQuoteDetail(payload); break;
       case 'ledgerGetAll':        res = _apiLedgerGetAll(); break;
       case 'ledgerSave':          res = _apiLedgerSave(payload); break;
@@ -458,15 +459,27 @@ function _apiQuoteListGetAll() {
     var quoteSheet = ss.getSheetByName(CONFIG.SHEET_QUOTES);
     var mgmtData  = getAllMgmtData();
     
-    var allRows   = mgmtData.filter(function(r) { return String(r[MGMT_COLS.QUOTE_NO - 1]).trim() !== ''; });
-    
-    var seenQNo  = {};
-    var quoteRows = allRows.filter(function(r) {
-      var qNo = String(r[MGMT_COLS.QUOTE_NO - 1]).trim();
-      if (seenQNo[qNo]) return false;
-      seenQNo[qNo] = true;
-      return true;
+    // 見積の行：見積番号がある行＋見積番号が読めなかったが見積PDFがある行（注文だけの行は除く）
+    var allRows   = mgmtData.filter(function(r) {
+      if (String(r[MGMT_COLS.QUOTE_NO - 1]).trim() !== '') return true;
+      return String(r[MGMT_COLS.QUOTE_PDF_URL - 1] || '').trim() !== '' && String(r[MGMT_COLS.ORDER_NO - 1] || '').trim() === '';
     });
+
+    // ★ 同じ見積番号が複数行ある時に表示する行：①ボツ・旧見積でない ②注文と紐づいている ③新しい（下の行ほど新しい）
+    //   以前は最初（古い行）を残していたため、古い行がボツ等だと再取込した見積が一覧に出なかった
+    var _arch = (typeof ARCHIVE_STATUSES !== 'undefined') ? ARCHIVE_STATUSES : ['ボツ', '旧見積'];
+    var _score = function(r, i) {
+      return (_arch.indexOf(String(r[MGMT_COLS.STATUS - 1] || '')) < 0 ? 1e9 : 0)
+           + (_isLinkedVal(r[MGMT_COLS.LINKED - 1]) || String(r[MGMT_COLS.ORDER_NO - 1] || '').trim() ? 1e8 : 0) + i;
+    };
+    var bestByNo = {}, keyOrder = [];
+    allRows.forEach(function(qr, qi) {
+      var qKey = String(qr[MGMT_COLS.QUOTE_NO - 1]).trim() || ('ID:' + String(qr[MGMT_COLS.ID - 1]));
+      var sc = _score(qr, qi);
+      if (!bestByNo[qKey]) { keyOrder.push(qKey); bestByNo[qKey] = { r: qr, s: sc }; }
+      else if (sc > bestByNo[qKey].s) bestByNo[qKey] = { r: qr, s: sc };
+    });
+    var quoteRows = keyOrder.map(function(k) { return bestByNo[k].r; });
 
     var quoteLineMap = {};
     if (quoteSheet && quoteSheet.getLastRow() > 1) {
