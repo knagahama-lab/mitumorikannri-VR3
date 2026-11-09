@@ -125,6 +125,7 @@ function qdAdd(i) {
   var el = document.getElementById('qd-cand-dl-' + i);
   _qdApi('qdSave', { quoteNo: c.quoteNo, deadline: el ? el.value : '', add: { mgmtId: c.mgmtId, subject: c.subject, client: c.client, submitDate: c.submitDate } }, function () {
     showToast(c.quoteNo + ' を受注期限の監視に追加しました');
+    try { qdmLoad(function () { qdmDecorate(); }); } catch (e) {}
     _qdApi('qdList', {}, function (res) { QD.data = res; qdRender(); });
   });
 }
@@ -132,6 +133,7 @@ function qdSave(no, p) {
   p.quoteNo = no;
   _qdApi('qdSave', p, function () {
     showToast('保存しました');
+    try { qdmLoad(function () { qdmDecorate(); }); } catch (e) {}
     _qdApi('qdList', {}, function (res) { QD.data = res; qdRender(); });
   });
 }
@@ -161,6 +163,84 @@ function qdRunNow() {
   _qdApi('qdRunNow', {}, function (r) {
     showToast(r.sent ? '期限切れ ' + r.count + '件を ' + r.recipients + '名へ送信しました' : '期限切れの単発見積はありません（送信なし）');
     _qdApi('qdList', {}, function (res) { QD.data = res; qdRender(); });
+  });
+}
+
+// ============================================================
+// 見積書一覧の各行に「⏰ 単発」の印と受注期限（見積番号の横）
+// ============================================================
+var QDM = { map: {}, days: 30, today: '', loaded: false };
+function qdmLoad(cb) {
+  _qdApi('qdMap', {}, function (r) { QDM.map = r.map || {}; QDM.days = r.days || 30; QDM.today = r.today; QDM.loaded = true; cb && cb(); });
+}
+window.addEventListener('load', function () {
+  if (typeof _renderQuoteTable !== 'function') return;
+  var orig = _renderQuoteTable;
+  _renderQuoteTable = function () { var r = orig.apply(this, arguments); try { qdmDecorate(); } catch (e) {} return r; };
+  qdmLoad(function () { try { qdmDecorate(); } catch (e) {} });
+});
+function _qdmFindQuote(no) { return (typeof _allQuotes !== 'undefined' ? _allQuotes : []).filter(function (q) { return q.quoteNo === no; })[0] || {}; }
+function qdmDecorate() {
+  var box = document.getElementById('quotelist-container'); if (!box || !QDM.loaded) return;
+  box.querySelectorAll('tbody tr, tr').forEach(function (tr) {
+    var td = tr.querySelector('td'); if (!td) return;
+    var st = td.querySelector('strong'); if (!st) return;
+    var no = st.textContent.trim(); if (!no || no === '—') return;
+    var old = td.querySelector('.qdm-badge'); if (old) old.remove();
+    var e = QDM.map[no];
+    var b = document.createElement('span');
+    b.className = 'qdm-badge';
+    b.style.cssText = 'display:inline-block;margin-left:4px;font-size:10px;border-radius:4px;padding:1px 5px;cursor:pointer;white-space:nowrap;';
+    if (!e) { b.textContent = '⏰'; b.title = '単発の見積に印を付けて受注期限を設定'; b.style.opacity = '.35'; b.style.border = '1px dashed #94a3b8'; }
+    else if (e.state === '監視中') {
+      var md = String(e.deadline || '').slice(5);
+      b.textContent = '⏰単発 ' + md + (e.overDays ? ' 超過' + e.overDays + '日' : '');
+      b.title = '単発見積・受注期限 ' + e.deadline + '（クリックで変更）';
+      b.style.cssText += e.overDays ? 'background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;font-weight:700;' : 'background:#fef3c7;color:#92400e;border:1px solid #fcd34d;';
+    } else { b.textContent = (e.state === '受注済み' ? '✅' : '⏹') + '単発'; b.title = '単発見積（' + e.state + '）'; b.style.cssText += 'background:#f1f5f9;color:#475569;border:1px solid #cbd5e1;'; }
+    b.onclick = function (ev) { ev.stopPropagation(); qdmPop(no, ev); };
+    st.after(b);
+  });
+}
+function _qdmAdd(ymd, n) {
+  var m = String(ymd || '').replace(/-/g, '/').match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})/);
+  var d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + n) : new Date(Date.now() + n * 86400000);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function qdmPop(no, ev) {
+  var old = document.getElementById('qdm-pop'); if (old) old.remove();
+  var e = QDM.map[no], q = _qdmFindQuote(no);
+  var base = (e && e.submitDate) || q.issueDate || q.quoteDate || '';
+  var dl = e && e.deadline ? String(e.deadline).replace(/\//g, '-') : _qdmAdd(base, QDM.days);
+  var p = document.createElement('div'); p.id = 'qdm-pop';
+  p.style.cssText = 'position:fixed;z-index:10000;background:#fff;border:1px solid #cbd5e1;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:12px;width:290px;font-size:12px;';
+  p.style.left = Math.min(ev.clientX, window.innerWidth - 310) + 'px'; p.style.top = Math.min(ev.clientY + 12, window.innerHeight - 220) + 'px';
+  p.innerHTML = '<div style="font-weight:700;margin-bottom:6px;">⏰ ' + _esc(no) + '</div>'
+    + '<label style="display:flex;gap:6px;align-items:center;margin-bottom:8px;"><input type="checkbox" id="qdm-on"' + (e ? ' checked' : '') + '> 単発の見積（受注期限を監視）</label>'
+    + '<div style="margin-bottom:6px;">受注期限 <input type="date" id="qdm-dl" value="' + _esc(dl) + '" style="padding:2px 4px;"></div>'
+    + (e ? '<div style="margin-bottom:6px;">状態 <select id="qdm-st">' + ['監視中', '受注済み', '不要（失注）'].map(function (s) { return '<option' + (s === e.state ? ' selected' : '') + '>' + s + '</option>'; }).join('') + '</select></div>' : '')
+    + '<div style="color:#64748b;margin-bottom:8px;">期限を過ぎても注文書が紐づかないと、全員へアラームメールが届きます。</div>'
+    + '<div style="display:flex;justify-content:flex-end;gap:6px;"><button class="btn btn-outline btn-sm" onclick="document.getElementById(\'qdm-pop\').remove()">キャンセル</button>'
+    + '<button class="btn btn-primary btn-sm" onclick="qdmSave(\'' + _esc(no) + '\')">保存</button></div>';
+  document.body.appendChild(p);
+  setTimeout(function () { document.addEventListener('click', function h(x) { if (!p.contains(x.target)) { p.remove(); document.removeEventListener('click', h); } }); }, 0);
+}
+function qdmSave(no) {
+  var on = document.getElementById('qdm-on').checked, dl = document.getElementById('qdm-dl').value;
+  var stEl = document.getElementById('qdm-st');
+  var q = _qdmFindQuote(no), e = QDM.map[no];
+  var payload = { quoteNo: no };
+  if (!on) { if (!e) { document.getElementById('qdm-pop').remove(); return; } payload.remove = true; }
+  else {
+    if (!dl) { showToast('受注期限を入力してください', true); return; }
+    payload.deadline = dl;
+    if (stEl) payload.state = stEl.value;
+    if (!e) payload.add = { mgmtId: q.id || '', subject: q.subject || '', client: q.destCompany || q.client || '', submitDate: (q.issueDate || q.quoteDate || '').replace(/-/g, '/') };
+  }
+  _qdApi('qdSave', payload, function () {
+    var pop = document.getElementById('qdm-pop'); if (pop) pop.remove();
+    showToast(payload.remove ? no + ' の単発の印を外しました' : no + ' を単発見積（受注期限 ' + dl.replace(/-/g, '/') + '）にしました');
+    qdmLoad(function () { qdmDecorate(); });
   });
 }
 </script>

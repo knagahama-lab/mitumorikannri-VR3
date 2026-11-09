@@ -90,6 +90,7 @@ function handleApiRequest(action, payload) {
       case 'qdSave':              res = apiQdSave(payload); break;
       case 'qdCfgSave':           res = apiQdCfgSave(payload); break;
       case 'qdRunNow':            res = apiQdRunNow(); break;
+      case 'qdMap':               res = apiQdMap(); break;
       case 'getQuoteDetail':      res = _apiGetQuoteDetail(payload); break;
       case 'ledgerGetAll':        res = _apiLedgerGetAll(); break;
       case 'ledgerSave':          res = _apiLedgerSave(payload); break;

@@ -282,6 +282,10 @@ function apiQdSave(p) {
     if (p.state != null && QD_STATES.indexOf(p.state) < 0) return { success: false, error: '状態が正しくありません' };
     var sh = _qdSheet(), now = nowJST();
     var cur = _qdRows().filter(function (o) { return o.quoteNo === no; })[0];
+    if (p.remove) { // 単発の印を外す（監視の対象から外す）
+      if (cur) sh.deleteRow(cur.row);
+      return { success: true, removed: !!cur };
+    }
     if (!cur) {
       var a = p.add || {}, cfg = _qdCfg();
       var submit = _qdDate(a.submitDate) || _qdToday();
@@ -338,4 +342,16 @@ function _qdAutoInit() {
     _qdEnsureTrigger(true);
     Logger.log('[受注期限] 毎朝のチェックを有効にしました（運用開始日 ' + c.startDate + '）');
   } catch (e) { Logger.log('[_qdAutoInit] ' + e.message); }
+}
+
+/** 見積書一覧の印用：見積番号 → { deadline, state, overDays }（シートだけ読む軽い処理） */
+function apiQdMap() {
+  try {
+    var today = _qdToday(), map = {};
+    _qdRows().forEach(function (o) {
+      map[o.quoteNo] = { deadline: o.deadline, state: o.state, submitDate: o.submitDate,
+        overDays: (o.state === '監視中' && o.deadline && o.deadline < today) ? _qdDiffDays(o.deadline, today) : 0 };
+    });
+    return { success: true, map: map, days: _qdCfg().days, today: today };
+  } catch (e) { return { success: false, error: e.message }; }
 }
