@@ -79,11 +79,26 @@ function _qdIsSingle(subject, keywords) {
   return keywords.some(function (k) { return k && s.indexOf(String(k).normalize('NFKC')) >= 0; });
 }
 
-/** 見積の受注状況（32_quote_order_link.gs）: 見積番号 → summary */
+/**
+ * 見積の受注状況（32_quote_order_link.gs の _qolBuild を使った軽量版）: 見積番号 → summary
+ *   apiQuoteOrderLinks は注文待ちの見積ごとに「注文の候補」まで探すため重い。受注期限では状態だけ分かればよい
+ */
 function _qdLinks() {
-  var r = apiQuoteOrderLinks();
-  if (!r || !r.success) throw new Error((r && r.error) || '見積と注文の紐づけが取得できません');
-  return r.byQuote || {};
+  var b = _qolBuild();
+  var out = {};
+  Object.keys(b.quotes).forEach(function (no) {
+    var q = b.quotes[no];
+    var orders = Object.keys(q.orderNos || {}).map(function (ono) { return { orderNo: ono }; });
+    var archived = ARCHIVE_STATUSES.indexOf(q.status) >= 0;
+    var lost = q.status === 'キャンセル' || q.status === '失注';
+    out[no] = {
+      quoteNo: no, quoteMgmtId: q.mgmtId || '', subject: q.subject || '', client: q.client || '',
+      submitDate: q.submitDate || q.quoteDate || '', quoteAmount: q.quoteAmount || 0, quotePdfUrl: q.quotePdfUrl || '',
+      status: q.status || '', orders: orders,
+      state: orders.length ? 'ordered' : archived ? 'archived' : lost ? 'lost' : 'waiting',
+    };
+  });
+  return out;
 }
 
 /** 自動登録（運用開始日以降に提出された単発見積）＋受注済みの自動判定。変更件数を返す */
@@ -214,11 +229,19 @@ function _qdEnabled() {
 // ------------------------------------------------------------
 /** 一覧＋候補＋設定。初回は自動でトリガーを作る（毎朝のチェックを有効に） */
 function apiQdList() {
+  var stage = '設定の読み込み';
   try {
     var cfg0 = _qdCfg();
-    if (!cfg0.startDate) { cfg0.startDate = _qdToday(); _qdSaveCfg(cfg0); _qdEnsureTrigger(true); }
+    if (!cfg0.startDate) {
+      cfg0.startDate = _qdToday(); _qdSaveCfg(cfg0);
+      stage = '毎朝のチェックの登録';
+      try { _qdEnsureTrigger(true); } catch (te) { Logger.log('[apiQdList trigger] ' + te.message); }
+    }
+    stage = '見積と注文の紐づけ状況の取得';
     var links = _qdLinks();
+    stage = '受注期限シートの更新';
     _qdRefresh(links);
+    stage = '一覧の作成';
     var cfg = _qdCfg(), today = _qdToday();
     var rows = _qdRows().map(function (o) {
       var s = links[o.quoteNo] || {};
@@ -237,10 +260,13 @@ function apiQdList() {
       })
       .sort(function (a, b) { return (b.single - a.single) || String(b.submitDate).localeCompare(String(a.submitDate)); })
       .slice(0, 300);
-    cfg.enabled = _qdEnabled();
+    try { cfg.enabled = _qdEnabled(); } catch (te2) { cfg.enabled = false; }
     cfg.defaultRecipients = PropertiesService.getScriptProperties().getProperty('NOTIFY_EMAILS') || '';
     return { success: true, today: today, rows: rows, candidates: cands, cfg: cfg, states: QD_STATES };
-  } catch (e) { return { success: false, error: e.message }; }
+  } catch (e) {
+    Logger.log('[apiQdList] ' + stage + ': ' + e.message + '\n' + e.stack);
+    return { success: false, error: stage + 'で失敗しました：' + e.message };
+  }
 }
 
 /** 追加・変更 p: { quoteNo, deadline?, state?, memo?, add?:{mgmtId,subject,client,submitDate} } */

@@ -18,11 +18,18 @@ window.addEventListener('load', function () {
 
 var QD = { data: null, tab: 'watch' };
 
-function _qdApi(action, payload, ok) {
+function _qdApi(action, payload, ok, ng) {
   google.script.run.withSuccessHandler(function (res) {
-    if (!res || !res.success) { showToast((res && res.error) || 'エラーが発生しました', true); return; }
-    ok && ok(res);
-  }).withFailureHandler(function (e) { showToast(e.message || String(e), true); }).handleApiRequest(action, payload || {});
+    if (!res || !res.success) { var m = (res && res.error) || '応答がありませんでした'; showToast(m, true); ng && ng(m); return; }
+    try { ok && ok(res); } catch (e) { showToast('表示エラー: ' + e.message, true); ng && ng('表示エラー: ' + e.message); }
+  }).withFailureHandler(function (e) { var m = e.message || String(e); showToast(m, true); ng && ng(m); }).handleApiRequest(action, payload || {});
+}
+function _qdShowError(msg) {
+  var box = document.getElementById('qd-box'); if (!box) return;
+  box.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;"><h3 style="margin:0;">⏰ 単発見積の受注期限</h3>'
+    + '<button class="btn btn-outline btn-sm" onclick="document.getElementById(\'qd-modal\').remove()">閉じる</button></div>'
+    + '<div style="margin-top:12px;color:#dc2626;">⚠ 読み込めませんでした：' + _esc(msg) + '</div>'
+    + '<div style="margin-top:8px;"><button class="btn btn-primary btn-sm" onclick="qdOpen()">↻ もう一度読み込む</button></div>';
 }
 
 function qdOpen() {
@@ -33,8 +40,13 @@ function qdOpen() {
     ov.onclick = function (e) { if (e.target === ov) ov.remove(); };
     document.body.appendChild(ov);
   }
-  ov.innerHTML = '<div style="background:#fff;border-radius:10px;max-width:1200px;width:100%;max-height:88vh;overflow:auto;padding:16px;" id="qd-box"><div style="color:#64748b;">読み込み中…</div></div>';
-  _qdApi('qdList', {}, function (res) { QD.data = res; qdRender(); });
+  ov.innerHTML = '<div style="background:#fff;border-radius:10px;max-width:1200px;width:100%;max-height:88vh;overflow:auto;padding:16px;" id="qd-box"><div style="color:#64748b;" id="qd-loading">読み込み中…</div></div>';
+  var t0 = Date.now();
+  var timer = setInterval(function () {
+    var el = document.getElementById('qd-loading'); if (!el) { clearInterval(timer); return; }
+    el.textContent = '読み込み中…（' + Math.round((Date.now() - t0) / 1000) + '秒）見積と注文の紐づけを確認しています';
+  }, 1000);
+  _qdApi('qdList', {}, function (res) { clearInterval(timer); QD.data = res; qdRender(); }, function (m) { clearInterval(timer); _qdShowError(m); });
 }
 
 function _qdTh(t) { return '<th style="border:1px solid #94a3b8;padding:5px 8px;background:#e2e8f0;text-align:left;white-space:nowrap;">' + t + '</th>'; }
