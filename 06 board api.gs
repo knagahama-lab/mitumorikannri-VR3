@@ -86,6 +86,10 @@ function handleApiRequest(action, payload) {
       case 'runMatching':         res = _apiRunMatching(payload); break;
       case 'quoteListGetAll':     res = _apiQuoteListGetAll(); break;
       case 'quoteImportCheck':    res = apiQuoteImportCheck(payload); break;   // 50_quote_import_check.gs
+      case 'qdList':              res = apiQdList(); break;            // 51_quote_deadline.gs 単発見積の受注期限
+      case 'qdSave':              res = apiQdSave(payload); break;
+      case 'qdCfgSave':           res = apiQdCfgSave(payload); break;
+      case 'qdRunNow':            res = apiQdRunNow(); break;
       case 'getQuoteDetail':      res = _apiGetQuoteDetail(payload); break;
       case 'ledgerGetAll':        res = _apiLedgerGetAll(); break;
       case 'ledgerSave':          res = _apiLedgerSave(payload); break;

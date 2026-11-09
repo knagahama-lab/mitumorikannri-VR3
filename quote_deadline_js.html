@@ -1,0 +1,154 @@
+<script>
+// ============================================================
+// quote_deadline_js.html — 見積書一覧「⏰ 単発見積の受注期限」（51_quote_deadline.gs）
+//   単発見積（輸送費・金型費などのイニシャル費）の受注期限の一覧・変更、期限切れアラームメールの設定
+// ============================================================
+window.addEventListener('load', function () {
+  var box = document.getElementById('qs-search');
+  if (!box || document.getElementById('qd-btn')) return;
+  var b = document.createElement('button');
+  b.id = 'qd-btn'; b.className = 'btn btn-outline btn-sm'; b.type = 'button';
+  b.textContent = '⏰ 単発見積の受注期限';
+  b.title = '輸送費・金型費などの単発見積に受注期限を付け、過ぎても注文書が来ない時に全員へアラームメールを送ります';
+  b.style.marginLeft = '6px';
+  b.onclick = function () { qdOpen(); };
+  var after = document.getElementById('qic-btn') || box.closest('.search-box') || box;
+  after.after(b);
+});
+
+var QD = { data: null, tab: 'watch' };
+
+function _qdApi(action, payload, ok) {
+  google.script.run.withSuccessHandler(function (res) {
+    if (!res || !res.success) { showToast((res && res.error) || 'エラーが発生しました', true); return; }
+    ok && ok(res);
+  }).withFailureHandler(function (e) { showToast(e.message || String(e), true); }).handleApiRequest(action, payload || {});
+}
+
+function qdOpen() {
+  var ov = document.getElementById('qd-modal');
+  if (!ov) {
+    ov = document.createElement('div'); ov.id = 'qd-modal';
+    ov.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+    ov.onclick = function (e) { if (e.target === ov) ov.remove(); };
+    document.body.appendChild(ov);
+  }
+  ov.innerHTML = '<div style="background:#fff;border-radius:10px;max-width:1200px;width:100%;max-height:88vh;overflow:auto;padding:16px;" id="qd-box"><div style="color:#64748b;">読み込み中…</div></div>';
+  _qdApi('qdList', {}, function (res) { QD.data = res; qdRender(); });
+}
+
+function _qdTh(t) { return '<th style="border:1px solid #94a3b8;padding:5px 8px;background:#e2e8f0;text-align:left;white-space:nowrap;">' + t + '</th>'; }
+function _qdTd(t, extra) { return '<td style="border:1px solid #cbd5e1;padding:5px 8px;vertical-align:top;' + (extra || '') + '">' + t + '</td>'; }
+function _qdYen(n) { return n ? '¥' + Number(n).toLocaleString('ja-JP', { maximumFractionDigits: 2 }) : ''; }
+function _qdInput(d) { return String(d || '').replace(/\//g, '-'); }
+
+function qdRender() {
+  var box = document.getElementById('qd-box'); if (!box || !QD.data) return;
+  var d = QD.data, cfg = d.cfg;
+  var watch = d.rows.filter(function (r) { return r.state === '監視中'; });
+  var over = watch.filter(function (r) { return r.overDays > 0; });
+  var tabBtn = function (k, label) { return '<button class="btn btn-sm ' + (QD.tab === k ? 'btn-primary' : 'btn-outline') + '" onclick="QD.tab=\'' + k + '\';qdRender()">' + label + '</button>'; };
+  var html = '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;">'
+    + '<h3 style="margin:0;">⏰ 単発見積の受注期限</h3>'
+    + '<div>' + tabBtn('watch', '監視中 ' + watch.length + (over.length ? '（<b style="color:#dc2626;">期限切れ ' + over.length + '</b>）' : ''))
+    + ' ' + tabBtn('done', '終了 ' + (d.rows.length - watch.length)) + ' ' + tabBtn('cand', '＋ 候補から追加') + ' ' + tabBtn('cfg', '⚙ 設定')
+    + ' <button class="btn btn-outline btn-sm" onclick="document.getElementById(\'qd-modal\').remove()">閉じる</button></div></div>'
+    + '<div style="font-size:12px;color:#475569;margin-bottom:8px;line-height:1.6;">件名に「' + cfg.keywords.map(_esc).join('・') + '」を含む見積を単発として自動登録し、受注期限＝提出日＋' + cfg.days + '日を付けます（' + _esc(cfg.startDate) + ' 以降に提出された見積）。<br>'
+    + '期限を過ぎても注文書が紐づかないと、平日' + cfg.hour + '時に全員へアラームメール（以後 ' + (cfg.repeatDays || '−') + '日ごとに再通知）。'
+    + (cfg.enabled ? '<span style="color:#16a34a;">● 毎朝のチェック 有効</span>' : '<span style="color:#dc2626;">● 毎朝のチェック 停止中（⚙ 設定で有効に）</span>')
+    + (cfg.lastSent ? '　最終送信: ' + _esc(cfg.lastSent) : '') + '</div>';
+
+  if (QD.tab === 'cfg') html += qdCfgHtml(cfg);
+  else if (QD.tab === 'cand') html += qdCandHtml(d.candidates);
+  else html += qdListHtml(QD.tab === 'watch' ? watch : d.rows.filter(function (r) { return r.state !== '監視中'; }), QD.tab === 'watch');
+  box.innerHTML = html;
+}
+
+function qdListHtml(rows, watching) {
+  if (!rows.length) return '<div style="padding:20px;color:#64748b;">' + (watching ? '監視中の単発見積はありません。「＋ 候補から追加」から手動で追加できます。' : '終了した見積はありません。') + '</div>';
+  rows = rows.slice().sort(function (a, b) { return String(a.deadline).localeCompare(String(b.deadline)); });
+  var opts = QD.data.states;
+  return '<table style="border-collapse:collapse;font-size:12px;width:100%;"><tr>' + ['見積番号', '件名', '取引先', '金額', '提出日', '受注期限', '残り', '状態', '通知', 'メモ'].map(_qdTh).join('') + '</tr>'
+    + rows.map(function (r) {
+        var k = _esc(r.quoteNo);
+        var left = r.overDays > 0 ? '<b style="color:#dc2626;">' + r.overDays + '日超過</b>' : (r.leftDays != null ? 'あと' + r.leftDays + '日' : '');
+        return '<tr' + (r.overDays > 0 ? ' style="background:#fef2f2;"' : '') + '>'
+          + _qdTd('<b>' + k + '</b>' + (r.quotePdfUrl ? '<br><a href="' + _esc(r.quotePdfUrl) + '" target="_blank">PDF</a>' : '') + (r.origin === '手動' ? ' <small style="color:#64748b;">手動</small>' : ''))
+          + _qdTd(_esc(r.subject)) + _qdTd(_esc(r.client)) + _qdTd(_qdYen(r.quoteAmount), 'text-align:right;white-space:nowrap;') + _qdTd(_esc(r.submitDate), 'white-space:nowrap;')
+          + _qdTd('<input type="date" value="' + _qdInput(r.deadline) + '" onchange="qdSave(\'' + k + '\',{deadline:this.value})" style="padding:2px 4px;">', 'white-space:nowrap;' + (r.overDays > 0 ? 'background:#fef08a;' : ''))
+          + _qdTd(left, 'white-space:nowrap;')
+          + _qdTd('<select onchange="qdSave(\'' + k + '\',{state:this.value})">' + opts.map(function (o) { return '<option' + (o === r.state ? ' selected' : '') + '>' + o + '</option>'; }).join('') + '</select>')
+          + _qdTd(r.count ? r.count + '回<br><small>' + _esc(r.lastNotified) + '</small>' : '<span style="color:#94a3b8;">—</span>', 'white-space:nowrap;')
+          + _qdTd('<input type="text" value="' + _esc(r.memo) + '" onchange="qdSave(\'' + k + '\',{memo:this.value})" style="width:160px;padding:2px 4px;">')
+          + '</tr>';
+      }).join('') + '</table>';
+}
+
+function qdCandHtml(cands) {
+  if (!cands.length) return '<div style="padding:20px;color:#64748b;">追加できる注文待ちの見積はありません。</div>';
+  return '<div style="font-size:12px;color:#475569;margin-bottom:6px;">注文書がまだ届いていない見積です。単発キーワードに当たるものを先頭に表示しています。「追加」で受注期限（提出日＋' + QD.data.cfg.days + '日）を付けて監視します。</div>'
+    + '<input type="text" id="qd-cand-q" placeholder="見積番号・件名・取引先で絞り込み" oninput="qdCandFilter(this.value)" style="width:300px;padding:5px 8px;margin-bottom:6px;">'
+    + '<table style="border-collapse:collapse;font-size:12px;width:100%;" id="qd-cand-tbl"><tr>' + ['', '見積番号', '件名', '取引先', '金額', '提出日', '受注期限', ''].map(_qdTh).join('') + '</tr>'
+    + cands.map(function (c, i) {
+        var dl = c.submitDate ? _qdAddDaysJs(c.submitDate, QD.data.cfg.days) : '';
+        return '<tr data-q="' + _esc((c.quoteNo + ' ' + c.subject + ' ' + c.client).toLowerCase()) + '">'
+          + _qdTd(c.single ? '<span style="background:#fef3c7;color:#92400e;border-radius:4px;padding:0 4px;font-size:11px;">単発</span>' : '')
+          + _qdTd('<b>' + _esc(c.quoteNo) + '</b>') + _qdTd(_esc(c.subject)) + _qdTd(_esc(c.client)) + _qdTd(_qdYen(c.quoteAmount), 'text-align:right;')
+          + _qdTd(_esc(c.submitDate), 'white-space:nowrap;')
+          + _qdTd('<input type="date" id="qd-cand-dl-' + i + '" value="' + _qdInput(dl) + '" style="padding:2px 4px;">')
+          + _qdTd('<button class="btn btn-primary btn-sm" onclick="qdAdd(' + i + ')">追加</button>') + '</tr>';
+      }).join('') + '</table>';
+}
+function _qdAddDaysJs(ymd, n) {
+  var m = String(ymd).match(/^(\d{4})\/(\d{2})\/(\d{2})$/); if (!m) return '';
+  var d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + n);
+  return d.getFullYear() + '/' + String(d.getMonth() + 1).padStart(2, '0') + '/' + String(d.getDate()).padStart(2, '0');
+}
+function qdCandFilter(q) {
+  q = String(q || '').toLowerCase();
+  document.querySelectorAll('#qd-cand-tbl tr[data-q]').forEach(function (tr) { tr.style.display = !q || tr.getAttribute('data-q').indexOf(q) >= 0 ? '' : 'none'; });
+}
+function qdAdd(i) {
+  var c = QD.data.candidates[i]; if (!c) return;
+  var el = document.getElementById('qd-cand-dl-' + i);
+  _qdApi('qdSave', { quoteNo: c.quoteNo, deadline: el ? el.value : '', add: { mgmtId: c.mgmtId, subject: c.subject, client: c.client, submitDate: c.submitDate } }, function () {
+    showToast(c.quoteNo + ' を受注期限の監視に追加しました');
+    _qdApi('qdList', {}, function (res) { QD.data = res; qdRender(); });
+  });
+}
+function qdSave(no, p) {
+  p.quoteNo = no;
+  _qdApi('qdSave', p, function () {
+    showToast('保存しました');
+    _qdApi('qdList', {}, function (res) { QD.data = res; qdRender(); });
+  });
+}
+
+function qdCfgHtml(cfg) {
+  var row = function (label, input, note) { return '<tr>' + _qdTh(label) + _qdTd(input + (note ? '<div style="font-size:11px;color:#64748b;margin-top:2px;">' + note + '</div>' : '')) + '</tr>'; };
+  return '<table style="border-collapse:collapse;font-size:13px;width:100%;max-width:820px;">'
+    + row('毎朝のチェック', '<label><input type="checkbox" id="qd-c-en"' + (cfg.enabled ? ' checked' : '') + '> 有効（平日のみ送信）</label>　時刻 <select id="qd-c-hour">' + Array.from({ length: 24 }, function (_, h) { return '<option value="' + h + '"' + (h === cfg.hour ? ' selected' : '') + '>' + h + '時</option>'; }).join('') + '</select>')
+    + row('受注期限（既定）', '提出日 ＋ <input type="number" id="qd-c-days" min="1" max="365" value="' + cfg.days + '" style="width:70px;"> 日', '自動登録・候補から追加の時の初期値。見積ごとに一覧で変更できます')
+    + row('再通知の間隔', '<input type="number" id="qd-c-rep" min="0" max="30" value="' + cfg.repeatDays + '" style="width:70px;"> 日ごと', '期限翌日に1回送り、解決するまでこの間隔で再通知（0 = 1回だけ）')
+    + row('単発のキーワード', '<textarea id="qd-c-kw" rows="2" style="width:100%;">' + _esc(cfg.keywords.join('、')) + '</textarea>', '件名にどれかを含む見積を単発として自動登録（「、」区切り）')
+    + row('アラームの宛先', '<textarea id="qd-c-to" rows="2" style="width:100%;" placeholder="空欄なら 管理コンソールの通知先メール（' + _esc(cfg.defaultRecipients || '未設定') + '）">' + _esc(cfg.recipients) + '</textarea>', '「みんな」に送る宛先。カンマ区切り。空欄なら管理コンソールの通知先メールへ')
+    + '</table>'
+    + '<div style="margin-top:10px;display:flex;gap:8px;">'
+    + '<button class="btn btn-primary" onclick="qdCfgSave()">💾 設定を保存</button>'
+    + '<button class="btn btn-outline" onclick="qdRunNow()">📨 今すぐ期限切れを送信</button></div>';
+}
+function qdCfgSave() {
+  var v = function (id) { var el = document.getElementById(id); return el ? el.value : ''; };
+  _qdApi('qdCfgSave', {
+    enabled: document.getElementById('qd-c-en').checked, hour: Number(v('qd-c-hour')), days: Number(v('qd-c-days')),
+    repeatDays: Number(v('qd-c-rep')), keywords: v('qd-c-kw'), recipients: v('qd-c-to'),
+  }, function (res) { QD.data = res; showToast('設定を保存しました'); qdRender(); });
+}
+function qdRunNow() {
+  if (!confirm('受注期限を過ぎた単発見積を、今すぐ宛先の全員へメールします。よろしいですか？')) return;
+  _qdApi('qdRunNow', {}, function (r) {
+    showToast(r.sent ? '期限切れ ' + r.count + '件を ' + r.recipients + '名へ送信しました' : '期限切れの単発見積はありません（送信なし）');
+    _qdApi('qdList', {}, function (res) { QD.data = res; qdRender(); });
+  });
+}
+</script>

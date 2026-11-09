@@ -38,6 +38,7 @@ function processDriveImports() {
     try { processed += processServerSyncImports(); } catch(se) { Logger.log('[SERVER SYNC ERROR] ' + se.message); }
     try { ensureServerExportTrigger(); } catch(ee) { Logger.log('[SERVER EXPORT ERROR] ' + ee.message); }
     try { if (typeof _oriCheckReimportDone === 'function') _oriCheckReimportDone(); } catch(re) {}
+    try { if (typeof _qdAutoInit === 'function') _qdAutoInit(); } catch(qe) {}   // 単発見積の受注期限（51）
 
     Logger.log('[DRIVE WATCH] 完了。処理ファイル数: ' + processed);
     return processed;
