@@ -91,6 +91,8 @@ function handleApiRequest(action, payload) {
       case 'qdCfgSave':           res = apiQdCfgSave(payload); break;
       case 'qdRunNow':            res = apiQdRunNow(); break;
       case 'qdMap':               res = apiQdMap(); break;
+      case 'assemblyQuotes':      res = apiAssemblyQuotes(payload); break;   // 52_assembly_quotes.gs
+      case 'assemblyQuotesCfg':   res = apiAssemblyQuotesCfg(payload); break;
       case 'getQuoteDetail':      res = _apiGetQuoteDetail(payload); break;
       case 'ledgerGetAll':        res = _apiLedgerGetAll(); break;
       case 'ledgerSave':          res = _apiLedgerSave(payload); break;

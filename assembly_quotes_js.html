@@ -1,0 +1,136 @@
+<script>
+// ============================================================
+// assembly_quotes_js.html — 価格表「🛠 組立費 構成一覧」（52_assembly_quotes.gs）
+//   ① 構成別：どの構成の組立費見積が、いつ・いくらで提出済みか
+//   ② 機種別予定：進捗管理システムの機種（使用基板・日程）ごとに 見積済み／要見積 と 提出期限
+// ============================================================
+var AQ = { data: null, tab: 'plan', q: '', onlyNeed: false };
+
+(function hookAssemblyPage() {
+  if (typeof initPriceListPage !== 'function') return;
+  var prevInit = initPriceListPage;
+  initPriceListPage = function () {
+    prevInit.apply(this, arguments);
+    var auto = document.getElementById('pl-tab-auto');
+    if (!auto || document.getElementById('pl-tab-aq')) return;
+    var b = document.createElement('button');
+    b.className = 'btn btn-sm btn-outline'; b.id = 'pl-tab-aq'; b.textContent = '🛠 組立費 構成一覧';
+    b.onclick = function () { _plSwitchPageTab('aq'); };
+    auto.before(b);
+    var panel = document.createElement('div'); panel.id = 'pl-panel-aq'; panel.style.display = 'none';
+    panel.innerHTML = '<div id="aq-box"><div class="loading"><div class="spinner"></div><br>読み込み中...</div></div>';
+    document.getElementById('pl-panel-auto').before(panel);
+  };
+  var prevSwitch = _plSwitchPageTab;
+  _plSwitchPageTab = function (tab) {
+    var panel = document.getElementById('pl-panel-aq'), btn = document.getElementById('pl-tab-aq');
+    if (tab === 'aq') {
+      document.querySelectorAll('[id^="pl-panel-"]').forEach(function (p) { p.style.display = 'none'; });
+      document.querySelectorAll('[id^="pl-tab-"]').forEach(function (bt) { bt.className = 'btn btn-sm btn-outline'; });
+      if (panel) panel.style.display = '';
+      if (btn) btn.className = 'btn btn-sm btn-primary';
+      _plPageTab = 'aq';
+      if (AQ.data) aqRender(); else aqLoad();
+      return;
+    }
+    if (panel) panel.style.display = 'none';
+    if (btn) btn.className = 'btn btn-sm btn-outline';
+    return prevSwitch.apply(this, arguments);
+  };
+})();
+
+function aqLoad(cfg) {
+  var box = document.getElementById('aq-box'); if (box) box.innerHTML = '<div class="loading"><div class="spinner"></div><br>組立費の見積と進捗管理の予定を集計しています...</div>';
+  google.script.run.withSuccessHandler(function (res) {
+    if (!res || !res.success) { if (box) box.innerHTML = '<div style="color:var(--danger);padding:16px;">⚠ ' + _esc((res && res.error) || '読み込めませんでした') + '</div>'; return; }
+    AQ.data = res; aqRender();
+  }).withFailureHandler(function (e) { if (box) box.innerHTML = '<div style="color:var(--danger);padding:16px;">⚠ ' + _esc(e.message || String(e)) + '</div>'; })
+    .handleApiRequest(cfg ? 'assemblyQuotesCfg' : 'assemblyQuotes', cfg || {});
+}
+
+var _aqTh = function (t, ex) { return '<th style="border:1px solid #94a3b8;padding:5px 8px;background:#e2e8f0;text-align:left;white-space:nowrap;' + (ex || '') + '">' + t + '</th>'; };
+var _aqTd = function (t, ex) { return '<td style="border:1px solid #cbd5e1;padding:5px 8px;vertical-align:top;' + (ex || '') + '">' + t + '</td>'; };
+var _aqYen = function (n) { return n ? '¥' + Number(n).toLocaleString('ja-JP', { maximumFractionDigits: 2 }) : '—'; };
+var _aqPdf = function (u) { return u ? '<a href="' + _esc(u) + '" target="_blank">📄</a>' : ''; };
+
+function aqRender() {
+  var box = document.getElementById('aq-box'); if (!box || !AQ.data) return;
+  var d = AQ.data;
+  var need = d.plans.filter(function (p) { return p.status === '要見積'; });
+  var soon = need.filter(function (p) { return p.leftDays != null && p.leftDays <= 30; });
+  var tab = function (k, label) { return '<button class="btn btn-sm ' + (AQ.tab === k ? 'btn-primary' : 'btn-outline') + '" onclick="AQ.tab=\'' + k + '\';aqRender()">' + label + '</button>'; };
+  var html = '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">'
+    + tab('plan', '📅 機種別の予定 ' + d.plans.length + (need.length ? '（<b style="color:#dc2626;">要見積 ' + need.length + '</b>）' : ''))
+    + tab('comp', '🛠 構成別の見積 ' + d.comps.length) + tab('cfg', '⚙ 設定')
+    + '<input type="text" placeholder="機種・基板・見積Noで検索" value="' + _esc(AQ.q) + '" oninput="AQ.q=this.value;aqRenderBody()" style="flex:1;min-width:180px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;">'
+    + '<button class="btn btn-outline btn-sm" onclick="aqCsv()" style="color:#16a34a;border-color:#16a34a;">📥 CSV</button>'
+    + '<button class="btn btn-outline btn-sm" onclick="aqLoad()">↻ 再集計</button></div>'
+    + '<div style="font-size:12px;color:var(--text-sub);margin-bottom:6px;">組立費の見積（カテゴリ「組立費」または件名に（完）・組立）を、種類＋使用基板＋区分（新品／中古基板使用／アフター用／見本機）ごとにまとめています。'
+    + '機種別の予定は 進捗管理システムの機種DB（使用基板 M・D・DE・E・C と日程）と突き合わせ、提出期限＝組立予定（量産組立→見本機組立→部品集約時期の早い方）−' + d.cfg.leadDays + '日 です。'
+    + (soon.length ? '<b style="color:#dc2626;"> 30日以内に提出期限が来る要見積 ' + soon.length + '件</b>' : '') + '　集計: ' + _esc(d.generatedAt) + '（シート「組立費_構成別見積」「組立費_機種別予定」にも出力）</div>'
+    + (d.planError ? '<div style="color:#b45309;background:#fffbeb;border:1px solid #fde68a;padding:6px 10px;border-radius:6px;margin-bottom:6px;">⚠ ' + _esc(d.planError) + '</div>' : '')
+    + '<div id="aq-body"></div>';
+  box.innerHTML = html;
+  aqRenderBody();
+}
+
+function _aqHit(s) { var q = String(AQ.q || '').toLowerCase().trim(); return !q || q.split(/\s+/).every(function (k) { return s.toLowerCase().indexOf(k) >= 0; }); }
+
+function aqRenderBody() {
+  var el = document.getElementById('aq-body'); if (!el || !AQ.data) return;
+  var d = AQ.data;
+  if (AQ.tab === 'cfg') {
+    el.innerHTML = '<table style="border-collapse:collapse;font-size:13px;max-width:760px;width:100%;">'
+      + '<tr>' + _aqTh('提出期限の準備日数') + _aqTd('組立予定の <input type="number" id="aq-lead" min="0" max="365" value="' + d.cfg.leadDays + '" style="width:70px;"> 日前を提出期限にする') + '</tr>'
+      + '<tr>' + _aqTh('進捗管理のスプレッドシート') + _aqTd('<input type="text" id="aq-ss" value="' + _esc(d.cfg.progressSsId) + '" style="width:100%;"><div style="font-size:11px;color:#64748b;">進捗管理システムが毎朝7時に書き出す「DB_機種」「DB_登録機種」シートのあるスプレッドシート（IDまたはURL）</div>') + '</tr></table>'
+      + '<button class="btn btn-primary btn-sm" style="margin-top:8px;" onclick="aqLoad({leadDays:Number(document.getElementById(\'aq-lead\').value),progressSsId:document.getElementById(\'aq-ss\').value})">💾 保存して再集計</button>';
+    return;
+  }
+  if (AQ.tab === 'comp') {
+    var rows = d.comps.filter(function (c) { return _aqHit([c.type, c.boards.join(' '), c.variant].concat(c.quotes.map(function (q) { return q.quoteNo + ' ' + q.subject; })).join(' ')); });
+    var used = {};
+    d.plans.forEach(function (p) { p.quotes.forEach(function (q) { (used[q.quoteNo] = used[q.quoteNo] || []).push(p.machine); }); });
+    var lastType = '';
+    el.innerHTML = '<div class="bpt-wrap" style="overflow:auto;"><table style="border-collapse:collapse;font-size:12px;width:100%;"><tr>'
+      + ['種類', '使用基板', '区分', '最新見積No', '提出日', '金額', 'PDF', '件数', '件名', '採用予定の機種'].map(function (t) { return _aqTh(t); }).join('') + '</tr>'
+      + rows.map(function (c) {
+          var l = c.latest || {};
+          var sec = c.type !== lastType ? '<tr><td colspan="10" style="background:#f1f5f9;font-weight:700;border:1px solid #cbd5e1;padding:4px 8px;">' + _esc(c.type) + '</td></tr>' : '';
+          lastType = c.type;
+          var hist = c.quotes.slice(1).map(function (q) { return _esc(q.quoteNo) + ' ' + _aqYen(q.amount) + ' ' + _esc(q.date) + (q.archived ? '（' + _esc(q.status) + '）' : ''); }).join('<br>');
+          return sec + '<tr>' + _aqTd('') + _aqTd('<b>' + _esc(c.boards.join(' / ') || '（件名に基板なし）') + '</b>')
+            + _aqTd(_esc(c.variant)) + _aqTd('<b>' + _esc(l.quoteNo || '') + '</b>', 'white-space:nowrap;') + _aqTd(_esc(l.date || ''), 'white-space:nowrap;')
+            + _aqTd(_aqYen(l.amount), 'text-align:right;white-space:nowrap;background:#fef9c3;font-weight:700;') + _aqTd(_aqPdf(l.pdfUrl))
+            + _aqTd(c.count + (hist ? '<details><summary style="cursor:pointer;font-size:11px;">過去</summary><div style="font-size:11px;">' + hist + '</div></details>' : ''))
+            + _aqTd(_esc(l.subject || ''), 'max-width:280px;') + _aqTd(_esc((used[l.quoteNo] || []).join('、'))) + '</tr>';
+        }).join('') + '</table></div>';
+    return;
+  }
+  var plans = d.plans.filter(function (p) { return (!AQ.onlyNeed || p.status !== '見積済み') && _aqHit([p.machine, p.title, p.type, p.boards].concat(p.quotes.map(function (q) { return q.quoteNo; })).join(' ')); });
+  el.innerHTML = '<label style="font-size:12px;display:inline-flex;gap:4px;align-items:center;margin-bottom:6px;"><input type="checkbox"' + (AQ.onlyNeed ? ' checked' : '') + ' onchange="AQ.onlyNeed=this.checked;aqRenderBody()"> 要見積・一部一致だけ表示</label>'
+    + '<div class="bpt-wrap" style="overflow:auto;"><table style="border-collapse:collapse;font-size:12px;width:100%;"><tr>'
+    + ['機種', 'タイトル', '販売時期', '種類', '使用基板', '見積状況', '提出済みの見積（区分 / 見積No / 金額 / 提出日）', '基準の日程', '提出期限', '残り', '進捗'].map(function (t) { return _aqTh(t); }).join('') + '</tr>'
+    + plans.map(function (p) {
+        var stc = p.status === '見積済み' ? 'background:#dcfce7;color:#166534;' : p.status === '一部一致' ? 'background:#fef3c7;color:#92400e;' : 'background:#fee2e2;color:#b91c1c;font-weight:700;';
+        var left = p.leftDays == null ? '' : p.leftDays < 0 ? '<b style="color:#dc2626;">' + (-p.leftDays) + '日超過</b>' : 'あと' + p.leftDays + '日';
+        var q = p.quotes.map(function (x) { return _esc(x.variant) + ' / <b>' + _esc(x.quoteNo) + '</b> / ' + _aqYen(x.amount) + ' / ' + _esc(x.date) + ' ' + _aqPdf(x.pdfUrl) + (p.status === '一部一致' ? '<br><small style="color:#92400e;">（' + _esc(x.boards) + '）</small>' : ''); }).join('<br>');
+        var warn = p.status === '要見積' && p.leftDays != null && p.leftDays <= 30;
+        return '<tr' + (warn ? ' style="background:#fff7ed;"' : '') + '>' + _aqTd('<b>' + _esc(p.machine) + '</b><br><small>' + _esc(p.customer) + '</small>', 'white-space:nowrap;') + _aqTd(_esc(p.title))
+          + _aqTd(_esc(p.sales), 'white-space:nowrap;') + _aqTd(_esc(p.type), 'white-space:nowrap;') + _aqTd(_esc(p.boards))
+          + _aqTd(_esc(p.status), stc + 'white-space:nowrap;') + _aqTd(q || '<span style="color:#94a3b8;">—</span>')
+          + _aqTd(p.baseDate ? _esc(p.baseLabel) + '<br>' + _esc(p.baseDate) : '<span style="color:#94a3b8;">日程未登録</span>', 'white-space:nowrap;')
+          + _aqTd(_esc(p.deadline || ''), 'white-space:nowrap;' + (warn ? 'background:#fef08a;font-weight:700;' : '')) + _aqTd(left, 'white-space:nowrap;') + _aqTd(_esc(p.progressStatus)) + '</tr>';
+      }).join('') + '</table></div>';
+}
+
+function aqCsv() {
+  var d = AQ.data; if (!d) return;
+  if (AQ.tab === 'comp') {
+    _downloadCsv('組立費_構成別見積_' + _today() + '.csv', ['種類', '使用基板', '区分', '最新見積No', '提出日', '金額', '件数', '件名'],
+      d.comps.map(function (c) { var l = c.latest || {}; return [c.type, c.boards.join(' / '), c.variant, l.quoteNo || '', l.date || '', l.amount || '', c.count, l.subject || '']; }));
+  } else {
+    _downloadCsv('組立費_機種別予定_' + _today() + '.csv', ['機種', '得意先', 'タイトル', '販売時期', '種類', '使用基板', '見積状況', '見積', '基準日程', '基準日', '提出期限', '残り日数', '進捗'],
+      d.plans.map(function (p) { return [p.machine, p.customer, p.title, p.sales, p.type, p.boards, p.status, p.quotes.map(function (q) { return q.variant + ':' + q.quoteNo + ' ' + q.amount + ' ' + q.date; }).join(' / '), p.baseLabel, p.baseDate, p.deadline, p.leftDays == null ? '' : p.leftDays, p.progressStatus]; }));
+  }
+}
+</script>
