@@ -17,6 +17,8 @@ var AQ_PROGRESS_SS_DEFAULT = '18qSYWAIyskR9qfBPC8mGp85XcLRMe4i0WuXXERAJ4-c'; // 
 var AQ_PROP = 'ASSEMBLY_QUOTE_CFG';
 var AQ_SHEET_COMP = '組立費_構成別見積';
 var AQ_SHEET_PLAN = '組立費_機種別予定';
+var AQ_SHEET_EXTRA = '組立費_追加費用';   // 構成ごとの 解体費・リユース組立費・検査費（手入力）
+var AQ_EXTRA_FIELDS = [['dismantle', '解体費'], ['reuseAssy', 'リユース組立費'], ['inspect', '検査費']];
 
 function _aqCfg() {
   var c = {};
@@ -44,26 +46,52 @@ function _aqBoardKind(code) {
   if (/^DE/.test(code)) return 'DE';
   return code.charAt(0);
 }
-/** 種類：件名から。無ければ基板から推定 */
+// ── 組立の種類・区分（管理画面「⚙ 設定」で追加・変更できる。上から順にキーワードで判定）──
+var AQ_DEFAULT_TYPES = [
+  { name: '主基板',                     keywords: ['主制御', '主基板'],           boards: ['M'] },
+  { name: '液晶演出制御基板',           keywords: ['液晶', '演出制御'],           boards: ['D', 'DE', 'E', 'SNB'] },
+  { name: '枠制御基板（パチンコ）',     keywords: ['枠制御'],                     boards: ['C'] },
+  { name: 'メダル数制御基板（スロット）', keywords: ['メダル'],                   boards: [] },
+  { name: 'サブ制御基板',               keywords: ['サブ'],                       boards: ['S'] },
+];
+var AQ_DEFAULT_VARIANTS = [
+  { name: '見本機',         keywords: ['見本機'] },
+  { name: 'アフター用',     keywords: ['アフター'] },
+  { name: 'リユース（エコ）', keywords: ['リユース', 'エコ', 'AG6R'] },
+  { name: 'D基板中古品',    keywords: ['D基板中古', 'D基板 中古', 'D基板中古基板'] },
+  { name: 'オール中古品',   keywords: ['ALL中古', 'オール中古', '全中古', 'ALL 中古'] },
+  { name: '中古基板使用',   keywords: ['中古'] },
+  { name: '新品',           keywords: [] },   // どれにも当たらない時
+];
+function _aqTypes() { var c = _aqCfgRaw(); return Array.isArray(c.types) && c.types.length ? c.types : AQ_DEFAULT_TYPES; }
+function _aqVariants() { var c = _aqCfgRaw(); return Array.isArray(c.variants) && c.variants.length ? c.variants : AQ_DEFAULT_VARIANTS; }
+function _aqCfgRaw() { try { return JSON.parse(PropertiesService.getScriptProperties().getProperty(AQ_PROP) || '{}'); } catch (e) { return {}; } }
+function _aqHasKw(s, kws) { return (kws || []).some(function (k) { k = _aqNorm(k).trim(); return k && s.indexOf(k) >= 0; }); }
+
+/** 種類：件名のキーワード → 無ければ基板の頭文字から */
 function _aqType(subject, boards) {
-  var s = _aqNorm(subject);
-  if (/主制御/.test(s)) return '主制御基板';
-  if (/液晶|演出制御/.test(s)) return '液晶演出制御基板';
-  if (/枠制御|メダル/.test(s)) return '枠制御基板';
-  if (/サブ/.test(s)) return 'サブ制御基板';
+  var s = _aqNorm(subject), types = _aqTypes();
+  for (var i = 0; i < types.length; i++) if (_aqHasKw(s, types[i].keywords)) return types[i].name;
   var k = boards.map(_aqBoardKind);
-  if (k.indexOf('M') >= 0) return '主制御基板';
-  if (k.some(function (x) { return x === 'D' || x === 'DE' || x === 'E' || x === 'SNB'; })) return '液晶演出制御基板';
-  if (k.indexOf('C') >= 0) return '枠制御基板';
+  for (var j = 0; j < types.length; j++) if ((types[j].boards || []).some(function (b) { return k.indexOf(b) >= 0; })) return types[j].name;
   return 'その他';
 }
+/** 区分：件名のキーワード（上から順）。どれにも当たらなければ キーワード無しの区分（新品） */
 function _aqVariant(subject) {
-  var s = _aqNorm(subject);
-  if (/見本機/.test(s)) return '見本機';
-  if (/アフター/.test(s)) return 'アフター用';
-  if (/中古|リユース|エコ/.test(s)) return '中古基板使用';
-  return '新品';
+  var s = _aqNorm(subject), vs = _aqVariants(), def = '新品';
+  for (var i = 0; i < vs.length; i++) {
+    if (!(vs[i].keywords || []).length) { def = vs[i].name; continue; }
+    if (_aqHasKw(s, vs[i].keywords)) return vs[i].name;
+  }
+  return def;
 }
+/** 機種の使用基板（頭文字）→ 必要な組立の種類 */
+function _aqTypeForBoard(kind) {
+  var types = _aqTypes();
+  for (var i = 0; i < types.length; i++) if ((types[i].boards || []).indexOf(kind) >= 0) return types[i].name;
+  return '';
+}
+
 function _aqIsAssembly(q) {
   if (String(q.category || '') === '組立費') return true;
   var s = String(q.subject || '').normalize('NFKC');
@@ -92,7 +120,7 @@ function _aqCompositions() {
   var ql = _apiQuoteListGetAll();
   if (!ql.success) throw new Error(ql.error);
   var arch = (typeof ARCHIVE_STATUSES !== 'undefined') ? ARCHIVE_STATUSES : ['ボツ', '旧見積'];
-  var groups = {};
+  var groups = {}, extras = _aqExtras();
   ql.items.filter(_aqIsAssembly).forEach(function (q) {
     var boards = _aqBoards(q.subject + ' ' + (q.boardName || ''));
     var type = _aqType(q.subject, boards), variant = _aqVariant(q.subject);
@@ -108,12 +136,45 @@ function _aqCompositions() {
     g.quotes.sort(function (a, b) { return String(b.date).localeCompare(String(a.date)) || String(b.quoteNo).localeCompare(String(a.quoteNo)); });
     var live = g.quotes.filter(function (x) { return !x.archived; });
     g.latest = live[0] || g.quotes[0];
+    var ex = extras[g.key] || {};
+    g.extra = { dismantle: ex.dismantle == null ? null : ex.dismantle, reuseAssy: ex.reuseAssy == null ? null : ex.reuseAssy, inspect: ex.inspect == null ? null : ex.inspect, memo: ex.memo || '' };
     g.count = g.quotes.length;
     return g;
   }).sort(function (a, b) {
-    var order = ['主制御基板', '液晶演出制御基板', '枠制御基板', 'サブ制御基板', 'その他'];
+    var order = _aqTypes().map(function (t) { return t.name; }).concat(['その他']);
     return (order.indexOf(a.type) - order.indexOf(b.type)) || a.boardKey.localeCompare(b.boardKey) || a.variant.localeCompare(b.variant);
   });
+}
+
+function _aqExtraSheet() {
+  var ss = getSpreadsheet(), sh = ss.getSheetByName(AQ_SHEET_EXTRA);
+  if (!sh) {
+    sh = ss.insertSheet(AQ_SHEET_EXTRA);
+    sh.getRange(1, 1, 1, 8).setValues([['構成キー', '種類', '使用基板', '区分', '解体費', 'リユース組立費', '検査費', 'メモ']]).setFontWeight('bold').setBackground('#FFF3E0');
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+function _aqExtras() {
+  var sh = _aqExtraSheet(), out = {};
+  if (sh.getLastRow() < 2) return out;
+  sh.getRange(2, 1, sh.getLastRow() - 1, 8).getValues().forEach(function (r, i) {
+    if (!r[0]) return;
+    out[String(r[0])] = { row: i + 2, dismantle: r[4] === '' ? null : Number(r[4]), reuseAssy: r[5] === '' ? null : Number(r[5]), inspect: r[6] === '' ? null : Number(r[6]), memo: String(r[7] || '') };
+  });
+  return out;
+}
+/** 追加費用の保存 p: { key, type, boards, variant, dismantle, reuseAssy, inspect, memo } */
+function apiAssemblyExtraSave(p) {
+  try {
+    p = p || {};
+    if (!p.key) return { success: false, error: '構成が特定できません' };
+    var num = function (v) { if (v === '' || v == null) return ''; var n = Number(String(v).normalize('NFKC').replace(/[,¥￥円\s]/g, '')); if (isNaN(n)) throw new Error('金額は数値で入力してください'); return Math.round(n * 100) / 100; };
+    var row = [p.key, p.type || '', p.boards || '', p.variant || '', num(p.dismantle), num(p.reuseAssy), num(p.inspect), p.memo || ''];
+    var sh = _aqExtraSheet(), cur = _aqExtras()[p.key];
+    if (cur) sh.getRange(cur.row, 1, 1, 8).setValues([row]); else sh.appendRow(row);
+    return { success: true };
+  } catch (e) { return { success: false, error: e.message }; }
 }
 
 /** 進捗管理のDBシートを読む（見出し名で列を引く） */
@@ -151,10 +212,13 @@ function _aqPlans(comps, cfg) {
     var r = reg[id] || {};
     var col = function (k) { return _aqBoards(m[k] || ''); };
     var M = col('M'), D = col('D'), DE = col('DE'), E = col('E'), C = col('C');
-    var needs = [];
-    if (M.length) needs.push({ type: '主制御基板', boards: M });
-    if (D.length || DE.length || E.length) needs.push({ type: '液晶演出制御基板', boards: D.concat(DE, E) });
-    if (C.length) needs.push({ type: '枠制御基板', boards: C });
+    var needs = [], byType = {};
+    [['M', M], ['D', D], ['DE', DE], ['E', E], ['C', C]].forEach(function (x) {
+      if (!x[1].length) return;
+      var t = _aqTypeForBoard(x[0]); if (!t) return;
+      (byType[t] = byType[t] || []).push.apply(byType[t], x[1]);
+    });
+    Object.keys(byType).forEach(function (t) { needs.push({ type: t, boards: byType[t] }); });
     if (!needs.length) return;
 
     var dates = [
@@ -200,8 +264,8 @@ function _aqWriteSheets(comps, plans) {
     sh.setFrozenRows(1);
     sh.getRange(1, headers.length + 2).setValue('最終更新: ' + now);
   };
-  write(AQ_SHEET_COMP, ['種類', '使用基板', '区分', '最新見積No', '提出日', '金額', '見積書PDF', '見積件数', '件名'],
-    comps.map(function (c) { var l = c.latest || {}; return [c.type, c.boards.join(' / '), c.variant, l.quoteNo || '', l.date || '', l.amount || '', l.pdfUrl || '', c.count, l.subject || '']; }));
+  write(AQ_SHEET_COMP, ['種類', '使用基板', '区分', '最新見積No', '提出日', '金額', '解体費', 'リユース組立費', '検査費', '見積書PDF', '見積件数', '件名'],
+    comps.map(function (c) { var l = c.latest || {}; var x = c.extra || {}; return [c.type, c.boards.join(' / '), c.variant, l.quoteNo || '', l.date || '', l.amount || '', x.dismantle == null ? '' : x.dismantle, x.reuseAssy == null ? '' : x.reuseAssy, x.inspect == null ? '' : x.inspect, l.pdfUrl || '', c.count, l.subject || '']; }));
   write(AQ_SHEET_PLAN, ['機種', '得意先', 'タイトル', '販売時期', '種類', '使用基板', '見積状況', '見積（区分:見積No 金額 提出日）', '基準日程', '基準日', '提出期限', '残り日数', '進捗ステータス'],
     plans.map(function (p) {
       return [p.machine, p.customer, p.title, p.sales, p.type, p.boards, p.status,
@@ -218,6 +282,7 @@ function apiAssemblyQuotes(p) {
     var plans = [], planError = '';
     try { plans = _aqPlans(comps, cfg); } catch (e) { planError = '進捗管理システムのスプレッドシートを読めませんでした：' + e.message; }
     try { _aqWriteSheets(comps, plans); } catch (e2) { Logger.log('[apiAssemblyQuotes write] ' + e2.message); }
+    cfg.types = _aqTypes(); cfg.variants = _aqVariants();
     return { success: true, comps: comps, plans: plans, planError: planError, cfg: cfg, generatedAt: nowJST() };
   } catch (e) {
     Logger.log('[apiAssemblyQuotes] ' + e.message + '\n' + e.stack);
@@ -231,6 +296,16 @@ function apiAssemblyQuotesCfg(p) {
     p = p || {};
     var c = {}; try { c = JSON.parse(PropertiesService.getScriptProperties().getProperty(AQ_PROP) || '{}'); } catch (e) {}
     if (p.leadDays != null) c.leadDays = Math.max(0, Math.min(365, Number(p.leadDays) || 0));
+    var clean = function (list, withBoards) {
+      return (list || []).map(function (t) {
+        var o = { name: String(t.name || '').trim(), keywords: (Array.isArray(t.keywords) ? t.keywords : String(t.keywords || '').split(/[,、\n]+/)).map(function (k) { return String(k).trim(); }).filter(Boolean) };
+        if (withBoards) o.boards = (Array.isArray(t.boards) ? t.boards : String(t.boards || '').split(/[,、\s]+/)).map(function (k) { return String(k).trim().toUpperCase(); }).filter(Boolean);
+        return o;
+      }).filter(function (t) { return t.name; });
+    };
+    if (p.types) c.types = clean(p.types, true);
+    if (p.variants) c.variants = clean(p.variants, false);
+    if (p.resetLists) { delete c.types; delete c.variants; }
     if (p.progressSsId != null) {
       var m = String(p.progressSsId).match(/[-\w]{25,}/);
       c.progressSsId = m ? m[0] : '';
