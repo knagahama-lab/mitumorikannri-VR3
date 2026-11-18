@@ -94,6 +94,10 @@ function handleApiRequest(action, payload) {
       case 'assemblyQuotes':      res = apiAssemblyQuotes(payload); break;   // 52_assembly_quotes.gs
       case 'assemblyQuotesCfg':   res = apiAssemblyQuotesCfg(payload); break;
       case 'assemblyExtraSave':   res = apiAssemblyExtraSave(payload); break;
+      case 'vqList':              res = apiVqList(); break;            // 53_vendor_quotes.gs 依頼先見積書
+      case 'vqSave':              res = apiVqSave(payload); break;
+      case 'vqDelete':            res = apiVqDelete(payload); break;
+      case 'vqKindsSave':         res = apiVqKindsSave(payload); break;
       case 'getQuoteDetail':      res = _apiGetQuoteDetail(payload); break;
       case 'ledgerGetAll':        res = _apiLedgerGetAll(); break;
       case 'ledgerSave':          res = _apiLedgerSave(payload); break;

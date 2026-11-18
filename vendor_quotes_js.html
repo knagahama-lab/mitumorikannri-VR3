@@ -1,0 +1,136 @@
+<script>
+// ============================================================
+// vendor_quotes_js.html — 案件一覧「🏭 依頼先見積書」タブ（53_vendor_quotes.gs）
+//   実装会社・組立会社・部品メーカーから受け取った見積書。PDFアップロードと件名は手入力（OCRなし）
+// ============================================================
+var VQ = { items: [], kinds: [], folderUrl: '', kind: '', q: '', loaded: false, edit: null };
+
+window.addEventListener('load', function () {
+  var ob = document.getElementById('subtab-order');
+  if (!ob || document.getElementById('subtab-vendor')) return;
+  var b = document.createElement('button');
+  b.id = 'subtab-vendor'; b.textContent = '🏭 依頼先見積書';
+  b.style.cssText = 'padding:8px 20px;border:none;background:none;font-size:14px;font-weight:500;color:var(--text-sub);border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;';
+  b.onclick = function () { switchSubTab('vendor'); };
+  ob.after(b);
+  var area = document.createElement('div'); area.id = 'area-vendor'; area.style.display = 'none';
+  area.innerHTML = '<div id="vq-box"><div class="loading"><div class="spinner"></div><br>読み込み中...</div></div>';
+  var ao = document.getElementById('area-order');
+  ao.parentNode.insertBefore(area, ao);
+  var orig = switchSubTab;
+  switchSubTab = function (tab) {
+    var vb = document.getElementById('subtab-vendor'), va = document.getElementById('area-vendor');
+    if (tab === 'vendor') {
+      ['area-order', 'area-quote'].forEach(function (id) { var el = document.getElementById(id); if (el) el.style.display = 'none'; });
+      ['subtab-order', 'subtab-quote'].forEach(function (id) { var el = document.getElementById(id); if (el) { el.style.color = 'var(--text-sub)'; el.style.fontWeight = '500'; el.style.borderBottom = '2px solid transparent'; } });
+      va.style.display = ''; vb.style.color = 'var(--primary)'; vb.style.fontWeight = '600'; vb.style.borderBottom = '2px solid var(--primary)';
+      if (VQ.loaded) vqRender(); else vqLoad();
+      return;
+    }
+    va.style.display = 'none'; vb.style.color = 'var(--text-sub)'; vb.style.fontWeight = '500'; vb.style.borderBottom = '2px solid transparent';
+    return orig.apply(this, arguments);
+  };
+});
+
+function _vqApi(action, payload, ok, ng) {
+  google.script.run.withSuccessHandler(function (r) {
+    if (!r || !r.success) { showToast((r && r.error) || 'エラーが発生しました', true); ng && ng(); return; }
+    ok && ok(r);
+  }).withFailureHandler(function (e) { showToast(e.message || String(e), true); ng && ng(); }).handleApiRequest(action, payload || {});
+}
+function vqLoad() {
+  _vqApi('vqList', {}, function (r) { VQ.items = r.items; VQ.kinds = r.kinds; VQ.folderUrl = r.folderUrl; VQ.loaded = true; vqRender(); },
+    function () { var b = document.getElementById('vq-box'); if (b) b.innerHTML = '<div style="color:var(--danger);padding:16px;">読み込めませんでした <button class="btn btn-outline btn-sm" onclick="vqLoad()">↻</button></div>'; });
+}
+var _vqYen = function (n) { return n == null || n === '' ? '' : '¥' + Number(n).toLocaleString('ja-JP', { maximumFractionDigits: 2 }); };
+
+function vqRender() {
+  var box = document.getElementById('vq-box'); if (!box) return;
+  var kws = String(VQ.q || '').toLowerCase().split(/\s+/).filter(Boolean);
+  var list = VQ.items.filter(function (x) {
+    if (VQ.kind && x.kind !== VQ.kind) return false;
+    var t = [x.kind, x.vendor, x.subject, x.quoteNo, x.related, x.memo, x.fileName].join(' ').toLowerCase();
+    return kws.every(function (k) { return t.indexOf(k) >= 0; });
+  });
+  var cnt = {}; VQ.items.forEach(function (x) { cnt[x.kind] = (cnt[x.kind] || 0) + 1; });
+  var chip = function (k, label) { return '<button class="btn btn-sm ' + (VQ.kind === k ? 'btn-primary' : 'btn-outline') + '" onclick="VQ.kind=\'' + k + '\';vqRender()">' + label + '</button>'; };
+  var th = function (t) { return '<th style="padding:8px;text-align:left;font-size:12px;color:var(--text-sub);border-bottom:2px solid var(--border);white-space:nowrap;">' + t + '</th>'; };
+  var td = function (t, ex) { return '<td style="padding:8px;border-bottom:1px solid #f0f2f5;font-size:13px;' + (ex || '') + '">' + t + '</td>'; };
+  box.innerHTML = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">' + chip('', 'すべて ' + VQ.items.length)
+    + VQ.kinds.map(function (k) { return chip(k, _esc(k) + ' ' + (cnt[k] || 0)); }).join('') + '</div>'
+    + '<div class="card" style="padding:12px;margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
+    + '<div class="search-box" style="flex:1;min-width:220px;"><input type="text" placeholder="依頼先・件名・見積No・関連で検索..." value="' + _esc(VQ.q) + '" oninput="VQ.q=this.value;vqRender();this.focus();this.setSelectionRange(this.value.length,this.value.length)"></div>'
+    + '<button class="btn btn-primary btn-sm" onclick="vqEdit(null)">＋ 見積書を登録</button>'
+    + (VQ.folderUrl ? '<a class="btn btn-outline btn-sm" href="' + _esc(VQ.folderUrl) + '" target="_blank">📁 保存先フォルダ</a>' : '')
+    + '<button class="btn btn-outline btn-sm" onclick="vqKinds()">⚙ 区分</button>'
+    + '<button class="btn btn-outline btn-sm" style="color:#16a34a;border-color:#16a34a;" onclick="vqCsv()">📥 CSV</button>'
+    + '<button class="btn btn-outline btn-sm" onclick="vqLoad()">↻</button></div>'
+    + '<div class="card" style="padding:0;overflow:auto;"><div style="padding:12px 16px;font-weight:700;">依頼先見積書 <span style="font-weight:400;color:var(--text-sub);font-size:12px;">' + list.length + '件</span></div>'
+    + (list.length ? '<table style="width:100%;border-collapse:collapse;"><tr>' + ['区分', '依頼先', '件名', '見積No', '見積日', '金額', '関連', 'PDF', 'メモ', ''].map(th).join('') + '</tr>'
+      + list.map(function (x) {
+          return '<tr>' + td('<span style="font-size:11px;background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;border-radius:4px;padding:1px 6px;white-space:nowrap;">' + _esc(x.kind) + '</span>')
+            + td('<b>' + _esc(x.vendor) + '</b>') + td(_esc(x.subject)) + td(_esc(x.quoteNo), 'white-space:nowrap;') + td(_esc(x.date), 'white-space:nowrap;')
+            + td(_vqYen(x.amount), 'text-align:right;white-space:nowrap;') + td(_esc(x.related))
+            + td(x.url ? '<a href="' + _esc(x.url) + '" target="_blank" title="' + _esc(x.fileName) + '">📄 PDF</a>' : '<span style="color:#94a3b8;">—</span>')
+            + td(_esc(x.memo), 'font-size:12px;color:var(--text-sub);')
+            + td('<button class="btn btn-outline btn-sm" onclick="vqEdit(\'' + _esc(x.id) + '\')">✏️</button> <button class="btn btn-outline btn-sm" onclick="vqDel(\'' + _esc(x.id) + '\')">🗑</button>', 'white-space:nowrap;') + '</tr>';
+        }).join('') + '</table>'
+      : '<div class="loading">' + (VQ.items.length ? '該当なし' : 'まだ登録がありません。「＋ 見積書を登録」から登録してください。') + '</div>') + '</div>';
+}
+
+function vqEdit(id) {
+  var x = id ? VQ.items.filter(function (i) { return i.id === id; })[0] : null;
+  VQ.edit = id || null;
+  var ov = document.createElement('div'); ov.id = 'vq-modal';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+  var f = function (label, inner, full) { return '<div style="' + (full ? 'grid-column:1/-1;' : '') + '"><label style="display:block;font-size:11px;font-weight:700;color:var(--text-sub);margin-bottom:3px;">' + label + '</label>' + inner + '</div>'; };
+  var inp = function (idn, v, ph, type) { return '<input id="' + idn + '" type="' + (type || 'text') + '" value="' + _esc(v || '') + '" placeholder="' + (ph || '') + '" style="width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:6px;font-size:13px;box-sizing:border-box;">'; };
+  ov.innerHTML = '<div style="background:#fff;border-radius:10px;max-width:640px;width:100%;max-height:90vh;overflow:auto;padding:18px;">'
+    + '<h3 style="margin:0 0 12px;">' + (x ? '✏️ 依頼先見積書を編集' : '＋ 依頼先見積書を登録') + '</h3>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">'
+    + f('区分 *', '<select id="vq-kind" style="width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:6px;">' + VQ.kinds.map(function (k) { return '<option' + (x && x.kind === k ? ' selected' : '') + '>' + _esc(k) + '</option>'; }).join('') + '</select>')
+    + f('依頼先（会社名）', inp('vq-vendor', x && x.vendor, '例: 岐阜電子工業'))
+    + f('見積書の件名 *', inp('vq-subject', x && x.subject, '例: FJ+M2601A 実装費 見積'), true)
+    + f('見積No', inp('vq-no', x && x.quoteNo)) + f('見積日', inp('vq-date', x && x.date ? x.date.replace(/\//g, '-') : '', '', 'date'))
+    + f('金額（円）', inp('vq-amount', x && x.amount != null ? x.amount : '', '例: 12345.67')) + f('関連（機種・基板・弊社見積No）', inp('vq-related', x && x.related, '例: A88 / FJ+DE2502A / M2026-130'))
+    + f('PDF' + (x && x.url ? '（選ぶと差し替え。<a href="' + _esc(x.url) + '" target="_blank">現在のPDF</a>）' : ''), '<input id="vq-file" type="file" accept=".pdf,.png,.jpg,.jpeg,.xlsx,.xls">', true)
+    + f('メモ', '<textarea id="vq-memo" rows="2" style="width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:6px;box-sizing:border-box;">' + _esc(x && x.memo || '') + '</textarea>', true)
+    + '</div><div style="display:flex;justify-content:flex-end;gap:8px;margin-top:14px;">'
+    + '<button class="btn btn-outline" onclick="document.getElementById(\'vq-modal\').remove()">キャンセル</button>'
+    + '<button class="btn btn-primary" id="vq-save" onclick="vqSave()">💾 保存</button></div></div>';
+  document.body.appendChild(ov);
+}
+
+function vqSave() {
+  var g = function (id) { var el = document.getElementById(id); return el ? el.value : ''; };
+  var p = { id: VQ.edit, kind: g('vq-kind'), vendor: g('vq-vendor'), subject: g('vq-subject'), quoteNo: g('vq-no'), date: g('vq-date'),
+            amount: g('vq-amount'), related: g('vq-related'), memo: g('vq-memo') };
+  if (!p.subject.trim()) { showToast('見積書の件名を入力してください', true); return; }
+  var file = (document.getElementById('vq-file').files || [])[0];
+  var btn = document.getElementById('vq-save'); btn.disabled = true; btn.textContent = '保存中…';
+  var send = function () {
+    _vqApi('vqSave', p, function () { var m = document.getElementById('vq-modal'); if (m) m.remove(); showToast('保存しました'); vqLoad(); },
+      function () { btn.disabled = false; btn.textContent = '💾 保存'; });
+  };
+  if (!file) { send(); return; }
+  if (file.size > 20 * 1024 * 1024) { showToast('ファイルが20MBを超えています', true); btn.disabled = false; btn.textContent = '💾 保存'; return; }
+  var rd = new FileReader();
+  rd.onload = function () { p.file = { name: file.name, mimeType: file.type || 'application/pdf', base64: String(rd.result).split(',')[1] }; send(); };
+  rd.readAsDataURL(file);
+}
+
+function vqDel(id) {
+  var x = VQ.items.filter(function (i) { return i.id === id; })[0]; if (!x) return;
+  if (!confirm('「' + x.subject + '」を一覧から削除します（PDFはDriveに残ります）。よろしいですか？')) return;
+  _vqApi('vqDelete', { id: id }, function () { showToast('削除しました'); vqLoad(); });
+}
+function vqKinds() {
+  var v = prompt('区分を「、」区切りで入力してください（表示順）', VQ.kinds.join('、'));
+  if (v == null) return;
+  _vqApi('vqKindsSave', { kinds: v.split(/[,、\n]+/) }, function (r) { VQ.kinds = r.kinds; VQ.items = r.items; showToast('区分を保存しました'); vqRender(); });
+}
+function vqCsv() {
+  _downloadCsv('依頼先見積書_' + _today() + '.csv', ['区分', '依頼先', '件名', '見積No', '見積日', '金額', '関連', 'PDF', 'メモ', '登録日時'],
+    VQ.items.map(function (x) { return [x.kind, x.vendor, x.subject, x.quoteNo, x.date, x.amount == null ? '' : x.amount, x.related, x.url, x.memo, x.createdAt]; }));
+}
+</script>
