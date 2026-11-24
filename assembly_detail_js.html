@@ -6,21 +6,67 @@
 var AQ_FR_COLS = [['machine', '機種'], ['title', 'タイトル'], ['kind', '種別'], ['frame', '枠構成'], ['M', '主制御基板'], ['D', '液晶制御基板'], ['vdp', 'VDP'],
                   ['DE', '液晶IF基板'], ['E', '演出IF基板'], ['C', '枠制御・メダル数制御'], ['memo', '備考'], ['version', '版']];
 
-function _adApi(action, payload, ok, ng) {
+// 保存は1件ずつ順番に送る。通信エラーや混雑の時は自動で送り直し、それでもだめなら「もう一度送る」で再送できる
+var ADQ = { list: [], busy: false, failed: [] };
+function _adApi(action, payload, ok, ng) { ADQ.list.push({ action: action, payload: payload || {}, ok: ok, ng: ng, n: 0 }); _adNext(); }
+function _adNext() {
+  _adBadge();
+  if (ADQ.busy || !ADQ.list.length) return;
+  var j = ADQ.list[0]; ADQ.busy = true;
+  var done = function () { ADQ.list.shift(); ADQ.busy = false; _adNext(); };
+  var fail = function (msg, retry) {
+    if (retry && j.n < 3) { j.n++; setTimeout(function () { ADQ.busy = false; _adNext(); }, 1500 * j.n); return; }
+    if (retry) ADQ.failed.push(j);
+    showToast(msg, true);
+    try { if (j.ng) j.ng(); } catch (e) {}
+    done();
+  };
   google.script.run.withSuccessHandler(function (r) {
-    if (!r || !r.success) { showToast((r && r.error) || '保存できませんでした', true); if (ng) ng(); return; }
-    if (ok) ok(r);
-  }).withFailureHandler(function (e) { showToast(e.message || String(e), true); if (ng) ng(); }).handleApiRequest(action, payload || {});
+    if (!r) { fail('サーバーから応答がありませんでした', true); return; }
+    if (!r.success) { var m = r.error || '保存できませんでした'; fail(m, /ロック|タイムアウト|timed? ?out|Service|サービス|サーバー|internal|混み合/i.test(m)); return; }
+    try { if (j.ok) j.ok(r); } catch (e) { showToast('表示エラー: ' + e.message, true); }
+    done();
+  }).withFailureHandler(function (e) { fail((e && e.message) || String(e), true); }).handleApiRequest(j.action, j.payload);
+}
+function _adRetry() { var f = ADQ.failed; ADQ.failed = []; f.forEach(function (j) { j.n = 0; ADQ.list.push(j); }); _adNext(); }
+function _adBadge() {
+  var b = document.getElementById('ad-save-badge'), n = ADQ.list.length, f = ADQ.failed.length;
+  if (!n && !f) { if (b) b.style.display = 'none'; return; }
+  if (!b) { b = document.createElement('div'); b.id = 'ad-save-badge'; b.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);top:8px;z-index:10001;padding:6px 14px;border-radius:16px;font-size:12px;box-shadow:0 2px 8px rgba(0,0,0,.25);color:#fff;'; document.body.appendChild(b); }
+  b.style.display = ''; b.style.background = f ? '#dc2626' : '#2563eb';
+  b.innerHTML = (n ? '保存中… 残り ' + n + '件' : '') + (f ? ' 保存できなかった変更 ' + f + '件 <button onclick="_adRetry()" style="border:none;border-radius:8px;padding:2px 8px;cursor:pointer;">もう一度送る</button>' : '');
+}
+window.addEventListener('beforeunload', function (e) { if (ADQ.list.length || ADQ.failed.length) { e.preventDefault(); e.returnValue = ''; } });
+/** 入力中の欄を消さないように、入力が終わってから描き直す（表の位置は保つ） */
+function aqSoftRender() {
+  clearTimeout(AQ.timer);
+  AQ.timer = setTimeout(function () {
+    var el = document.getElementById('aq-body'), a = document.activeElement;
+    if (!el) return;
+    if (a && el.contains(a) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.type !== 'checkbox') { aqSoftRender(); return; }
+    var w = el.querySelector('.bpt-wrap'), t = w ? w.scrollTop : 0, l = w ? w.scrollLeft : 0;
+    aqRenderBody();
+    w = el.querySelector('.bpt-wrap'); if (w) { w.scrollTop = t; w.scrollLeft = l; }
+  }, 600);
 }
 var _adFmt = function (n) { return n === null || n === undefined || n === '' ? '' : Number(n).toLocaleString('ja-JP', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
 function _adParse(v) {
   var s = String(v === null || v === undefined ? '' : v).normalize('NFKC').replace(/[,¥円%\s]/g, '').replace(/[−‐―ー]/g, '-');
   return s === '' ? null : Number(s);
 }
+function _adSplitF(f) { return String(f || '').normalize('NFKC').toUpperCase().split(/[\/・、,と+\s]+/).filter(Boolean); }
+/** 枠構成の絞り込み（PFK25/PFK30 のような複数も、どちらの枠でも出す） */
+function _adFrameHit(f) { return !AQ.frame || (AQ.frame === '__none' ? !f : _adSplitF(f).indexOf(AQ.frame) >= 0); }
+/** 世代の選択肢（単独＋両方「AG6RとAG5」） */
+function _adGenList() {
+  var n = AQ.data.cfg.gens.map(function (g) { return g.name; }), out = n.slice();
+  n.forEach(function (a, i) { n.slice(i + 1).forEach(function (b) { out.push(a + 'と' + b); }); });
+  if (n.length > 2) out.push(n.join('と'));
+  return out;
+}
 function _adFrameList() {
   var set = {};
-  (AQ.data.frames || []).forEach(function (o) { if (o.frame) set[o.frame] = 1; });
-  (AQ.data.comps || []).forEach(function (c) { if (c.frame) set[c.frame] = 1; });
+  (AQ.data.frames || []).concat(AQ.data.comps || []).forEach(function (o) { _adSplitF(o.frame).forEach(function (f) { set[f] = 1; }); });
   ['PFK20', 'PFK25', 'PFK30', 'SFK15', 'SFK18'].forEach(function (f) { set[f] = 1; });
   return Object.keys(set).sort();
 }
@@ -41,7 +87,7 @@ function aqRenderComp(el, d) {
       + (f === 'gen' ? '<option value="">—</option>' : '') + opts.map(function (o) { return '<option value="' + _esc(o) + '"' + (o === v ? ' selected' : '') + '>' + _esc(o) + '</option>'; }).join('')
       + (on ? '<option value="">（自動判定に戻す）</option>' : '') + '</select>';
   };
-  var types = d.cfg.types.map(function (t) { return t.name; }).concat(['その他']), vars = d.cfg.variants.map(function (t) { return t.name; }), gens = d.cfg.gens.map(function (t) { return t.name; });
+  var types = d.cfg.types.map(function (t) { return t.name; }).concat(['その他']), vars = d.cfg.variants.map(function (t) { return t.name; }), gens = _adGenList();
   var h2 = function (t, ex) { return _aqTh(t, ex || ''); };
   var last = null, cols = 27;
   var lifeCell = function (c, ci) {
@@ -74,7 +120,7 @@ function aqRenderComp(el, d) {
           + _aqTd(ed(ci, 'initial', c.initials.join('/'), 'A / C…', '52px', e.initial) + (c.machines.length ? '<div style="font-size:10px;color:#475569;white-space:nowrap;">' + _esc(c.machines.join('・')) + '専用</div>' : '')
               + (noIni ? '<div style="font-size:10px;color:#dc2626;white-space:nowrap;">⚠ 頭文字なし</div>' : c.noInitial && c.life !== '過去' ? '<div style="font-size:10px;color:#dc2626;white-space:nowrap;">⚠ 件名に無し</div>' : ''), noIni ? 'background:#fee2e2;' : '')
           + _aqTd(sel(ci, 'type', c.type, types, e.type))
-          + _aqTd(ed(ci, 'frame', c.frame, (c.frameCands || []).length > 1 ? '候補: ' + c.frameCands.join('・') : '例: PFK30', '86px', e.frame) + (c.frameGuess ? '<div style="font-size:10px;color:#c2410c;">推定</div>' : ''))
+          + _aqTd(ed(ci, 'frame', c.frame, (c.frameCands || []).length > 1 ? '候補: ' + c.frameCands.join('・') : '例: PFK30、PFK25/PFK30', '104px', e.frame) + (c.frameGuess ? '<div style="font-size:10px;color:#c2410c;">推定</div>' : ''))
           + _aqTd(ed(ci, 'boards', c.boards.join(' / '), '基板名を入力', '220px', e.boards))
           + _aqTd(sel(ci, 'variant', c.variant, vars, e.variant), c.kind === '中古再生' ? 'background:#fef3c7;' : '')
           + _aqTd(sel(ci, 'gen', c.gen, gens, e.gen))
@@ -85,12 +131,12 @@ function aqRenderComp(el, d) {
           + _aqTd((x ? '<b style="' + (diff ? 'color:#dc2626;' : '') + '"' + (diff ? ' title="見積金額と一致しません"' : '') + '>' + _adFmt(x.total) + (diff ? ' ⚠' : '') + '</b> ' : '') + '<button class="btn btn-outline btn-sm" style="padding:1px 6px;" onclick="aqDetail(' + ci + ')">' + (x ? '✏️' : '＋内訳') + '</button>', 'white-space:nowrap;text-align:right;')
           + _aqTd(_aqPdf(l.pdfUrl)) + _aqTd(ed(ci, 'subject', l.subject || '', '', '240px', e.subject))
           + _aqTd(c.future ? '<input value="' + _esc(c.useFor || '') + '" placeholder="関連機種" onchange="aqEdit(' + ci + ',\'machines\',this)" style="width:110px;padding:2px 4px;font-size:11px;"><br><input value="' + _esc(c.memo || '') + '" placeholder="メモ" onchange="aqEdit(' + ci + ',\'memo\',this)" style="width:110px;padding:2px 4px;font-size:11px;margin-top:2px;">' : c.count + '件' + (hist ? '<details><summary style="cursor:pointer;font-size:11px;">過去</summary><div style="font-size:11px;white-space:nowrap;">' + hist + '</div></details>' : '') + (used[l.quoteNo] ? '<div style="font-size:11px;color:#475569;">' + _esc(used[l.quoteNo].join('、')) + '</div>' : '')) + '</tr>';
-      }).join('') + '</tbody></table></div><div style="font-size:11px;color:#64748b;margin-top:4px;">「過去」にした見積は機種別の予定で使いません。枠がオレンジの欄は手で直した値です。種類・基板・区分・枠構成・頭文字の変更は、↻ 再集計 で並びとまとまりに反映されます。</div>';
+      }).join('') + '</tbody></table></div><div style="font-size:11px;color:#64748b;margin-top:4px;">「過去」にした見積は機種別の予定で使いません。枠構成は PFK25/PFK30 のように複数入れられます。世代は「AG6RとAG5」も選べます（両方の機種に使える見積として扱います）。枠の色：青＝保存中、オレンジ＝手で直して保存済み、赤＝保存できていない。種類・基板・区分・枠構成・頭文字の変更は、↻ 再集計 で並びとまとまりに反映されます。</div>';
 }
 function _aqCompPass(c) {
   if (AQ.life === 'active' ? c.life === '過去' : AQ.life && c.life !== AQ.life) return false;
   if (AQ.init && (AQ.init === '__none' ? c.initials.length : c.initials.indexOf(AQ.init) < 0)) return false;
-  if (AQ.frame && (AQ.frame === '__none' ? c.frame : c.frame !== AQ.frame)) return false;
+  if (!_adFrameHit(c.frame)) return false;
   return _aqHit([c.life, c.type, c.boards.join(' '), c.variant, c.gen || '', c.frame || '', c.channel || '', c.initials.join(' '), c.machines.join(' '), c.latest.subject || '', c.useFor || '', c.memo || '']
     .concat(c.quotes.map(function (q) { return q.quoteNo + ' ' + q.subject; })).join(' '));
 }
@@ -110,31 +156,41 @@ function _adInitBar(lists) {
 }
 function _adFrameBar(d) {
   var cnt = {}, none = 0;
-  d.comps.forEach(function (c) { if (c.frame) cnt[c.frame] = (cnt[c.frame] || 0) + 1; else none++; });
+  d.comps.forEach(function (c) { var l = _adSplitF(c.frame); if (!l.length) none++; l.forEach(function (f) { cnt[f] = (cnt[f] || 0) + 1; }); });
   var b = function (k, t) { return '<button class="btn btn-sm ' + (AQ.frame === k ? 'btn-primary' : 'btn-outline') + '" style="padding:2px 9px;" onclick="AQ.frame=\'' + k + '\';aqRenderBody()">' + t + '</button>'; };
   return '<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin-bottom:6px;"><span style="font-size:12px;width:58px;">枠構成：</span>' + b('', 'すべて')
     + Object.keys(cnt).sort().map(function (k) { return b(_esc(k), _esc(k) + ' ' + cnt[k]); }).join('') + b('__none', '未設定 ' + none) + '</div>';
 }
+/** 画面側の値をすぐ変える（保存の完了を待たない。描き直しても入力した値が残る） */
+function _aqApply(c, f, v) {
+  var up = String(v || '').normalize('NFKC').toUpperCase();
+  if (f === 'boards') c.boards = up.replace(/FJ\s*[+\-]\s*/g, '').split(/[\/,、+\n]+/).map(function (x) { return x.trim(); }).filter(Boolean);
+  else if (f === 'initial') { c.initials = up.split(/[^A-Z]+/).filter(Boolean); if (!c.future) { c.machines = []; c.common = true; } }
+  else if (f === 'amount') { var n = _adParse(v); if (n !== null && !isNaN(n)) c.latest.amount = n; else if (n === null && c.future) c.latest.amount = 0; }
+  else if (f === 'date') { if (c.future) c.deadline = String(v).replace(/-/g, '/'); else if (v) c.latest.date = String(v).replace(/-/g, '/'); }
+  else if (f === 'subject') { if (v) c.latest.subject = v; }
+  else if (f === 'machines') c.useFor = v;
+  else if (f === 'life') { if (v) { c.life = v; c.lifeAuto = false; } }
+  else { c[f] = v; if (f === 'frame') c.frameGuess = false; }
+}
 function aqEdit(ci, f, inp) {
   var c = AQ.data.comps[ci]; if (!c) return;
   if (c.future) { aqFutureEdit(c, f, inp); return; }
-  var v = inp.value, old = inp.style.borderColor;
+  var v = inp.value;
   // 提出日・金額・件名と「未来」は最新の見積だけ、それ以外は同じ構成の見積すべてに反映
   var keys = ['date', 'amount', 'subject'].indexOf(f) >= 0 || (f === 'life' && v === '未来') ? [c.latest.key] : c.quotes.map(function (q) { return q.key; });
-  inp.style.borderColor = '#2563eb';
+  c.edited = c.edited || {};
+  var was = c.edited[f];
+  inp.style.borderColor = '#2563eb'; inp.style.background = '#eff6ff';
+  if (v !== '') { c.edited[f] = true; _aqApply(c, f, v); }
   _adApi('asmOverrideSave', { keys: keys, field: f, value: v }, function (r) {
     inp.style.borderColor = '#f59e0b'; inp.style.background = '#fffbeb';
-    c.edited = c.edited || {};
     if (r.value === '') { delete c.edited[f]; showToast('自動判定に戻しました。↻ 再集計 で反映されます'); return; }
-    c.edited[f] = true;
-    if (f === 'boards') { c.boards = r.value.split(' / '); inp.value = r.value; }
-    else if (f === 'amount') { c.latest.amount = Number(r.value); aqRenderBody(); }
-    else if (f === 'date' || f === 'subject') c.latest[f] = r.value;
-    else if (f === 'initial') { c.initials = r.value.split('/'); c.machines = []; c.common = true; inp.value = r.value; }
-    else if (f === 'life') { c.life = r.value; c.lifeAuto = false; aqRenderBody(); }
-    else { c[f] = r.value; if (f === 'frame') c.frameGuess = false; }
+    _aqApply(c, f, r.value);
+    if ((f === 'boards' || f === 'initial' || f === 'frame') && document.activeElement !== inp) inp.value = r.value;
     showToast('保存しました');
-  }, function () { inp.style.borderColor = old; });
+    if (f === 'amount' || f === 'life') aqSoftRender();
+  }, function () { if (!was) delete c.edited[f]; inp.style.borderColor = '#dc2626'; inp.style.background = '#fee2e2'; });
 }
 
 // ── 見積内訳（組立費見積書「見積詳細」と同じ項目）──
@@ -210,7 +266,7 @@ function aqdSave(remove) {
   var b = document.getElementById('aqd-save'); b.disabled = true;
   _adApi('asmDetailSave', { key: c.latest.key, quoteNo: c.latest.quoteNo, lines: AQD.lines, rate: AQD.rate, profit: AQD.profit, remove: remove }, function (res) {
     c.detail = res.detail; var m = document.getElementById('aqd-modal'); if (m) m.remove();
-    showToast(remove ? '内訳を消しました' : '内訳を保存しました'); aqRenderBody();
+    showToast(remove ? '内訳を消しました' : '内訳を保存しました'); aqSoftRender();
   }, function () { b.disabled = false; });
 }
 
@@ -251,24 +307,20 @@ function aqBulk(life) {
   list.forEach(function (c) { if (life === '未来') keys.push(c.latest.key); else c.quotes.forEach(function (q) { keys.push(q.key); }); });
   _adApi('asmOverrideSave', { keys: keys, field: 'life', value: life }, function () {
     list.forEach(function (c) { c.life = life; c.lifeAuto = false; }); AQ.sel = {};
-    showToast(list.length + '件を「' + life + '」にしました'); aqRenderBody();
+    showToast(list.length + '件を「' + life + '」にしました'); aqSoftRender();
   });
 }
 
 // ── 未来の見積（これから必要な見積）──
 function aqFutureEdit(c, f, inp) {
   if (f === 'life') return;
+  inp.style.borderColor = '#2563eb'; inp.style.background = '#eff6ff';
+  _aqApply(c, f, inp.value);
   _adApi('asmFutureSave', { id: c.futureId, field: f, value: inp.value }, function (r) {
-    inp.style.borderColor = '#f59e0b';
-    if (f === 'boards') { c.boards = r.value ? r.value.split(' / ') : []; inp.value = r.value; }
-    else if (f === 'initial') { c.initials = r.value ? r.value.split('/') : []; inp.value = r.value; }
-    else if (f === 'date') c.deadline = r.value;
-    else if (f === 'amount') c.latest.amount = Number(r.value) || 0;
-    else if (f === 'machines') c.useFor = r.value;
-    else if (f !== 'subject') c[f] = r.value;
+    inp.style.borderColor = '#f59e0b'; inp.style.background = '#fffbeb';
     c.latest.subject = r.subject;
-    showToast('保存しました'); aqRenderBody();
-  });
+    showToast('保存しました'); aqSoftRender();
+  }, function () { inp.style.borderColor = '#dc2626'; inp.style.background = '#fee2e2'; });
 }
 function aqFutureDel(ci) {
   var c = AQ.data.comps[ci];
@@ -290,7 +342,7 @@ function aqFutureOpen(src, i, ini) {
     + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">'
     + f('機種の頭文字 *（複数選ぶと、頭文字ごとに1件ずつ登録します）', d.cfg.initials.map(function (n) { return '<label style="margin-right:12px;"><input type="checkbox" class="fq-ini" value="' + _esc(n) + '"' + (o.inits.indexOf(n) >= 0 ? ' checked' : '') + ' onchange="aqFutureSubj()"> 機種' + _esc(n) + '</label>'; }).join(''), true)
     + f('種類 *', sel('fq-type', d.cfg.types.map(function (t) { return t.name; }), o.type)) + f('区分 *' + (o.reuse ? '（中古再生が必要です。D基板中古かオール中古かを選んでください）' : ''), sel('fq-variant', d.cfg.variants.map(function (t) { return t.name; }), o.variant))
-    + f('枠構成', inp('fq-frame', o.frame, '例: PFK30')) + f('世代', sel('fq-gen', d.cfg.gens.map(function (t) { return t.name; }), o.gen, true))
+    + f('枠構成（複数は / で区切る）', inp('fq-frame', o.frame, '例: PFK30、PFK25/PFK30')) + f('世代', sel('fq-gen', _adGenList(), o.gen, true))
     + f('使用基板（/ 区切り）', inp('fq-boards', o.boards, '例: DE1802A / D2101A / E2503B'), true)
     + f('提出期限', inp('fq-deadline', String(o.deadline || '').replace(/\//g, '-'), '', 'date')) + f('予定金額', inp('fq-amount', '', '未定なら空欄')) + f('関連機種', inp('fq-machines', o.machines, '例: D61、D62')) + f('メモ', inp('fq-memo', '', ''))
     + f('見積書の件名（この件名で作成してください）', '<div id="fq-subj" style="background:#f1f5f9;border-radius:6px;padding:8px;font-size:12px;line-height:1.7;"></div>', true)
@@ -330,15 +382,18 @@ function aqRenderInit(el, d) {
   };
   d.comps.forEach(function (c, i) {
     if (!c.boards.length || c.life === '過去' || (c.future && c.fulfilledBy)) return;
-    if (AQ.frame && (AQ.frame === '__none' ? c.frame : c.frame !== AQ.frame)) return;
+    if (!_adFrameHit(c.frame)) return;
     if (!_aqHit([c.type, c.frame, c.boards.join(' '), c.variant, c.latest.quoteNo, c.latest.subject].join(' '))) return;
-    var r = row(c.type, c.frame, c.boards, c.boardKey);
-    if (!c.initials.length) r.none.push({ c: c, i: i });
-    c.initials.forEach(function (n) { (r.cell[n] = r.cell[n] || []).push({ c: c, i: i }); });
+    (_adSplitF(c.frame).length ? _adSplitF(c.frame) : ['']).forEach(function (fr) {
+      if (AQ.frame && AQ.frame !== '__none' && fr !== AQ.frame) return;
+      var r = row(c.type, fr, c.boards, c.boardKey);
+      if (!c.initials.length) r.none.push({ c: c, i: i });
+      c.initials.forEach(function (n) { (r.cell[n] = r.cell[n] || []).push({ c: c, i: i }); });
+    });
   });
   d.plans.forEach(function (p) {
     if (!p.initial || !p.boards || ['見積済み', '作成予定', '見積不要'].indexOf(p.status) >= 0) return;
-    if (AQ.frame && (AQ.frame === '__none' ? p.frame : p.frame !== AQ.frame)) return;
+    if (!_adFrameHit(p.frame)) return;
     if (!_aqHit([p.type, p.frame, p.boards, p.machine].join(' '))) return;
     var r = row(p.type, p.frame, p.boards.split(' / '), p.boardKey);
     (r.need[p.initial] = r.need[p.initial] || []).push(p);
@@ -348,14 +403,14 @@ function aqRenderInit(el, d) {
   // ハードウェア構成一覧表で、その頭文字・その枠・その基板を使う機種
   var users = function (r, n) {
     return (d.frames || []).filter(function (o) {
-      if ((o.machine.match(/^[A-Z]+/) || [''])[0] !== n || (r.frame && o.frame !== r.frame)) return false;
+      if ((o.machine.match(/^[A-Z]+/) || [''])[0] !== n || (r.frame && _adSplitF(o.frame).indexOf(r.frame) < 0)) return false;
       var t = [o.M, o.D, o.DE, o.E, o.C].join(' ').toUpperCase();
       return r.boards.every(function (b) { return t.indexOf(b) >= 0; });
     }).map(function (o) { return o.machine; });
   };
   var item = function (x) {
     var c = x.c, l = c.latest;
-    return '<div style="margin-bottom:3px;' + (c.life === '未来' ? 'background:#eff6ff;' : '') + '"><span style="font-size:11px;color:#475569;">' + (c.life === '未来' ? '🔵未来 ' : '') + _esc(c.variant) + (c.gen ? '（' + _esc(c.gen) + '）' : '') + (c.machines.length ? ' <span style="color:#c2410c;">' + _esc(c.machines.join('・')) + '専用</span>' : '') + '</span><br><b>' + _aqYen(l.amount) + '</b> <small>' + _esc(c.future ? (c.deadline ? '期限 ' + c.deadline : '作成予定') : l.quoteNo) + '</small> ' + _aqPdf(l.pdfUrl) + '</div>';
+    return '<div style="margin-bottom:3px;' + (c.life === '未来' ? 'background:#eff6ff;' : '') + '"><span style="font-size:11px;color:#475569;">' + (c.life === '未来' ? '🔵未来 ' : '') + _esc(c.variant) + (c.gen ? '（' + _esc(c.gen) + '）' : '') + (_adSplitF(c.frame).length > 1 ? ' 枠共通' : '') + (c.machines.length ? ' <span style="color:#c2410c;">' + _esc(c.machines.join('・')) + '専用</span>' : '') + '</span><br><b>' + _aqYen(l.amount) + '</b> <small>' + _esc(c.future ? (c.deadline ? '期限 ' + c.deadline : '作成予定') : l.quoteNo) + '</small> ' + _aqPdf(l.pdfUrl) + '</div>';
   };
   var last = null;
   el.innerHTML = _adFrameBar(d) + '<div style="font-size:12px;color:#475569;margin-bottom:6px;">同じ構成でも、見積書は機種の頭文字ごとに必要です。<b style="color:#b91c1c;">赤</b>は進捗管理の予定で必要なのに使える見積が無い頭文字、「—」は見積が無い頭文字です（灰色の小さい字は、ハードウェア構成一覧表でその構成を使っている機種）。過去の見積は含みません。</div>'
@@ -376,9 +431,9 @@ function aqRenderInit(el, d) {
 
 // ── 枠構成（ハードウェア構成一覧表）──
 function aqRenderFrame(el, d) {
-  var rows = (d.frames || []).filter(function (o) { return (!AQ.frame || AQ.frame === '__none' ? (AQ.frame !== '__none' || !o.frame) : o.frame === AQ.frame) && _aqHit(AQ_FR_COLS.map(function (c) { return o[c[0]] || ''; }).join(' ')); });
+  var rows = (d.frames || []).filter(function (o) { return _adFrameHit(o.frame) && _aqHit(AQ_FR_COLS.map(function (c) { return o[c[0]] || ''; }).join(' ')); });
   rows = rows.slice().sort(function (a, b) { return String(a.frame || '~').localeCompare(String(b.frame || '~')) || a.machine.localeCompare(b.machine); });
-  var cnt = {}, none = 0; (d.frames || []).forEach(function (o) { if (o.frame) cnt[o.frame] = (cnt[o.frame] || 0) + 1; else none++; });
+  var cnt = {}, none = 0; (d.frames || []).forEach(function (o) { var l = _adSplitF(o.frame); if (!l.length) none++; l.forEach(function (f) { cnt[f] = (cnt[f] || 0) + 1; }); });
   var b = function (k, t) { return '<button class="btn btn-sm ' + (AQ.frame === k ? 'btn-primary' : 'btn-outline') + '" style="padding:2px 9px;" onclick="AQ.frame=\'' + k + '\';aqRenderBody()">' + t + '</button>'; };
   var plans = {}; d.plans.forEach(function (p) { (plans[p.machine] = plans[p.machine] || []).push(p); });
   var last = null;
@@ -386,7 +441,8 @@ function aqRenderFrame(el, d) {
     + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:6px;"><label class="btn btn-primary btn-sm" style="cursor:pointer;">📄 ハードウェア構成一覧表（PDF）を取り込む<input type="file" accept=".pdf" multiple style="display:none;" onchange="aqFrameImport(this)"></label>'
     + '<button class="btn btn-outline btn-sm" onclick="aqFrameAdd()">＋ 機種を追加</button><span id="aq-fr-msg" style="font-size:12px;color:#475569;">白い欄はその場で編集できます。手で直した項目（オレンジ）は、次に取り込んでも上書きしません。</span></div>'
     + '<datalist id="aq-frames">' + _adFrameList().map(function (f) { return '<option value="' + _esc(f) + '">'; }).join('') + '</datalist>'
-    + (rows.length ? '<div style="overflow:auto;max-height:72vh;"><table style="border-collapse:collapse;font-size:12px;width:100%;"><tr>' + AQ_FR_COLS.map(function (c) { return _aqTh(c[1]); }).join('') + _aqTh('組立費の見積状況') + _aqTh('') + '</tr>'
+    + '<datalist id="aq-vdps">' + _adGenList().map(function (f) { return '<option value="' + _esc(f) + '">'; }).join('') + '</datalist>'
+    + (rows.length ? '<div class="bpt-wrap" style="overflow:auto;max-height:72vh;"><table style="border-collapse:collapse;font-size:12px;width:100%;"><tr>' + AQ_FR_COLS.map(function (c) { return _aqTh(c[1]); }).join('') + _aqTh('組立費の見積状況') + _aqTh('') + '</tr>'
       + rows.map(function (o) {
           var i = d.frames.indexOf(o), sk = o.frame || '枠構成 未設定';
           var sec = sk !== last ? '<tr><td colspan="' + (AQ_FR_COLS.length + 2) + '" style="background:#f1f5f9;font-weight:700;border:1px solid #cbd5e1;padding:4px 8px;">' + _esc(sk) + '</td></tr>' : ''; last = sk;
@@ -394,18 +450,19 @@ function aqRenderFrame(el, d) {
             if (c[0] === 'machine') return _aqTd('<b>' + _esc(o.machine) + '</b>', 'white-space:nowrap;');
             if (c[0] === 'version') return _aqTd(_esc(o.version || ''), 'white-space:nowrap;color:#64748b;');
             var on = (o.edited || []).indexOf(c[0]) >= 0;
-            return _aqTd('<input value="' + _esc(o[c[0]] || '') + '" ' + (c[0] === 'frame' ? 'list="aq-frames" ' : '') + 'onchange="aqFrameEdit(' + i + ',\'' + c[0] + '\',this)" style="width:' + (c[0] === 'title' || c[0] === 'memo' ? '150px' : c[0] === 'kind' || c[0] === 'vdp' || c[0] === 'frame' ? '74px' : '104px') + ';padding:3px 5px;font-size:12px;border:1px solid ' + (on ? '#f59e0b' : '#e2e8f0') + ';border-radius:4px;background:' + (on ? '#fffbeb' : '#fff') + ';">');
+            return _aqTd('<input value="' + _esc(o[c[0]] || '') + '" ' + (c[0] === 'frame' ? 'list="aq-frames" ' : c[0] === 'vdp' ? 'list="aq-vdps" ' : '') + 'onchange="aqFrameEdit(' + i + ',\'' + c[0] + '\',this)" style="width:' + (c[0] === 'title' || c[0] === 'memo' ? '150px' : c[0] === 'kind' || c[0] === 'vdp' || c[0] === 'frame' ? '74px' : '104px') + ';padding:3px 5px;font-size:12px;border:1px solid ' + (on ? '#f59e0b' : '#e2e8f0') + ';border-radius:4px;background:' + (on ? '#fffbeb' : '#fff') + ';">');
           }).join('') + _aqTd((plans[o.machine] || []).map(function (p) { return _esc(p.type) + '：<b style="color:' + (p.status === '見積済み' ? '#166534' : p.status === '見積不要' ? '#64748b' : '#b91c1c') + ';">' + _esc(p.status) + '</b>'; }).join('<br>'), 'white-space:nowrap;')
             + _aqTd('<button class="btn btn-outline btn-sm" style="padding:1px 6px;" onclick="aqFrameDel(' + i + ')">🗑</button>') + '</tr>';
         }).join('') + '</table></div>'
       : '<div style="padding:20px;color:#64748b;">' + ((d.frames || []).length ? '該当なし' : 'まだ取り込んでいません。「ハードウェア構成一覧表（PDF）を取り込む」から、ぱちんこ用・回胴用のPDFを選んでください（複数まとめて選べます）。') + '</div>');
 }
 function aqFrameEdit(i, f, inp) {
-  var o = AQ.data.frames[i];
-  _adApi('frameSave', { machine: o.machine, field: f, value: inp.value }, function () {
-    o[f] = inp.value.trim(); o.edited = o.edited || []; if (o.edited.indexOf(f) < 0) o.edited.push(f);
+  var o = AQ.data.frames[i], v = inp.value;
+  inp.style.borderColor = '#2563eb'; inp.style.background = '#eff6ff';
+  o[f] = v.trim(); o.edited = o.edited || []; if (o.edited.indexOf(f) < 0) o.edited.push(f);
+  _adApi('frameSave', { machine: o.machine, field: f, value: v }, function () {
     inp.style.borderColor = '#f59e0b'; inp.style.background = '#fffbeb'; showToast('保存しました');
-  });
+  }, function () { inp.style.borderColor = '#dc2626'; inp.style.background = '#fee2e2'; });
 }
 function aqFrameAdd() { var n = prompt('追加する機種コード（例: A90）'); if (n) _adApi('frameSave', { add: n }, function (r) { AQ.data.frames = r.frames; aqRenderBody(); showToast('追加しました'); }); }
 function aqFrameDel(i) { var o = AQ.data.frames[i]; if (confirm(o.machine + ' を枠構成の一覧から削除します。よろしいですか？')) _adApi('frameSave', { machine: o.machine, remove: true }, function (r) { AQ.data.frames = r.frames; aqRenderBody(); }); }

@@ -112,6 +112,23 @@ function _aqGen(text) {
   for (var i = 0; i < gens.length; i++) if (_aqHasKw(s, gens[i].keywords)) return gens[i].name;
   return '';
 }
+// ── 世代・枠構成は複数使うことがある（世代「AG6RとAG5」、枠構成「PFK25/PFK30」）──
+function _aqSplitGen(g) { return String(g || '').normalize('NFKC').toUpperCase().split(/[\/・、,と+\s]+/).filter(String); }
+function _aqSplitFrame(f) { return String(f || '').normalize('NFKC').toUpperCase().split(/[\/・、,と+\s]+/).filter(function (x, i, a) { return x && a.indexOf(x) === i; }); }
+/** 設定の並び順にそろえた世代名（両方なら「AG6RとAG5」） */
+function _aqGenJoin(list) {
+  var names = _aqGens().map(function (g) { return g.name; }), out = names.filter(function (n) { return list.indexOf(n) >= 0; });
+  list.forEach(function (x) { if (out.indexOf(x) < 0) out.push(x); });
+  return out.join('と');
+}
+/** 文字列に含まれる世代をすべて（AG6R と AG5 の両方があれば「AG6RとAG5」） */
+function _aqGenAll(text) {
+  var s = _aqNorm(text);
+  return _aqGenJoin(_aqGens().filter(function (g) { return _aqHasKw(s, g.keywords); }).map(function (g) { return g.name; }));
+}
+/** need（必要な世代・枠）を have（見積の世代・枠）がすべて満たすか。どちらかが未設定なら問わない */
+function _aqGenOk(need, have) { if (!need || !have) return true; var h = _aqSplitGen(have); return _aqSplitGen(need).every(function (x) { return h.indexOf(x) >= 0; }); }
+function _aqFrameOk(need, have) { if (!need || !have) return true; var h = _aqSplitFrame(have); return _aqSplitFrame(need).every(function (x) { return h.indexOf(x) >= 0; }); }
 function _aqGenCfg(name) {
   var gens = _aqGens();
   for (var i = 0; i < gens.length; i++) if (gens[i].name === name) return gens[i];
@@ -122,6 +139,12 @@ function _aqKind(text) { return _aqHasKw(_aqNorm(text), _aqReuseKw()) ? AQ_KIND_
 /** 商流と見積の要否。中古再生のときだけ世代で分かれる。世代が取れない中古再生は安全側で「要」 */
 function _aqChannel(gen, kind) {
   if (kind !== AQ_KIND_REUSE) return { channel: 'サン電子', needQuote: '要' };
+  var multi = _aqSplitGen(gen);
+  if (multi.length > 1) { // 両方の世代を使う：1つでも見積が要る世代があれば「要」
+    var cs = multi.map(function (x) { return _aqChannel(x, kind); });
+    return { channel: cs.map(function (c) { return c.channel; }).filter(function (x, i, a) { return a.indexOf(x) === i; }).join('・'),
+             needQuote: cs.some(function (c) { return c.needQuote === '要'; }) ? '要' : '不要' };
+  }
   var g = _aqGenCfg(gen);
   if (!g) return { channel: AQ_GEN_UNKNOWN, needQuote: '要' };
   return { channel: g.channel || 'サン電子', needQuote: String(g.needQuote || '要').indexOf('不要') >= 0 ? '不要' : '要' };
@@ -218,7 +241,7 @@ function _aqCompositions() {
     var type = ov.type || _aqType(subject, boards);
     var variant = ov.variant || _aqVariant(subject);
     variant = AQ_VARIANT_ALIAS[variant] || variant;
-    var gen = ov.gen || _aqGen([subject, q.boardName || '', q.modelCode || ''].join(' '));
+    var gen = ov.gen || _aqGenAll([subject, q.boardName || '', q.modelCode || ''].join(' '));
     // 区分を手で直した時は区分だけで 新品／中古再生 を決める
     var kind = _aqKind(ov.variant ? variant : [variant, subject].join(' '));
     var ch = _aqChannel(gen, kind);
@@ -326,13 +349,13 @@ function _aqPlans(allComps, cfg, stat) {
     var ini = !m['得意先'] || String(m['得意先']).indexOf('藤商事') >= 0 ? _aqMachineInitial(id) : '';
     needs.forEach(function (n) {
       // 世代は 構成セル（D列の「AG6R」など）→ 機種名 の順で判定
-      var genCell = _aqGen(n.raw), gen = genCell || _aqGen(mName) || _aqGen(m['HW:VDP'] || fm.vdp || ''), genGuess = false, gc = _aqGenCfg(gen);
+      var genCell = _aqGen(n.raw), gen = genCell || _aqGen(mName) || _aqGenAll(m['HW:VDP'] || fm.vdp || ''), genGuess = false, gc = _aqGenCfg(gen);
       // 必要区分：中古再生の言葉があるか、構成セルの世代名が「構成表の表記で中古再生」設定のとき
       var kind = (_aqKind(n.raw + ' ' + mName) === AQ_KIND_REUSE || (gc && gc.planReuse && genCell)) ? AQ_KIND_REUSE : AQ_KIND_NEW;
       var f = findComps(n.type, n.boards);
       // 構成表・機種名に世代の表記が無いときは、基板が完全一致する見積の世代を借りる（推定）
       if (!gen && f.exact) {
-        var withGen = f.comps.filter(function (c) { return c.gen; });
+        var withGen = f.comps.filter(function (c) { return c.gen && _aqSplitGen(c.gen).length === 1; });
         if (withGen.length) { gen = withGen[0].gen; genGuess = true; }
       }
       var ch = _aqChannel(gen, kind);
@@ -346,19 +369,19 @@ function _aqPlans(allComps, cfg, stat) {
           else if (!c.common && c.machines.length && c.machines.indexOf(_adMachineKey(id)) < 0) diff.push('他機種専用');
         }
         if ((c.kind || AQ_KIND_NEW) !== kind) diff.push('区分');
-        if (gen && c.gen && c.gen !== gen) diff.push('世代');
-        if (frame && c.frame && c.frame !== frame) diff.push('枠');
+        if (!_aqGenOk(gen, c.gen)) diff.push('世代');
+        if (!_aqFrameOk(frame, c.frame)) diff.push('枠');
         return { variant: c.variant, gen: c.gen || '', frame: c.frame || '', kind: c.kind || AQ_KIND_NEW, fit: !diff.length, diff: diff,
                  initials: c.initials, life: c.life,
                  quoteNo: c.latest.quoteNo, date: c.latest.date, amount: c.latest.amount, pdfUrl: c.latest.pdfUrl, boards: c.boards.join(' / ') };
       });
       // 中古再生は使用基板が入れ替わる（AG6Rユニットが新品の D／SNB 基板の代わりになる）ので、
       // 基板の完全一致を待たず「世代と区分が合う見積」があれば見積済みとみなす
-      var fitCount = quoted.filter(function (x) { return x.fit && (f.exact || (gen && x.gen === gen)); }).length;
+      var fitCount = quoted.filter(function (x) { return x.fit && (f.exact || (gen && x.gen && _aqGenOk(gen, x.gen))); }).length;
       var bset = n.boards.slice().sort().join('+');
       var planned = futures.filter(function (c) {
         return c.type === n.type && c.boardKey === bset && c.kind === kind && (!ini || c.initials.indexOf(ini) >= 0)
-          && (!gen || !c.gen || c.gen === gen) && (!frame || !c.frame || c.frame === frame);
+          && _aqGenOk(gen, c.gen) && _aqFrameOk(frame, c.frame);
       });
       var only = function (list) { return quoted.some(function (x) { return x.diff.length && x.diff.every(function (d) { return list.indexOf(d) >= 0; }); }); };
       var status = ch.needQuote === '不要' ? '見積不要'

@@ -25,8 +25,13 @@ var AD_DETAIL_HEADERS = ['見積キー', '見積No'].concat(AD_SUB).concat(['小
 var AD_FR_FIELDS = ['machine', 'title', 'kind', 'frame', 'M', 'D', 'vdp', 'DE', 'E', 'C', 'memo', 'version'];
 var AD_FR_HEADERS = ['機種', 'タイトル', '種別', '枠構成', '主制御基板', '液晶制御基板', 'VDP', '液晶IF基板', '演出IF基板', '枠制御・メダル数制御基板', '備考', '一覧表の版', '手修正した項目', '更新日時'];
 
+// 保存はロックを待たない（スクリプトロックは注文書の自動取込などと共通で、待つと20秒で失敗するため）。
+//   ・既にある行は、変わったセルだけを書き換える（行の並びは変えない。削除は行を空にする）
+//   ・新しい行は末尾に追加する。同時に追加されて同じキーが2行できても、読む時にまとめる
+var _AD_SS = null, _AD_SH = {};
 function _adSheet(name, headers) {
-  var ss = getSpreadsheet(), sh = ss.getSheetByName(name);
+  if (_AD_SH[name]) return _AD_SH[name];
+  var ss = _AD_SS || (_AD_SS = getSpreadsheet()), sh = ss.getSheetByName(name);
   if (!sh) {
     sh = ss.insertSheet(name);
     if (sh.getMaxColumns() < headers.length) sh.insertColumnsAfter(sh.getMaxColumns(), headers.length - sh.getMaxColumns());
@@ -38,11 +43,49 @@ function _adSheet(name, headers) {
     sh.getRange(1, 1, sh.getMaxRows(), headers.length).setNumberFormat('@');
     sh.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#FFF3E0');
   }
-  return sh;
+  return (_AD_SH[name] = sh);
 }
 function _adRead(name, headers) {
   var sh = _adSheet(name, headers), last = sh.getLastRow();
   return last < 2 ? [] : sh.getRange(2, 1, last - 1, headers.length).getValues();
+}
+function _adStr(v) {
+  if (v === null || v === undefined) return '';
+  return Object.prototype.toString.call(v) === '[object Date]' ? Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy/MM/dd') : String(v).trim();
+}
+/** キー（A列）→ 行番号の一覧 */
+function _adKeyRows(sh) {
+  var last = sh.getLastRow(), out = {};
+  if (last < 2) return out;
+  sh.getRange(2, 1, last - 1, 1).getValues().forEach(function (r, i) { var k = _adStr(r[0]); if (k) (out[k] = out[k] || []).push(i + 2); });
+  return out;
+}
+function _adWriteRow(sh, at, row) { sh.getRange(at, 1, 1, row.length).setNumberFormat('@').setValues([row]); }
+/** 末尾に追加。ロックがすぐ取れればまとめて、取れなければ1行ずつ（appendRow は同時でも重ならない） */
+function _adAppend(sh, rows) {
+  if (!rows.length) return;
+  rows = rows.map(function (r) { return r.map(_adStr); });
+  var lock = LockService.getScriptLock(), got = false;
+  try { got = lock.tryLock(1500); } catch (e) {}
+  if (got) {
+    try {
+      var at = sh.getLastRow() + 1;
+      if (at + rows.length - 1 > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), rows.length + 50);
+      sh.getRange(at, 1, rows.length, rows[0].length).setNumberFormat('@').setValues(rows);
+      SpreadsheetApp.flush();
+    } finally { lock.releaseLock(); }
+    return;
+  }
+  rows.forEach(function (r) {
+    sh.appendRow([r[0]]);
+    var f = _adKeyRows(sh)[r[0]];
+    _adWriteRow(sh, f ? f[f.length - 1] : sh.getLastRow(), r);
+  });
+}
+/** 行を空にする（行は詰めない） */
+function _adClear(name, headers, key) {
+  var sh = _adSheet(name, headers);
+  (_adKeyRows(sh)[String(key)] || []).forEach(function (at) { sh.getRange(at, 1, 1, headers.length).clearContent(); });
 }
 function _adUser() { try { return Session.getActiveUser().getEmail() || ''; } catch (e) { return ''; } }
 function _adNum(v) {
@@ -54,19 +97,15 @@ function _adNum(v) {
   return Math.round(n * 100) / 100;
 }
 function _adR2(n) { return Math.round((n + (n >= 0 ? 1e-9 : -1e-9)) * 100) / 100; }
-/** キーの行へ書き込む（無ければ追加）。文字列固定の列なので文字で保存する */
+/** キーの行へ書き込む（無ければ追加） */
 function _adPut(name, headers, key, row) {
-  var sh = _adSheet(name, headers), keys = _adRead(name, headers).map(function (r) { return String(r[0]); });
-  var i = keys.indexOf(String(key)), at = i >= 0 ? i + 2 : sh.getLastRow() + 1;
-  if (at > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), 50);
-  sh.getRange(at, 1, 1, headers.length).setNumberFormat('@')
-    .setValues([row.map(function (v) { return v === null || v === undefined ? '' : String(v); })]);
+  var sh = _adSheet(name, headers), f = _adKeyRows(sh)[String(key)];
+  row = row.map(_adStr);
+  if (f) _adWriteRow(sh, f[f.length - 1], row); else _adAppend(sh, [row]);
 }
-function _adLocked(fn) {
-  var lock = LockService.getScriptLock();
-  try { lock.waitLock(20000); return fn(); }
+function _adSafe(fn) {
+  try { return fn(); }
   catch (e) { Logger.log('[55] ' + e.message + '\n' + e.stack); return { success: false, error: e.message }; }
-  finally { try { lock.releaseLock(); } catch (e2) {} }
 }
 
 // ── ① 手修正 ──────────────────────────────────────────────
@@ -74,9 +113,8 @@ function _adOverrides() {
   var out = {};
   _adRead(AD_SHEET_OV, AD_OV_HEADERS).forEach(function (r) {
     if (!r[0]) return;
-    var o = {};
-    AD_OV_FIELDS.forEach(function (f) { var x = r[AD_OV_COL[f]], v = String(x === null || x === undefined ? '' : x).trim(); if (v !== '') o[f] = v; });
-    out[String(r[0])] = o;
+    var k = _adStr(r[0]), o2 = out[k] || (out[k] = {});
+    AD_OV_FIELDS.forEach(function (f) { var v = _adStr(r[AD_OV_COL[f]]); if (v !== '') o2[f] = v; });
   });
   return out;
 }
@@ -92,7 +130,7 @@ function _adSplitInitials(s) {
 }
 /** p: { keys:[見積キー], field, value }  value 空 = 自動判定に戻す */
 function apiAsmOverrideSave(p) {
-  return _adLocked(function () {
+  return _adSafe(function () {
     p = p || {};
     var keys = (p.keys || []).map(String).filter(String), fi = AD_OV_FIELDS.indexOf(p.field);
     if (!keys.length || fi < 0) return { success: false, error: '対象が特定できません' };
@@ -100,18 +138,25 @@ function apiAsmOverrideSave(p) {
     if (p.field === 'amount' && v !== '') v = String(_adNum(v));
     if (p.field === 'date' && v !== '') { v = _aqDate(v); if (!v) return { success: false, error: '日付が正しくありません' }; }
     if (p.field === 'boards' && v !== '') v = _adSplitBoards(v).join(' / ');
+    if (p.field === 'frame' && v !== '') v = _aqSplitFrame(v).join('/');
+    if (p.field === 'gen' && v !== '') v = _aqGenJoin(_aqSplitGen(v));
     if (p.field === 'initial' && v !== '') { v = _adSplitInitials(v).join('/'); if (!v) return { success: false, error: '頭文字は英字で入力してください（例: A、NA、A/C）' }; }
     if (p.field === 'life' && v !== '' && AD_LIVES.indexOf(v) < 0) return { success: false, error: '状態は 現役・過去・未来 から選んでください' };
-    // 複数件の一括変更に備えて、まとめて読み書きする
-    var sh = _adSheet(AD_SHEET_OV, AD_OV_HEADERS), rows = _adRead(AD_SHEET_OV, AD_OV_HEADERS).map(function (r) { return r.map(function (x) { return x === null ? '' : String(x); }); });
-    var idx = {}, now = nowJST(), user = _adUser();
-    rows.forEach(function (r, i) { idx[r[0]] = i; });
-    keys.forEach(function (k) {
-      if (idx[k] === undefined) { idx[k] = rows.length; rows.push(AD_OV_HEADERS.map(function (h, i) { return i ? '' : k; })); }
-      var r = rows[idx[k]]; r[AD_OV_COL[p.field]] = v; r[9] = user; r[10] = now;
+    // 変わったセル（その項目・更新者・更新日時）だけを書く
+    var sh = _adSheet(AD_SHEET_OV, AD_OV_HEADERS), at = _adKeyRows(sh), now = nowJST(), user = _adUser(), rows = [], add = [];
+    keys.filter(function (k, i) { return keys.indexOf(k) === i; }).forEach(function (k) {
+      if (at[k]) { rows = rows.concat(at[k]); return; }
+      var r = AD_OV_HEADERS.map(function () { return ''; });
+      r[0] = k; r[AD_OV_COL[p.field]] = v; r[9] = user; r[10] = now;
+      add.push(r);
     });
-    if (rows.length > sh.getMaxRows() - 1) sh.insertRowsAfter(sh.getMaxRows(), rows.length);
-    sh.getRange(2, 1, rows.length, AD_OV_HEADERS.length).setNumberFormat('@').setValues(rows);
+    if (rows.length) {
+      [[AD_OV_COL[p.field], v], [9, user], [10, now]].forEach(function (x) {
+        var c = String.fromCharCode(65 + x[0]);
+        sh.getRangeList(rows.map(function (n) { return c + n; })).setNumberFormat('@').setValue(x[1]);
+      });
+    }
+    _adAppend(sh, add);
     return { success: true, value: v };
   });
 }
@@ -131,18 +176,17 @@ function _adDetails() {
   var out = {}, j = AD_DETAIL_HEADERS.indexOf('明細JSON');
   _adRead(AD_SHEET_DETAIL, AD_DETAIL_HEADERS).forEach(function (r) {
     if (!r[0]) return;
-    try { var d = JSON.parse(r[j] || '{}'); out[String(r[0])] = { lines: d.lines || [], rate: d.rate, profit: d.profit, calc: _adCalc(d) }; } catch (e) {}
+    try { var d = JSON.parse(r[j] || '{}'); out[_adStr(r[0])] = { lines: d.lines || [], rate: d.rate, profit: d.profit, calc: _adCalc(d) }; } catch (e) {}
   });
   return out;
 }
 /** p: { key, quoteNo, lines, rate, profit, remove } */
 function apiAsmDetailSave(p) {
-  return _adLocked(function () {
+  return _adSafe(function () {
     p = p || {};
     if (!p.key) return { success: false, error: '見積が特定できません' };
     if (p.remove) {
-      var keys = _adRead(AD_SHEET_DETAIL, AD_DETAIL_HEADERS).map(function (r) { return String(r[0]); }), i = keys.indexOf(String(p.key));
-      if (i >= 0) _adSheet(AD_SHEET_DETAIL, AD_DETAIL_HEADERS).deleteRow(i + 2);
+      _adClear(AD_SHEET_DETAIL, AD_DETAIL_HEADERS, p.key);
       return { success: true, detail: null };
     }
     var lines = (p.lines || []).map(function (l) {
@@ -159,47 +203,51 @@ function apiAsmDetailSave(p) {
 // ── ③ 枠構成（ハードウェア構成一覧表）─────────────────────
 function _adMachineKey(s) { return String(s || '').normalize('NFKC').toUpperCase().replace(/\s/g, ''); }
 function _adFrames() {
+  var seen = {};
   return _adRead(AD_SHEET_FRAME, AD_FR_HEADERS).filter(function (r) { return r[0]; }).map(function (r) {
-    var o = {}; AD_FR_FIELDS.forEach(function (f, i) { o[f] = String(r[i] === null ? '' : r[i]); });
-    o.edited = String(r[12] || '').split(',').filter(String);
+    var o = {}; AD_FR_FIELDS.forEach(function (f, i) { o[f] = _adStr(r[i]); });
+    o.edited = _adStr(r[12]).split(',').filter(String);
     return o;
-  });
+  }).filter(function (o) { var k = _adMachineKey(o.machine); if (seen[k]) return false; seen[k] = 1; return true; });
 }
 function _adFrameRow(o) { return AD_FR_FIELDS.map(function (f) { return o[f] || ''; }).concat([(o.edited || []).join(','), nowJST()]); }
 /** 一覧表の取込 p: { rows:[{machine,...}], version }。手で直した項目と、より新しい版の値は上書きしない */
 function apiFrameImport(p) {
-  return _adLocked(function () {
+  return _adSafe(function () {
     var rows = (p && p.rows) || [], ver = String((p && p.version) || '');
     if (!rows.length) return { success: false, error: '取り込む機種がありません' };
-    var cur = _adFrames(), idx = {}, add = 0, upd = 0, skip = 0;
-    cur.forEach(function (o, i) { idx[_adMachineKey(o.machine)] = i; });
+    var cur = _adFrames(), idx = {}, add = 0, upd = 0, skip = 0, news = [], changed = [];
+    cur.forEach(function (o) { idx[_adMachineKey(o.machine)] = o; });
     rows.forEach(function (r) {
       var k = _adMachineKey(r.machine); if (!k) return;
-      if (idx[k] === undefined) {
-        var n = { edited: [] };
-        AD_FR_FIELDS.forEach(function (f) { n[f] = r[f] ? String(r[f]) : ''; });
-        n.version = ver; idx[k] = cur.length; cur.push(n); add++; return;
+      var o = idx[k];
+      if (!o) {
+        o = { edited: [] };
+        AD_FR_FIELDS.forEach(function (f) { o[f] = r[f] ? String(r[f]) : ''; });
+        o.version = ver; idx[k] = o; news.push(o); add++; return;
       }
-      var o = cur[idx[k]], ch = false;
       if (o.version && ver && o.version > ver) { skip++; return; }
+      var ch = false, verCh = ver && o.version !== ver;
       ['title', 'kind', 'frame', 'M', 'D', 'vdp', 'DE', 'E', 'C'].forEach(function (f) {
         if (!r[f] || o.edited.indexOf(f) >= 0 || o[f] === String(r[f])) return;
         o[f] = String(r[f]); ch = true;
       });
       if (ver) o.version = ver;
       if (ch) upd++;
+      if ((ch || verCh) && news.indexOf(o) < 0 && changed.indexOf(o) < 0) changed.push(o);
     });
-    var sh = _adSheet(AD_SHEET_FRAME, AD_FR_HEADERS);
-    if (cur.length > sh.getMaxRows() - 1) sh.insertRowsAfter(sh.getMaxRows(), cur.length);
-    sh.getRange(2, 1, cur.length, AD_FR_HEADERS.length).setNumberFormat('@').setValues(cur.map(_adFrameRow));
+    // 変わった機種の行だけ書き、新しい機種は末尾に追加
+    var sh = _adSheet(AD_SHEET_FRAME, AD_FR_HEADERS), at = _adKeyRows(sh);
+    changed.forEach(function (o) { var f = at[o.machine]; if (f) _adWriteRow(sh, f[0], _adFrameRow(o).map(_adStr)); });
+    _adAppend(sh, news.map(_adFrameRow));
     return { success: true, added: add, updated: upd, skipped: skip, frames: _adFrames() };
   });
 }
 /** 1項目の編集・機種の追加・削除 p: { machine, field, value } / { add } / { machine, remove } */
 function apiFrameSave(p) {
-  return _adLocked(function () {
+  return _adSafe(function () {
     p = p || {};
-    var cur = _adFrames(), sh = _adSheet(AD_SHEET_FRAME, AD_FR_HEADERS);
+    var cur = _adFrames();
     if (p.add) {
       var name = String(p.add).trim();
       if (!name) return { success: false, error: '機種コードを入力してください' };
@@ -210,8 +258,7 @@ function apiFrameSave(p) {
     var o = cur.filter(function (x) { return x.machine === p.machine; })[0];
     if (!o) return { success: false, error: '機種が見つかりません' };
     if (p.remove) {
-      var i = _adRead(AD_SHEET_FRAME, AD_FR_HEADERS).map(function (r) { return String(r[0]); }).indexOf(String(p.machine));
-      sh.deleteRow(i + 2);
+      _adClear(AD_SHEET_FRAME, AD_FR_HEADERS, o.machine);
       return { success: true, frames: _adFrames() };
     }
     if (AD_FR_FIELDS.indexOf(p.field) < 1) return { success: false, error: '編集できない項目です' };
@@ -265,8 +312,8 @@ function _adGuessFrame(q, type, boards, frames) {
 // ── ④ 未来の見積（これから必要な見積）────────────────────
 function _adFutures() {
   return _adRead(AD_SHEET_FUTURE, AD_FU_HEADERS).filter(function (r) { return r[0]; }).map(function (r) {
-    var o = {}; AD_FU_FIELDS.forEach(function (f, i) { o[f] = String(r[i] === null ? '' : r[i]).trim(); });
-    o.user = String(r[12] || ''); o.createdAt = String(r[13] || '');
+    var o = {}; AD_FU_FIELDS.forEach(function (f, i) { o[f] = _adStr(r[i]); });
+    o.user = _adStr(r[12]); o.createdAt = _adStr(r[13]);
     return o;
   });
 }
@@ -287,7 +334,7 @@ function _adFutureComps(groups, details) {
     Object.keys(groups).forEach(function (k) {
       var g = groups[k];
       if (hit || !boards.length || g.type !== o.type || g.boardKey !== bkey || g.variant !== o.variant || !ini.every(function (x) { return g.initials.indexOf(x) >= 0; })) return;
-      if ((o.frame && g.frame && o.frame !== g.frame) || (o.gen && g.gen && o.gen !== g.gen)) return;
+      if (!_aqFrameOk(o.frame, g.frame) || !_aqGenOk(o.gen, g.gen)) return;
       hit = g.quotes.filter(function (q) { return q.date && day && q.date >= day && q.life !== '過去'; })[0] || null;
     });
     var l = { key: o.id, quoteNo: '', date: '', amount: o.amount ? Number(o.amount) : 0, pdfUrl: '', subject: o.subject || _adSubject(o), life: '未来' };
@@ -299,13 +346,15 @@ function _adFutureComps(groups, details) {
 }
 /** p: { items:[{initial,type,frame,boards,variant,gen,deadline,amount,machines,memo}] } 追加 ／ { id, field, value } 編集 ／ { id, remove } 削除 */
 function apiAsmFutureSave(p) {
-  return _adLocked(function () {
+  return _adSafe(function () {
     p = p || {};
     var clean = function (f, v) {
       v = String(v === null || v === undefined ? '' : v).trim();
       if (v === '') return '';
       if (f === 'initial') return _adSplitInitials(v).join('/');
       if (f === 'boards') return _adSplitBoards(v).join(' / ');
+      if (f === 'frame') return _aqSplitFrame(v).join('/');
+      if (f === 'gen') return _aqGenJoin(_aqSplitGen(v));
       if (f === 'amount') return String(_adNum(v));
       if (f === 'deadline') { var d = _aqDate(v); if (!d) throw new Error('提出期限の日付が正しくありません'); return d; }
       return v;
@@ -324,16 +373,13 @@ function apiAsmFutureSave(p) {
         return dup ? null : AD_FU_FIELDS.map(function (f) { return o[f]; }).concat([_adUser(), now, now]);
       }).filter(Boolean);
       if (!rows.length) return { success: false, error: '同じ内容の未来の見積が登録済みです' };
-      var sh = _adSheet(AD_SHEET_FUTURE, AD_FU_HEADERS), at = sh.getLastRow() + 1;
-      if (at + rows.length > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), rows.length + 50);
-      sh.getRange(at, 1, rows.length, AD_FU_HEADERS.length).setNumberFormat('@').setValues(rows);
+      _adAppend(_adSheet(AD_SHEET_FUTURE, AD_FU_HEADERS), rows);
       return { success: true, added: rows.length, skipped: p.items.length - rows.length };
     }
     var o = cur.filter(function (x) { return x.id === String(p.id || ''); })[0];
     if (!o) return { success: false, error: '未来の見積が見つかりません' };
     if (p.remove) {
-      var i = _adRead(AD_SHEET_FUTURE, AD_FU_HEADERS).map(function (r) { return String(r[0]); }).indexOf(o.id);
-      _adSheet(AD_SHEET_FUTURE, AD_FU_HEADERS).deleteRow(i + 2);
+      _adClear(AD_SHEET_FUTURE, AD_FU_HEADERS, o.id);
       return { success: true };
     }
     var f = p.field === 'date' ? 'deadline' : p.field;
