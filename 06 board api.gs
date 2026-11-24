@@ -98,6 +98,13 @@ function handleApiRequest(action, payload) {
       case 'vqSave':              res = apiVqSave(payload); break;
       case 'vqDelete':            res = apiVqDelete(payload); break;
       case 'vqKindsSave':         res = apiVqKindsSave(payload); break;
+      case 'compList':            res = apiCompList(payload); break;        // 54_composition_sheet.gs 客先構成表
+      case 'compImportFile':      res = apiCompImportFile(payload); break;
+      case 'compImportFolder':    res = apiCompImportFolder(); break;
+      case 'compUpload':          res = apiCompUpload(payload); break;
+      case 'compExport':          res = apiCompExport(); break;
+      case 'compCfgSave':         res = apiCompCfgSave(payload); break;
+      case 'compDeleteModel':     res = apiCompDeleteModel(payload); break;
       case 'getQuoteDetail':      res = _apiGetQuoteDetail(payload); break;
       case 'ledgerGetAll':        res = _apiLedgerGetAll(); break;
       case 'ledgerSave':          res = _apiLedgerSave(payload); break;

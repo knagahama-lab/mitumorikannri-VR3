@@ -9,7 +9,11 @@
 //        機種ごとの使用基板（M・D・DE・E・C）と日程を読み、必要な構成ごとに
 //        「見積済み（どの見積がいくら）」か「要見積（いつまでに提出）」を判定する
 //        提出期限 = 組立予定（量産組立 → 見本機組立 → 部品集約時期 の早いもの）− 準備日数（既定30日）
-//   ③ 結果は見積管理のスプレッドシートにも書き出す（シート「組立費_構成別見積」「組立費_機種別予定」）
+//   ③ 見積の要否は「基板世代（AG5／AG6R）×新品か中古再生か」で決まる商流で判定する
+//        AG6R の中古再生 … サン電子商流（弊社に注文書が来る）→ 見積書の提出が必要
+//        AG5  の中古再生 … イードリーム商流（弊社に注文書が来ない）→ 見積書の作成は不要
+//        新品・見本機・アフター用 … 世代に関係なくサン電子商流（要見積）
+//   ④ 結果は見積管理のスプレッドシートにも書き出す（シート「組立費_構成別見積」「組立費_機種別予定」）
 //      → 進捗管理側やスプレッドシートからも参照できる
 // ============================================================
 
@@ -19,6 +23,22 @@ var AQ_SHEET_COMP = '組立費_構成別見積';
 var AQ_SHEET_PLAN = '組立費_機種別予定';
 var AQ_SHEET_EXTRA = '組立費_追加費用';   // 構成ごとの 解体費・リユース組立費・検査費（手入力）
 var AQ_EXTRA_FIELDS = [['dismantle', '解体費'], ['reuseAssy', 'リユース組立費'], ['inspect', '検査費']];
+
+// ── 基板世代と商流（見積の要否）。管理画面「⚙ 設定」で変更できる ──────────────
+//   中古再生のときだけ、基板世代で商流が変わる：
+//     AG6R → サン電子商流（弊社に注文書が来る）→ 見積「要」
+//     AG5  → イードリーム商流（弊社に注文書が来ない）→ 見積「不要」
+//   planReuse: 進捗管理の使用基板セルにこの世代名が入っていたら中古再生とみなす
+//     （例：D列が「AG6R」＝新品の D／SNB 基板ではなく AG6R ユニットの再生を使う、の意味）
+var AQ_DEFAULT_GENS = [
+  { name: 'AG6R', keywords: ['AG6R'], planReuse: true,  channel: 'サン電子',     needQuote: '要' },
+  { name: 'AG5',  keywords: ['AG5'],  planReuse: false, channel: 'イードリーム', needQuote: '不要' },
+];
+// 中古再生を示す言葉（「再販」と区別するため『再生』は2文字で持つ）
+var AQ_DEFAULT_REUSE_KW = ['中古', '再生', 'リユース', 'エコ'];
+var AQ_KIND_REUSE = '中古再生';
+var AQ_KIND_NEW = '新品';
+var AQ_GEN_UNKNOWN = '（世代不明）';
 
 function _aqCfg() {
   var c = {};
@@ -67,6 +87,29 @@ function _aqTypes() { var c = _aqCfgRaw(); return Array.isArray(c.types) && c.ty
 function _aqVariants() { var c = _aqCfgRaw(); return Array.isArray(c.variants) && c.variants.length ? c.variants : AQ_DEFAULT_VARIANTS; }
 function _aqCfgRaw() { try { return JSON.parse(PropertiesService.getScriptProperties().getProperty(AQ_PROP) || '{}'); } catch (e) { return {}; } }
 function _aqHasKw(s, kws) { return (kws || []).some(function (k) { k = _aqNorm(k).trim(); return k && s.indexOf(k) >= 0; }); }
+function _aqGens() { var c = _aqCfgRaw(); return Array.isArray(c.gens) && c.gens.length ? c.gens : AQ_DEFAULT_GENS; }
+function _aqReuseKw() { var c = _aqCfgRaw(); return Array.isArray(c.reuseKeywords) && c.reuseKeywords.length ? c.reuseKeywords : AQ_DEFAULT_REUSE_KW; }
+
+/** 基板世代（AG6R／AG5）を文字列から判定。上から順に判定し、見つからなければ '' */
+function _aqGen(text) {
+  var s = _aqNorm(text), gens = _aqGens();
+  for (var i = 0; i < gens.length; i++) if (_aqHasKw(s, gens[i].keywords)) return gens[i].name;
+  return '';
+}
+function _aqGenCfg(name) {
+  var gens = _aqGens();
+  for (var i = 0; i < gens.length; i++) if (gens[i].name === name) return gens[i];
+  return null;
+}
+/** 新品か中古再生か */
+function _aqKind(text) { return _aqHasKw(_aqNorm(text), _aqReuseKw()) ? AQ_KIND_REUSE : AQ_KIND_NEW; }
+/** 商流と見積の要否。中古再生のときだけ世代で分かれる。世代が取れない中古再生は安全側で「要」 */
+function _aqChannel(gen, kind) {
+  if (kind !== AQ_KIND_REUSE) return { channel: 'サン電子', needQuote: '要' };
+  var g = _aqGenCfg(gen);
+  if (!g) return { channel: AQ_GEN_UNKNOWN, needQuote: '要' };
+  return { channel: g.channel || 'サン電子', needQuote: String(g.needQuote || '要').indexOf('不要') >= 0 ? '不要' : '要' };
+}
 
 /** 種類：件名のキーワード → 無ければ基板の頭文字から */
 function _aqType(subject, boards) {
@@ -124,9 +167,15 @@ function _aqCompositions() {
   ql.items.filter(_aqIsAssembly).forEach(function (q) {
     var boards = _aqBoards(q.subject + ' ' + (q.boardName || ''));
     var type = _aqType(q.subject, boards), variant = _aqVariant(q.subject);
+    // 世代は 件名・基板名・機種コード（例「D60（AG6R）」）から拾う
+    var gen = _aqGen([q.subject, q.boardName || '', q.modelCode || ''].join(' '));
+    var kind = _aqKind([variant, q.subject].join(' '));
+    var ch = _aqChannel(gen, kind);
     var bkey = boards.slice().sort().join('+') || '（基板不明）' + q.quoteNo;
-    var key = type + '|' + bkey + '|' + variant;
-    var g = groups[key] || (groups[key] = { key: key, type: type, boards: boards.slice().sort(), boardKey: bkey, variant: variant, quotes: [] });
+    // 既存シート『組立費_追加費用』のキーと互換を保つため、世代が取れたときだけ末尾に足す
+    var key = type + '|' + bkey + '|' + variant + (gen ? '|' + gen : '');
+    var g = groups[key] || (groups[key] = { key: key, type: type, boards: boards.slice().sort(), boardKey: bkey, variant: variant,
+                                            gen: gen, kind: kind, channel: ch.channel, needQuote: ch.needQuote, quotes: [] });
     g.quotes.push({ quoteNo: q.quoteNo, date: _aqDate(q.issueDate), amount: q.quoteAmount || 0, pdfUrl: q.quotePdfUrl || '',
                     subject: q.subject || '', client: q.destCompany || '', status: q.status || '', modelCode: q.modelCode || '',
                     archived: arch.indexOf(q.status) >= 0 });
@@ -142,7 +191,8 @@ function _aqCompositions() {
     return g;
   }).sort(function (a, b) {
     var order = _aqTypes().map(function (t) { return t.name; }).concat(['その他']);
-    return (order.indexOf(a.type) - order.indexOf(b.type)) || a.boardKey.localeCompare(b.boardKey) || a.variant.localeCompare(b.variant);
+    return (order.indexOf(a.type) - order.indexOf(b.type)) || a.boardKey.localeCompare(b.boardKey)
+      || String(a.gen || '').localeCompare(String(b.gen || '')) || a.variant.localeCompare(b.variant);
   });
 }
 
@@ -211,14 +261,18 @@ function _aqPlans(comps, cfg) {
     var id = String(m['機種']).trim();
     var r = reg[id] || {};
     var col = function (k) { return _aqBoards(m[k] || ''); };
-    var M = col('M'), D = col('D'), DE = col('DE'), E = col('E'), C = col('C');
-    var needs = [], byType = {};
-    [['M', M], ['D', D], ['DE', DE], ['E', E], ['C', C]].forEach(function (x) {
-      if (!x[1].length) return;
+    var raw = function (k) { return String(m[k] == null ? '' : m[k]); };
+    var needs = [], byType = {}, rawByType = {};
+    [['M', col('M')], ['D', col('D')], ['DE', col('DE')], ['E', col('E')], ['C', col('C')]].forEach(function (x) {
       var t = _aqTypeForBoard(x[0]); if (!t) return;
-      (byType[t] = byType[t] || []).push.apply(byType[t], x[1]);
+      var cell = raw(x[0]);
+      // 基板品番が入っていなくても、セルに世代名（D列の「AG6R」など）があれば構成として数える
+      if (!x[1].length && !_aqGen(cell)) return;
+      byType[t] = byType[t] || [];
+      if (x[1].length) byType[t].push.apply(byType[t], x[1]);
+      rawByType[t] = (rawByType[t] || '') + ' ' + cell;
     });
-    Object.keys(byType).forEach(function (t) { needs.push({ type: t, boards: byType[t] }); });
+    Object.keys(byType).forEach(function (t) { needs.push({ type: t, boards: byType[t], raw: rawByType[t] || '' }); });
     if (!needs.length) return;
 
     var dates = [
@@ -230,16 +284,39 @@ function _aqPlans(comps, cfg) {
     var last = [sales].concat(dates.map(function (x) { return x[1]; })).filter(String).sort().pop();
     if (last && _aqDiff(last, today) > 90) return;
 
+    var mName = [id, String(m['タイトル'] || '')].join(' ');
     needs.forEach(function (n) {
+      // 世代は 構成セル（D列の「AG6R」など）→ 機種名 の順で判定
+      var genCell = _aqGen(n.raw), gen = genCell || _aqGen(mName), genGuess = false, gc = _aqGenCfg(gen);
+      // 必要区分：中古再生の言葉があるか、構成セルの世代名が「構成表の表記で中古再生」設定のとき
+      var kind = (_aqKind(n.raw + ' ' + mName) === AQ_KIND_REUSE || (gc && gc.planReuse && genCell)) ? AQ_KIND_REUSE : AQ_KIND_NEW;
       var f = findComps(n.type, n.boards);
+      // 構成表・機種名に世代の表記が無いときは、基板が完全一致する見積の世代を借りる（推定）
+      if (!gen && f.exact) {
+        var withGen = f.comps.filter(function (c) { return c.gen; });
+        if (withGen.length) { gen = withGen[0].gen; genGuess = true; }
+      }
+      var ch = _aqChannel(gen, kind);
+      // 必要区分（と世代）に合う見積だけを「この構成の見積」とみなす。世代が空の見積は世代不明として許容
       var quoted = f.comps.map(function (c) {
-        return { variant: c.variant, quoteNo: c.latest.quoteNo, date: c.latest.date, amount: c.latest.amount, pdfUrl: c.latest.pdfUrl, boards: c.boards.join(' / ') };
+        var fit = (c.kind || AQ_KIND_NEW) === kind && (!gen || !c.gen || c.gen === gen);
+        return { variant: c.variant, gen: c.gen || '', kind: c.kind || AQ_KIND_NEW, fit: fit,
+                 quoteNo: c.latest.quoteNo, date: c.latest.date, amount: c.latest.amount, pdfUrl: c.latest.pdfUrl, boards: c.boards.join(' / ') };
       });
+      // 中古再生は使用基板が入れ替わる（AG6Rユニットが新品の D／SNB 基板の代わりになる）ので、
+      // 基板の完全一致を待たず「世代と区分が合う見積」があれば見積済みとみなす
+      var fitCount = quoted.filter(function (x) { return x.fit && (f.exact || (gen && x.gen === gen)); }).length;
+      var status = ch.needQuote === '不要' ? '見積不要'
+        : !quoted.length ? '要見積'
+        : fitCount ? '見積済み'
+        : f.exact ? '区分違い'   // 構成は一致するが、必要な区分（新品／中古再生）の見積が無い＝単価が違うので流用できない
+        : '一部一致';
       var deadline = base ? _aqAddDays(base[1], -cfg.leadDays) : '';
       out.push({
         machine: id, customer: String(m['得意先'] || ''), title: String(m['タイトル'] || ''), sales: sales,
         type: n.type, boards: n.boards.join(' / '),
-        status: quoted.length ? (f.exact ? '見積済み' : '一部一致') : '要見積',
+        gen: gen, genGuess: genGuess, kind: kind, channel: ch.channel, needQuote: ch.needQuote,
+        status: status,
         quotes: quoted,
         baseLabel: base ? base[0] : '', baseDate: base ? base[1] : '',
         deadline: deadline, leftDays: deadline ? _aqDiff(today, deadline) : null,
@@ -247,9 +324,10 @@ function _aqPlans(comps, cfg) {
       });
     });
   });
+  // 要見積 → 区分違い → 一部一致 → 見積済み → 見積不要 の順
+  var rank = function (s) { return s === '要見積' ? 0 : s === '区分違い' ? 1 : s === '一部一致' ? 2 : s === '見積済み' ? 3 : 4; };
   out.sort(function (a, b) {
-    var sa = a.status === '要見積' ? 0 : 1, sb = b.status === '要見積' ? 0 : 1;
-    return (sa - sb) || String(a.deadline || '9999').localeCompare(String(b.deadline || '9999')) || a.machine.localeCompare(b.machine);
+    return (rank(a.status) - rank(b.status)) || String(a.deadline || '9999').localeCompare(String(b.deadline || '9999')) || a.machine.localeCompare(b.machine);
   });
   return out;
 }
@@ -264,12 +342,12 @@ function _aqWriteSheets(comps, plans) {
     sh.setFrozenRows(1);
     sh.getRange(1, headers.length + 2).setValue('最終更新: ' + now);
   };
-  write(AQ_SHEET_COMP, ['種類', '使用基板', '区分', '最新見積No', '提出日', '金額', '解体費', 'リユース組立費', '検査費', '見積書PDF', '見積件数', '件名'],
-    comps.map(function (c) { var l = c.latest || {}; var x = c.extra || {}; return [c.type, c.boards.join(' / '), c.variant, l.quoteNo || '', l.date || '', l.amount || '', x.dismantle == null ? '' : x.dismantle, x.reuseAssy == null ? '' : x.reuseAssy, x.inspect == null ? '' : x.inspect, l.pdfUrl || '', c.count, l.subject || '']; }));
-  write(AQ_SHEET_PLAN, ['機種', '得意先', 'タイトル', '販売時期', '種類', '使用基板', '見積状況', '見積（区分:見積No 金額 提出日）', '基準日程', '基準日', '提出期限', '残り日数', '進捗ステータス'],
+  write(AQ_SHEET_COMP, ['種類', '使用基板', '区分', '世代', '新品/中古', '商流', '最新見積No', '提出日', '金額', '解体費', 'リユース組立費', '検査費', '見積書PDF', '見積件数', '件名'],
+    comps.map(function (c) { var l = c.latest || {}; var x = c.extra || {}; return [c.type, c.boards.join(' / '), c.variant, c.gen || '', c.kind || '', c.channel || '', l.quoteNo || '', l.date || '', l.amount || '', x.dismantle == null ? '' : x.dismantle, x.reuseAssy == null ? '' : x.reuseAssy, x.inspect == null ? '' : x.inspect, l.pdfUrl || '', c.count, l.subject || '']; }));
+  write(AQ_SHEET_PLAN, ['機種', '得意先', 'タイトル', '販売時期', '種類', '使用基板', '世代', '必要区分', '商流', '見積要否', '見積状況', '見積（区分:見積No 金額 提出日）', '基準日程', '基準日', '提出期限', '残り日数', '進捗ステータス'],
     plans.map(function (p) {
-      return [p.machine, p.customer, p.title, p.sales, p.type, p.boards, p.status,
-        p.quotes.map(function (q) { return q.variant + ':' + q.quoteNo + ' ¥' + Number(q.amount || 0).toLocaleString() + ' ' + q.date; }).join('\n'),
+      return [p.machine, p.customer, p.title, p.sales, p.type, p.boards, (p.gen || '') + (p.genGuess ? '（推定）' : ''), p.kind || '', p.channel || '', p.needQuote || '', p.status,
+        p.quotes.map(function (q) { return (q.fit ? '' : '△') + q.variant + ':' + q.quoteNo + ' ¥' + Number(q.amount || 0).toLocaleString() + ' ' + q.date; }).join('\n'),
         p.baseLabel, p.baseDate, p.deadline, p.leftDays == null ? '' : p.leftDays, p.progressStatus];
     }));
 }
@@ -282,7 +360,7 @@ function apiAssemblyQuotes(p) {
     var plans = [], planError = '';
     try { plans = _aqPlans(comps, cfg); } catch (e) { planError = '進捗管理システムのスプレッドシートを読めませんでした：' + e.message; }
     try { _aqWriteSheets(comps, plans); } catch (e2) { Logger.log('[apiAssemblyQuotes write] ' + e2.message); }
-    cfg.types = _aqTypes(); cfg.variants = _aqVariants();
+    cfg.types = _aqTypes(); cfg.variants = _aqVariants(); cfg.gens = _aqGens(); cfg.reuseKeywords = _aqReuseKw();
     return { success: true, comps: comps, plans: plans, planError: planError, cfg: cfg, generatedAt: nowJST() };
   } catch (e) {
     Logger.log('[apiAssemblyQuotes] ' + e.message + '\n' + e.stack);
@@ -305,7 +383,20 @@ function apiAssemblyQuotesCfg(p) {
     };
     if (p.types) c.types = clean(p.types, true);
     if (p.variants) c.variants = clean(p.variants, false);
-    if (p.resetLists) { delete c.types; delete c.variants; }
+    if (p.gens) {
+      c.gens = (p.gens || []).map(function (g) {
+        return { name: String(g.name || '').trim(),
+                 keywords: (Array.isArray(g.keywords) ? g.keywords : String(g.keywords || '').split(/[,、\n]+/)).map(function (k) { return String(k).trim(); }).filter(Boolean),
+                 planReuse: !!g.planReuse,
+                 channel: String(g.channel || '').trim() || 'サン電子',
+                 needQuote: String(g.needQuote || '要').indexOf('不要') >= 0 ? '不要' : '要' };
+      }).filter(function (g) { return g.name; });
+    }
+    if (p.reuseKeywords != null) {
+      c.reuseKeywords = (Array.isArray(p.reuseKeywords) ? p.reuseKeywords : String(p.reuseKeywords).split(/[,、\s\n]+/))
+        .map(function (k) { return String(k).trim(); }).filter(Boolean);
+    }
+    if (p.resetLists) { delete c.types; delete c.variants; delete c.gens; delete c.reuseKeywords; }
     if (p.progressSsId != null) {
       var m = String(p.progressSsId).match(/[-\w]{25,}/);
       c.progressSsId = m ? m[0] : '';

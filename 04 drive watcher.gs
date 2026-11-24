@@ -14,6 +14,7 @@
 //   見積書        → 1Y66PDSi35ScuIyS0Jgm0l3p2l7MEM2Jk
 //   注文書（試作） → 1Ufq4xMjOmZvUQLC_Zp0EAWlHF0mYAGDM
 //   注文書（量産） → 1ujzCtYzOqU9_a6tiEXOHhDWRv15a0p0k
+//   構成表         → 管理画面「📋 構成表」の ⚙ 設定 でフォルダを指定（54_composition_sheet.gs）
 //
 // 保存先フォルダ:
 //   見積書        → 1sB42xntGKL31GeT9OjOKTxVJwj9IQz-h
@@ -39,6 +40,9 @@ function processDriveImports() {
     try { ensureServerExportTrigger(); } catch(ee) { Logger.log('[SERVER EXPORT ERROR] ' + ee.message); }
     try { if (typeof _oriCheckReimportDone === 'function') _oriCheckReimportDone(); } catch(re) {}
     try { if (typeof _qdAutoInit === 'function') _qdAutoInit(); } catch(qe) {}   // 単発見積の受注期限（51）
+    // ★ 客先支給の構成表（54_composition_sheet.gs）：インポートフォルダの xlsx を取り込む
+    try { if (typeof importCompositionSheetsFromFolder === 'function') importCompositionSheetsFromFolder(); }
+    catch(ce) { Logger.log('[COMPOSITION ERROR] ' + ce.message); }
 
     Logger.log('[DRIVE WATCH] 完了。処理ファイル数: ' + processed);
     return processed;

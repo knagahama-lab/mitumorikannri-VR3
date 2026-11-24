@@ -1,0 +1,339 @@
+<script>
+// ============================================================
+// composition_js.html — 価格表「📋 構成表（客先支給）」（54_composition_sheet.gs）
+//   ① 機種サマリ：機種ごとに 注文あり／未発注／構成表のみ／VR3のみ の件数
+//   ② 明細：構成表の品名ごとに、発注書番号・単価と VR3 の注文・見積を並べて表示
+//   ③ 共有スプレッドシートへ片方向で転記
+// ============================================================
+var CS = { data: null, tab: 'model', q: '', model: '', onlyIssue: false };
+
+(function hookCompositionPage() {
+  if (typeof initPriceListPage !== 'function') return;
+  var prevInit = initPriceListPage;
+  initPriceListPage = function () {
+    prevInit.apply(this, arguments);
+    var auto = document.getElementById('pl-tab-auto');
+    if (!auto || document.getElementById('pl-tab-cs')) return;
+    var b = document.createElement('button');
+    b.className = 'btn btn-sm btn-outline'; b.id = 'pl-tab-cs'; b.textContent = '📋 構成表';
+    b.onclick = function () { _plSwitchPageTab('cs'); };
+    auto.before(b);
+    var panel = document.createElement('div'); panel.id = 'pl-panel-cs'; panel.style.display = 'none';
+    panel.innerHTML = '<div id="cs-box"><div class="loading"><div class="spinner"></div><br>読み込み中...</div></div>';
+    document.getElementById('pl-panel-auto').before(panel);
+  };
+  var prevSwitch = _plSwitchPageTab;
+  _plSwitchPageTab = function (tab) {
+    var panel = document.getElementById('pl-panel-cs'), btn = document.getElementById('pl-tab-cs');
+    if (tab === 'cs') {
+      document.querySelectorAll('[id^="pl-panel-"]').forEach(function (p) { p.style.display = 'none'; });
+      document.querySelectorAll('[id^="pl-tab-"]').forEach(function (bt) { bt.className = 'btn btn-sm btn-outline'; });
+      if (panel) panel.style.display = '';
+      if (btn) btn.className = 'btn btn-sm btn-primary';
+      _plPageTab = 'cs';
+      if (CS.data) csRender(); else csLoad();
+      return;
+    }
+    if (panel) panel.style.display = 'none';
+    if (btn) btn.className = 'btn btn-sm btn-outline';
+    return prevSwitch.apply(this, arguments);
+  };
+})();
+
+/** 原因が分かるエラー表示（メッセージが空なら生の応答をそのまま見せる） */
+function _csErrBox(res, fallback) {
+  var msg = '';
+  if (res && typeof res === 'object') msg = res.error || res.message || '';
+  else if (typeof res === 'string') msg = res;
+  var raw = '';
+  try { raw = (res === null) ? 'null' : (res === undefined) ? 'undefined' : JSON.stringify(res); } catch (e) { raw = String(res); }
+  if (raw && raw.length > 600) raw = raw.slice(0, 600) + ' …';
+  return '<div style="color:var(--danger);padding:16px;">⚠ ' + _esc(msg || fallback)
+    + '<div style="margin-top:8px;font-size:11px;color:#64748b;">サーバーからの応答: <code>' + _esc(raw) + '</code></div>'
+    + '<div style="margin-top:8px;"><button class="btn btn-outline btn-sm" onclick="csLoad()">↻ もう一度</button></div></div>';
+}
+
+var _csTh = function (t, ex) { return '<th style="border:1px solid #94a3b8;padding:5px 8px;background:#e2e8f0;text-align:left;white-space:nowrap;' + (ex || '') + '">' + t + '</th>'; };
+var _csTd = function (t, ex) { return '<td style="border:1px solid #cbd5e1;padding:5px 8px;vertical-align:top;' + (ex || '') + '">' + t + '</td>'; };
+var _csYen = function (n) { return (n === '' || n == null) ? '—' : '¥' + Number(n).toLocaleString('ja-JP', { maximumFractionDigits: 2 }); };
+var _csInt = function (n) { return (n === '' || n == null) ? '' : Number(n).toLocaleString('ja-JP'); };
+var CS_ISSUE = ['未発注', '構成表のみ', 'VR3のみ', '注文あり(番号違い)'];
+var _csStColor = function (s) {
+  return s === '注文あり' ? 'background:#dcfce7;color:#166534;'
+    : s === '構成表のみ' ? 'background:#ffedd5;color:#9a3412;font-weight:700;'
+    : s === 'VR3のみ' ? 'background:#fef3c7;color:#92400e;'
+    : s === '注文あり(番号違い)' ? 'background:#fef3c7;color:#92400e;'
+    : 'background:#fee2e2;color:#b91c1c;font-weight:700;';
+};
+
+function csLoad(p) {
+  var box = document.getElementById('cs-box');
+  if (box) box.innerHTML = '<div class="loading"><div class="spinner"></div><br>構成表を集計しています...</div>';
+  google.script.run.withSuccessHandler(function (res) {
+    if (!res || !res.success) { if (box) box.innerHTML = _csErrBox(res, 'サーバーから結果が返りませんでした'); return; }
+    CS.data = res; csRender();
+  }).withFailureHandler(function (e) { if (box) box.innerHTML = _csErrBox(e, '通信に失敗しました'); })
+    .handleApiRequest('compList', p || {});
+}
+
+/** 「発注書番号の列が無い構成表」などの注意書きを画面上部に出す */
+function _csNoteBanner(d) {
+  var w = (d.models || []).filter(function (m) { return m['注記']; });
+  if (!w.length) return '';
+  return '<div style="background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;padding:8px 12px;border-radius:6px;margin-bottom:8px;font-size:12px;">'
+    + w.map(function (m) { return '⚠ <b>' + _esc(m['機種']) + '</b>　' + _esc(m['注記']); }).join('<br>') + '</div>';
+}
+
+function csRender() {
+  var box = document.getElementById('cs-box'); if (!box || !CS.data) return;
+  var d = CS.data;
+  var issues = d.lines.filter(function (l) { return CS_ISSUE.indexOf(String(l['注文書状況'])) >= 0; });
+  var none = d.lines.filter(function (l) { return String(l['注文書状況']) === '未発注'; });
+  var tab = function (k, label) { return '<button class="btn btn-sm ' + (CS.tab === k ? 'btn-primary' : 'btn-outline') + '" onclick="CS.tab=\'' + k + '\';csRender()">' + label + '</button>'; };
+  box.innerHTML = '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">'
+    + tab('model', '📦 機種サマリ ' + d.models.length)
+    + tab('line', '📋 明細 ' + d.lines.length + (none.length ? '（<b style="color:#dc2626;">未発注 ' + none.length + '</b>）' : ''))
+    + tab('cfg', '⚙ 設定')
+    + '<input type="text" placeholder="品名・部品コード・発注書番号で検索" value="' + _esc(CS.q) + '" oninput="CS.q=this.value;csRenderBody()" style="flex:1;min-width:180px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;">'
+    + '<button class="btn btn-primary btn-sm" onclick="csPickFile()" title="M: などパソコン上の構成表をそのまま取り込みます（ドライブに置く必要はありません）">📄 PCから取込</button>'
+    + '<button class="btn btn-outline btn-sm" onclick="csImportFolder()">📥 フォルダから取込</button>'
+    + '<button class="btn btn-outline btn-sm" onclick="csLoad({rematch:true})" title="構成表は読み直さず、注文書・見積書との突合だけやり直します">🔄 再突合</button>'
+    + '<button class="btn btn-outline btn-sm" onclick="csExport()" style="color:#16a34a;border-color:#16a34a;">📤 共有スプレッドへ転記</button>'
+    + '<button class="btn btn-outline btn-sm" onclick="csCsv()" style="color:#16a34a;border-color:#16a34a;">📥 CSV</button>'
+    + '<button class="btn btn-outline btn-sm" onclick="csLoad()">↻ 再読込</button></div>'
+    + '<div style="font-size:12px;color:var(--text-sub);margin-bottom:6px;">客先から支給される構成表（xlsx）を取り込み、<b>品名</b>で注文書シート・見積書シートを引き当てています。'
+    + '構成表の品名は客先の注文書の品名と一致するため、品名で「注文が来ているか」を追えます。'
+    + '構成表の発注書番号と VR3 の注文を両方並べ、'
+    + '<span style="' + _csStColor('注文あり') + 'padding:1px 4px;">注文あり</span>'
+    + '<span style="' + _csStColor('構成表のみ') + 'padding:1px 4px;margin-left:4px;">構成表のみ（VR3に取込漏れ）</span>'
+    + '<span style="' + _csStColor('VR3のみ') + 'padding:1px 4px;margin-left:4px;">VR3のみ（構成表が古い）</span>'
+    + '<span style="' + _csStColor('未発注') + 'padding:1px 4px;margin-left:4px;">未発注</span> に分けています。'
+    + (issues.length ? ' <b style="color:#c2410c;">要確認 ' + issues.length + '件</b>' : '')
+    + '　集計: ' + _esc(d.generatedAt) + '（シート「構成表_明細」「構成表_機種」にも出力）'
+    + (d.cfg.shareUrl ? ' ／ <a href="' + _esc(d.cfg.shareUrl) + '" target="_blank">共有スプレッドシートを開く</a>' : '')
+    + '</div>' + _csNoteBanner(d) + '<div id="cs-body"></div>';
+  csRenderBody();
+}
+
+/** 機種サマリから明細へ移る */
+function csShowModel(model) { CS.model = String(model); CS.tab = 'line'; CS.onlyIssue = false; csRender(); }
+
+function _csHit(s) { var q = String(CS.q || '').toLowerCase().trim(); return !q || q.split(/\s+/).every(function (k) { return s.toLowerCase().indexOf(k) >= 0; }); }
+
+function csRenderBody() {
+  var el = document.getElementById('cs-body'); if (!el || !CS.data) return;
+  var d = CS.data;
+
+  if (CS.tab === 'cfg') {
+    el.innerHTML = '<table style="border-collapse:collapse;font-size:13px;max-width:860px;width:100%;">'
+      + '<tr>' + _csTh('構成表インポートフォルダ')
+      + _csTd('<input type="text" id="cs-imp" value="' + _esc(d.cfg.importFolderId) + '" placeholder="Googleドライブのフォルダ URL または ID" style="width:100%;">'
+        + '<div style="font-size:11px;color:#64748b;">ここに構成表の xlsx を置くと、5分おきの自動監視で取り込まれます（取り込んだファイルは「処理済み」へ移動）。M: の構成表はコピーしてこのフォルダに置いてください。</div>') + '</tr>'
+      + '<tr>' + _csTh('処理済みフォルダ')
+      + _csTd('<input type="text" id="cs-done" value="' + _esc(d.cfg.doneFolderId) + '" placeholder="未設定ならインポートフォルダ内に「処理済み」を自動作成" style="width:100%;">') + '</tr>'
+      + '<tr>' + _csTh('共有スプレッドシート')
+      + _csTd('<input type="text" id="cs-share" value="' + _esc(d.cfg.shareSsId) + '" placeholder="未設定なら「構成表 管理表」を自動作成" style="width:100%;">'
+        + '<div style="font-size:11px;color:#64748b;">転記は片方向です。こちらで編集しても見積管理VR3には戻りません。'
+        + (d.cfg.shareUrl ? ' <a href="' + _esc(d.cfg.shareUrl) + '" target="_blank">開く</a>' : '') + '</div>') + '</tr>'
+      + '<tr>' + _csTh('パソコンから取込')
+      + _csTd('<button class="btn btn-primary btn-sm" onclick="csPickFile()">📄 ファイルを選んで取込</button>'
+        + '<div style="font-size:11px;color:#64748b;">M: の構成表をそのまま選べます（ドライブへのコピーは不要）。複数まとめて選べます。取り込んだ元ファイルは「処理済み」フォルダに残ります。</div>') + '</tr>'
+      + '<tr>' + _csTh('ドライブのファイルを指定して取込')
+      + _csTd('<div style="display:flex;gap:6px;"><input type="text" id="cs-file" placeholder="構成表（xlsx）の URL または ID" style="flex:1;">'
+        + '<button class="btn btn-outline btn-sm" onclick="csImportFile()">取込</button></div>'
+        + '<div style="font-size:11px;color:#64748b;">同じ機種を取り込み直すと、その機種の明細を新しい構成表で置き換えます（修正版の上書き）。</div>') + '</tr>'
+      + '</table>'
+      + '<div style="margin-top:8px;"><button class="btn btn-primary btn-sm" onclick="csCfgSave()">💾 保存</button></div>';
+    return;
+  }
+
+  if (CS.tab === 'model') {
+    var rows = d.models.filter(function (m) { return _csHit(String(m['機種']) + ' ' + String(m['版'])); });
+    el.innerHTML = '<div class="bpt-wrap" style="overflow:auto;"><table style="border-collapse:collapse;font-size:12px;width:100%;"><tr>'
+      + ['機種', '版', '品目数', '明細行数', '発注書番号あり', '未発注', '注文あり', '構成表のみ', 'VR3のみ', '番号違い', '単価差あり', '見積なし', '総額', '取込日時', '元ファイル', '注記', ''].map(function (t) { return _csTh(t); }).join('') + '</tr>'
+      + (rows.length ? rows.map(function (m) {
+          var warn = Number(m['未発注'] || 0) + Number(m['構成表のみ'] || 0) + Number(m['VR3のみ'] || 0) + Number(m['番号違い'] || 0);
+          var cell = function (k, color) { var v = Number(m[k] || 0); return _csTd(v ? '<b>' + v + '</b>' : '0', 'text-align:right;' + (v && color ? color : '')); };
+          return '<tr' + (warn ? ' style="background:#fff7ed;"' : '') + '>'
+            + _csTd('<a href="javascript:void(0)" onclick="csShowModel(' + _esc(JSON.stringify(String(m['機種']))) + ')"><b>' + _esc(m['機種']) + '</b></a>', 'white-space:nowrap;')
+            + _csTd(_esc(m['版']), 'white-space:nowrap;')
+            + _csTd(_csInt(m['品目数']), 'text-align:right;') + _csTd(_csInt(m['明細行数']), 'text-align:right;')
+            + _csTd(_csInt(m['発注書番号あり']), 'text-align:right;')
+            + cell('未発注', 'background:#fee2e2;color:#b91c1c;')
+            + cell('注文あり', 'background:#dcfce7;color:#166534;')
+            + cell('構成表のみ', 'background:#ffedd5;color:#9a3412;')
+            + cell('VR3のみ', 'background:#fef3c7;color:#92400e;')
+            + cell('番号違い', 'background:#fef3c7;color:#92400e;')
+            + cell('単価差あり', 'background:#fef3c7;color:#92400e;')
+            + cell('見積なし', 'background:#fee2e2;color:#b91c1c;')
+            + _csTd(_csYen(m['総額']), 'text-align:right;white-space:nowrap;background:#fef9c3;font-weight:700;')
+            + _csTd(_esc(m['取込日時']), 'white-space:nowrap;') + _csTd(_esc(m['元ファイル']), 'max-width:220px;')
+            + _csTd(m['注記'] ? '<span style="color:#9a3412;">⚠ ' + _esc(m['注記']) + '</span>' : '', 'max-width:360px;' + (m['注記'] ? 'background:#fff7ed;' : ''))
+            + _csTd('<button class="btn btn-outline btn-sm" title="この機種の明細を削除" onclick="csDeleteModel(' + _esc(JSON.stringify(String(m['機種']))) + ')">✕</button>', 'white-space:nowrap;')
+            + '</tr>';
+        }).join('')
+        : '<tr>' + _csTd('構成表がまだ取り込まれていません。⚙ 設定 でインポートフォルダを指定して「📥 フォルダから取込」、またはファイルのURLを指定して取り込んでください。', 'color:#64748b;') + '</tr>')
+      + '</table></div>';
+    return;
+  }
+
+  // 明細
+  var lines = d.lines.filter(function (l) {
+    if (CS.model && String(l['機種']) !== CS.model) return false;
+    if (CS.onlyIssue && CS_ISSUE.indexOf(String(l['注文書状況'])) < 0) return false;
+    return _csHit([l['品名'], l['部品コード'], l['発注書番号'], l['発注先'], l['納入先'], l['区分'], l['VR3注文番号'], l['VR3発注伝票番号'], l['見積No']].join(' '));
+  });
+  var models = d.models.map(function (m) { return String(m['機種']); });
+  el.innerHTML = '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:6px;font-size:12px;">'
+    + '<label>機種 <select onchange="CS.model=this.value;csRenderBody()" style="padding:4px 8px;">'
+    + '<option value="">すべて</option>'
+    + models.map(function (m) { return '<option value="' + _esc(m) + '"' + (CS.model === m ? ' selected' : '') + '>' + _esc(m) + '</option>'; }).join('')
+    + '</select></label>'
+    + '<label style="display:inline-flex;gap:4px;align-items:center;"><input type="checkbox"' + (CS.onlyIssue ? ' checked' : '') + ' onchange="CS.onlyIssue=this.checked;csRenderBody()"> 要確認だけ表示（未発注・構成表のみ・VR3のみ・番号違い）</label>'
+    + '<span style="color:var(--text-sub);">' + lines.length + ' 行</span></div>'
+    + '<div class="bpt-wrap" style="overflow:auto;"><table style="border-collapse:collapse;font-size:12px;width:100%;"><tr>'
+    + ['機種', '階層', '発注先', '部品コード', '品名', '納入先', '発注書番号', '数量', '発注単価', '区分', '注文書状況', 'VR3の注文', 'VR3数量', 'VR3単価', '単価差', '見積'].map(function (t) { return _csTh(t); }).join('') + '</tr>'
+    + lines.map(function (l) {
+        var st = String(l['注文書状況'] || '');
+        var diff = l['単価差'];
+        var lv = Number(l['階層'] || 1);
+        var vq = String(l['VR3注文番号'] || ''), vs = String(l['VR3発注伝票番号'] || '');
+        return '<tr' + (CS_ISSUE.indexOf(st) >= 0 ? ' style="background:#fff7ed;"' : '') + '>'
+          + _csTd(_esc(l['機種']), 'white-space:nowrap;')
+          + _csTd(String(lv), 'text-align:center;color:#94a3b8;')
+          + _csTd(_esc(l['発注先']), 'max-width:150px;')
+          + _csTd(_esc(l['部品コード']), 'white-space:nowrap;')
+          + _csTd('<span style="padding-left:' + ((lv - 1) * 12) + 'px;">' + _esc(l['品名']) + '</span>', 'min-width:260px;')
+          + _csTd(_esc(l['納入先']), 'max-width:140px;')
+          + _csTd(_esc(l['発注書番号']) || '<span style="color:#94a3b8;">—</span>', 'white-space:nowrap;')
+          + _csTd(_csInt(l['発注書数量']), 'text-align:right;')
+          + _csTd(_csYen(l['発注単価']), 'text-align:right;white-space:nowrap;')
+          + _csTd(_esc(l['区分']), 'white-space:nowrap;' + (String(l['区分']).indexOf('中古') >= 0 || String(l['区分']).indexOf('リユース') >= 0 ? 'background:#fef3c7;' : ''))
+          + _csTd(_esc(st), _csStColor(st) + 'white-space:nowrap;')
+          + _csTd(vq || vs ? _esc(vq) + (vs ? '<br><small>伝票 ' + _esc(vs) + '</small>' : '') : '<span style="color:#94a3b8;">—</span>', 'white-space:nowrap;')
+          + _csTd(_csInt(l['VR3数量']), 'text-align:right;')
+          + _csTd(_csYen(l['VR3単価']), 'text-align:right;white-space:nowrap;')
+          + _csTd(diff === '' || diff == null ? ''
+              : Number(diff) === 0 ? '<span style="color:#94a3b8;" title="構成表と注文書の単価は一致しています">±0</span>'
+              : '<b style="color:' + (Number(diff) > 0 ? '#b91c1c' : '#1d4ed8') + ';">' + (Number(diff) > 0 ? '+' : '') + _csInt(diff) + '</b>', 'text-align:right;white-space:nowrap;')
+          + _csTd(String(l['見積状況']) === '見積あり' ? '<span style="background:#dcfce7;color:#166534;padding:1px 4px;">' + _esc(l['見積No']) + '</span><br><small>' + _csYen(l['見積単価']) + '</small>' : '<span style="color:#b91c1c;">見積なし</span>', 'white-space:nowrap;')
+          + '</tr>';
+      }).join('') + '</table></div>';
+}
+
+// ── 操作 ──
+function csCfgSave() {
+  csLoadVia('compCfgSave', { importFolderId: document.getElementById('cs-imp').value,
+                             doneFolderId: document.getElementById('cs-done').value,
+                             shareSsId: document.getElementById('cs-share').value });
+}
+function csLoadVia(action, payload) {
+  var box = document.getElementById('cs-box');
+  if (box) box.innerHTML = '<div class="loading"><div class="spinner"></div><br>処理中...</div>';
+  google.script.run.withSuccessHandler(function (res) {
+    if (!res || !res.success) { var b0 = document.getElementById('cs-box'); if (b0) b0.innerHTML = _csErrBox(res, '保存できませんでした'); return; }
+    CS.data = res; csRender();
+  }).withFailureHandler(function (e) { var b1 = document.getElementById('cs-box'); if (b1) b1.innerHTML = _csErrBox(e, '通信に失敗しました'); })
+    .handleApiRequest(action, payload || {});
+}
+function _csRun(action, payload, okMsg) {
+  google.script.run.withSuccessHandler(function (res) {
+    if (!res || !res.success) {
+      var b2 = document.getElementById('cs-body');
+      if (b2) b2.insertAdjacentHTML('afterbegin', _csErrBox(res, '失敗しました'));
+      showToast((res && res.error) || '失敗しました', true); return;
+    }
+    showToast(res.message || okMsg || '完了しました');
+    if (res.url) window.open(res.url, '_blank');
+    csLoad();
+  }).withFailureHandler(function (e) { showToast(e.message || String(e), true); })
+    .handleApiRequest(action, payload || {});
+}
+/** パソコンのファイルを選ぶ（隠しinputを使う。ボタンを直接クリックさせない） */
+function csPickFile() {
+  var inp = document.getElementById('cs-upload');
+  if (!inp) {
+    inp = document.createElement('input');
+    inp.type = 'file'; inp.id = 'cs-upload'; inp.accept = '.xlsx,.xlsm,.xls'; inp.multiple = true;
+    inp.style.display = 'none';
+    inp.addEventListener('change', function () { var fs = this.files; this.value = ''; csUploadFiles(fs); });
+    document.body.appendChild(inp);
+  }
+  inp.click();
+}
+
+function _csReadFileB64(file) {
+  return new Promise(function (resolve, reject) {
+    var fr = new FileReader();
+    fr.onload = function () { resolve(String(fr.result).split(',')[1]); };
+    fr.onerror = function () { reject(new Error('ファイルを読み込めませんでした: ' + file.name)); };
+    fr.readAsDataURL(file);
+  });
+}
+
+/** 選んだ構成表を1件ずつアップロードして取り込む */
+function csUploadFiles(files) {
+  var list = Array.prototype.slice.call(files || []);
+  if (!list.length) return;
+  var tooBig = list.filter(function (f) { return f.size > 10 * 1024 * 1024; });
+  if (tooBig.length) { showToast('10MBを超えるファイルは取り込めません: ' + tooBig[0].name, true); return; }
+
+  var box = document.getElementById('cs-box');
+  var say = function (t) { if (box) box.innerHTML = '<div class="loading"><div class="spinner"></div><br>' + _esc(t) + '</div>'; };
+  var done = [], failed = [];
+
+  var step = function (i) {
+    if (i >= list.length) {
+      if (failed.length) showToast(failed.length + '件が取り込めませんでした', true);
+      else showToast(done.join('、') + ' を取り込みました');
+      csLoad();
+      if (failed.length) setTimeout(function () {
+        var b = document.getElementById('cs-body');
+        if (b) b.insertAdjacentHTML('afterbegin', _csErrBox({ error: failed.join(' / ') }, '取り込めませんでした'));
+      }, 1200);
+      return;
+    }
+    var f = list[i];
+    say('取り込んでいます（' + (i + 1) + '/' + list.length + '）… ' + f.name);
+    _csReadFileB64(f).then(function (b64) {
+      google.script.run.withSuccessHandler(function (res) {
+        if (!res || !res.success) failed.push(f.name + '：' + ((res && res.error) || '原因不明'));
+        else done.push((res.imported || []).map(function (d) { return d.model + '（' + d.lines + '行）'; }).join('、') || f.name);
+        step(i + 1);
+      }).withFailureHandler(function (e) {
+        failed.push(f.name + '：' + (e.message || String(e)));
+        step(i + 1);
+      }).handleApiRequest('compUpload', { fileName: f.name, mimeType: f.type || '', base64Data: b64 });
+    }).catch(function (e) { failed.push(e.message || String(e)); step(i + 1); });
+  };
+  step(0);
+}
+
+function csImportFolder() { showToast('インポートフォルダを確認しています...'); _csRun('compImportFolder', {}); }
+function csImportFile() {
+  var v = (document.getElementById('cs-file') || {}).value || '';
+  if (!v.trim()) { showToast('構成表のURLまたはIDを入れてください', true); return; }
+  _csRun('compImportFile', { url: v.trim() });
+}
+function csExport() { showToast('共有スプレッドシートへ転記しています...'); _csRun('compExport', {}); }
+function csDeleteModel(model) {
+  if (!confirm(model + ' の構成表明細を削除します。よろしいですか？\n（構成表のファイル自体は消えません）')) return;
+  _csRun('compDeleteModel', { model: model });
+}
+
+function csCsv() {
+  var d = CS.data; if (!d) return;
+  if (CS.tab === 'model') {
+    _downloadCsv('構成表_機種_' + _today() + '.csv', d.modelHeaders,
+      d.models.map(function (m) { return d.modelHeaders.map(function (h) { return m[h]; }); }));
+  } else {
+    var lines = d.lines.filter(function (l) {
+      if (CS.model && String(l['機種']) !== CS.model) return false;
+      if (CS.onlyIssue && CS_ISSUE.indexOf(String(l['注文書状況'])) < 0) return false;
+      return true;
+    });
+    _downloadCsv('構成表_明細_' + _today() + '.csv', d.lineHeaders,
+      lines.map(function (l) { return d.lineHeaders.map(function (h) { return l[h]; }); }));
+  }
+}
+</script>
