@@ -93,7 +93,10 @@ function handleApiRequest(action, payload) {
       case 'qdMap':               res = apiQdMap(); break;
       case 'assemblyQuotes':      res = apiAssemblyQuotes(payload); break;   // 52_assembly_quotes.gs
       case 'assemblyQuotesCfg':   res = apiAssemblyQuotesCfg(payload); break;
-      case 'assemblyExtraSave':   res = apiAssemblyExtraSave(payload); break;
+      case 'asmOverrideSave':     res = apiAsmOverrideSave(payload); break;   // 55_assembly_detail.gs
+      case 'asmDetailSave':       res = apiAsmDetailSave(payload); break;
+      case 'frameImport':         res = apiFrameImport(payload); break;
+      case 'frameSave':           res = apiFrameSave(payload); break;
       case 'vqList':              res = apiVqList(); break;            // 53_vendor_quotes.gs 依頼先見積書
       case 'vqSave':              res = apiVqSave(payload); break;
       case 'vqDelete':            res = apiVqDelete(payload); break;
