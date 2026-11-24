@@ -4,14 +4,20 @@
 //   ① 手修正   … 見積ごとに 種類・使用基板・区分・世代・枠構成・提出日・金額・件名 を上書き（元の見積データは変えない）
 //   ② 見積内訳 … 組立費見積書「見積詳細」と同じ項目（材料費／Assy費／組立／検査／梱包／輸送費／小計／管理費／利益／レーザーマーキング／値引き）
 //   ③ 枠構成   … ハードウェア構成一覧表（機種別）を取り込み、機種ごとの枠（PFK25・SFK15 等）と基板構成を管理
-//   シート: 組立費_手修正 / 組立費_見積内訳 / 枠構成_機種
+//   ④ 未来の見積 … これから必要な見積を登録（頭文字ごと）。該当する見積が登録されると「提出済み」になる
+//   シート: 組立費_手修正 / 組立費_見積内訳 / 枠構成_機種 / 組立費_未来見積
 // ============================================================
 
 var AD_SHEET_OV = '組立費_手修正';
 var AD_SHEET_DETAIL = '組立費_見積内訳';
 var AD_SHEET_FRAME = '枠構成_機種';
-var AD_OV_FIELDS = ['type', 'boards', 'variant', 'gen', 'frame', 'date', 'amount', 'subject'];
-var AD_OV_HEADERS = ['見積キー', '種類', '使用基板', '区分', '世代', '枠構成', '提出日', '金額', '件名', '更新者', '更新日時'];
+var AD_OV_FIELDS = ['type', 'boards', 'variant', 'gen', 'frame', 'date', 'amount', 'subject', 'initial', 'life'];
+var AD_OV_HEADERS = ['見積キー', '種類', '使用基板', '区分', '世代', '枠構成', '提出日', '金額', '件名', '更新者', '更新日時', '頭文字', '状態'];
+var AD_OV_COL = { type: 1, boards: 2, variant: 3, gen: 4, frame: 5, date: 6, amount: 7, subject: 8, initial: 11, life: 12 };   // 頭文字・状態は後から追加した列（末尾）
+var AD_LIVES = ['現役', '過去', '未来'];
+var AD_SHEET_FUTURE = '組立費_未来見積';
+var AD_FU_FIELDS = ['id', 'initial', 'type', 'frame', 'boards', 'variant', 'gen', 'subject', 'deadline', 'amount', 'machines', 'memo'];
+var AD_FU_HEADERS = ['ID', '頭文字', '種類', '枠構成', '使用基板', '区分', '世代', '件名', '提出期限', '予定金額', '関連機種', 'メモ', '登録者', '登録日', '更新日時'];
 // 見積詳細の区分（小計に入る6つ → 管理費 → 利益 → レーザーマーキング → 値引き）
 var AD_SUB = ['材料費', 'Assy費', '組立', '検査', '梱包', '輸送費'];
 var AD_SECTIONS = AD_SUB.concat(['管理費', 'レーザーマーキング', '値引き']);
@@ -27,6 +33,10 @@ function _adSheet(name, headers) {
     sh.getRange(1, 1, sh.getMaxRows(), headers.length).setNumberFormat('@');
     sh.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#FFF3E0');
     sh.setFrozenRows(1);
+  } else if (String(sh.getRange(1, headers.length, 1, 1).getValues()[0][0]) !== headers[headers.length - 1]) {
+    // 後から増えた列の見出しを足す（既存の列の並びは変えない）
+    sh.getRange(1, 1, sh.getMaxRows(), headers.length).setNumberFormat('@');
+    sh.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold').setBackground('#FFF3E0');
   }
   return sh;
 }
@@ -65,7 +75,7 @@ function _adOverrides() {
   _adRead(AD_SHEET_OV, AD_OV_HEADERS).forEach(function (r) {
     if (!r[0]) return;
     var o = {};
-    AD_OV_FIELDS.forEach(function (f, i) { var v = String(r[i + 1] === null ? '' : r[i + 1]).trim(); if (v !== '') o[f] = v; });
+    AD_OV_FIELDS.forEach(function (f) { var x = r[AD_OV_COL[f]], v = String(x === null || x === undefined ? '' : x).trim(); if (v !== '') o[f] = v; });
     out[String(r[0])] = o;
   });
   return out;
@@ -77,6 +87,9 @@ function _adSplitBoards(s) {
     .map(function (x) { return x.trim(); })
     .filter(function (x) { if (!x || seen[x]) return false; seen[x] = 1; return true; });
 }
+function _adSplitInitials(s) {
+  return String(s || '').normalize('NFKC').toUpperCase().split(/[^A-Z]+/).filter(function (x, i, a) { return x && a.indexOf(x) === i; });
+}
 /** p: { keys:[見積キー], field, value }  value 空 = 自動判定に戻す */
 function apiAsmOverrideSave(p) {
   return _adLocked(function () {
@@ -87,11 +100,18 @@ function apiAsmOverrideSave(p) {
     if (p.field === 'amount' && v !== '') v = String(_adNum(v));
     if (p.field === 'date' && v !== '') { v = _aqDate(v); if (!v) return { success: false, error: '日付が正しくありません' }; }
     if (p.field === 'boards' && v !== '') v = _adSplitBoards(v).join(' / ');
-    var cur = _adOverrides(), now = nowJST(), user = _adUser();
+    if (p.field === 'initial' && v !== '') { v = _adSplitInitials(v).join('/'); if (!v) return { success: false, error: '頭文字は英字で入力してください（例: A、NA、A/C）' }; }
+    if (p.field === 'life' && v !== '' && AD_LIVES.indexOf(v) < 0) return { success: false, error: '状態は 現役・過去・未来 から選んでください' };
+    // 複数件の一括変更に備えて、まとめて読み書きする
+    var sh = _adSheet(AD_SHEET_OV, AD_OV_HEADERS), rows = _adRead(AD_SHEET_OV, AD_OV_HEADERS).map(function (r) { return r.map(function (x) { return x === null ? '' : String(x); }); });
+    var idx = {}, now = nowJST(), user = _adUser();
+    rows.forEach(function (r, i) { idx[r[0]] = i; });
     keys.forEach(function (k) {
-      var o = cur[k] || {}; o[p.field] = v;
-      _adPut(AD_SHEET_OV, AD_OV_HEADERS, k, [k].concat(AD_OV_FIELDS.map(function (f) { return o[f] || ''; })).concat([user, now]));
+      if (idx[k] === undefined) { idx[k] = rows.length; rows.push(AD_OV_HEADERS.map(function (h, i) { return i ? '' : k; })); }
+      var r = rows[idx[k]]; r[AD_OV_COL[p.field]] = v; r[9] = user; r[10] = now;
     });
+    if (rows.length > sh.getMaxRows() - 1) sh.insertRowsAfter(sh.getMaxRows(), rows.length);
+    sh.getRange(2, 1, rows.length, AD_OV_HEADERS.length).setNumberFormat('@').setValues(rows);
     return { success: true, value: v };
   });
 }
@@ -204,7 +224,7 @@ function apiFrameSave(p) {
 
 /** 文字列に含まれる機種コード（マスタにあるもの。長い名前を優先） */
 function _adFindMachine(text, frames) {
-  var t = ' ' + String(text || '').normalize('NFKC').toUpperCase() + ' ', hit = null;
+  var t = ' ' + String(text || '').replace(/[\u2460-\u24FF]/g, ' ').normalize('NFKC').toUpperCase() + ' ', hit = null;
   frames.forEach(function (o) {
     var k = _adMachineKey(o.machine); if (k.length < 2) return;
     var i = t.indexOf(k);
@@ -232,12 +252,96 @@ function _adGuessFrame(q, type, boards, frames) {
   var m = _adFindMachine([q.modelCode || '', q.subject || ''].join(' '), frames);
   if (m && m.frame) return { frame: m.frame, guess: false, cands: [m.frame] };
   if (!boards.length) return { frame: '', guess: false, cands: [] };
-  var hm = _aqNorm(q.subject).match(/(?:^|[^A-Z0-9])([A-Z]{1,2})(?:\*+|_+)/), head = hm ? hm[1] : '', set = {};
+  var ini = q.initials || _aqSubjectInitials(q.subject).initials, set = {};
   frames.forEach(function (o) {
-    if (!o.frame || (head && _adMachineKey(o.machine).indexOf(head) !== 0)) return;
+    if (!o.frame || (ini.length && ini.indexOf(_aqMachineInitial(o.machine)) < 0)) return;
     var b = _adFrameBoards(o)[type] || [];
     if (b.length && boards.every(function (x) { return b.indexOf(x) >= 0; })) set[o.frame] = 1;
   });
   var c = Object.keys(set).sort();
   return { frame: c.length === 1 ? c[0] : '', guess: c.length === 1, cands: c };
+}
+
+// ── ④ 未来の見積（これから必要な見積）────────────────────
+function _adFutures() {
+  return _adRead(AD_SHEET_FUTURE, AD_FU_HEADERS).filter(function (r) { return r[0]; }).map(function (r) {
+    var o = {}; AD_FU_FIELDS.forEach(function (f, i) { o[f] = String(r[i] === null ? '' : r[i]).trim(); });
+    o.user = String(r[12] || ''); o.createdAt = String(r[13] || '');
+    return o;
+  });
+}
+/** 見積書の件名（頭文字入り）。例: 【D**】液晶演出制御基板(DE1802A/D2101A/E2503B)(完)D基板中古基板使用 */
+function _adSubject(o) {
+  var rank = function (b) { var i = ['DE', 'D', 'SNB', 'E', 'M', 'C', 'S'].indexOf(_aqBoardKind(b)); return i < 0 ? 9 : i; };
+  var b = _adSplitBoards(o.boards).map(function (x, i) { return { x: x, i: i }; }).sort(function (p, q) { return rank(p.x) - rank(q.x) || p.i - q.i; }).map(function (p) { return p.x; });
+  var name = String(o.type || '').replace(/（.*?）/g, '');
+  if (name === '主基板') name = '主制御基板';
+  var suf = { '全新品': '', 'D基板中古': 'D基板中古基板使用', 'オール中古': 'ALL中古基板使用', '中古基板使用': '中古基板使用', 'リユース（エコ）': 'リユース', '見本機': '見本機', 'アフター用': 'アフター用' }[o.variant];
+  return '【' + _adSplitInitials(o.initial).map(function (x) { return x + '**'; }).join('/') + '】' + name + (b.length ? '(' + (b.length === 1 ? 'FJ+' : '') + b.join('/') + ')' : '') + '(完)' + (suf === undefined ? (o.variant || '') : suf);
+}
+/** 未来の見積を構成の形にする。登録日以降の見積で同じ構成が登録されたら fulfilledBy に見積No */
+function _adFutureComps(groups, details) {
+  return _adFutures().map(function (o) {
+    var boards = _adSplitBoards(o.boards).sort(), bkey = boards.join('+') || '（基板不明）' + o.id, ini = _adSplitInitials(o.initial);
+    var kind = _aqKind(o.variant), ch = _aqChannel(o.gen, kind), day = _aqDate(o.createdAt), hit = null;
+    Object.keys(groups).forEach(function (k) {
+      var g = groups[k];
+      if (hit || !boards.length || g.type !== o.type || g.boardKey !== bkey || g.variant !== o.variant || !ini.every(function (x) { return g.initials.indexOf(x) >= 0; })) return;
+      if ((o.frame && g.frame && o.frame !== g.frame) || (o.gen && g.gen && o.gen !== g.gen)) return;
+      hit = g.quotes.filter(function (q) { return q.date && day && q.date >= day && q.life !== '過去'; })[0] || null;
+    });
+    var l = { key: o.id, quoteNo: '', date: '', amount: o.amount ? Number(o.amount) : 0, pdfUrl: '', subject: o.subject || _adSubject(o), life: '未来' };
+    return { key: 'F|' + o.id, future: true, futureId: o.id, fulfilledBy: hit ? hit.quoteNo : '', deadline: o.deadline, memo: o.memo, useFor: o.machines,
+             type: o.type, boards: boards, boardKey: bkey, variant: o.variant, gen: o.gen, kind: kind, channel: ch.channel, needQuote: ch.needQuote,
+             frame: o.frame, frameGuess: false, frameCands: [], initials: ini, machines: [], common: true, noInitial: false, life: '未来', lifeAuto: false,
+             edited: {}, quotes: [], latest: l, detail: details[o.id] || null, count: 0 };
+  });
+}
+/** p: { items:[{initial,type,frame,boards,variant,gen,deadline,amount,machines,memo}] } 追加 ／ { id, field, value } 編集 ／ { id, remove } 削除 */
+function apiAsmFutureSave(p) {
+  return _adLocked(function () {
+    p = p || {};
+    var clean = function (f, v) {
+      v = String(v === null || v === undefined ? '' : v).trim();
+      if (v === '') return '';
+      if (f === 'initial') return _adSplitInitials(v).join('/');
+      if (f === 'boards') return _adSplitBoards(v).join(' / ');
+      if (f === 'amount') return String(_adNum(v));
+      if (f === 'deadline') { var d = _aqDate(v); if (!d) throw new Error('提出期限の日付が正しくありません'); return d; }
+      return v;
+    };
+    var now = nowJST(), cur = _adFutures();
+    if (p.items) {
+      if (!p.items.length) return { success: false, error: '追加する見積がありません' };
+      var rows = p.items.map(function (it, i) {
+        var o = {}; AD_FU_FIELDS.forEach(function (f) { o[f] = clean(f, it[f]); });
+        if (!o.initial) throw new Error('頭文字を選んでください');
+        if (!o.type) throw new Error('種類を選んでください');
+        if (!o.variant) throw new Error('区分を選んでください');
+        o.id = 'FQ-' + Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyyMMddHHmmss') + '-' + (i + 1) + Math.floor(Math.random() * 900 + 100);
+        if (!o.subject) o.subject = _adSubject(o);
+        var dup = cur.filter(function (x) { return ['initial', 'type', 'frame', 'boards', 'variant', 'gen'].every(function (f) { return x[f] === o[f]; }); })[0];
+        return dup ? null : AD_FU_FIELDS.map(function (f) { return o[f]; }).concat([_adUser(), now, now]);
+      }).filter(Boolean);
+      if (!rows.length) return { success: false, error: '同じ内容の未来の見積が登録済みです' };
+      var sh = _adSheet(AD_SHEET_FUTURE, AD_FU_HEADERS), at = sh.getLastRow() + 1;
+      if (at + rows.length > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), rows.length + 50);
+      sh.getRange(at, 1, rows.length, AD_FU_HEADERS.length).setNumberFormat('@').setValues(rows);
+      return { success: true, added: rows.length, skipped: p.items.length - rows.length };
+    }
+    var o = cur.filter(function (x) { return x.id === String(p.id || ''); })[0];
+    if (!o) return { success: false, error: '未来の見積が見つかりません' };
+    if (p.remove) {
+      var i = _adRead(AD_SHEET_FUTURE, AD_FU_HEADERS).map(function (r) { return String(r[0]); }).indexOf(o.id);
+      _adSheet(AD_SHEET_FUTURE, AD_FU_HEADERS).deleteRow(i + 2);
+      return { success: true };
+    }
+    var f = p.field === 'date' ? 'deadline' : p.field;
+    if (AD_FU_FIELDS.indexOf(f) < 1) return { success: false, error: '編集できない項目です' };
+    var autoSubject = o.subject === _adSubject(o);
+    o[f] = clean(f, p.value);
+    if (autoSubject && f !== 'subject') o.subject = _adSubject(o);   // 件名を手で直していなければ、内容に合わせて作り直す
+    _adPut(AD_SHEET_FUTURE, AD_FU_HEADERS, o.id, AD_FU_FIELDS.map(function (x) { return o[x]; }).concat([o.user, o.createdAt, now]));
+    return { success: true, value: o[f], subject: o.subject };
+  });
 }

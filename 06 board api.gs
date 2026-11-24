@@ -95,6 +95,7 @@ function handleApiRequest(action, payload) {
       case 'assemblyQuotesCfg':   res = apiAssemblyQuotesCfg(payload); break;
       case 'asmOverrideSave':     res = apiAsmOverrideSave(payload); break;   // 55_assembly_detail.gs
       case 'asmDetailSave':       res = apiAsmDetailSave(payload); break;
+      case 'asmFutureSave':       res = apiAsmFutureSave(payload); break;
       case 'frameImport':         res = apiFrameImport(payload); break;
       case 'frameSave':           res = apiFrameSave(payload); break;
       case 'vqList':              res = apiVqList(); break;            // 53_vendor_quotes.gs 依頼先見積書

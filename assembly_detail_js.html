@@ -29,10 +29,7 @@ function _adFrameList() {
 function aqRenderComp(el, d) {
   var used = {};
   d.plans.forEach(function (p) { p.quotes.forEach(function (q) { if (q.fit !== false) (used[q.quoteNo] = used[q.quoteNo] || []).push(p.machine); }); });
-  var rows = d.comps.filter(function (c) {
-    if (AQ.frame && (AQ.frame === '__none' ? c.frame : c.frame !== AQ.frame)) return false;
-    return _aqHit([c.type, c.boards.join(' '), c.variant, c.gen || '', c.frame || '', c.channel || ''].concat(c.quotes.map(function (q) { return q.quoteNo + ' ' + q.subject; })).join(' '));
-  });
+  var rows = d.comps.filter(_aqCompPass);
   var ed = function (ci, f, v, ph, w, on) {
     return '<input type="' + (f === 'date' ? 'date' : 'text') + '" value="' + _esc(v === null || v === undefined ? '' : v) + '" placeholder="' + _esc(ph || '') + '" onchange="aqEdit(' + ci + ',\'' + f + '\',this)" '
       + (f === 'frame' ? 'list="aq-frames" ' : '') + (f === 'boards' ? 'title="複数は / で区切る（例: DE1802A / D2101A / E2503B）" ' : '')
@@ -46,10 +43,20 @@ function aqRenderComp(el, d) {
   };
   var types = d.cfg.types.map(function (t) { return t.name; }).concat(['その他']), vars = d.cfg.variants.map(function (t) { return t.name; }), gens = d.cfg.gens.map(function (t) { return t.name; });
   var h2 = function (t, ex) { return _aqTh(t, ex || ''); };
-  var last = null, cols = 24;
-  el.innerHTML = _adFrameBar(d) + '<datalist id="aq-frames">' + _adFrameList().map(function (f) { return '<option value="' + _esc(f) + '">'; }).join('') + '</datalist>'
+  var last = null, cols = 27;
+  var lifeCell = function (c, ci) {
+    var col = { '現役': '#dcfce7', '未来': '#dbeafe', '過去': '#e2e8f0' }[c.life];
+    if (c.future) return _aqTd('<b>未来</b><div style="font-size:10px;color:#475569;">' + (c.fulfilledBy ? '✓ ' + _esc(c.fulfilledBy) + ' で提出済み' : '未提出') + '</div><button class="btn btn-outline btn-sm" style="padding:0 5px;" title="この未来の見積を消す" onclick="aqFutureDel(' + ci + ')">🗑</button>', 'background:' + (c.fulfilledBy ? '#dcfce7' : col) + ';');
+    return _aqTd('<select onchange="aqEdit(' + ci + ',\'life\',this)" style="padding:3px;font-size:12px;font-weight:700;border:1px solid ' + (c.lifeAuto ? '#cbd5e1' : '#f59e0b') + ';border-radius:4px;background:' + col + ';">'
+      + ['現役', '過去', '未来'].map(function (o) { return '<option' + (o === c.life ? ' selected' : '') + '>' + o + '</option>'; }).join('') + (c.lifeAuto ? '' : '<option value="">（自動に戻す）</option>') + '</select>' + (c.lifeAuto ? '<div style="font-size:10px;color:#94a3b8;">自動</div>' : ''));
+  };
+  var selN = rows.filter(function (c) { return AQ.sel[c.key]; }).length;
+  el.innerHTML = _adLifeBar(d) + _adInitBar(d.comps.map(function (c) { return c.initials; })) + _adFrameBar(d)
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px;font-size:12px;"><button class="btn btn-primary btn-sm" onclick="aqFutureOpen()">＋ 未来に必要な見積を登録</button>'
+    + '<span style="margin-left:10px;">チェックした <b id="aq-seln">' + selN + '</b>件を</span>' + ['現役', '過去', '未来'].map(function (o) { return '<button class="btn btn-outline btn-sm" onclick="aqBulk(\'' + o + '\')">' + o + 'にする</button>'; }).join('') + '<span style="color:#64748b;">表示 ' + rows.length + '件</span></div>'
+    + '<datalist id="aq-frames">' + _adFrameList().map(function (f) { return '<option value="' + _esc(f) + '">'; }).join('') + '</datalist>'
     + '<div class="bpt-wrap" style="overflow:auto;max-height:72vh;"><table style="border-collapse:collapse;font-size:12px;width:100%;"><thead><tr>'
-    + ['種類', '枠構成', '使用基板（編集可）', '区分', '世代', '商流', '最新見積No', '提出日', '金額'].map(function (t) { return h2(t, '').replace('<th ', '<th rowspan="2" '); }).join('')
+    + ['<input type="checkbox" title="表示中をすべて選ぶ" onchange="aqSelAll(this.checked)">', '状態', '頭文字', '種類', '枠構成', '使用基板（編集可）', '区分', '世代', '商流', '最新見積No', '提出日<br>／期限', '金額'].map(function (t) { return h2(t, '').replace('<th ', '<th rowspan="2" '); }).join('')
     + '<th colspan="12" style="border:1px solid #94a3b8;padding:4px 8px;background:#dbeafe;text-align:center;">見積内訳（組立費見積書の項目）</th>'
     + ['PDF', '件名', '件数 / 採用予定'].map(function (t) { return h2(t, '').replace('<th ', '<th rowspan="2" '); }).join('') + '</tr><tr>'
     + d.subSections.concat(['小計', '管理費', '利益', 'レーザー<br>マーキング', '値引き', '内訳合計']).map(function (t) { return h2(t, 'background:#eff6ff;'); }).join('') + '</tr></thead><tbody>'
@@ -61,32 +68,59 @@ function aqRenderComp(el, d) {
         var num = function (n) { return _aqTd('<span onclick="aqDetail(' + ci + ')" style="cursor:pointer;">' + (x ? _adFmt(n) : '<span style="color:#cbd5e1;">—</span>') + '</span>', 'text-align:right;white-space:nowrap;'); };
         var diff = x && l.amount && Math.abs(x.total - l.amount) > 0.005;
         var hist = c.quotes.slice(1).map(function (q) { return _esc(q.quoteNo) + ' ' + _aqYen(q.amount) + ' ' + _esc(q.date) + (q.archived ? '（' + _esc(q.status) + '）' : ''); }).join('<br>');
-        return sec + '<tr>' + _aqTd(sel(ci, 'type', c.type, types, e.type))
+        var noIni = c.life !== '過去' && !c.initials.length;
+        return sec + '<tr' + (c.life === '過去' ? ' style="opacity:.55;"' : '') + '>'
+          + _aqTd(c.future ? '' : '<input type="checkbox"' + (AQ.sel[c.key] ? ' checked' : '') + ' onchange="aqSel(' + ci + ',this.checked)">') + lifeCell(c, ci)
+          + _aqTd(ed(ci, 'initial', c.initials.join('/'), 'A / C…', '52px', e.initial) + (c.machines.length ? '<div style="font-size:10px;color:#475569;white-space:nowrap;">' + _esc(c.machines.join('・')) + '専用</div>' : '')
+              + (noIni ? '<div style="font-size:10px;color:#dc2626;white-space:nowrap;">⚠ 頭文字なし</div>' : c.noInitial && c.life !== '過去' ? '<div style="font-size:10px;color:#dc2626;white-space:nowrap;">⚠ 件名に無し</div>' : ''), noIni ? 'background:#fee2e2;' : '')
+          + _aqTd(sel(ci, 'type', c.type, types, e.type))
           + _aqTd(ed(ci, 'frame', c.frame, (c.frameCands || []).length > 1 ? '候補: ' + c.frameCands.join('・') : '例: PFK30', '86px', e.frame) + (c.frameGuess ? '<div style="font-size:10px;color:#c2410c;">推定</div>' : ''))
           + _aqTd(ed(ci, 'boards', c.boards.join(' / '), '基板名を入力', '220px', e.boards))
           + _aqTd(sel(ci, 'variant', c.variant, vars, e.variant), c.kind === '中古再生' ? 'background:#fef3c7;' : '')
           + _aqTd(sel(ci, 'gen', c.gen, gens, e.gen))
           + _aqTd(_esc(c.channel || ''), 'white-space:nowrap;' + (c.needQuote === '不要' ? 'color:#64748b;' : ''))
-          + _aqTd('<b>' + _esc(l.quoteNo || '') + '</b>', 'white-space:nowrap;') + _aqTd(ed(ci, 'date', String(l.date || '').replace(/\//g, '-'), '', '120px', e.date))
+          + _aqTd(c.future ? '<span style="color:#1e40af;">（作成予定）</span>' : '<b>' + _esc(l.quoteNo || '') + '</b>', 'white-space:nowrap;') + _aqTd((c.future ? '<div style="font-size:10px;color:#1e40af;">提出期限</div>' : '') + ed(ci, 'date', String((c.future ? c.deadline : l.date) || '').replace(/\//g, '-'), '', '120px', e.date))
           + _aqTd(ed(ci, 'amount', l.amount ? Number(l.amount).toLocaleString('ja-JP', { maximumFractionDigits: 2 }) : '', '—', '84px', e.amount), 'background:#fef9c3;')
           + d.subSections.map(function (k) { return num(x ? x.sums[k] : ''); }).join('') + num(x ? x.sub : '') + num(x ? x.sums['管理費'] : '') + num(x ? x.profit : '') + num(x ? x.sums['レーザーマーキング'] : '') + num(x ? x.sums['値引き'] : '')
           + _aqTd((x ? '<b style="' + (diff ? 'color:#dc2626;' : '') + '"' + (diff ? ' title="見積金額と一致しません"' : '') + '>' + _adFmt(x.total) + (diff ? ' ⚠' : '') + '</b> ' : '') + '<button class="btn btn-outline btn-sm" style="padding:1px 6px;" onclick="aqDetail(' + ci + ')">' + (x ? '✏️' : '＋内訳') + '</button>', 'white-space:nowrap;text-align:right;')
           + _aqTd(_aqPdf(l.pdfUrl)) + _aqTd(ed(ci, 'subject', l.subject || '', '', '240px', e.subject))
-          + _aqTd(c.count + '件' + (hist ? '<details><summary style="cursor:pointer;font-size:11px;">過去</summary><div style="font-size:11px;white-space:nowrap;">' + hist + '</div></details>' : '') + (used[l.quoteNo] ? '<div style="font-size:11px;color:#475569;">' + _esc(used[l.quoteNo].join('、')) + '</div>' : '')) + '</tr>';
-      }).join('') + '</tbody></table></div><div style="font-size:11px;color:#64748b;margin-top:4px;">枠がオレンジの欄は手で直した値です。種類・基板・区分・枠構成の変更は、↻ 再集計 で並びとまとまりに反映されます。</div>';
+          + _aqTd(c.future ? '<input value="' + _esc(c.useFor || '') + '" placeholder="関連機種" onchange="aqEdit(' + ci + ',\'machines\',this)" style="width:110px;padding:2px 4px;font-size:11px;"><br><input value="' + _esc(c.memo || '') + '" placeholder="メモ" onchange="aqEdit(' + ci + ',\'memo\',this)" style="width:110px;padding:2px 4px;font-size:11px;margin-top:2px;">' : c.count + '件' + (hist ? '<details><summary style="cursor:pointer;font-size:11px;">過去</summary><div style="font-size:11px;white-space:nowrap;">' + hist + '</div></details>' : '') + (used[l.quoteNo] ? '<div style="font-size:11px;color:#475569;">' + _esc(used[l.quoteNo].join('、')) + '</div>' : '')) + '</tr>';
+      }).join('') + '</tbody></table></div><div style="font-size:11px;color:#64748b;margin-top:4px;">「過去」にした見積は機種別の予定で使いません。枠がオレンジの欄は手で直した値です。種類・基板・区分・枠構成・頭文字の変更は、↻ 再集計 で並びとまとまりに反映されます。</div>';
+}
+function _aqCompPass(c) {
+  if (AQ.life === 'active' ? c.life === '過去' : AQ.life && c.life !== AQ.life) return false;
+  if (AQ.init && (AQ.init === '__none' ? c.initials.length : c.initials.indexOf(AQ.init) < 0)) return false;
+  if (AQ.frame && (AQ.frame === '__none' ? c.frame : c.frame !== AQ.frame)) return false;
+  return _aqHit([c.life, c.type, c.boards.join(' '), c.variant, c.gen || '', c.frame || '', c.channel || '', c.initials.join(' '), c.machines.join(' '), c.latest.subject || '', c.useFor || '', c.memo || '']
+    .concat(c.quotes.map(function (q) { return q.quoteNo + ' ' + q.subject; })).join(' '));
+}
+function _adChips(title, list, cur, key) {
+  return '<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin-bottom:4px;"><span style="font-size:12px;width:58px;">' + title + '</span>'
+    + list.map(function (x) { return '<button class="btn btn-sm ' + (cur === x[0] ? 'btn-primary' : 'btn-outline') + '" style="padding:2px 9px;" onclick="AQ.' + key + '=\'' + _esc(x[0]) + '\';aqRenderBody()">' + _esc(x[1]) + '</button>'; }).join('') + '</div>';
+}
+function _adLifeBar(d) {
+  var n = { '現役': 0, '過去': 0, '未来': 0 }; d.comps.forEach(function (c) { n[c.life]++; });
+  return _adChips('状態：', [['active', '現役＋未来 ' + (n['現役'] + n['未来'])], ['現役', '現役 ' + n['現役']], ['未来', '未来 ' + n['未来']], ['過去', '過去 ' + n['過去']], ['', 'すべて ' + d.comps.length]], AQ.life, 'life');
+}
+function _adInitBar(lists) {
+  var n = {}, none = 0;
+  lists.forEach(function (l) { if (!l.length) none++; l.forEach(function (x) { n[x] = (n[x] || 0) + 1; }); });
+  var order = AQ.data.cfg.initials.slice(); Object.keys(n).sort().forEach(function (x) { if (order.indexOf(x) < 0) order.push(x); });
+  return _adChips('頭文字：', [['', 'すべて']].concat(order.map(function (x) { return [x, '機種' + x + ' ' + (n[x] || 0)]; })).concat([['__none', '頭文字なし ' + none]]), AQ.init, 'init');
 }
 function _adFrameBar(d) {
   var cnt = {}, none = 0;
   d.comps.forEach(function (c) { if (c.frame) cnt[c.frame] = (cnt[c.frame] || 0) + 1; else none++; });
   var b = function (k, t) { return '<button class="btn btn-sm ' + (AQ.frame === k ? 'btn-primary' : 'btn-outline') + '" style="padding:2px 9px;" onclick="AQ.frame=\'' + k + '\';aqRenderBody()">' + t + '</button>'; };
-  return '<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin-bottom:6px;"><span style="font-size:12px;">枠構成：</span>' + b('', 'すべて ' + d.comps.length)
+  return '<div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin-bottom:6px;"><span style="font-size:12px;width:58px;">枠構成：</span>' + b('', 'すべて')
     + Object.keys(cnt).sort().map(function (k) { return b(_esc(k), _esc(k) + ' ' + cnt[k]); }).join('') + b('__none', '未設定 ' + none) + '</div>';
 }
 function aqEdit(ci, f, inp) {
   var c = AQ.data.comps[ci]; if (!c) return;
-  // 提出日・金額・件名は最新の見積だけ、それ以外は同じ構成の見積すべてに反映
-  var keys = ['date', 'amount', 'subject'].indexOf(f) >= 0 ? [c.latest.key] : c.quotes.map(function (q) { return q.key; });
+  if (c.future) { aqFutureEdit(c, f, inp); return; }
   var v = inp.value, old = inp.style.borderColor;
+  // 提出日・金額・件名と「未来」は最新の見積だけ、それ以外は同じ構成の見積すべてに反映
+  var keys = ['date', 'amount', 'subject'].indexOf(f) >= 0 || (f === 'life' && v === '未来') ? [c.latest.key] : c.quotes.map(function (q) { return q.key; });
   inp.style.borderColor = '#2563eb';
   _adApi('asmOverrideSave', { keys: keys, field: f, value: v }, function (r) {
     inp.style.borderColor = '#f59e0b'; inp.style.background = '#fffbeb';
@@ -96,6 +130,8 @@ function aqEdit(ci, f, inp) {
     if (f === 'boards') { c.boards = r.value.split(' / '); inp.value = r.value; }
     else if (f === 'amount') { c.latest.amount = Number(r.value); aqRenderBody(); }
     else if (f === 'date' || f === 'subject') c.latest[f] = r.value;
+    else if (f === 'initial') { c.initials = r.value.split('/'); c.machines = []; c.common = true; inp.value = r.value; }
+    else if (f === 'life') { c.life = r.value; c.lifeAuto = false; aqRenderBody(); }
     else { c[f] = r.value; if (f === 'frame') c.frameGuess = false; }
     showToast('保存しました');
   }, function () { inp.style.borderColor = old; });
@@ -182,27 +218,160 @@ function aqdSave(remove) {
 function aqRenderPrice(el, d) {
   var main = d.mainVariants, g = {}, order = [];
   d.comps.forEach(function (c, i) {
-    if (!c.boards.length || (AQ.frame && (AQ.frame === '__none' ? c.frame : c.frame !== AQ.frame))) return;
-    if (!_aqHit([c.type, c.frame || '', c.boards.join(' '), c.variant, c.latest.quoteNo].join(' '))) return;
-    var k = [c.type, c.frame || '', c.boardKey, c.gen || ''].join('|');
+    if (!c.boards.length || !_aqCompPass(c) || (c.future && c.fulfilledBy)) return;
+    var k = [c.type, c.frame || '', c.boardKey, c.gen || '', c.initials.join('/'), c.machines.join('/')].join('|');
     if (!g[k]) { g[k] = { c: c, v: {}, o: [] }; order.push(k); }
-    if (main.indexOf(c.variant) >= 0) g[k].v[c.variant] = { c: c, i: i }; else g[k].o.push({ c: c, i: i });
+    if (main.indexOf(c.variant) >= 0 && !g[k].v[c.variant]) g[k].v[c.variant] = { c: c, i: i }; else g[k].o.push({ c: c, i: i });
   });
   var cell = function (x, base) {
     if (!x) return '<span style="color:#cbd5e1;">—</span>';
     var l = x.c.latest, df = base && base !== x && base.c.latest.amount && l.amount ? l.amount - base.c.latest.amount : null;
-    return '<div style="font-weight:700;font-size:13px;">' + _aqYen(l.amount) + (df !== null ? ' <small style="color:' + (df > 0 ? '#b91c1c' : '#166534') + ';">' + (df > 0 ? '+' : '') + df.toLocaleString() + '</small>' : '') + '</div><div style="font-size:11px;color:#475569;">' + _esc(l.quoteNo || '') + ' ' + _esc(l.date || '') + ' ' + _aqPdf(l.pdfUrl)
+    return '<div style="font-weight:700;font-size:13px;">' + _aqYen(l.amount) + (df !== null ? ' <small style="color:' + (df > 0 ? '#b91c1c' : '#166534') + ';">' + (df > 0 ? '+' : '') + df.toLocaleString() + '</small>' : '') + '</div><div style="font-size:11px;color:#475569;">' + (x.c.life === '未来' ? '<span style="background:#dbeafe;color:#1e40af;padding:0 4px;border-radius:3px;">未来' + (x.c.deadline ? ' 期限' + _esc(x.c.deadline) : '') + '</span> ' : '') + _esc(l.quoteNo || '') + ' ' + _esc(l.date || '') + ' ' + _aqPdf(l.pdfUrl)
       + ' <a href="javascript:void(0)" onclick="aqDetail(' + x.i + ')">' + (x.c.detail ? '内訳' : '＋内訳') + '</a></div>';
   };
   var last = null;
-  el.innerHTML = _adFrameBar(d) + '<div style="font-size:12px;color:#475569;margin-bottom:6px;">同じ枠構成・同じ基板の組み合わせごとに、区分による価格の違いを並べています（小さい数字は全新品との差）。「—」はその区分の見積が無いことを表します。</div>'
-    + '<div style="overflow:auto;"><table style="border-collapse:collapse;font-size:12px;width:100%;"><tr>' + ['枠構成', '使用基板', '世代'].concat(main).concat(['その他の区分']).map(function (t) { return _aqTh(t, main.indexOf(t) >= 0 ? 'background:#fef08a;' : ''); }).join('') + '</tr>'
+  el.innerHTML = _adLifeBar(d) + _adInitBar(d.comps.map(function (c) { return c.initials; })) + _adFrameBar(d) + '<div style="font-size:12px;color:#475569;margin-bottom:6px;">同じ頭文字・枠構成・基板の組み合わせごとに、区分による価格の違いを並べています（小さい数字は全新品との差）。「—」はその区分の見積が無いことを表します。</div>'
+    + '<div style="overflow:auto;"><table style="border-collapse:collapse;font-size:12px;width:100%;"><tr>' + ['頭文字', '枠構成', '使用基板', '世代'].concat(main).concat(['その他の区分']).map(function (t) { return _aqTh(t, main.indexOf(t) >= 0 ? 'background:#fef08a;' : ''); }).join('') + '</tr>'
     + order.map(function (k) {
         var x = g[k], c = x.c, b = x.v[main[0]];
-        var sec = c.type !== last ? '<tr><td colspan="' + (main.length + 4) + '" style="background:#f1f5f9;font-weight:700;border:1px solid #cbd5e1;padding:4px 8px;">' + _esc(c.type) + '</td></tr>' : ''; last = c.type;
-        return sec + '<tr>' + _aqTd('<b>' + _esc(c.frame || '未設定') + '</b>' + (c.frameGuess ? '<small style="color:#c2410c;">（推定）</small>' : ''), 'white-space:nowrap;') + _aqTd('<b>' + _esc(c.boards.join(' / ')) + '</b>') + _aqTd(_esc(c.gen || ''))
+        var sec = c.type !== last ? '<tr><td colspan="' + (main.length + 5) + '" style="background:#f1f5f9;font-weight:700;border:1px solid #cbd5e1;padding:4px 8px;">' + _esc(c.type) + '</td></tr>' : ''; last = c.type;
+        return sec + '<tr>' + _aqTd(c.initials.length ? '<b>' + _esc(c.initials.join('/')) + '</b>' + (c.machines.length ? '<br><small>' + _esc(c.machines.join('・')) + '専用</small>' : '') : '<span style="color:#dc2626;">なし</span>', 'text-align:center;') + _aqTd('<b>' + _esc(c.frame || '未設定') + '</b>' + (c.frameGuess ? '<small style="color:#c2410c;">（推定）</small>' : ''), 'white-space:nowrap;') + _aqTd('<b>' + _esc(c.boards.join(' / ')) + '</b>') + _aqTd(_esc(c.gen || ''))
           + main.map(function (v) { return _aqTd(cell(x.v[v], b), 'white-space:nowrap;'); }).join('') + _aqTd(x.o.map(function (y) { return '<div style="margin-bottom:3px;"><small>' + _esc(y.c.variant) + '</small>' + cell(y, b) + '</div>'; }).join('')) + '</tr>';
       }).join('') + '</table></div>';
+}
+
+// ── 一括で状態を変える ──
+function aqSel(ci, on) { var c = AQ.data.comps[ci]; if (on) AQ.sel[c.key] = 1; else delete AQ.sel[c.key]; var e = document.getElementById('aq-seln'); if (e) e.textContent = Object.keys(AQ.sel).length; }
+function aqSelAll(on) { AQ.sel = {}; if (on) AQ.data.comps.filter(_aqCompPass).forEach(function (c) { if (!c.future) AQ.sel[c.key] = 1; }); aqRenderBody(); }
+function aqBulk(life) {
+  var list = AQ.data.comps.filter(function (c) { return AQ.sel[c.key] && !c.future && _aqCompPass(c); });
+  if (!list.length) { showToast('見積にチェックを入れてください', true); return; }
+  if (!confirm(list.length + '件を「' + life + '」にします。よろしいですか？')) return;
+  var keys = [];
+  list.forEach(function (c) { if (life === '未来') keys.push(c.latest.key); else c.quotes.forEach(function (q) { keys.push(q.key); }); });
+  _adApi('asmOverrideSave', { keys: keys, field: 'life', value: life }, function () {
+    list.forEach(function (c) { c.life = life; c.lifeAuto = false; }); AQ.sel = {};
+    showToast(list.length + '件を「' + life + '」にしました'); aqRenderBody();
+  });
+}
+
+// ── 未来の見積（これから必要な見積）──
+function aqFutureEdit(c, f, inp) {
+  if (f === 'life') return;
+  _adApi('asmFutureSave', { id: c.futureId, field: f, value: inp.value }, function (r) {
+    inp.style.borderColor = '#f59e0b';
+    if (f === 'boards') { c.boards = r.value ? r.value.split(' / ') : []; inp.value = r.value; }
+    else if (f === 'initial') { c.initials = r.value ? r.value.split('/') : []; inp.value = r.value; }
+    else if (f === 'date') c.deadline = r.value;
+    else if (f === 'amount') c.latest.amount = Number(r.value) || 0;
+    else if (f === 'machines') c.useFor = r.value;
+    else if (f !== 'subject') c[f] = r.value;
+    c.latest.subject = r.subject;
+    showToast('保存しました'); aqRenderBody();
+  });
+}
+function aqFutureDel(ci) {
+  var c = AQ.data.comps[ci];
+  if (confirm('未来の見積「' + c.latest.subject + '」を消します。よろしいですか？')) _adApi('asmFutureSave', { id: c.futureId, remove: true }, function () { AQ.data.comps.splice(ci, 1); showToast('消しました'); aqRenderBody(); });
+}
+/** src: 'plan'（機種別の予定から）／ 'row'（頭文字別の表から）／ なし */
+function aqFutureOpen(src, i, ini) {
+  var d = AQ.data, o = { inits: [], type: d.cfg.types[0].name, frame: '', boards: '', variant: '全新品', gen: '', deadline: '', machines: '' };
+  if (src === 'plan') { var p = d.plans[i]; o = { inits: [p.initial], type: p.type, frame: p.frame || '', boards: p.boards, variant: p.kind === '中古再生' ? 'D基板中古' : '全新品', gen: p.gen || '', deadline: p.deadline || '', machines: p.machine, reuse: p.kind === '中古再生' }; }
+  if (src === 'row') { var x = AQ.initRows[i]; o = { inits: [ini], type: x.type, frame: x.frame, boards: x.boards.join(' / '), variant: '全新品', gen: '', deadline: (x.need[ini] || [{}])[0].deadline || '', machines: (x.need[ini] || []).map(function (p) { return p.machine; }).join('、') }; }
+  var ov = document.getElementById('aqd-modal'); if (ov) ov.remove();
+  ov = document.createElement('div'); ov.id = 'aqd-modal';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+  var f = function (l, h, full) { return '<div style="' + (full ? 'grid-column:1/-1;' : '') + '"><label style="display:block;font-size:11px;font-weight:700;color:#475569;margin-bottom:2px;">' + l + '</label>' + h + '</div>'; };
+  var inp = function (id, v, ph, t) { return '<input id="' + id + '" type="' + (t || 'text') + '" value="' + _esc(v) + '" placeholder="' + (ph || '') + '" oninput="aqFutureSubj()" ' + (id === 'fq-frame' ? 'list="aq-frames2" ' : '') + 'style="width:100%;padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;box-sizing:border-box;">'; };
+  var sel = function (id, list, v, blank) { return '<select id="' + id + '" onchange="aqFutureSubj()" style="width:100%;padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;">' + (blank ? '<option value="">—</option>' : '') + list.map(function (n) { return '<option' + (n === v ? ' selected' : '') + '>' + _esc(n) + '</option>'; }).join('') + '</select>'; };
+  ov.innerHTML = '<div style="background:#fff;border-radius:10px;max-width:640px;width:100%;max-height:92vh;overflow:auto;padding:16px;"><h3 style="margin:0 0 8px;">＋ 未来に必要な見積を登録</h3>'
+    + '<datalist id="aq-frames2">' + _adFrameList().map(function (n) { return '<option value="' + _esc(n) + '">'; }).join('') + '</datalist>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">'
+    + f('機種の頭文字 *（複数選ぶと、頭文字ごとに1件ずつ登録します）', d.cfg.initials.map(function (n) { return '<label style="margin-right:12px;"><input type="checkbox" class="fq-ini" value="' + _esc(n) + '"' + (o.inits.indexOf(n) >= 0 ? ' checked' : '') + ' onchange="aqFutureSubj()"> 機種' + _esc(n) + '</label>'; }).join(''), true)
+    + f('種類 *', sel('fq-type', d.cfg.types.map(function (t) { return t.name; }), o.type)) + f('区分 *' + (o.reuse ? '（中古再生が必要です。D基板中古かオール中古かを選んでください）' : ''), sel('fq-variant', d.cfg.variants.map(function (t) { return t.name; }), o.variant))
+    + f('枠構成', inp('fq-frame', o.frame, '例: PFK30')) + f('世代', sel('fq-gen', d.cfg.gens.map(function (t) { return t.name; }), o.gen, true))
+    + f('使用基板（/ 区切り）', inp('fq-boards', o.boards, '例: DE1802A / D2101A / E2503B'), true)
+    + f('提出期限', inp('fq-deadline', String(o.deadline || '').replace(/\//g, '-'), '', 'date')) + f('予定金額', inp('fq-amount', '', '未定なら空欄')) + f('関連機種', inp('fq-machines', o.machines, '例: D61、D62')) + f('メモ', inp('fq-memo', '', ''))
+    + f('見積書の件名（この件名で作成してください）', '<div id="fq-subj" style="background:#f1f5f9;border-radius:6px;padding:8px;font-size:12px;line-height:1.7;"></div>', true)
+    + '</div><div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;"><button class="btn btn-outline" onclick="document.getElementById(\'aqd-modal\').remove()">キャンセル</button><button class="btn btn-primary" id="fq-save" onclick="aqFutureSave()">登録</button></div></div>';
+  document.body.appendChild(ov);
+  aqFutureSubj();
+}
+function _aqSubject(ini, type, boards, variant) {
+  var rank = function (b) { var k = /^SNB/.test(b) ? 'SNB' : /^DE/.test(b) ? 'DE' : b.charAt(0), i = ['DE', 'D', 'SNB', 'E', 'M', 'C', 'S'].indexOf(k); return i < 0 ? 9 : i; };
+  var bs = String(boards || '').normalize('NFKC').toUpperCase().replace(/FJ\s*[+\-]\s*/g, '').split(/[\/,、+]+/).map(function (x) { return x.trim(); }).filter(Boolean).sort(function (a, b) { return rank(a) - rank(b); });
+  var name = type.replace(/（.*?）/g, ''); if (name === '主基板') name = '主制御基板';
+  var suf = { '全新品': '', 'D基板中古': 'D基板中古基板使用', 'オール中古': 'ALL中古基板使用', '中古基板使用': '中古基板使用', 'リユース（エコ）': 'リユース', '見本機': '見本機', 'アフター用': 'アフター用' }[variant];
+  return '【' + ini + '**】' + name + (bs.length ? '(' + (bs.length === 1 ? 'FJ+' : '') + bs.join('/') + ')' : '') + '(完)' + (suf === undefined ? variant : suf);
+}
+function _fqInits() { return Array.prototype.map.call(document.querySelectorAll('.fq-ini:checked'), function (e) { return e.value; }); }
+function aqFutureSubj() {
+  var e = document.getElementById('fq-subj'); if (!e) return;
+  var g = function (id) { return document.getElementById(id).value; }, l = _fqInits();
+  e.innerHTML = l.length ? l.map(function (n) { return _esc(_aqSubject(n, g('fq-type'), g('fq-boards'), g('fq-variant'))); }).join('<br>') : '<span style="color:#dc2626;">頭文字を選んでください</span>';
+}
+function aqFutureSave() {
+  var g = function (id) { return document.getElementById(id).value; }, l = _fqInits();
+  if (!l.length) { showToast('機種の頭文字を選んでください', true); return; }
+  var b = document.getElementById('fq-save'); b.disabled = true;
+  _adApi('asmFutureSave', { items: l.map(function (n) { return { initial: n, type: g('fq-type'), frame: g('fq-frame'), boards: g('fq-boards'), variant: g('fq-variant'), gen: g('fq-gen'), deadline: g('fq-deadline'), amount: g('fq-amount'), machines: g('fq-machines'), memo: g('fq-memo') }; }) }, function (r) {
+    document.getElementById('aqd-modal').remove(); showToast('未来の見積を ' + r.added + '件登録しました' + (r.skipped ? '（登録済み ' + r.skipped + '件は見送り）' : '')); aqLoad();
+  }, function () { b.disabled = false; });
+}
+
+// ── 頭文字別（どの構成が、どの頭文字で提出済みか）──
+function aqRenderInit(el, d) {
+  var inits = d.cfg.initials, g = {}, order = [];
+  var row = function (type, frame, boards, key) {
+    var k = [type, frame || '', key].join('|');
+    if (!g[k]) { g[k] = { type: type, frame: frame || '', boards: boards, key: key, cell: {}, none: [], need: {} }; order.push(k); }
+    return g[k];
+  };
+  d.comps.forEach(function (c, i) {
+    if (!c.boards.length || c.life === '過去' || (c.future && c.fulfilledBy)) return;
+    if (AQ.frame && (AQ.frame === '__none' ? c.frame : c.frame !== AQ.frame)) return;
+    if (!_aqHit([c.type, c.frame, c.boards.join(' '), c.variant, c.latest.quoteNo, c.latest.subject].join(' '))) return;
+    var r = row(c.type, c.frame, c.boards, c.boardKey);
+    if (!c.initials.length) r.none.push({ c: c, i: i });
+    c.initials.forEach(function (n) { (r.cell[n] = r.cell[n] || []).push({ c: c, i: i }); });
+  });
+  d.plans.forEach(function (p) {
+    if (!p.initial || !p.boards || ['見積済み', '作成予定', '見積不要'].indexOf(p.status) >= 0) return;
+    if (AQ.frame && (AQ.frame === '__none' ? p.frame : p.frame !== AQ.frame)) return;
+    if (!_aqHit([p.type, p.frame, p.boards, p.machine].join(' '))) return;
+    var r = row(p.type, p.frame, p.boards.split(' / '), p.boardKey);
+    (r.need[p.initial] = r.need[p.initial] || []).push(p);
+  });
+  var tn = d.cfg.types.map(function (t) { return t.name; });
+  AQ.initRows = order.map(function (k) { return g[k]; }).sort(function (a, b) { return (tn.indexOf(a.type) - tn.indexOf(b.type)) || (a.frame || '~').localeCompare(b.frame || '~') || a.key.localeCompare(b.key); });
+  // ハードウェア構成一覧表で、その頭文字・その枠・その基板を使う機種
+  var users = function (r, n) {
+    return (d.frames || []).filter(function (o) {
+      if ((o.machine.match(/^[A-Z]+/) || [''])[0] !== n || (r.frame && o.frame !== r.frame)) return false;
+      var t = [o.M, o.D, o.DE, o.E, o.C].join(' ').toUpperCase();
+      return r.boards.every(function (b) { return t.indexOf(b) >= 0; });
+    }).map(function (o) { return o.machine; });
+  };
+  var item = function (x) {
+    var c = x.c, l = c.latest;
+    return '<div style="margin-bottom:3px;' + (c.life === '未来' ? 'background:#eff6ff;' : '') + '"><span style="font-size:11px;color:#475569;">' + (c.life === '未来' ? '🔵未来 ' : '') + _esc(c.variant) + (c.gen ? '（' + _esc(c.gen) + '）' : '') + (c.machines.length ? ' <span style="color:#c2410c;">' + _esc(c.machines.join('・')) + '専用</span>' : '') + '</span><br><b>' + _aqYen(l.amount) + '</b> <small>' + _esc(c.future ? (c.deadline ? '期限 ' + c.deadline : '作成予定') : l.quoteNo) + '</small> ' + _aqPdf(l.pdfUrl) + '</div>';
+  };
+  var last = null;
+  el.innerHTML = _adFrameBar(d) + '<div style="font-size:12px;color:#475569;margin-bottom:6px;">同じ構成でも、見積書は機種の頭文字ごとに必要です。<b style="color:#b91c1c;">赤</b>は進捗管理の予定で必要なのに使える見積が無い頭文字、「—」は見積が無い頭文字です（灰色の小さい字は、ハードウェア構成一覧表でその構成を使っている機種）。過去の見積は含みません。</div>'
+    + '<div style="overflow:auto;max-height:72vh;"><table style="border-collapse:collapse;font-size:12px;width:100%;"><tr>' + ['枠構成', '使用基板'].map(function (t) { return _aqTh(t); }).join('') + inits.map(function (n) { return _aqTh('機種' + _esc(n), 'background:#fef08a;'); }).join('') + _aqTh('⚠ 件名に頭文字なし（使えない）') + '</tr>'
+    + (AQ.initRows.length ? AQ.initRows.map(function (r, ri) {
+        var sec = r.type !== last ? '<tr><td colspan="' + (inits.length + 3) + '" style="background:#f1f5f9;font-weight:700;border:1px solid #cbd5e1;padding:4px 8px;">' + _esc(r.type) + '</td></tr>' : ''; last = r.type;
+        return sec + '<tr>' + _aqTd('<b>' + _esc(r.frame || '未設定') + '</b>', 'white-space:nowrap;') + _aqTd('<b>' + _esc(r.boards.join(' / ')) + '</b>')
+          + inits.map(function (n) {
+              var cs = r.cell[n] || [], nd = r.need[n] || [], u = cs.length ? [] : users(r, n);
+              var nh = nd.length ? '<div style="color:#b91c1c;font-weight:700;">要見積 ' + _esc(nd.map(function (p) { return p.machine + (p.status === '区分違い' ? '（' + p.kind + '）' : ''); }).join('、')) + (nd[0].deadline ? '<br>期限 ' + _esc(nd[0].deadline) : '') + '</div>' : '';
+              return _aqTd((cs.map(item).join('') || (nd.length ? '' : '<span style="color:#cbd5e1;">—</span>')) + nh
+                + (u.length ? '<div style="font-size:10px;color:#94a3b8;">' + _esc(u.slice(0, 5).join('・')) + (u.length > 5 ? ' ほか' + (u.length - 5) : '') + '</div>' : '')
+                + (cs.length && !nd.length ? '' : '<a href="javascript:void(0)" style="font-size:11px;" onclick="aqFutureOpen(\'row\',' + ri + ',\'' + _esc(n) + '\')">＋未来</a>'), nd.length ? 'background:#fee2e2;' : '');
+            }).join('')
+          + _aqTd(r.none.map(item).join(''), r.none.length ? 'background:#fff7ed;' : '') + '</tr>';
+      }).join('') : '<tr>' + _aqTd('該当なし') + '</tr>') + '</table></div>';
 }
 
 // ── 枠構成（ハードウェア構成一覧表）──
