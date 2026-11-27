@@ -402,7 +402,9 @@ function _apiGetAll() {
     });
 
     var orderRows = rows.filter(function(r) {
-      return String(r[MGMT_COLS.ORDER_NO - 1]).trim() !== '';
+      if (String(r[MGMT_COLS.ORDER_NO - 1]).trim() !== '') return true;
+      // 発注書番号が読めなかった注文：伝票番号か注文書PDFがあれば出す
+      return String(r[MGMT_COLS.ORDER_SLIP_NO - 1] || '').trim() !== '' || String(r[MGMT_COLS.ORDER_PDF_URL - 1] || '').trim() !== '';
     });
 
     var items = _deduplicateMgmtRows(orderRows);
@@ -457,7 +459,7 @@ function _deduplicateMgmtRows(rows) {
     var obj     = _rowToObject(r);
     var orderNo = String(obj.orderNo  || '').trim();
     var quoteNo = String(obj.quoteNo  || '').trim();
-    var key = orderNo || quoteNo || obj.id;
+    var key = orderNo || (obj.orderSlipNo ? 'SLIP:' + String(obj.orderSlipNo).trim() : '') || quoteNo || obj.id;
     if (!key) return;
     if (seen[key]) {
       var existing = seen[key];

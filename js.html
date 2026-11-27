@@ -833,10 +833,18 @@ function applyFilters() {
     const ms = !st || r.status === st; const mo2 = !ot || r.orderType === ot;
     const mm = !mo || (String(r.orderDate).startsWith(mo) || String(r.quoteDate).startsWith(mo));
     const ma = _amtMatch([r.orderAmount].concat(r.priceList||[]), amt, amtTol); // 合計金額 or 明細単価
-    const mc = _orderClientTab === 'all' || _matchClientGroup(r.client) === _orderClientTab;
-    return mk && ms && mo2 && mm && ma && mc;
+    r._otherTab = !(_orderClientTab === 'all' || _matchClientGroup(r.client) === _orderClientTab);
+    return mk && ms && mo2 && mm && ma;
   });
+  // 選んでいる取引先タブで0件でも、キーワードがほかのタブの注文書に当たる時はそれを出す（取引先が未設定の注文書など）
+  const inTab = S.filtered.filter(r => !r._otherTab);
+  S.otherTabHit = (kws.length && !inTab.length && S.filtered.length) ? S.filtered.length : 0;
+  if (!S.otherTabHit) S.filtered = inTab;
   S.page = 1; _renderTable();
+  if (S.otherTabHit) {
+    const tc = document.getElementById('table-container');
+    if (tc) tc.insertAdjacentHTML('afterbegin', '<div style="background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:6px;padding:6px 10px;margin:6px 0;font-size:12.5px;">「' + _escAttr(_orderClientTab) + '」タブには該当がないため、ほかの取引先（取引先が未設定のものを含む）の注文書 ' + S.otherTabHit + '件を表示しています。取引先が違う場合は顧客名を直してください。</div>');
+  }
 }
 function clearFilters(){ document.getElementById('search-input').value=''; ['filter-status','filter-order-type','filter-month'].forEach(id=>document.getElementById(id).value=''); const a=document.getElementById('amount-search'); if(a)a.value=''; const at=document.getElementById('amount-tol'); if(at)at.value='0'; S.filtered=S.all.slice();S.page=1;_renderTable(); }
 function _populateMonthFilter(){ const sel=document.getElementById('filter-month'); if(!sel) return; const now=new Date(); for(let i=0;i<12;i++){ const d=new Date(now.getFullYear(),now.getMonth()-i,1); const ym=d.getFullYear()+'/'+String(d.getMonth()+1).padStart(2,'0'); const o=document.createElement('option');o.value=ym;o.textContent=ym;sel.appendChild(o); } }

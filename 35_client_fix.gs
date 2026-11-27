@@ -29,6 +29,27 @@ function _cpmIsBadClient(name, selfNames) {
   return !s || s === '(取引先不明)' || _cpmIsSelf(s, selfNames);
 }
 
+/**
+ * 社名がロゴ画像で本文に無い注文書のための手がかり（住所・電話番号 → 取引先マスタのキーワード）
+ *   追加はスクリプトプロパティ CLIENT_TEXT_HINTS に JSON で：[{"text":"一宮市丹陽町","client":"藤商事"}]
+ */
+var CPM_CLIENT_TEXT_HINTS = [
+  { text: '一宮市丹陽町', client: '藤商事' },
+  { text: '0586-77-6673', client: '藤商事' },
+  { text: '0586-77-8171', client: '藤商事' },
+];
+function _cpmMatchClientByHints(text) {
+  var t = String(text || '').normalize('NFKC').replace(/[\s]/g, '').replace(/[‐－―ー−]/g, '-');
+  if (!t) return null;
+  var hints = CPM_CLIENT_TEXT_HINTS.slice();
+  try { hints = hints.concat(JSON.parse(PropertiesService.getScriptProperties().getProperty('CLIENT_TEXT_HINTS') || '[]')); } catch (e) {}
+  for (var i = 0; i < hints.length; i++) {
+    var h = String(hints[i].text || '').normalize('NFKC').replace(/[\s]/g, '');
+    if (h && t.indexOf(h) >= 0) return _cpmMatchClientMaster(hints[i].client) || { name: hints[i].client };
+  }
+  return null;
+}
+
 /** 取引先マスタのキーワードに一致する分類を返す（未一致は null） */
 function _cpmMatchClientMaster(text) {
   var t = String(text || '').normalize('NFKC');
@@ -101,7 +122,7 @@ function cpmFixOrderClient(ocr, pdfUrl) {
     ocr.clientName = ocr.issuerName;
   } else {
     // ① PDF本文（テキスト読取の結果）に取引先マスタのキーワード（例：コナミ、藤商事）があるか
-    var t = ocr._textHint ? _cpmMatchClientMaster(ocr._textHint) : null;
+    var t = ocr._textHint ? (_cpmMatchClientMaster(ocr._textHint) || _cpmMatchClientByHints(ocr._textHint)) : null;
     // ② 明細の部品コードが、すでにどこかの取引先で登録されているか
     var byCode = null;
     if (!t && typeof _cpmRows === 'function') {
@@ -132,7 +153,7 @@ function apiCpmClientFixCandidates() {
     var linesByMgmt = {};
     _cpmOrderLines().forEach(function(l) { if (l.code) (linesByMgmt[l.mgmtId] = linesByMgmt[l.mgmtId] || []).push(l.code); });
 
-    var orders = getAllMgmtData().map(_rowToObject).filter(function(o) { return o.orderNo && _cpmIsBadClient(o.client, self); });
+    var orders = getAllMgmtData().map(_rowToObject).filter(function(o) { return (o.orderNo || o.orderSlipNo || o.orderPdfUrl) && _cpmIsBadClient(o.client, self); });
     var started = Date.now(), driveSkipped = 0;
     var items = orders.map(function(o) {
       var sug = '', via = '';
@@ -149,7 +170,7 @@ function apiCpmClientFixCandidates() {
         var t = _cpmMatchClientMaster([o.subject, o.memo].join(' '));
         if (t) { sug = t.name; via = '件名'; }
       }
-      return { mgmtId: o.id, orderNo: o.orderNo, orderDate: o.orderDate, subject: o.subject, client: o.client,
+      return { mgmtId: o.id, orderNo: o.orderNo || o.orderSlipNo, orderDate: o.orderDate, subject: o.subject, client: o.client,
                modelCode: o.modelCode, codes: codes.length, suggest: sug ? (canon[sug] || sug) : '', via: via, orderPdfUrl: o.orderPdfUrl };
     });
     var clients = [];
