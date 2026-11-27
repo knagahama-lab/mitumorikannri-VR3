@@ -533,6 +533,10 @@ function apiCompExport() {
       lsh.setConditionalFormatRules(rules);
     }
 
+    // 単価・注文チェック（56_comp_price.gs）
+    var cpN = 0;
+    if (typeof _cpExportSheet === 'function') cpN = _cpExportSheet(ss, now);
+
     // 既定の空シートが残っていたら消す
     ss.getSheets().forEach(function (sh) {
       if (['シート1', 'Sheet1'].indexOf(sh.getName()) >= 0 && ss.getSheets().length > 1) {
@@ -541,7 +545,7 @@ function apiCompExport() {
     });
 
     return { success: true, url: ss.getUrl(), ssId: ss.getId(),
-             message: '明細' + lines.length + '行・機種' + models.length + '件を転記しました' };
+             message: '明細' + lines.length + '行・機種' + models.length + '件' + (cpN ? '・単価' + cpN + '行' : '') + 'を転記しました' };
   } catch (e) { return { success: false, error: _csErr(e) }; }
 }
 

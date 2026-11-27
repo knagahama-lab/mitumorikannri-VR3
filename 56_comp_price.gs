@@ -197,10 +197,11 @@ function apiCpQuoteLines(p) {
     p = p || {};
     var no = _cpNameKey(p.quoteNo);
     if (!no) return { success: false, error: '見積番号を入れてください' };
-    var qs = getSpreadsheet().getSheetByName(CONFIG.SHEET_QUOTES), out = [], date = '', client = '';
+    var qs = getSpreadsheet().getSheetByName(CONFIG.SHEET_QUOTES), out = [], date = '', client = '', realNo = '';
     if (qs && qs.getLastRow() > 1) {
       qs.getRange(2, 1, qs.getLastRow() - 1, Math.max(QUOTE_COLS.PDF_URL, qs.getLastColumn())).getValues().forEach(function (r) {
         if (_cpNameKey(r[QUOTE_COLS.QUOTE_NO - 1]) !== no) return;
+        realNo = realNo || _cpStr(r[QUOTE_COLS.QUOTE_NO - 1]);
         date = date || _cpDate(r[QUOTE_COLS.ISSUE_DATE - 1]); client = client || _cpStr(r[QUOTE_COLS.DEST_COMPANY - 1]);
         var name = _cpStr(r[QUOTE_COLS.ITEM_NAME - 1]), spec = _cpStr(r[QUOTE_COLS.SPEC - 1]);
         if (!name && !spec) return;
@@ -222,7 +223,7 @@ function apiCpQuoteLines(p) {
       }
       l.match = bs >= 60 ? best.code : ''; l.score = bs;
     });
-    return { success: true, quoteNo: _cpStr(p.quoteNo), date: date, client: client, lines: out, candidates: cand, linked: linked };
+    return { success: true, quoteNo: realNo || _cpStr(p.quoteNo), date: date, client: client, lines: out, candidates: cand, linked: linked };
   } catch (e) {
     Logger.log('[apiCpQuoteLines] ' + e.message + '\n' + e.stack);
     return { success: false, error: e.message };
@@ -237,4 +238,59 @@ function _cpScore(a, b) {
   if (!bx.length || bx.slice().sort().join() !== by.slice().sort().join()) return 0;
   var pcb = /PCB/.test(x) === /PCB/.test(y), done = /\(完\)/.test(x) === /\(完\)/.test(y);
   return pcb && done ? 70 : 30;
+}
+
+// ------------------------------------------------------------
+// 共有スプレッド（構成表 管理表）への転記：シート「単価・注文チェック」
+//   54 の apiCompExport から呼ぶ。見る・共有する用（こちらで編集しても見積管理には戻らない）
+//   毎朝6時にも自動で転記する（compExportDaily。初回の転記でトリガーを作る）
+// ------------------------------------------------------------
+var CP_EXPORT_HEADERS = ['機種', '階層', '部品コード', '品名', '発注先', '自社発注', '品番マスタ', '現行単価', '現行単価の出どころ',
+  '新単価', '新単価適用日', '新単価見積No', '次回の想定単価', '想定単価の出どころ', '最新の注文No', '納入日', '発注日', '数量', '注文単価', '注文の金額',
+  '単価チェック', '比べた単価', '比べた単価の出どころ', '差額', '注文の照合', '見積No', '見積単価'];
+function _cpExportSheet(ss, now) {
+  var r = apiCpList({});
+  if (!r.success) throw new Error('単価・注文チェックを作れませんでした：' + r.error);
+  var v = function (x) { return x === null || x === undefined ? '' : x; };
+  var rows = r.lines.map(function (l) {
+    var o = l.order || {};
+    return [l.model, l.level, l.code, l.name, l.supplier, l.ours ? '○' : '', l.ours ? (l.inMaster ? '登録済' : '未登録') : '', v(l.cur), l.curSrc,
+      v(l.newPrice), l.newDate, l.newQuoteNo, v(l.next), l.nextSrc, o.orderNo || '', o.delivery || '', o.date || '', v(o.qty), v(o.price),
+      o.qty && o.price ? Math.round(o.qty * o.price * 100) / 100 : '',
+      l.check, v(l.expect), l.expSrc, v(l.diff), o.by ? o.by + 'で照合' : '', l.quoteNo, v(l.quotePrice)];
+  });
+  var H = CP_EXPORT_HEADERS, sh = ss.getSheetByName('単価・注文チェック') || ss.insertSheet('単価・注文チェック');
+  sh.clear();
+  var f = sh.getFilter(); if (f) f.remove();
+  sh.getRange(1, 1, 1, H.length).setValues([H]).setBackground('#FEF9C3').setFontWeight('bold').setFontSize(10).setWrap(true);
+  if (rows.length) {
+    sh.getRange(2, 1, rows.length, H.length).setNumberFormat('@');
+    [8, 10, 13, 18, 19, 20, 22, 24, 27].forEach(function (c) { sh.getRange(2, c, rows.length, 1).setNumberFormat('#,##0.##'); });
+    sh.getRange(2, 1, rows.length, H.length).setValues(rows);
+    sh.getRange(1, 1, rows.length + 1, H.length).createFilter();
+    var col = function (c) { return sh.getRange(2, c, rows.length, 1); };
+    var rule = function (rng, text, bg, fg) { return SpreadsheetApp.newConditionalFormatRule().whenTextEqualTo(text).setBackground(bg).setFontColor(fg).setRanges([rng]).build(); };
+    sh.setConditionalFormatRules([
+      rule(col(21), '不一致', '#FEE2E2', '#B91C1C'), rule(col(21), '一致', '#DCFCE7', '#166534'),
+      rule(col(7), '未登録', '#FEE2E2', '#B91C1C'),
+      SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=$F2=""').setFontColor('#94A3B8').setRanges([sh.getRange(2, 1, rows.length, H.length)]).build(),
+    ]);
+    col(13).setBackground('#FEF9C3').setFontWeight('bold');
+    sh.getRange(2, 10, rows.length, 3).setBackground('#EFF6FF');
+  }
+  sh.setFrozenRows(1); sh.setFrozenColumns(4);
+  [70, 40, 95, 280, 140, 50, 70, 80, 90, 80, 90, 90, 90, 130, 80, 80, 80, 60, 80, 90, 80, 80, 140, 70, 80, 90, 80].forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
+  sh.getRange(1, H.length + 2).setValue('最終更新: ' + now + '（見積管理VR3からの転記。こちらで編集しても戻りません。毎朝6時に自動更新）');
+  try {
+    if (!ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'compExportDaily'; })) {
+      ScriptApp.newTrigger('compExportDaily').timeBased().everyDays(1).atHour(6).create();
+    }
+  } catch (e) { Logger.log('[cpExport trigger] ' + e.message); }
+  return rows.length;
+}
+/** 毎朝の自動転記（共有スプレッドが設定済みの時だけ） */
+function compExportDaily() {
+  if (!_csCfg().shareSsId) return;
+  var r = apiCompExport();
+  if (!r.success) Logger.log('[compExportDaily] ' + r.error);
 }
