@@ -42,6 +42,7 @@ function cpRender(el) {
     + '<button class="btn btn-primary btn-sm" onclick="cpQuoteOpen()">📄 見積書から新単価を登録</button>'
     + (noMasterLines.length ? '<button class="btn btn-outline btn-sm" onclick="cpRegisterAll()">＋ 未登録 ' + noMasterLines.length + '件を品番マスタに登録</button>' : '')
     + '<button class="btn btn-outline btn-sm" style="color:#16a34a;border-color:#16a34a;" onclick="cpCsv()">📥 CSV</button>'
+    + '<button class="btn btn-outline btn-sm" style="color:#15803d;border-color:#15803d;" onclick="cpmExcel(CP.model)" title="客先品番マスタと関数が入ったExcel。オフラインで部品コードを入れると品名・単価が出ます">📗 Excel出力（オフライン用）</button>'
     + '<button class="btn btn-outline btn-sm" onclick="CP.data=null;cpRenderIn()">↻ 照合し直す</button></div>'
     + '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;">' + chip('', '自社の品番', g.ours) + chip('noMaster', '品番マスタ未登録', g.noMaster, '#b91c1c') + chip('noOrder', '注文なし', g.ours - g.ordered)
     + chip('mismatch', '単価が想定と違う注文', g.mismatch, '#b91c1c') + chip('future', '新単価の予定あり', g.future, '#1d4ed8') + '</div>'
@@ -141,5 +142,19 @@ function cpCsv() {
       var o = l.order || {};
       return [l.model, l.level, l.code, l.name, l.supplier, l.ours ? (l.inMaster ? '登録済' : '未登録') : '', l.cur, l.newPrice, l.newDate, l.newQuoteNo, l.next, l.nextSrc, o.orderNo || '', o.delivery || o.date || '', o.qty || '', o.price || '', l.check, l.expect, l.diff].map(function (x) { return x === null || x === undefined ? '' : x; });
     }));
+}
+
+/** オフライン用 Excel（58_cpm_excel.gs）。model を渡すと、その機種の弊社品番を入れた状態で出力 */
+function cpmExcel(model) {
+  showToast('Excel を作成しています…（10〜30秒ほどかかります）');
+  _cpApi('cpmExcel', { model: model || '' }, function (r) {
+    var bin = atob(r.base64), buf = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+    var blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    var url = URL.createObjectURL(blob), a = document.createElement('a');
+    a.href = url; a.download = r.fileName; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+    showToast('Excel を出力しました（マスタ ' + r.count + '件' + (r.prefilled ? '・構成表 ' + r.prefilled + '行を入力済み' : '') + '）');
+  });
 }
 </script>
