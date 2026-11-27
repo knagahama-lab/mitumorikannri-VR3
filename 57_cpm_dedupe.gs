@@ -13,7 +13,7 @@
 // ============================================================
 
 var CPM_DEDUPE_PROP = 'CPM_DEDUPE_LAST';
-var CPM_WIDTH = 23;   // 20列（34）＋新単価3列（56）
+var CPM_WIDTH = 24;   // 20列（34）＋新単価3列（56）＋社内コード（59）
 
 /** 追加する直前に、シートを読み直して同じキーがあるか確認（34 の cpmOnOrderSaved から呼ぶ） */
 function _cpmExistsNow(sh, key) {
@@ -69,6 +69,7 @@ function apiCpmDedupe(p) {
   try {
     var sh = _cpmSheet(), last = sh.getLastRow();
     if (last < 2) return { success: true, removed: 0 };
+    if (sh.getMaxColumns() < CPM_WIDTH) sh.insertColumnsAfter(sh.getMaxColumns(), CPM_WIDTH - sh.getMaxColumns());
     var rows = sh.getRange(2, 1, last - 1, CPM_WIDTH).getValues();
     var r = _cpmDedupeRows(rows);
     if (!r.removed || p.dryRun) return { success: true, removed: r.removed, dryRun: !!p.dryRun };

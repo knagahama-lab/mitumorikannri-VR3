@@ -109,6 +109,8 @@ function handleApiRequest(action, payload) {
       case 'compExport':          res = apiCompExport(); break;
       case 'compCfgSave':         res = apiCompCfgSave(payload); break;
       case 'compDeleteModel':     res = apiCompDeleteModel(payload); break;
+      case 'shipCheck':           res = apiShipCheck(payload); break;       // 59_ship_check.gs 出荷明細の単価照合
+      case 'shipMap':             res = apiShipMap(payload); break;
       case 'cpmExcel':            res = apiCpmExcel(payload); break;        // 58_cpm_excel.gs オフライン用Excel
       case 'cpList':              res = apiCpList(payload); break;          // 56_comp_price.gs 構成表の単価・注文チェック
       case 'cpSetPrice':          res = apiCpSetPrice(payload); break;

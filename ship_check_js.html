@@ -1,0 +1,76 @@
+<script>
+// ============================================================
+// ship_check_js.html — 出荷明細の単価照合（59_ship_check.gs）
+//   客先部品コード画面の「🚚 出荷明細の単価照合」から開く
+// ============================================================
+var SC = { res: null, only: '' };
+
+function scOpen() {
+  _cpModal('<div style="display:flex;justify-content:space-between;align-items:center;"><b style="font-size:15px;">🚚 出荷明細の単価照合</b><button class="btn btn-outline btn-sm" onclick="_cpClose()">✕</button></div>'
+    + '<div style="font-size:12px;color:#64748b;margin:6px 0 10px;">出荷明細（xlsx）を選ぶと、社内コード → 客先部品コード に紐づけて、出荷日時点の単価（新単価・注文単価・見積単価）と照合します。<br>'
+    + '紐づけは ①備考の「伝票番号-行番号」（例 206856-001）→ 注文書の明細 ②覚えた社内コード ③客先品名 の順。①で紐づいた社内コードは客先品番マスタに自動で覚えます。</div>'
+    + '<input type="file" id="sc-file" accept=".xlsx,.xls" onchange="scRun()"> <span id="sc-msg" style="font-size:12px;color:#64748b;"></span>'
+    + '<div id="sc-body" style="margin-top:10px;"></div>', 1500);
+}
+
+function scRun() {
+  var f = document.getElementById('sc-file').files[0]; if (!f) return;
+  document.getElementById('sc-msg').textContent = '照合しています…（20〜60秒ほど）';
+  var rd = new FileReader();
+  rd.onload = function (ev) {
+    _cpApi('shipCheck', { base64: ev.target.result.split(',')[1], fileName: f.name, excel: true }, function (r) {
+      SC.res = r; SC.only = '';
+      document.getElementById('sc-msg').textContent = '照合しました（' + r.rows.length + '行' + (r.learned ? '・社内コードを ' + r.learned + '件覚えました' : '') + '）';
+      scRender();
+    }, function () { document.getElementById('sc-msg').textContent = ''; });
+  };
+  rd.readAsDataURL(f);
+}
+
+function scDownload() {
+  var r = SC.res; if (!r || !r.base64) return;
+  var bin = atob(r.base64), buf = new Uint8Array(bin.length);
+  for (var i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  var url = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })), a = document.createElement('a');
+  a.href = url; a.download = r.fileName; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+}
+
+function scRender() {
+  var r = SC.res, el = document.getElementById('sc-body'); if (!r || !el) return;
+  var e = function (s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'); };
+  var n = function (v) { return v === null || v === undefined || v === '' ? '' : Number(v).toLocaleString(); };
+  var col = { '一致': ['#dcfce7', '#166534'], '不一致': ['#fee2e2', '#b91c1c'] };
+  var chips = ['一致', '不一致', '紐づけなし', '単価なし', '出荷単価0'].filter(function (k) { return r.summary[k]; }).map(function (k) {
+    var c = col[k] || ['#fef3c7', '#92400e'];
+    return '<button class="btn btn-sm" style="padding:2px 10px;background:' + (SC.only === k ? c[1] : c[0]) + ';color:' + (SC.only === k ? '#fff' : c[1]) + ';border:1px solid ' + c[1] + ';" onclick="SC.only=SC.only===\'' + k + '\'?\'\':\'' + k + '\';scRender()">' + k + ' ' + r.summary[k] + '</button>';
+  }).join(' ');
+  var rows = r.rows.map(function (x, i) { x._i = i; return x; }).filter(function (x) { return !SC.only || x.judge === SC.only; });
+  var th = function (t) { return '<th style="padding:4px 6px;background:#1e3a8a;color:#fff;font-size:11.5px;white-space:nowrap;position:sticky;top:0;">' + t + '</th>'; };
+  var td = function (h, st) { return '<td style="padding:3px 6px;border-bottom:1px solid #e2e8f0;font-size:12px;' + (st || '') + '">' + h + '</td>'; };
+  var html = '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">出荷日 ' + e(r.period) + '　' + chips
+    + '<span style="flex:1"></span><button class="btn btn-primary btn-sm" onclick="scDownload()">📥 Excel出力（リンク付き）</button></div>'
+    + '<div style="overflow:auto;max-height:64vh;"><table style="border-collapse:collapse;width:100%;"><thead><tr>'
+    + ['機種', '社内コード', '客先品名', '出荷数', '出荷単価', '客先部品コード', '紐づけ', '照合単価', '出どころ', '判定', '差額', '見積書', '注文書'].map(th).join('') + '</tr></thead><tbody>'
+    + rows.map(function (x) {
+      var c = col[x.judge] || ['#fef3c7', '#92400e'];
+      var codeCell = x.code ? e(x.code) : '<input id="sc-code-' + x._i + '" placeholder="客先コード" style="width:110px;font-size:12px;"> <button class="btn btn-outline btn-sm" style="padding:1px 6px;" onclick="scMap(' + x._i + ')">登録</button>';
+      return '<tr>' + td(e(x.model)) + td(e(x.inner), 'font-family:monospace;') + td(e(x.cname) + (x.masterName && x.masterName !== x.cname ? '<div style="color:#64748b;font-size:11px;">マスタ: ' + e(x.masterName) + '</div>' : ''))
+        + td(n(x.qty), 'text-align:right;') + td(n(x.price), 'text-align:right;font-weight:600;') + td(codeCell, 'font-family:monospace;')
+        + td(e(x.via), 'font-size:11px;color:#475569;') + td(n(x.expect), 'text-align:right;') + td(e(x.expSrc), 'font-size:11px;color:#475569;')
+        + td('<span style="background:' + c[0] + ';color:' + c[1] + ';padding:1px 8px;border-radius:10px;font-weight:600;white-space:nowrap;">' + e(x.judge) + '</span>')
+        + td(x.diff ? (x.diff > 0 ? '+' : '') + n(x.diff) : '', 'text-align:right;color:#b91c1c;')
+        + td(x.quoteUrl ? '<a href="' + e(x.quoteUrl) + '" target="_blank">📄 ' + e(x.quoteNo) + '</a>' : e(x.quoteNo))
+        + td(x.orderUrl ? '<a href="' + e(x.orderUrl) + '" target="_blank">📦 ' + e(x.slip || x.orderNo || '注文書') + '</a>' : e(x.slip)) + '</tr>';
+    }).join('') + '</tbody></table></div>';
+  el.innerHTML = html;
+}
+
+function scMap(i) {
+  var x = SC.res.rows[i], code = (document.getElementById('sc-code-' + i) || {}).value || '';
+  if (!code.trim()) { showToast('客先部品コードを入れてください', true); return; }
+  _cpApi('shipMap', { inner: x.inner, code: code.trim() }, function () {
+    showToast(x.inner + ' → ' + code.trim() + ' を覚えました。ファイルを選び直すと照合し直します');
+  });
+}
+</script>
