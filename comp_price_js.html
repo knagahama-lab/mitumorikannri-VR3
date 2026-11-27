@@ -1,0 +1,145 @@
+<script>
+// ============================================================
+// comp_price_js.html — 構成表タブ「💴 単価・注文チェック」（56_comp_price.gs）
+//   構成表の各品番 × 客先品番マスタ × 注文書（部品コードで紐づけ）
+// ============================================================
+var CP = { data: null, model: '', ours: true, only: '', loading: false };
+
+function _cpApi(action, payload, ok, ng) {
+  google.script.run.withSuccessHandler(function (r) {
+    if (!r || !r.success) { showToast((r && r.error) || '失敗しました', true); if (ng) ng(r); return; }
+    ok(r);
+  }).withFailureHandler(function (e) { showToast(e.message || String(e), true); if (ng) ng(e); }).handleApiRequest(action, payload || {});
+}
+function cpLoad() {
+  CP.loading = true;
+  _cpApi('cpList', {}, function (r) { CP.loading = false; CP.data = r; if (!CP.model && r.models.length) CP.model = (CS && CS.model) || r.models[0].model; cpRenderIn(); },
+    function () { CP.loading = false; var el = document.getElementById('cs-body'); if (el && CS.tab === 'price') el.innerHTML = '<div style="color:#dc2626;padding:12px;">読み込めませんでした <button class="btn btn-outline btn-sm" onclick="cpLoad()">↻</button></div>'; });
+}
+function cpRenderIn() { var el = document.getElementById('cs-body'); if (el && CS.tab === 'price') cpRender(el); }
+var _cpYen = function (n) { return n === null || n === undefined || n === '' ? '' : '¥' + Number(n).toLocaleString('ja-JP', { maximumFractionDigits: 2 }); };
+var _cpTh = function (t, ex) { return '<th style="border:1px solid #94a3b8;padding:5px 8px;background:#e2e8f0;text-align:left;white-space:nowrap;' + (ex || '') + '">' + t + '</th>'; };
+var _cpTd = function (t, ex) { return '<td style="border:1px solid #cbd5e1;padding:5px 8px;vertical-align:top;' + (ex || '') + '">' + t + '</td>'; };
+
+function cpRender(el) {
+  if (!CP.data) { el.innerHTML = '<div class="loading"><div class="spinner"></div><br>品番マスタと注文書を照合しています...</div>'; if (!CP.loading) cpLoad(); return; }
+  var d = CP.data;
+  var lines = d.lines.filter(function (l) {
+    if (CP.model && l.model !== CP.model) return false;
+    if (CP.ours && !l.ours) return false;
+    if (CP.only === 'noMaster' && (l.inMaster || !l.ours)) return false;
+    if (CP.only === 'mismatch' && l.check !== '不一致') return false;
+    if (CP.only === 'future' && !l.future) return false;
+    if (CP.only === 'noOrder' && (l.order || !l.ours)) return false;
+    return _csHit([l.code, l.name, l.supplier, l.order ? l.order.orderNo : '', l.newQuoteNo, l.quoteNo].join(' '));
+  });
+  var g = d.models.filter(function (m) { return m.model === CP.model; })[0] || { ours: 0, noMaster: 0, ordered: 0, mismatch: 0, future: 0, noPrice: 0 };
+  var chip = function (k, t, n, col) { return '<button class="btn btn-sm ' + (CP.only === k ? 'btn-primary' : 'btn-outline') + '" style="padding:2px 9px;" onclick="CP.only=\'' + k + '\';cpRenderIn()">' + t + ' <b style="color:' + (CP.only === k ? '#fff' : col || 'inherit') + ';">' + n + '</b></button>'; };
+  var noMasterLines = d.lines.filter(function (l) { return l.model === CP.model && l.ours && !l.inMaster; });
+  el.innerHTML = '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:6px;font-size:12px;">'
+    + '<label>機種 <select onchange="CP.model=this.value;CP.only=\'\';cpRenderIn()" style="padding:4px 8px;">' + d.models.map(function (m) { return '<option' + (m.model === CP.model ? ' selected' : '') + '>' + _esc(m.model) + '</option>'; }).join('') + '</select></label>'
+    + '<label style="display:inline-flex;gap:4px;align-items:center;"><input type="checkbox"' + (CP.ours ? ' checked' : '') + ' onchange="CP.ours=this.checked;cpRenderIn()"> サン電子への発注分だけ</label>'
+    + '<button class="btn btn-primary btn-sm" onclick="cpQuoteOpen()">📄 見積書から新単価を登録</button>'
+    + (noMasterLines.length ? '<button class="btn btn-outline btn-sm" onclick="cpRegisterAll()">＋ 未登録 ' + noMasterLines.length + '件を品番マスタに登録</button>' : '')
+    + '<button class="btn btn-outline btn-sm" style="color:#16a34a;border-color:#16a34a;" onclick="cpCsv()">📥 CSV</button>'
+    + '<button class="btn btn-outline btn-sm" onclick="CP.data=null;cpRenderIn()">↻ 照合し直す</button></div>'
+    + '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px;">' + chip('', '自社の品番', g.ours) + chip('noMaster', '品番マスタ未登録', g.noMaster, '#b91c1c') + chip('noOrder', '注文なし', g.ours - g.ordered)
+    + chip('mismatch', '単価が想定と違う注文', g.mismatch, '#b91c1c') + chip('future', '新単価の予定あり', g.future, '#1d4ed8') + '</div>'
+    + '<div style="font-size:12px;color:#475569;margin-bottom:6px;">構成表の<b>部品コード</b>で客先品番マスタ・注文書に紐づけています（部品コードで見つからない注文は品名で照合）。'
+    + '<b>次回の想定単価</b>＝新単価（適用日を過ぎていれば）→ 最新の注文の単価 → 見積単価。'
+    + '<b>単価チェック</b>は、最新の注文の単価を「その注文の納入日が適用日以降なら新単価、それ以前なら1つ前の注文の単価（無ければ見積単価）」と比べます。価格UPの前に「見積書から新単価を登録」で適用日つきの新単価を入れておいてください。</div>'
+    + '<div class="bpt-wrap" style="overflow:auto;max-height:70vh;"><table style="border-collapse:collapse;font-size:12px;width:100%;"><tr>'
+    + ['階層', '部品コード', '品名', '発注先', '品番マスタ', '現行単価', '新単価（適用日）', '次回の想定単価', '最新の注文', '単価チェック', ''].map(function (t) { return _cpTh(t); }).join('') + '</tr>'
+    + lines.map(function (l) {
+        var i = d.lines.indexOf(l), o = l.order;
+        var ck = l.check === '一致' ? '<span style="color:#166534;">✓ 一致</span>' : l.check === '不一致' ? '<b style="color:#b91c1c;">⚠ 不一致 ' + (l.diff > 0 ? '+' : '') + _cpYen(l.diff).replace('¥-', '−¥') + '</b><br><small>想定 ' + _cpYen(l.expect) + '（' + _esc(l.expSrc) + '）</small>' : l.check ? '<span style="color:#94a3b8;">' + _esc(l.check) + '</span>' : '';
+        var np = l.newPrice !== null && l.newPrice !== undefined ? '<b>' + _cpYen(l.newPrice) + '</b><br><small>' + (l.newDate ? _esc(l.newDate) + '〜' : '適用日なし') + (l.newQuoteNo ? '　' + _esc(l.newQuoteNo) : '') + '</small>' : '';
+        return '<tr' + (!l.ours ? ' style="color:#94a3b8;"' : l.check === '不一致' ? ' style="background:#fef2f2;"' : '') + '>'
+          + _cpTd(String(l.level), 'text-align:center;color:#94a3b8;') + _cpTd(_esc(l.code), 'white-space:nowrap;')
+          + _cpTd('<span style="padding-left:' + ((l.level - 1) * 12) + 'px;">' + _esc(l.name) + '</span>', 'min-width:240px;') + _cpTd(_esc(l.supplier), 'max-width:140px;')
+          + _cpTd(!l.ours ? '' : l.inMaster ? '<span style="color:#166534;">登録済</span>' : '<span style="color:#b91c1c;">未登録</span>', 'white-space:nowrap;')
+          + _cpTd(l.cur ? _cpYen(l.cur) + '<br><small style="color:#64748b;">' + _esc(l.curSrc) + '</small>' : '', 'text-align:right;white-space:nowrap;')
+          + _cpTd(np, 'text-align:right;white-space:nowrap;' + (l.future ? 'background:#eff6ff;' : ''))
+          + _cpTd(l.next !== null && l.next !== undefined ? '<b>' + _cpYen(l.next) + '</b><br><small style="color:#64748b;">' + _esc(l.nextSrc) + '</small>' + (l.future ? '<br><small style="color:#1d4ed8;">' + _esc(l.future.date) + '〜 ' + _cpYen(l.future.price) + '</small>' : '') : (l.ours ? '<span style="color:#b91c1c;">単価なし</span>' : ''), 'text-align:right;white-space:nowrap;background:#fefce8;')
+          + _cpTd(o ? _esc(o.orderNo) + (o.pdfUrl ? ' <a href="' + _esc(o.pdfUrl) + '" target="_blank">📄</a>' : '') + '<br><small>' + _esc(o.delivery ? '納入 ' + o.delivery : o.date) + '　' + Number(o.qty || 0).toLocaleString() + '個 × ' + _cpYen(o.price) + '</small>' + (o.by === '品名' ? '<br><small style="color:#c2410c;">品名で照合</small>' : '') + (l.orderCount > 1 ? '<br><small style="color:#64748b;">ほか' + (l.orderCount - 1) + '件</small>' : '') : (l.ours ? '<span style="color:#94a3b8;">注文なし</span>' : ''), 'white-space:nowrap;')
+          + _cpTd(ck, 'white-space:nowrap;')
+          + _cpTd(l.ours ? '<button class="btn btn-outline btn-sm" style="padding:1px 6px;" onclick="cpEdit(' + i + ')">✏️ 単価</button>' : '') + '</tr>';
+      }).join('') + '</table></div>';
+}
+
+function _cpModal(html, w) {
+  var ov = document.getElementById('cp-modal'); if (ov) ov.remove();
+  ov = document.createElement('div'); ov.id = 'cp-modal';
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+  ov.innerHTML = '<div style="background:#fff;border-radius:10px;max-width:' + (w || 560) + 'px;width:100%;max-height:92vh;overflow:auto;padding:16px;">' + html + '</div>';
+  document.body.appendChild(ov);
+}
+function _cpClose() { var m = document.getElementById('cp-modal'); if (m) m.remove(); }
+function _cpSaved(msg) { _cpClose(); showToast(msg); CP.data = null; cpRenderIn(); }
+
+/** 1品番の新単価 */
+function cpEdit(i) {
+  var l = CP.data.lines[i];
+  var f = function (lab, h) { return '<div style="margin-bottom:8px;"><label style="display:block;font-size:11px;font-weight:700;color:#475569;margin-bottom:2px;">' + lab + '</label>' + h + '</div>'; };
+  var inp = function (id, v, ph, t) { return '<input id="' + id + '" type="' + (t || 'text') + '" value="' + _esc(v === null || v === undefined ? '' : v) + '" placeholder="' + (ph || '') + '" style="width:100%;padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;box-sizing:border-box;">'; };
+  _cpModal('<h3 style="margin:0 0 4px;">✏️ 新単価（価格改定）</h3><div style="font-size:12px;color:#475569;margin-bottom:10px;">' + _esc(l.code) + '　' + _esc(l.name) + '<br>現行単価 ' + (_cpYen(l.cur) || '—') + (l.quotePrice ? '　見積単価 ' + _cpYen(l.quotePrice) + '（' + _esc(l.quoteNo) + '）' : '') + '</div>'
+    + f('新単価 *', inp('cp-p', l.newPrice, '例: 3716')) + f('適用開始日（この日以降に納入する注文から新単価）', inp('cp-d', String(l.newDate || '').replace(/\//g, '-'), '', 'date'))
+    + f('根拠の見積No', inp('cp-q', l.newQuoteNo, '例: M2026-130'))
+    + '<div style="display:flex;justify-content:space-between;gap:8px;margin-top:12px;"><div>' + (l.newPrice !== null && l.newPrice !== undefined ? '<button class="btn btn-outline" onclick="cpSaveOne(' + i + ',true)">新単価を消す</button>' : '') + '</div><div><button class="btn btn-outline" onclick="_cpClose()">キャンセル</button> <button class="btn btn-primary" onclick="cpSaveOne(' + i + ',false)">保存</button></div></div>');
+}
+function cpSaveOne(i, clear) {
+  var l = CP.data.lines[i], g = function (id) { return document.getElementById(id).value; };
+  if (!clear && !g('cp-p').trim()) { showToast('新単価を入れてください', true); return; }
+  _cpApi('cpSetPrice', { clear: clear, items: [{ code: l.code, name: l.name, model: l.model, price: g('cp-p'), date: g('cp-d'), quoteNo: g('cp-q') }] }, function () { _cpSaved(clear ? '新単価を消しました' : '新単価を保存しました'); });
+}
+function cpRegisterAll() {
+  var list = CP.data.lines.filter(function (l) { return l.model === CP.model && l.ours && !l.inMaster; });
+  var seen = {}; list = list.filter(function (l) { if (seen[l.code]) return false; seen[l.code] = 1; return true; });
+  if (!confirm(list.length + '件の品番を客先品番マスタ（藤商事）に登録します。よろしいですか？')) return;
+  _cpApi('cpSetPrice', { items: list.map(function (l) { return { code: l.code, name: l.name, model: l.model }; }) }, function (r) { _cpSaved(r.registered + '件を品番マスタに登録しました'); });
+}
+
+/** 見積書から新単価をまとめて登録 */
+function cpQuoteOpen() {
+  _cpModal('<h3 style="margin:0 0 6px;">📄 見積書から新単価を登録</h3>'
+    + '<div style="font-size:12px;color:#475569;margin-bottom:8px;">提出した見積書の明細の単価を、構成表（' + _esc(CP.model) + '）の品番の<b>新単価</b>として登録します。適用開始日以降に納入する注文から、その単価で単価チェックします。</div>'
+    + '<div style="display:flex;gap:6px;align-items:end;flex-wrap:wrap;"><div><label style="font-size:11px;font-weight:700;color:#475569;">見積No</label><br><input id="cpq-no" placeholder="例: M2026-130" style="padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;" onkeydown="if(event.key===\'Enter\')cpQuoteLoad()"></div>'
+    + '<div><label style="font-size:11px;font-weight:700;color:#475569;">適用開始日</label><br><input id="cpq-d" type="date" style="padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;"></div>'
+    + '<button class="btn btn-primary btn-sm" onclick="cpQuoteLoad()">明細を読む</button></div><div id="cpq-body" style="margin-top:10px;"></div>', 900);
+  setTimeout(function () { var e = document.getElementById('cpq-no'); if (e) e.focus(); }, 0);
+}
+function cpQuoteLoad() {
+  var no = document.getElementById('cpq-no').value.trim(), b = document.getElementById('cpq-body');
+  if (!no) { showToast('見積Noを入れてください', true); return; }
+  b.innerHTML = '読み込み中…';
+  _cpApi('cpQuoteLines', { quoteNo: no, model: CP.model }, function (r) {
+    CP.q = r;
+    if (!r.lines.length) { b.innerHTML = '<span style="color:#dc2626;">見積書シートにこの見積Noの明細がありません（OCRで明細が取れていない見積は、各行の ✏️ 単価 から入れてください）</span>'; return; }
+    var opts = function (sel) { return '<option value="">（登録しない）</option>' + r.candidates.concat(r.linked.filter(function (x) { return !r.candidates.some(function (c) { return c.code === x.code; }); }))
+      .map(function (c) { return '<option value="' + _esc(c.code) + '"' + (c.code === sel ? ' selected' : '') + '>' + _esc(c.code + '　' + c.name) + '</option>'; }).join(''); };
+    b.innerHTML = '<div style="font-size:12px;margin-bottom:6px;">' + _esc(r.client) + '　発行日 ' + _esc(r.date) + (r.lines[0].pdfUrl ? '　<a href="' + _esc(r.lines[0].pdfUrl) + '" target="_blank">📄 見積書</a>' : '') + '　品番は品名から自動で選んでいます。違う時は選び直してください。</div>'
+      + '<table style="border-collapse:collapse;font-size:12px;width:100%;"><tr>' + ['見積の品名', '新単価', '構成表の品番（部品コード）'].map(function (t) { return _cpTh(t); }).join('') + '</tr>'
+      + r.lines.map(function (l, i) { return '<tr>' + _cpTd(_esc(l.name) + (l.spec ? '<br><small>' + _esc(l.spec) + '</small>' : '')) + _cpTd('<input id="cpq-p' + i + '" value="' + (l.price === null ? '' : l.price) + '" style="width:90px;text-align:right;">') + _cpTd('<select id="cpq-c' + i + '" style="max-width:420px;' + (l.match && l.score < 85 ? 'background:#fef9c3;' : '') + '">' + opts(l.match) + '</select>' + (l.match && l.score < 85 ? '<br><small style="color:#92400e;">基板名で推定（確認してください）</small>' : '')) + '</tr>'; }).join('')
+      + '</table><div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px;"><button class="btn btn-outline" onclick="_cpClose()">キャンセル</button><button class="btn btn-primary" onclick="cpQuoteSave()">選んだ品番に新単価を登録</button></div>';
+  }, function () { b.innerHTML = ''; });
+}
+function cpQuoteSave() {
+  var r = CP.q, d = document.getElementById('cpq-d').value, items = [];
+  r.lines.forEach(function (l, i) {
+    var code = document.getElementById('cpq-c' + i).value; if (!code) return;
+    var c = r.candidates.concat(r.linked).filter(function (x) { return x.code === code; })[0] || {};
+    items.push({ code: code, name: c.name || l.name, model: CP.model, price: document.getElementById('cpq-p' + i).value, date: d, quoteNo: r.quoteNo });
+  });
+  if (!items.length) { showToast('登録する品番を選んでください', true); return; }
+  if (!d && !confirm('適用開始日が空です。すぐに（今日から）新単価として扱います。よろしいですか？')) return;
+  _cpApi('cpSetPrice', { items: items }, function (x) { _cpSaved(x.updated + '件の新単価を登録しました'); });
+}
+function cpCsv() {
+  var d = CP.data; if (!d) return;
+  _downloadCsv('構成表_単価チェック_' + CP.model + '_' + _today() + '.csv', ['機種', '階層', '部品コード', '品名', '発注先', '品番マスタ', '現行単価', '新単価', '新単価適用日', '新単価見積No', '次回の想定単価', '想定単価の出どころ', '最新の注文', '納入日', '数量', '注文単価', '単価チェック', '想定単価', '差額'],
+    d.lines.filter(function (l) { return (!CP.model || l.model === CP.model) && (!CP.ours || l.ours); }).map(function (l) {
+      var o = l.order || {};
+      return [l.model, l.level, l.code, l.name, l.supplier, l.ours ? (l.inMaster ? '登録済' : '未登録') : '', l.cur, l.newPrice, l.newDate, l.newQuoteNo, l.next, l.nextSrc, o.orderNo || '', o.delivery || o.date || '', o.qty || '', o.price || '', l.check, l.expect, l.diff].map(function (x) { return x === null || x === undefined ? '' : x; });
+    }));
+}
+</script>

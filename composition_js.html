@@ -93,6 +93,7 @@ function csRender() {
   box.innerHTML = '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">'
     + tab('model', '📦 機種サマリ ' + d.models.length)
     + tab('line', '📋 明細 ' + d.lines.length + (none.length ? '（<b style="color:#dc2626;">未発注 ' + none.length + '</b>）' : ''))
+    + tab('price', '💴 単価・注文チェック')
     + tab('cfg', '⚙ 設定')
     + '<input type="text" placeholder="品名・部品コード・発注書番号で検索" value="' + _esc(CS.q) + '" oninput="CS.q=this.value;csRenderBody()" style="flex:1;min-width:180px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;">'
     + '<button class="btn btn-primary btn-sm" onclick="csPickFile()" title="M: などパソコン上の構成表をそのまま取り込みます（ドライブに置く必要はありません）">📄 PCから取込</button>'
@@ -124,6 +125,7 @@ function csRenderBody() {
   var el = document.getElementById('cs-body'); if (!el || !CS.data) return;
   var d = CS.data;
 
+  if (CS.tab === 'price' && typeof cpRender === 'function') { cpRender(el); return; }
   if (CS.tab === 'cfg') {
     el.innerHTML = '<table style="border-collapse:collapse;font-size:13px;max-width:860px;width:100%;">'
       + '<tr>' + _csTh('構成表インポートフォルダ')
