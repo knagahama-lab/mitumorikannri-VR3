@@ -114,6 +114,14 @@ function cpmRebuild() {
   }, () => cpmLoad());
 }
 
+function cpmDedupe() {
+  _ofApi('cpmDedupe', { dryRun: true }, r => {
+    if (!r.removed) { showToast('重複している品番はありません'); return; }
+    if (!confirm('同じ取引先・部品コードの重複が ' + r.removed + '行あります。1行にまとめますか？\n単価・前回の注文は一番新しい行の値にし、見積No・備考などは空欄を補います。\n実行前にシートのバックアップ（コピー）を作ります。')) return;
+    _ofApi('cpmDedupe', {}, x => { showToast('重複 ' + x.removed + '行をまとめました（バックアップ: ' + x.backup + '）'); cpmLoad(); });
+  });
+}
+
 function cpmExportCsv() {
   const h = ['取引先','客先部品コード','客先品名','図番','機種コード','区分','弊社見積No','見積単価','弊社基板名','前回発注日','前回発注書No','前回数量','前回単価','発注回数','初回発注日','確認済','備考'];
   const rows = _cpmFiltered().map(m => [m.client, m.code, m.name, m.drawing, m.modelCode, m.variant, m.quoteNo, m.quotePrice || '', m.boardName,

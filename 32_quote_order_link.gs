@@ -119,12 +119,12 @@ function _qolBuild() {
       var codesByQuote = {};
       _cpmRows().forEach(function(r) {
         var qno = String(r[CPM.QUOTE_NO] || '').trim();
-        if (qno && quotes[qno]) (codesByQuote[qno] = codesByQuote[qno] || []).push(r[CPM.CLIENT] + '|' + _cpmCode(r[CPM.CODE]));
+        if (qno && quotes[qno]) (codesByQuote[qno] = codesByQuote[qno] || []).push(_cpmKey(r[CPM.CLIENT], r[CPM.CODE]));
       });
       if (Object.keys(codesByQuote).length) {
         var linesByKey = {};
         _cpmOrderLines().forEach(function(l) {
-          if (l.code && l.orderNo) (linesByKey[l.clientKey + '|' + l.code] = linesByKey[l.clientKey + '|' + l.code] || []).push(l);
+          if (l.code && l.orderNo) (linesByKey[_cpmKey(l.clientKey, l.code)] = linesByKey[_cpmKey(l.clientKey, l.code)] || []).push(l);
         });
         Object.keys(codesByQuote).forEach(function(qno) {
           var q = quotes[qno];

@@ -14,7 +14,7 @@ function apiCpqList() {
     var lines = {};
     _cpmOrderLines().forEach(function(l) {
       if (!l.code || !l.orderNo) return;
-      (lines[l.clientKey + '|' + l.code] = lines[l.clientKey + '|' + l.code] || []).push(
+      (lines[_cpmKey(l.clientKey, l.code)] = lines[_cpmKey(l.clientKey, l.code)] || []).push(
         { orderNo: l.orderNo, orderDate: l.orderDate, mgmtId: l.mgmtId, qty: l.qty, price: l.price, orderPdfUrl: l.orderPdfUrl });
     });
     _cpmRows().forEach(function(r) {
@@ -22,7 +22,7 @@ function apiCpqList() {
                 quoteNo: String(r[CPM.QUOTE_NO] || '').trim(), variant: String(r[CPM.VARIANT] || '') };
       all.push(m);
       if (!m.quoteNo) return;
-      var ol = (lines[m.client + '|' + _cpmCode(m.code)] || []).slice()
+      var ol = (lines[_cpmKey(m.client, m.code)] || []).slice()
         .sort(function(a, b) { return String(b.orderDate).localeCompare(String(a.orderDate)); });
       var seen = {};
       ol = ol.filter(function(o) { if (seen[o.orderNo]) return false; seen[o.orderNo] = 1; return true; }).slice(0, 30);
@@ -49,7 +49,7 @@ function apiCpqRegister(p) {
   try {
     lock.waitLock(20000);
     var idx = _cpmIndex(_cpmRows());
-    if (idx[clientKey + '|' + code] === undefined) {
+    if (idx[_cpmKey(clientKey, code)] === undefined) {
       var name = _cpmHalf(String(p.name || '')).replace(/\s+/g, ' ').trim();
       var sp = _cpmSplit({ itemName: name, partCode: code });
       var r = new Array(CPM_HEADERS.length).fill('');

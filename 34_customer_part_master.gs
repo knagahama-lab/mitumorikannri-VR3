@@ -50,10 +50,16 @@ function _cpmHalf(s) {
     .replace(/[Ａ-Ｚａ-ｚ０-９－]/g, function(c) { return String.fromCharCode(c.charCodeAt(0) - 0xFEE0); })
     .replace(/[　]/g, ' ');
 }
-function _cpmCode(s) { return _cpmHalf(s).replace(/\s+/g, '').toUpperCase(); }
+/** 部品コードの比較用：英数字とハイフン以外（空白・幅ゼロの空白・改行など目に見えない文字）は無視する */
+function _cpmCode(s) { return _cpmHalf(s).normalize('NFKC').toUpperCase().replace(/[^A-Z0-9\-]/g, ''); }
+/** 取引先名の比較用：空白・目に見えない文字を無視 */
+function _cpmClientNorm(s) { return String(s == null ? '' : s).normalize('NFKC').replace(/[\s\u200B-\u200D\uFEFF]/g, ''); }
+/** 品番マスタのキー（取引先｜部品コード） */
+function _cpmKey(client, code) { return _cpmClientNorm(client) + '|' + _cpmCode(code); }
 
 /** 取引先キー：取引先マスタの分類名（藤商事/コナミ…）、未分類なら社名の正規化 */
-function _cpmClientKey(client) {
+function _cpmClientKey(client) { return _cpmClientNorm(_cpmClientKey0(client)); }
+function _cpmClientKey0(client) {
   var name = String(client || '').trim();
   if (!name || (typeof _cpmIsSelf === 'function' && _cpmIsSelf(name))) return '(取引先不明)'; // 自社（受注側）は取引先にしない
   try {
@@ -126,7 +132,7 @@ function _cpmToObj(r, rowNo) {
 }
 function _cpmIndex(rows) {
   var idx = {};
-  rows.forEach(function(r, i) { idx[r[CPM.CLIENT] + '|' + _cpmCode(r[CPM.CODE])] = i; });
+  rows.forEach(function(r, i) { var k = _cpmKey(r[CPM.CLIENT], r[CPM.CODE]); if (idx[k] === undefined) idx[k] = i; });   // 重複があれば先の行
   return idx;
 }
 
@@ -187,7 +193,7 @@ function cpmOnOrderSaved(mgmtId, ocr, written) {
       withCode++;
       var lineNo = i + 1;
       var qty = Number(item.qty) || 0, price = Number(item.unitPrice) || 0;
-      var key = clientKey + '|' + sp.code;
+      var key = _cpmKey(clientKey, sp.code);
       var res = { lineNo: lineNo, code: sp.code, name: sp.name, qty: qty, price: price };
       // 取引先が自社・不明で登録されていた同じコードがあれば、正しい取引先へ移して同一品番として扱う
       if (idx[key] === undefined && typeof _cpmFindLooseIdx === 'function') {
@@ -217,6 +223,7 @@ function cpmOnOrderSaved(mgmtId, ocr, written) {
         sh.getRange(idx[key] + 2, 1, 1, CPM_HEADERS.length).setValues([r]);
         if (m.quoteMgmtId) out.links.push({ orderLineNo: lineNo, quoteMgmtId: m.quoteMgmtId, quoteNo: m.quoteNo, score: 100 });
       } else {
+        if (typeof _cpmExistsNow === 'function' && _cpmExistsNow(sh, key)) { out.results.push(res); return; }
         var q = _cpmQuoteInfo(ocr.linkedQuoteNo, sp.name, sp.drawing) || {};
         var nr = new Array(CPM_HEADERS.length).fill('');
         nr[CPM.CLIENT] = clientKey; nr[CPM.CODE] = sp.code; nr[CPM.NAME] = sp.name; nr[CPM.DRAWING] = sp.drawing;
@@ -327,7 +334,7 @@ function apiCpmRebuild() {
     lines.forEach(function(l) {
       if (!l.code) return;
       if (l.clientKey === '(取引先不明)' && goodClientOf[l.code]) l.clientKey = goodClientOf[l.code];
-      var k = l.clientKey + '|' + l.code;
+      var k = _cpmKey(l.clientKey, l.code);
       (groups[k] = groups[k] || []).push(l);
     });
     var created = 0, updated = 0, now = nowJST();
@@ -410,7 +417,7 @@ function apiCpmSave(p) {
   try {
     lock.waitLock(20000);
     var sh = _cpmSheet(); var rows = _cpmRows(); var idx = _cpmIndex(rows);
-    var k = p.client + '|' + _cpmCode(p.code);
+    var k = _cpmKey(p.client, p.code);
     if (idx[k] === undefined) return { success: false, error: 'マスタに存在しません: ' + p.code };
     var r = rows[idx[k]];
     if (p.quoteNo !== undefined && String(p.quoteNo).trim() !== String(r[CPM.QUOTE_NO])) {
@@ -442,11 +449,11 @@ function apiCpmForOrder(p) {
     var master = {}, byCode = {};
     _cpmRows().forEach(function(r, i) {
       var m = _cpmToObj(r, i + 2); var c = _cpmCode(m.code);
-      master[m.client + '|' + c] = m; (byCode[c] = byCode[c] || []).push(m);
+      master[_cpmKey(m.client, c)] = m; (byCode[c] = byCode[c] || []).push(m);
     });
     var all = _cpmOrderLines();
     var items = lines.map(function(l) {
-      var m = l.code ? (master[l.clientKey + '|' + l.code] || ((byCode[l.code] || []).length === 1 ? byCode[l.code][0] : null)) : null;
+      var m = l.code ? (master[_cpmKey(l.clientKey, l.code)] || ((byCode[l.code] || []).length === 1 ? byCode[l.code][0] : null)) : null;
       var prev = all.filter(function(x) { return x.code && x.code === l.code && x.mgmtId !== l.mgmtId && String(x.orderDate) <= String(l.orderDate); })
         .sort(function(a, b) { return String(b.orderDate).localeCompare(String(a.orderDate)); })[0] || null;
       return {
@@ -545,7 +552,7 @@ function apiCpmImport(p) {
       if (!code) { errors.push({ rowNo: rowNo, message: '部品コードが空です' }); return; }
       if (!clientRaw) { errors.push({ rowNo: rowNo, code: code, message: '取引先が空です（列が無い場合は取込画面で取引先を選択）' }); return; }
       var clientKey = _cpmClientKey(clientRaw);
-      var key = clientKey + '|' + code;
+      var key = _cpmKey(clientKey, code);
       var name = _cpmHalf(_cpmPick(row, 'name')).replace(/\s+/g, ' ').trim();
       if (existing[key] !== undefined) { skipped.push({ rowNo: rowNo, client: clientKey, code: code, name: name, reason: '登録済み' }); return; }
       if (seen[key]) { skipped.push({ rowNo: rowNo, client: clientKey, code: code, name: name, reason: 'ファイル内で重複（' + seen[key] + '行目を採用）' }); return; }
@@ -612,7 +619,7 @@ function apiCpmLinkQuote(p) {
     var sh = _cpmSheet(); var rows = _cpmRows(); var idx = _cpmIndex(rows);
     var now = nowJST(), updated = [];
     items.forEach(function(it) {
-      var k = it.client + '|' + _cpmCode(it.code);
+      var k = _cpmKey(it.client, it.code);
       if (idx[k] === undefined) return;
       var r = rows[idx[k]];
       if (quoteNo) {

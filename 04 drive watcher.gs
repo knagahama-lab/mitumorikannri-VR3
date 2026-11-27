@@ -39,7 +39,8 @@ function processDriveImports() {
     try { processed += processServerSyncImports(); } catch(se) { Logger.log('[SERVER SYNC ERROR] ' + se.message); }
     try { ensureServerExportTrigger(); } catch(ee) { Logger.log('[SERVER EXPORT ERROR] ' + ee.message); }
     try { if (typeof _oriCheckReimportDone === 'function') _oriCheckReimportDone(); } catch(re) {}
-    try { if (typeof _qdAutoInit === 'function') _qdAutoInit(); } catch(qe) {}   // 単発見積の受注期限（51）
+    try { if (typeof _qdAutoInit === 'function') _qdAutoInit(); } catch(qe) {}
+    try { if (typeof cpmDedupeHourly === 'function') cpmDedupeHourly(); } catch(ce) {}   // 客先品番マスタの重複整理（57）   // 単発見積の受注期限（51）
     // ★ 客先支給の構成表（54_composition_sheet.gs）：インポートフォルダの xlsx を取り込む
     try { if (typeof importCompositionSheetsFromFolder === 'function') importCompositionSheetsFromFolder(); }
     catch(ce) { Logger.log('[COMPOSITION ERROR] ' + ce.message); }

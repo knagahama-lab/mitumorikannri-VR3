@@ -317,6 +317,7 @@ function handleApiRequest(action, payload) {
       case 'cpmLookup':   return apiCpmLookup(payload);
       case 'cpmSave':     return apiCpmSave(payload);
       case 'cpmRebuild':  return apiCpmRebuild();
+      case 'cpmDedupe':   return apiCpmDedupe(payload);   // 57_cpm_dedupe.gs
       case 'cpmForOrder': return apiCpmForOrder(payload);
       case 'cpmImport':   return apiCpmImport(payload);
       case 'cpmLinkQuote': return apiCpmLinkQuote(payload);

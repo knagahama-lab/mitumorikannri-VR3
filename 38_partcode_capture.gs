@@ -16,7 +16,7 @@ function _cpmFindLooseIdx(rows, code, clientKey) {
   code = _cpmCode(code);
   var hits = [];
   rows.forEach(function(r, i) {
-    if (_cpmCode(r[CPM.CODE]) !== code || r[CPM.CLIENT] === clientKey) return;
+    if (_cpmCode(r[CPM.CODE]) !== code || _cpmClientNorm(r[CPM.CLIENT]) === _cpmClientNorm(clientKey)) return;
     var bad = (typeof _cpmIsBadClient === 'function') ? _cpmIsBadClient(r[CPM.CLIENT]) : r[CPM.CLIENT] === '(取引先不明)';
     if (bad) hits.push(i);
   });
